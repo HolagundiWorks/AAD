@@ -95,9 +95,10 @@ Spec §5.2. **Core implemented:**
   (`CostCodeMap`), carried into the CSV. See
   [`adr/0005-cost-code-standard.md`](adr/0005-cost-code-standard.md).
 - ✅ Opening/structural counts in the takeoff CSV.
-- **Remaining:** **live-linked** model-bound tables (the link-and-update
-  mechanism, spec §5.2 "technical heart"), true `.xlsx` export, and in-drawing
-  schedule tables.
+- ✅ **Live-linked** table (`LiveTakeoff`) — the link-and-update mechanism
+  (spec §5.2 "technical heart"): recomputes only when the document's revision
+  changes, so editing a wall updates the quantities.
+- **Remaining:** true `.xlsx` export and in-drawing schedule tables.
 
 ## M4 — AI Orchestration Layer
 

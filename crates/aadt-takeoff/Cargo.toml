@@ -6,14 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Takeoff & quantity engine: deterministic wall/room quantities + CSV export. Live-linked tables, cost codes, Excel in later milestones."
+description = "Takeoff & quantity engine: deterministic wall/room/opening quantities, cost codes, live-linked table, CSV export."
 
 [dependencies]
 aadt-detect.workspace = true
+aadt-model.workspace = true
 
 [dev-dependencies]
 aadt-geometry.workspace = true
-aadt-model.workspace = true
 
 [lints]
 workspace = true

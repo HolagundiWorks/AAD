@@ -15,11 +15,16 @@
 //! - **Cost codes:** each quantity is mapped to a CSI MasterFormat code (ADR-0005),
 //!   overridable per firm, and carried into the CSV for estimator import.
 //!
-//! Deferred (see `docs/ROADMAP.md`): live model-bound tables (spec §5.2 "technical
-//! heart"), true `.xlsx` export, in-drawing schedule tables → later M3 work; AI
-//! schedule formatting / anomaly flagging → M4.
+//! The [`LiveTakeoff`] links a computed table to the document: it recomputes the
+//! detection + takeoff only when the document's revision changes — editing a wall
+//! updates the table, the link-and-update mechanism spec §5.2 calls the "technical
+//! heart of the product."
+//!
+//! Deferred (see `docs/ROADMAP.md`): true `.xlsx` export and in-drawing schedule
+//! tables → later M3 work; AI schedule formatting / anomaly flagging → M4.
 
-use aadt_detect::{Detection, OpeningKind, StructuralKind};
+use aadt_detect::{detect, Detection, DetectionConfig, OpeningKind, StructuralKind};
+use aadt_model::Document;
 
 /// Number of decimal places used when formatting quantities. Fixed for
 /// deterministic, byte-stable CSV output.
@@ -298,6 +303,51 @@ impl TakeoffTable {
     }
 }
 
+/// A takeoff table linked to a document: it recomputes only when the document
+/// changes (spec §5.2, the link-and-update mechanism). Hold one per view and call
+/// [`table`](LiveTakeoff::table) whenever the current quantities are needed; edits
+/// to the document are reflected automatically on the next call.
+#[derive(Debug, Clone, Default)]
+pub struct LiveTakeoff {
+    detect_cfg: DetectionConfig,
+    takeoff_cfg: TakeoffConfig,
+    /// Cached `(document revision, table)`; `None` until first computed.
+    cache: Option<(u64, TakeoffTable)>,
+}
+
+impl LiveTakeoff {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_configs(detect_cfg: DetectionConfig, takeoff_cfg: TakeoffConfig) -> Self {
+        Self {
+            detect_cfg,
+            takeoff_cfg,
+            cache: None,
+        }
+    }
+
+    /// Whether the cached table is up to date with `doc` (no recompute needed).
+    pub fn is_current(&self, doc: &Document) -> bool {
+        self.cache
+            .as_ref()
+            .map(|(rev, _)| *rev == doc.revision())
+            .unwrap_or(false)
+    }
+
+    /// The current takeoff table for `doc`, recomputing detection + takeoff only if
+    /// the document changed since the last call.
+    pub fn table(&mut self, doc: &Document) -> &TakeoffTable {
+        if !self.is_current(doc) {
+            let detection = detect(doc, &self.detect_cfg);
+            let table = TakeoffTable::with_config(&detection, &self.takeoff_cfg);
+            self.cache = Some((doc.revision(), table));
+        }
+        &self.cache.as_ref().expect("cache populated above").1
+    }
+}
+
 /// Format a quantity with a fixed number of decimals (deterministic). Negative
 /// zero is normalized to positive zero so output is stable.
 fn num(v: f64) -> String {
@@ -362,6 +412,38 @@ mod tests {
         assert!((table.total_opening_area() - 1.89).abs() < 1e-9);
         assert!((table.total_wall_net_area() - (30.0 - 1.89)).abs() < 1e-9);
         assert!((table.total_room_area() - 12.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn live_takeoff_recomputes_only_on_change() {
+        let mut doc = sample_doc();
+        let mut live = LiveTakeoff::new();
+
+        assert!(!live.is_current(&doc), "nothing computed yet");
+        assert_eq!(live.table(&doc).walls.len(), 1);
+        assert!(live.is_current(&doc), "cache is fresh after compute");
+
+        // Editing the document invalidates the cached table.
+        doc.transact("add wall", |d| {
+            d.add_geometry(
+                "A-WALL",
+                Geometry::Line(Segment::new(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0))),
+            );
+            d.add_geometry(
+                "A-WALL",
+                Geometry::Line(Segment::new(Point2::new(0.0, 5.2), Point2::new(10.0, 5.2))),
+            );
+        });
+        assert!(!live.is_current(&doc), "edit invalidates the cache");
+        assert_eq!(
+            live.table(&doc).walls.len(),
+            2,
+            "table reflects the new wall"
+        );
+
+        // Undo brings it back to one wall.
+        doc.undo();
+        assert_eq!(live.table(&doc).walls.len(), 1);
     }
 
     #[test]

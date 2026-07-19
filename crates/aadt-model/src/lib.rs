@@ -125,11 +125,20 @@ pub struct Document {
     open: Option<Transaction>,
     undo_stack: Vec<Transaction>,
     redo_stack: Vec<Transaction>,
+    /// Monotonic change token bumped on every actual mutation. Consumers (e.g. the
+    /// live-linked takeoff table) recompute only when this changes.
+    revision: u64,
 }
 
 impl Document {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Monotonic revision token, bumped on every mutation. A consumer that caches
+    /// derived data (detection, takeoff) can compare this to know when to recompute.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     // --- Transactions (spec §4.1) --------------------------------------------
@@ -184,6 +193,7 @@ impl Document {
         for op in tx.ops.iter().rev() {
             self.invert(op);
         }
+        self.revision += 1;
         let label = tx.label.clone();
         self.redo_stack.push(tx);
         Some(label)
@@ -196,6 +206,7 @@ impl Document {
         for op in &tx.ops {
             self.apply(op);
         }
+        self.revision += 1;
         let label = tx.label.clone();
         self.undo_stack.push(tx);
         Some(label)
@@ -245,6 +256,7 @@ impl Document {
             let name = layer.name.clone();
             self.layers.insert(name.clone(), layer);
             self.record(Op::AddLayer(name));
+            self.revision += 1;
         }
     }
 
@@ -273,6 +285,7 @@ impl Document {
         };
         self.entities.insert(id, entity.clone());
         self.record(Op::AddEntity(entity));
+        self.revision += 1;
         id
     }
 
@@ -280,6 +293,7 @@ impl Document {
     pub fn remove_entity(&mut self, id: EntityId) -> Option<Entity> {
         let entity = self.entities.remove(&id)?;
         self.record(Op::RemoveEntity(entity.clone()));
+        self.revision += 1;
         Some(entity)
     }
 
@@ -356,6 +370,28 @@ mod tests {
         doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
         assert!(!doc.can_undo());
         assert_eq!(doc.undo(), None);
+    }
+
+    #[test]
+    fn revision_bumps_on_mutation_and_undo() {
+        let mut doc = Document::new();
+        let r0 = doc.revision();
+        doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
+        let r1 = doc.revision();
+        assert!(r1 > r0, "adding an entity must bump the revision");
+        // A pure query does not change the revision.
+        let _ = doc.entities();
+        assert_eq!(doc.revision(), r1);
+        doc.transact("erase", |d| {
+            d.remove_entity(EntityId(0));
+        });
+        let r2 = doc.revision();
+        assert!(r2 > r1);
+        doc.undo();
+        assert!(
+            doc.revision() > r2,
+            "undo is a change and must bump the revision"
+        );
     }
 
     #[test]
