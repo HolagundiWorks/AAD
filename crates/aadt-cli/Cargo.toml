@@ -13,6 +13,7 @@ name = "aadt"
 path = "src/main.rs"
 
 [dependencies]
+aadt-command.workspace = true
 aadt-dxf.workspace = true
 aadt-detect.workspace = true
 aadt-takeoff.workspace = true

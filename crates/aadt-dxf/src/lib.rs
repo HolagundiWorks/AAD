@@ -1,19 +1,20 @@
 //! # aadt-dxf — DXF interoperability (file I/O layer, spec §3 / §7)
 //!
 //! DWG/DXF round-trip is non-negotiable for architects exchanging files (spec §7).
-//! M0 ships a small, dependency-free reader for the ASCII DXF entity types the
-//! takeoff vertical slice needs — `LINE` and `LWPOLYLINE` — parsing group-code
-//! pairs directly into an [`aadt_model::Document`].
+//! This crate reads and writes the ASCII DXF entity types AADT currently models:
 //!
-//! Scope deliberately bounded for M0 (see `docs/ROADMAP.md` / ADR-0002):
-//! - The **full DXF entity set** (legacy `POLYLINE`/`VERTEX`, arcs, circles, text,
-//!   hatches, blocks/inserts, dimensions) and **DXF export** land in **M1**.
-//! - **DWG** (binary, reverse-engineered) is a later milestone via the ODA SDK or a
-//!   LibreDWG FFI binding.
+//! - **Import:** `LINE`, `LWPOLYLINE`, and legacy `POLYLINE`/`VERTEX` sequences.
+//! - **Export:** `LINE` and `LWPOLYLINE` (a `Polyline` round-trips through
+//!   `LWPOLYLINE`).
 //!
-//! The public entry points ([`import_str`], [`import_path`]) are stable so a
-//! fuller backend (e.g. the `dxf` crate) can replace the internal parser without
-//! touching callers.
+//! Coordinates are written with Rust's shortest round-trip float formatting, so an
+//! import → export → import cycle reproduces the document exactly.
+//!
+//! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): the remaining DXF
+//! entity set (arcs, circles, text, hatches, blocks, dimensions) grows through M1,
+//! and binary **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI
+//! binding. The public entry points are stable so a fuller backend (e.g. the `dxf`
+//! crate) can replace the internal parser without touching callers.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -22,10 +23,10 @@ use std::path::Path;
 use aadt_geometry::{Point2, Polyline, Segment};
 use aadt_model::{Document, Geometry};
 
-/// Error raised while reading a DXF file.
+/// Error raised while reading or writing a DXF file.
 #[derive(Debug)]
 pub enum DxfError {
-    /// The file could not be read from disk.
+    /// The file could not be read from or written to disk.
     Io(std::io::Error),
     /// The DXF group-code structure was malformed.
     Parse(String),
@@ -48,6 +49,8 @@ impl From<std::io::Error> for DxfError {
     }
 }
 
+// --- Import ------------------------------------------------------------------
+
 /// Read a DXF file from disk into a fresh [`Document`].
 pub fn import_path(path: impl AsRef<Path>) -> Result<Document, DxfError> {
     let text = std::fs::read_to_string(path)?;
@@ -62,14 +65,22 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
     let mut doc = Document::new();
     let mut in_entities = false;
 
-    for rec in &records {
+    let mut i = 0;
+    while i < records.len() {
+        let rec = &records[i];
         match rec.kind.as_str() {
-            "SECTION" => in_entities = rec.string(2).map(|s| s == "ENTITIES").unwrap_or(false),
+            "SECTION" => in_entities = rec.string(2) == Some("ENTITIES"),
             "ENDSEC" => in_entities = false,
             "LINE" if in_entities => import_line(&mut doc, rec),
             "LWPOLYLINE" if in_entities => import_lwpolyline(&mut doc, rec),
+            "POLYLINE" if in_entities => {
+                // Legacy POLYLINE consumes the following VERTEX records up to SEQEND.
+                i = import_polyline(&mut doc, &records, i);
+                continue;
+            }
             _ => {}
         }
+        i += 1;
     }
     Ok(doc)
 }
@@ -169,7 +180,7 @@ fn import_line(doc: &mut Document, rec: &Record) {
 
 fn import_lwpolyline(doc: &mut Document, rec: &Record) {
     // Vertices arrive as interleaved 10 (x) / 20 (y) fields, possibly with 42
-    // bulge values between them (ignored in M0). Pair each x with the next y.
+    // bulge values between them (ignored). Pair each x with the next y.
     let mut vertices = Vec::new();
     let mut pending_x: Option<f64> = None;
     for field in &rec.fields {
@@ -187,9 +198,81 @@ fn import_lwpolyline(doc: &mut Document, rec: &Record) {
         return;
     }
     let closed = rec.int(70).map(|f| f & 1 == 1).unwrap_or(false);
+    add_polyline(doc, rec.layer(), vertices, closed);
+}
+
+/// Import a legacy `POLYLINE` header at `start`, consuming the following `VERTEX`
+/// records up to (and including) the `SEQEND`. Returns the index of the next
+/// unconsumed record.
+fn import_polyline(doc: &mut Document, records: &[Record], start: usize) -> usize {
+    let header = &records[start];
+    let layer = header.layer();
+    let closed = header.int(70).map(|f| f & 1 == 1).unwrap_or(false);
+
+    let mut vertices = Vec::new();
+    let mut j = start + 1;
+    while j < records.len() {
+        match records[j].kind.as_str() {
+            "VERTEX" => {
+                if let (Some(x), Some(y)) = (records[j].float(10), records[j].float(20)) {
+                    vertices.push(Point2::new(x, y));
+                }
+                j += 1;
+            }
+            "SEQEND" => {
+                j += 1;
+                break;
+            }
+            _ => break,
+        }
+    }
+    if vertices.len() >= 2 {
+        add_polyline(doc, layer, vertices, closed);
+    }
+    j
+}
+
+fn add_polyline(doc: &mut Document, layer: String, vertices: Vec<Point2>, closed: bool) {
     let poly = Polyline::new(vertices, closed);
     let attributes: HashMap<String, String> = HashMap::new();
-    doc.add_entity(rec.layer(), Geometry::Polyline(poly), attributes);
+    doc.add_entity(layer, Geometry::Polyline(poly), attributes);
+}
+
+// --- Export ------------------------------------------------------------------
+
+/// Serialize a document to DXF text (LINE + LWPOLYLINE). Entities are written in
+/// ascending id order, so output is deterministic.
+pub fn export_str(doc: &Document) -> String {
+    let mut out = String::from("0\nSECTION\n2\nENTITIES\n");
+    for e in doc.entities() {
+        match &e.geometry {
+            Geometry::Line(s) => {
+                out.push_str(&format!(
+                    "0\nLINE\n8\n{}\n10\n{}\n20\n{}\n11\n{}\n21\n{}\n",
+                    e.layer, s.a.x, s.a.y, s.b.x, s.b.y
+                ));
+            }
+            Geometry::Polyline(p) => {
+                out.push_str(&format!(
+                    "0\nLWPOLYLINE\n8\n{}\n90\n{}\n70\n{}\n",
+                    e.layer,
+                    p.vertices.len(),
+                    i32::from(p.closed)
+                ));
+                for v in &p.vertices {
+                    out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
+                }
+            }
+        }
+    }
+    out.push_str("0\nENDSEC\n0\nEOF\n");
+    out
+}
+
+/// Write a document to a DXF file on disk.
+pub fn export_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), DxfError> {
+    std::fs::write(path, export_str(doc))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -243,6 +326,43 @@ ENDSEC
 EOF
 ";
 
+    const LEGACY: &str = "\
+0
+SECTION
+2
+ENTITIES
+0
+POLYLINE
+8
+A-ROOM
+70
+1
+0
+VERTEX
+10
+0.0
+20
+0.0
+0
+VERTEX
+10
+2.0
+20
+0.0
+0
+VERTEX
+10
+2.0
+20
+2.0
+0
+SEQEND
+0
+ENDSEC
+0
+EOF
+";
+
     #[test]
     fn imports_line_and_lwpolyline() {
         let doc = import_str(SAMPLE).unwrap();
@@ -261,5 +381,29 @@ EOF
         }
         assert_eq!(entities[0].layer, "A-WALL");
         assert_eq!(entities[1].layer, "A-ROOM");
+    }
+
+    #[test]
+    fn imports_legacy_polyline() {
+        let doc = import_str(LEGACY).unwrap();
+        assert_eq!(doc.len(), 1);
+        match &doc.entities()[0].geometry {
+            Geometry::Polyline(p) => {
+                assert!(p.closed);
+                assert_eq!(p.vertices.len(), 3);
+            }
+            _ => panic!("expected polyline"),
+        }
+    }
+
+    #[test]
+    fn round_trip_preserves_entities() {
+        let doc1 = import_str(SAMPLE).unwrap();
+        let text = export_str(&doc1);
+        let doc2 = import_str(&text).unwrap();
+
+        let e1: Vec<_> = doc1.entities().into_iter().cloned().collect();
+        let e2: Vec<_> = doc2.entities().into_iter().cloned().collect();
+        assert_eq!(e1, e2, "import -> export -> import changed the document");
     }
 }

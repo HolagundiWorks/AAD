@@ -56,13 +56,24 @@ Verify: `cargo test --workspace` (golden + reproducibility), and
 
 Turn the M0 skeletons into a usable drafting surface (spec §4).
 
-- Full document model with **atomic undo/redo transactions** (§4.1) — every
-  operation, including AADT insertions, is a single undoable transaction.
-- Command interpreter: aliases, history, tab-completion, script/batch (§4.2).
-- Rendering: `wgpu` 2D canvas targeting 60fps on 100k+ entities (§4.3).
-- Interactive draw/modify/annotate/organize commands (curated ~60–80 set).
-- Full DXF entity set (legacy `POLYLINE`/`VERTEX`, arcs, circles, text, hatch,
-  blocks, dimensions) and **DXF export** / round-trip.
+**Headless foundations — ✅ implemented:**
+- Document model with **atomic undo/redo transactions** (§4.1) — `Document::transact`
+  groups changes into a single undoable unit; bulk machine edits (file load) stay
+  untracked. See `aadt-model`.
+- Command interpreter (§4.2): case-insensitive registry with aliases, history,
+  comments, and script execution; drawing built-ins (`LINE`/`LAYER`/`ERASE`/`UNDO`/
+  `REDO`/`LIST`) plus CLI-registered `OPEN`/`SAVE`/`TAKEOFF`. Driven by `aadt run
+  <script>`. See `aadt-command`, `crates/aadt-cli`.
+- **DXF export** and round-trip, plus legacy `POLYLINE`/`VERTEX` import. See
+  `aadt-dxf`.
+
+**Remaining:**
+- Rendering: `wgpu` 2D canvas targeting 60fps on 100k+ entities (§4.3). *(Needs a
+  display; verified interactively rather than headlessly.)*
+- Interactive draw/modify/annotate/organize commands (curated ~60–80 set) and the
+  `aadt-app` shell with an interactive prompt.
+- Tab-completion; remaining DXF entity types (arcs, circles, text, hatch, blocks,
+  dimensions).
 
 ## M2 — Element Detection & Classification (full, deterministic)
 

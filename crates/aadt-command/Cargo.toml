@@ -9,6 +9,7 @@ authors.workspace = true
 description = "Command interpreter: registry, aliases, history, tab-completion (LISP-ready). Skeleton — built in M1."
 
 [dependencies]
+aadt-geometry.workspace = true
 aadt-model.workspace = true
 
 [lints]

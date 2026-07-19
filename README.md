@@ -19,9 +19,19 @@ See [`docs/`](docs/) for the full engineering documentation:
 
 **M0 — Deterministic Takeoff Vertical Slice** is implemented: a headless
 pipeline that imports a DXF, detects walls and rooms, computes reproducible
-quantities, and exports an estimator-friendly CSV. Everything else in the
-roadmap is scaffolded (documented crate skeletons) and built milestone by
-milestone.
+quantities, and exports an estimator-friendly CSV.
+
+**M1 — CAD Core Substrate (headless foundations)** is implemented: atomic
+undo/redo transactions in the document model, a command interpreter with a
+registry/aliases/history and script execution (`aadt run <script>`), and DXF
+export + round-trip. The `wgpu` render canvas and interactive `aadt-app` shell
+are the remaining part of M1. Everything further out is scaffolded (documented
+crate skeletons) and built milestone by milestone.
+
+```sh
+# Drive AADT with a command script (OPEN, TAKEOFF, LINE, UNDO, LIST, SAVE)
+cargo run -p aadt-cli -- run fixtures/demo.aadt
+```
 
 ## Workspace layout
 
@@ -31,12 +41,12 @@ real logic today; the rest are documented skeletons awaiting their milestone.
 | Crate | Responsibility |
 |---|---|
 | `aadt-geometry` *(M0)* | 2D geometry kernel — points, vectors, segments, polylines, tolerance, bbox, intersection math |
-| `aadt-model` *(M0)* | Document model — entity store, layers, attributes (undo/redo in M1) |
-| `aadt-dxf` *(M0)* | DXF import (LINE, LWPOLYLINE); full entity set, export, and DWG later |
+| `aadt-model` *(M0/M1)* | Document model — entity store, layers, attributes, undo/redo transactions |
+| `aadt-dxf` *(M0/M1)* | DXF import (LINE, LWPOLYLINE, legacy POLYLINE) + export/round-trip; more entities & DWG later |
 | `aadt-detect` *(M0)* | Element detection — deterministic wall pairing, wall graph, room extraction |
 | `aadt-takeoff` *(M0)* | Takeoff & quantity engine — quantities + CSV export |
-| `aadt-cli` *(M0)* | `aadt` binary — headless driver for the pipeline, batch, and tests |
-| `aadt-command` | Command interpreter (registry, aliases, history) — M1 |
+| `aadt-cli` *(M0/M1)* | `aadt` binary — `takeoff` pipeline and `run` script interpreter |
+| `aadt-command` *(M1)* | Command interpreter — registry, aliases, history, script execution |
 | `aadt-render` | GPU 2D canvas (wgpu) — M1 |
 | `aadt-ai` | AI orchestration (on-demand Ollama) — M4 |
 | `aadt-docs` | Documentation & sheet production — M5 |

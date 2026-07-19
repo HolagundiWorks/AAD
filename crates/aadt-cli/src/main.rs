@@ -1,20 +1,23 @@
 //! # aadt — command-line driver (spec §2 principle 2, §6.2)
 //!
-//! The headless entry point for AADT's M0 vertical slice. The interactive,
-//! command-line-first desktop shell (`aadt-app`) grows from M1; until then this
-//! binary is how the deterministic pipeline is driven and tested.
+//! The headless entry point for AADT. The interactive, command-line-first desktop
+//! shell (`aadt-app`) grows from M1; until then this binary drives the pipeline:
 //!
 //! ```text
-//! aadt takeoff <input.dxf> [--csv <out.csv>]
+//! aadt takeoff <input.dxf> [--csv <out.csv>]     # one-shot deterministic takeoff
 //!              [--min-thickness <n>] [--max-thickness <n>] [--min-overlap <n>]
+//! aadt run <script.aadt>                          # execute a command script
 //! ```
 //!
-//! With `--csv`, the takeoff is written to that file; otherwise it prints to stdout.
-//! A human-readable summary always goes to stdout, mirroring the CAD command-line
-//! convention users already trust (spec §4.3, §6.2).
+//! `run` executes a script through the command interpreter (`aadt-command`) with the
+//! drawing built-ins plus `OPEN`/`SAVE`/`TAKEOFF`, mirroring the CAD command-line
+//! convention users already trust (spec §4.2, §4.3, §6.2).
+
+mod commands;
 
 use std::process::ExitCode;
 
+use aadt_command::{Context, Interpreter};
 use aadt_detect::{detect, DetectionConfig};
 use aadt_takeoff::TakeoffTable;
 
@@ -35,6 +38,7 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     match command.as_str() {
         "takeoff" => cmd_takeoff(rest),
+        "run" => cmd_run(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -47,14 +51,35 @@ const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
 Usage:
-  aadt takeoff <input.dxf> [options]
+  aadt takeoff <input.dxf> [options]     One-shot deterministic takeoff
+  aadt run <script.aadt>                 Execute a command script
 
-Options:
+Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
   --min-thickness <n>      Minimum wall face offset (default 0.05)
   --max-thickness <n>      Maximum wall face offset (default 1.0)
   --min-overlap <n>        Minimum wall run overlap (default 0.1)
-  -h, --help               Show this help";
+  -h, --help               Show this help
+
+Script commands: LINE, LAYER, ERASE, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF
+(and aliases). Lines starting with # or ; are comments.";
+
+fn cmd_run(args: &[String]) -> Result<(), String> {
+    let path = args
+        .first()
+        .ok_or_else(|| format!("run needs a script file\n\n{USAGE}"))?;
+    let script = std::fs::read_to_string(path).map_err(|e| format!("reading {path}: {e}"))?;
+
+    let mut interp = Interpreter::with_builtins();
+    commands::register(&mut interp);
+    let mut ctx = Context::new();
+
+    let output = interp.run_script(&mut ctx, &script)?;
+    for line in output {
+        println!("{line}");
+    }
+    Ok(())
+}
 
 fn cmd_takeoff(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
