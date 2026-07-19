@@ -75,24 +75,29 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
 - Tab-completion; remaining DXF entity types (arcs, circles, text, hatch, blocks,
   dimensions).
 
-## M2 — Element Detection & Classification (full, deterministic)
+## M2 — Element Detection & Classification (deterministic)
 
-Complete spec §5.1 steps 3–5, still deterministic:
-- Openings (attributed door/window blocks), structural elements (layer + shape
-  signature), furniture (block name / library metadata).
-- Tagging at element centroid; sequential numbering by configurable rule.
-- Room derivation as minimal cycles of the wall graph (beyond M0's explicit
-  closed polylines).
+Spec §5.1 steps 3–5, deterministic. **Mostly implemented:**
+- ✅ Openings (attributed door/window blocks), structural elements (circles as
+  columns; structural-layer rectangles as columns/beams by aspect ratio),
+  furniture (block-name patterns) — all via `ClassifyConfig`. See `aadt-detect`.
+- ✅ Sequential numbering per category; tag points at element centroid/insertion
+  (`Detection::tags`).
+- **Remaining:** room derivation as minimal cycles of the wall graph (beyond
+  M0's explicit closed polylines); block/insert support in the interactive UI.
 
-## M3 — Takeoff & Quantity Engine (full)
+## M3 — Takeoff & Quantity Engine
 
-The flagship deliverable, complete (spec §5.2):
-- **Live-linked** model-bound tables — editing a wall updates the table (the
-  link-and-update mechanism, the technical heart of the product).
-- Wall area/volume from height attributes; opening subtraction.
-- **Cost-code mapping** (CSI MasterFormat out of the box, plus custom) — see
+Spec §5.2. **Core implemented:**
+- ✅ Wall gross area & volume from configured height; **opening subtraction**
+  (net wall area). See `aadt-takeoff`.
+- ✅ **Cost-code mapping** — CSI MasterFormat defaults + firm overrides
+  (`CostCodeMap`), carried into the CSV. See
   [`adr/0005-cost-code-standard.md`](adr/0005-cost-code-standard.md).
-- Excel export and in-drawing schedule tables.
+- ✅ Opening/structural counts in the takeoff CSV.
+- **Remaining:** **live-linked** model-bound tables (the link-and-update
+  mechanism, spec §5.2 "technical heart"), true `.xlsx` export, and in-drawing
+  schedule tables.
 
 ## M4 — AI Orchestration Layer
 

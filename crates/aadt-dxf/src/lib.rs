@@ -3,25 +3,26 @@
 //! DWG/DXF round-trip is non-negotiable for architects exchanging files (spec §7).
 //! This crate reads and writes the ASCII DXF entity types AADT currently models:
 //!
-//! - **Import:** `LINE`, `LWPOLYLINE`, and legacy `POLYLINE`/`VERTEX` sequences.
-//! - **Export:** `LINE` and `LWPOLYLINE` (a `Polyline` round-trips through
-//!   `LWPOLYLINE`).
+//! - **Import:** `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`, `CIRCLE`, and
+//!   `INSERT` (block references, with their trailing `ATTRIB` values).
+//! - **Export:** `LINE`, `LWPOLYLINE`, `CIRCLE`, and `INSERT` (+`ATTRIB`).
 //!
-//! Coordinates are written with Rust's shortest round-trip float formatting, so an
-//! import → export → import cycle reproduces the document exactly.
+//! Coordinates use Rust's shortest round-trip float formatting and insert
+//! attributes are written in sorted key order, so an import → export → import cycle
+//! reproduces the document exactly.
 //!
 //! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): the remaining DXF
-//! entity set (arcs, circles, text, hatches, blocks, dimensions) grows through M1,
-//! and binary **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI
-//! binding. The public entry points are stable so a fuller backend (e.g. the `dxf`
-//! crate) can replace the internal parser without touching callers.
+//! entity set (arcs, text, hatches, dimensions) grows through M1/M2, and binary
+//! **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI binding. The
+//! public entry points are stable so a fuller backend (e.g. the `dxf` crate) can
+//! replace the internal parser without touching callers.
 
 use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
-use aadt_geometry::{Point2, Polyline, Segment};
-use aadt_model::{Document, Geometry};
+use aadt_geometry::{Circle, Point2, Polyline, Segment};
+use aadt_model::{Document, Geometry, Insert};
 
 /// Error raised while reading or writing a DXF file.
 #[derive(Debug)]
@@ -73,9 +74,15 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
             "ENDSEC" => in_entities = false,
             "LINE" if in_entities => import_line(&mut doc, rec),
             "LWPOLYLINE" if in_entities => import_lwpolyline(&mut doc, rec),
+            "CIRCLE" if in_entities => import_circle(&mut doc, rec),
             "POLYLINE" if in_entities => {
                 // Legacy POLYLINE consumes the following VERTEX records up to SEQEND.
                 i = import_polyline(&mut doc, &records, i);
+                continue;
+            }
+            "INSERT" if in_entities => {
+                // A block reference optionally followed by ATTRIB records + SEQEND.
+                i = import_insert(&mut doc, &records, i);
                 continue;
             }
             _ => {}
@@ -238,6 +245,51 @@ fn add_polyline(doc: &mut Document, layer: String, vertices: Vec<Point2>, closed
     doc.add_entity(layer, Geometry::Polyline(poly), attributes);
 }
 
+fn import_circle(doc: &mut Document, rec: &Record) {
+    let (Some(cx), Some(cy), Some(r)) = (rec.float(10), rec.float(20), rec.float(40)) else {
+        return;
+    };
+    doc.add_geometry(
+        rec.layer(),
+        Geometry::Circle(Circle::new(Point2::new(cx, cy), r)),
+    );
+}
+
+/// Import an `INSERT` (block reference) at `start`, gathering any following
+/// `ATTRIB` records (tag → value) up to the `SEQEND` into the entity's attributes.
+/// Returns the index of the next unconsumed record.
+fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize {
+    let header = &records[start];
+    let name = header.string(2).unwrap_or("").to_string();
+    let position = Point2::new(
+        header.float(10).unwrap_or(0.0),
+        header.float(20).unwrap_or(0.0),
+    );
+    let rotation = header.float(50).unwrap_or(0.0);
+
+    let mut attributes: HashMap<String, String> = HashMap::new();
+    let mut j = start + 1;
+    while j < records.len() {
+        match records[j].kind.as_str() {
+            "ATTRIB" => {
+                if let (Some(tag), Some(value)) = (records[j].string(2), records[j].string(1)) {
+                    attributes.insert(tag.to_string(), value.to_string());
+                }
+                j += 1;
+            }
+            "SEQEND" => {
+                j += 1;
+                break;
+            }
+            _ => break,
+        }
+    }
+
+    let insert = Insert::new(name, position, rotation);
+    doc.add_entity(header.layer(), Geometry::Insert(insert), attributes);
+    j
+}
+
 // --- Export ------------------------------------------------------------------
 
 /// Serialize a document to DXF text (LINE + LWPOLYLINE). Entities are written in
@@ -261,6 +313,34 @@ pub fn export_str(doc: &Document) -> String {
                 ));
                 for v in &p.vertices {
                     out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
+                }
+            }
+            Geometry::Circle(c) => {
+                out.push_str(&format!(
+                    "0\nCIRCLE\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n",
+                    e.layer, c.center.x, c.center.y, c.radius
+                ));
+            }
+            Geometry::Insert(ins) => {
+                // Attributes are emitted in sorted key order so export is
+                // deterministic and round-trips exactly.
+                let has_attrs = !e.attributes.is_empty();
+                out.push_str(&format!(
+                    "0\nINSERT\n8\n{}\n2\n{}\n10\n{}\n20\n{}\n50\n{}\n66\n{}\n",
+                    e.layer,
+                    ins.name,
+                    ins.position.x,
+                    ins.position.y,
+                    ins.rotation,
+                    i32::from(has_attrs),
+                ));
+                if has_attrs {
+                    let mut tags: Vec<(&String, &String)> = e.attributes.iter().collect();
+                    tags.sort_by(|a, b| a.0.cmp(b.0));
+                    for (tag, value) in tags {
+                        out.push_str(&format!("0\nATTRIB\n1\n{value}\n2\n{tag}\n"));
+                    }
+                    out.push_str("0\nSEQEND\n");
                 }
             }
         }
@@ -405,5 +485,80 @@ EOF
         let e1: Vec<_> = doc1.entities().into_iter().cloned().collect();
         let e2: Vec<_> = doc2.entities().into_iter().cloned().collect();
         assert_eq!(e1, e2, "import -> export -> import changed the document");
+    }
+
+    const BLOCKS: &str = "\
+0
+SECTION
+2
+ENTITIES
+0
+CIRCLE
+8
+S-COLS
+10
+1.0
+20
+2.0
+40
+0.25
+0
+INSERT
+8
+A-DOOR
+2
+DOOR-SINGLE
+10
+3.0
+20
+0.0
+50
+90.0
+66
+1
+0
+ATTRIB
+1
+0.9
+2
+width
+0
+SEQEND
+0
+ENDSEC
+0
+EOF
+";
+
+    #[test]
+    fn imports_circle_and_insert_with_attributes() {
+        let doc = import_str(BLOCKS).unwrap();
+        assert_eq!(doc.len(), 2);
+        let entities = doc.entities();
+        match &entities[0].geometry {
+            Geometry::Circle(c) => {
+                assert!((c.radius - 0.25).abs() < 1e-9);
+                assert_eq!(c.center, Point2::new(1.0, 2.0));
+            }
+            _ => panic!("expected circle"),
+        }
+        match &entities[1].geometry {
+            Geometry::Insert(ins) => {
+                assert_eq!(ins.name, "DOOR-SINGLE");
+                assert_eq!(ins.position, Point2::new(3.0, 0.0));
+                assert!((ins.rotation - 90.0).abs() < 1e-9);
+            }
+            _ => panic!("expected insert"),
+        }
+        assert_eq!(entities[1].attribute("width"), Some("0.9"));
+    }
+
+    #[test]
+    fn round_trip_preserves_blocks() {
+        let doc1 = import_str(BLOCKS).unwrap();
+        let doc2 = import_str(&export_str(&doc1)).unwrap();
+        let e1: Vec<_> = doc1.entities().into_iter().cloned().collect();
+        let e2: Vec<_> = doc2.entities().into_iter().cloned().collect();
+        assert_eq!(e1, e2, "circle/insert round-trip changed the document");
     }
 }

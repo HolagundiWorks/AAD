@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use aadt_geometry::{Point2, Polyline, Segment};
+use aadt_geometry::{Circle, Point2, Polyline, Segment};
 
 /// Stable identifier for an entity within a [`Document`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -34,20 +34,45 @@ impl Layer {
     }
 }
 
+/// A block reference (DXF `INSERT`): a named block placed at a point. The block's
+/// own attributes (door width, window type, tag values) live on the owning
+/// [`Entity`]'s attribute map.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Insert {
+    pub name: String,
+    pub position: Point2,
+    /// Rotation in degrees (DXF convention).
+    pub rotation: f64,
+}
+
+impl Insert {
+    pub fn new(name: impl Into<String>, position: Point2, rotation: f64) -> Self {
+        Self {
+            name: name.into(),
+            position,
+            rotation,
+        }
+    }
+}
+
 /// The geometric payload of an entity. A subset of spec §4.1's entity set, growing
-/// through M1.
+/// through M1/M2.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Geometry {
     Line(Segment),
     Polyline(Polyline),
+    Circle(Circle),
+    Insert(Insert),
 }
 
 impl Geometry {
-    /// The segments this geometry contributes (one for a line, many for a polyline).
+    /// The straight segments this geometry contributes (lines and polylines); empty
+    /// for circles and block inserts.
     pub fn segments(&self) -> Vec<Segment> {
         match self {
             Geometry::Line(s) => vec![*s],
             Geometry::Polyline(p) => p.segments(),
+            Geometry::Circle(_) | Geometry::Insert(_) => Vec::new(),
         }
     }
 }
@@ -297,6 +322,8 @@ impl Document {
                     pts.push(s.b);
                 }
                 Geometry::Polyline(p) => pts.extend(p.vertices.iter().copied()),
+                Geometry::Circle(c) => pts.push(c.center),
+                Geometry::Insert(ins) => pts.push(ins.position),
             }
         }
         pts

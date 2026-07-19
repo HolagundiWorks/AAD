@@ -277,6 +277,8 @@ impl Command for ListCmd {
             let kind = match &e.geometry {
                 Geometry::Line(_) => "LINE",
                 Geometry::Polyline(_) => "POLYLINE",
+                Geometry::Circle(_) => "CIRCLE",
+                Geometry::Insert(_) => "INSERT",
             };
             lines.push(format!("  {} {} [{}]", e.id.0, kind, e.layer));
         }

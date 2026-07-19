@@ -22,11 +22,17 @@ pipeline that imports a DXF, detects walls and rooms, computes reproducible
 quantities, and exports an estimator-friendly CSV.
 
 **M1 — CAD Core Substrate (headless foundations)** is implemented: atomic
-undo/redo transactions in the document model, a command interpreter with a
-registry/aliases/history and script execution (`aadt run <script>`), and DXF
-export + round-trip. The `wgpu` render canvas and interactive `aadt-app` shell
-are the remaining part of M1. Everything further out is scaffolded (documented
-crate skeletons) and built milestone by milestone.
+undo/redo transactions, a command interpreter with registry/aliases/history and
+script execution (`aadt run <script>`), and DXF export + round-trip. The `wgpu`
+render canvas and interactive `aadt-app` shell remain.
+
+**M2 — Element Detection & M3 — Takeoff (deterministic core)** are implemented:
+door/window/furniture classification from block inserts, circle/rectangle
+structural detection, sequential numbering and tag points; wall area/volume from
+height, opening subtraction (net wall area), and CSI MasterFormat cost-code
+mapping in the CSV. Room-from-wall-graph derivation, live-linked tables, and
+`.xlsx` export remain. Everything further out (AI orchestration, docs/sheets,
+LISP, PDF) is scaffolded and built milestone by milestone.
 
 ```sh
 # Drive AADT with a command script (OPEN, TAKEOFF, LINE, UNDO, LIST, SAVE)

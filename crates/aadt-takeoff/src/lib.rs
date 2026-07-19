@@ -1,27 +1,76 @@
 //! # aadt-takeoff — Takeoff & Quantity Engine (flagship deliverable, spec §5.2)
 //!
-//! 2D-native quantity takeoff with **no BIM required** — the product's flagship
-//! deliverable. Computation is deterministic and reproducible independent of the AI
-//! layer (spec §5.2, §8): quantities are derived purely from the detected geometry.
+//! 2D-native quantity takeoff with **no BIM required**. Computation is deterministic
+//! and reproducible independent of the AI layer (spec §5.2, §8): quantities are
+//! derived purely from the detected geometry plus a [`TakeoffConfig`] of assumed
+//! heights and cost-code mappings.
 //!
-//! M0 computes the deterministic subset:
-//! - **Walls:** length, thickness, and footprint area (length × thickness).
-//! - **Rooms:** area and perimeter.
+//! Computed here:
+//! - **Walls:** length, thickness; gross area (length × height) and volume
+//!   (length × thickness × height) from configured wall height.
+//! - **Openings:** door/window area (width × height), subtracted from gross wall
+//!   area to give net wall area; counted by type.
+//! - **Rooms:** area and perimeter (floor finish).
+//! - **Structural:** counted by type.
+//! - **Cost codes:** each quantity is mapped to a CSI MasterFormat code (ADR-0005),
+//!   overridable per firm, and carried into the CSV for estimator import.
 //!
-//! and exports an estimator-friendly CSV.
-//!
-//! Deferred (see `docs/ROADMAP.md`):
-//! - Wall **area/volume from height** attributes and opening subtraction → **M3**.
-//! - **Live-linked** model-bound tables (the link-and-update mechanism, spec §5.2
-//!   "technical heart"), **cost-code mapping** (CSI MasterFormat, ADR-0005), and
-//!   **Excel / in-drawing schedule** output → **M3**.
-//! - AI schedule **formatting** and **anomaly flagging** → **M4**.
+//! Deferred (see `docs/ROADMAP.md`): live model-bound tables (spec §5.2 "technical
+//! heart"), true `.xlsx` export, in-drawing schedule tables → later M3 work; AI
+//! schedule formatting / anomaly flagging → M4.
 
-use aadt_detect::Detection;
+use aadt_detect::{Detection, OpeningKind, StructuralKind};
 
 /// Number of decimal places used when formatting quantities. Fixed for
 /// deterministic, byte-stable CSV output.
 const DECIMALS: usize = 3;
+
+/// CSI MasterFormat cost codes per element category (ADR-0005). Firm-overridable.
+#[derive(Debug, Clone)]
+pub struct CostCodeMap {
+    pub wall: String,
+    pub door: String,
+    pub window: String,
+    pub column: String,
+    pub beam: String,
+    pub room_floor: String,
+}
+
+impl Default for CostCodeMap {
+    fn default() -> Self {
+        Self {
+            wall: "09 21 00".to_string(),   // Gypsum Board Assemblies
+            door: "08 10 00".to_string(),   // Doors and Frames
+            window: "08 50 00".to_string(), // Windows
+            column: "05 12 00".to_string(), // Structural Steel Framing
+            beam: "05 12 00".to_string(),
+            room_floor: "09 60 00".to_string(), // Flooring
+        }
+    }
+}
+
+/// Assumed heights and cost mapping used to turn 2D geometry into quantities.
+#[derive(Debug, Clone)]
+pub struct TakeoffConfig {
+    pub wall_height: f64,
+    pub door_height: f64,
+    pub window_height: f64,
+    /// Width assumed for an opening whose block carries no width attribute.
+    pub default_opening_width: f64,
+    pub cost_codes: CostCodeMap,
+}
+
+impl Default for TakeoffConfig {
+    fn default() -> Self {
+        Self {
+            wall_height: 3.0,
+            door_height: 2.1,
+            window_height: 1.5,
+            default_opening_width: 0.9,
+            cost_codes: CostCodeMap::default(),
+        }
+    }
+}
 
 /// Per-wall computed quantities.
 #[derive(Debug, Clone, PartialEq)]
@@ -30,8 +79,23 @@ pub struct WallTakeoff {
     pub layer: String,
     pub length: f64,
     pub thickness: f64,
-    /// Plan footprint area = length × thickness (drawing units²).
-    pub footprint_area: f64,
+    pub height: f64,
+    /// Gross face area = length × height (drawing units²).
+    pub gross_area: f64,
+    /// Volume = length × thickness × height (drawing units³).
+    pub volume: f64,
+    pub cost_code: String,
+}
+
+/// Per-opening computed quantities.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpeningTakeoff {
+    pub number: u32,
+    pub kind: String,
+    pub width: f64,
+    pub height: f64,
+    pub area: f64,
+    pub cost_code: String,
 }
 
 /// Per-room computed quantities.
@@ -41,18 +105,34 @@ pub struct RoomTakeoff {
     pub layer: String,
     pub area: f64,
     pub perimeter: f64,
+    pub cost_code: String,
+}
+
+/// Per-structural-element record (count-oriented).
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructuralTakeoff {
+    pub number: u32,
+    pub kind: String,
+    pub cost_code: String,
 }
 
 /// A computed takeoff: the deterministic quantities behind an eventual live table.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TakeoffTable {
     pub walls: Vec<WallTakeoff>,
+    pub openings: Vec<OpeningTakeoff>,
     pub rooms: Vec<RoomTakeoff>,
+    pub structural: Vec<StructuralTakeoff>,
 }
 
 impl TakeoffTable {
-    /// Compute quantities from a detection result.
+    /// Compute quantities from a detection result using default assumptions.
     pub fn from_detection(det: &Detection) -> Self {
+        Self::with_config(det, &TakeoffConfig::default())
+    }
+
+    /// Compute quantities from a detection result and an explicit config.
+    pub fn with_config(det: &Detection, cfg: &TakeoffConfig) -> Self {
         let walls = det
             .walls
             .iter()
@@ -61,9 +141,35 @@ impl TakeoffTable {
                 layer: w.layer.clone(),
                 length: w.length,
                 thickness: w.thickness,
-                footprint_area: w.length * w.thickness,
+                height: cfg.wall_height,
+                gross_area: w.length * cfg.wall_height,
+                volume: w.length * w.thickness * cfg.wall_height,
+                cost_code: cfg.cost_codes.wall.clone(),
             })
             .collect();
+
+        let openings = det
+            .openings
+            .iter()
+            .map(|o| {
+                let width = o.width.unwrap_or(cfg.default_opening_width);
+                let (height, cost_code, kind) = match o.kind {
+                    OpeningKind::Door => (cfg.door_height, cfg.cost_codes.door.clone(), "Door"),
+                    OpeningKind::Window => {
+                        (cfg.window_height, cfg.cost_codes.window.clone(), "Window")
+                    }
+                };
+                OpeningTakeoff {
+                    number: o.number,
+                    kind: kind.to_string(),
+                    width,
+                    height,
+                    area: width * height,
+                    cost_code,
+                }
+            })
+            .collect();
+
         let rooms = det
             .rooms
             .iter()
@@ -72,17 +178,54 @@ impl TakeoffTable {
                 layer: r.layer.clone(),
                 area: r.area,
                 perimeter: r.perimeter,
+                cost_code: cfg.cost_codes.room_floor.clone(),
             })
             .collect();
-        Self { walls, rooms }
+
+        let structural = det
+            .structural
+            .iter()
+            .map(|s| {
+                let (kind, cost_code) = match s.kind {
+                    StructuralKind::Column => ("Column", cfg.cost_codes.column.clone()),
+                    StructuralKind::Beam => ("Beam", cfg.cost_codes.beam.clone()),
+                };
+                StructuralTakeoff {
+                    number: s.number,
+                    kind: kind.to_string(),
+                    cost_code,
+                }
+            })
+            .collect();
+
+        Self {
+            walls,
+            openings,
+            rooms,
+            structural,
+        }
     }
 
     pub fn total_wall_length(&self) -> f64 {
         self.walls.iter().map(|w| w.length).sum()
     }
 
-    pub fn total_wall_footprint(&self) -> f64 {
-        self.walls.iter().map(|w| w.footprint_area).sum()
+    /// Gross wall face area, before subtracting openings.
+    pub fn total_wall_gross_area(&self) -> f64 {
+        self.walls.iter().map(|w| w.gross_area).sum()
+    }
+
+    pub fn total_wall_volume(&self) -> f64 {
+        self.walls.iter().map(|w| w.volume).sum()
+    }
+
+    pub fn total_opening_area(&self) -> f64 {
+        self.openings.iter().map(|o| o.area).sum()
+    }
+
+    /// Net wall face area = gross − openings, clamped at zero.
+    pub fn total_wall_net_area(&self) -> f64 {
+        (self.total_wall_gross_area() - self.total_opening_area()).max(0.0)
     }
 
     pub fn total_room_area(&self) -> f64 {
@@ -90,54 +233,76 @@ impl TakeoffTable {
     }
 
     /// Render an estimator-friendly CSV. One flat table with a `category` column so
-    /// walls, rooms, and totals share a single file. Output is deterministic.
+    /// every element type and the totals share a single file. Output is
+    /// deterministic.
     pub fn to_csv(&self) -> String {
         let mut out = String::new();
-        out.push_str("category,id,layer,length,thickness,area,perimeter\n");
+        out.push_str("category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code\n");
         for w in &self.walls {
             out.push_str(&format!(
-                "WALL,{},{},{},{},{},\n",
+                "WALL,{},,{},{},{},{},{},,{}\n",
                 w.id,
-                escape(&w.layer),
                 num(w.length),
                 num(w.thickness),
-                num(w.footprint_area),
+                num(w.height),
+                num(w.gross_area),
+                num(w.volume),
+                w.cost_code,
+            ));
+        }
+        for o in &self.openings {
+            out.push_str(&format!(
+                "OPENING,{},{},{},,{},{},,,{}\n",
+                o.number,
+                o.kind,
+                num(o.width),
+                num(o.height),
+                num(o.area),
+                o.cost_code,
             ));
         }
         for r in &self.rooms {
             out.push_str(&format!(
-                "ROOM,{},{},,,{},{}\n",
+                "ROOM,{},,,,,{},,{},{}\n",
                 r.id,
-                escape(&r.layer),
                 num(r.area),
                 num(r.perimeter),
+                r.cost_code,
+            ));
+        }
+        for s in &self.structural {
+            out.push_str(&format!(
+                "STRUCTURAL,{},{},,,,,,,{}\n",
+                s.number, s.kind, s.cost_code
             ));
         }
         out.push_str(&format!(
-            "TOTAL,walls,,{},,{},\n",
+            "TOTAL,walls-gross,,{},,,{},{},,\n",
             num(self.total_wall_length()),
-            num(self.total_wall_footprint()),
+            num(self.total_wall_gross_area()),
+            num(self.total_wall_volume()),
         ));
         out.push_str(&format!(
-            "TOTAL,rooms,,,,{},\n",
+            "TOTAL,openings,,,,,{},,,\n",
+            num(self.total_opening_area())
+        ));
+        out.push_str(&format!(
+            "TOTAL,walls-net,,,,,{},,,\n",
+            num(self.total_wall_net_area())
+        ));
+        out.push_str(&format!(
+            "TOTAL,rooms,,,,,{},,,\n",
             num(self.total_room_area())
         ));
         out
     }
 }
 
-/// Format a quantity with a fixed number of decimals (deterministic).
+/// Format a quantity with a fixed number of decimals (deterministic). Negative
+/// zero is normalized to positive zero so output is stable.
 fn num(v: f64) -> String {
+    let v = if v == 0.0 { 0.0 } else { v };
     format!("{v:.DECIMALS$}")
-}
-
-/// Minimal CSV field escaping for layer names containing commas or quotes.
-fn escape(field: &str) -> String {
-    if field.contains([',', '"', '\n']) {
-        format!("\"{}\"", field.replace('"', "\"\""))
-    } else {
-        field.to_string()
-    }
 }
 
 #[cfg(test)]
@@ -145,11 +310,11 @@ mod tests {
     use super::*;
     use aadt_detect::{detect, DetectionConfig};
     use aadt_geometry::{Point2, Polyline, Segment};
-    use aadt_model::{Document, Geometry};
+    use aadt_model::{Document, Geometry, Insert};
 
-    #[test]
-    fn computes_quantities_and_csv() {
+    fn sample_doc() -> Document {
         let mut doc = Document::new();
+        // One 10m wall (two faces 0.2 apart).
         doc.add_geometry(
             "A-WALL",
             Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
@@ -158,6 +323,7 @@ mod tests {
             "A-WALL",
             Geometry::Line(Segment::new(Point2::new(0.0, 0.2), Point2::new(10.0, 0.2))),
         );
+        // A room.
         doc.add_geometry(
             "A-ROOM",
             Geometry::Polyline(Polyline::new(
@@ -170,34 +336,47 @@ mod tests {
                 true,
             )),
         );
+        // A door with an explicit width.
+        let mut attrs = std::collections::HashMap::new();
+        attrs.insert("width".to_string(), "0.9".to_string());
+        doc.add_entity(
+            "A-DOOR",
+            Geometry::Insert(Insert::new("DOOR-SINGLE", Point2::new(5.0, 0.1), 0.0)),
+            attrs,
+        );
+        doc
+    }
+
+    #[test]
+    fn computes_areas_volumes_and_opening_subtraction() {
+        let doc = sample_doc();
         let det = detect(&doc, &DetectionConfig::default());
         let table = TakeoffTable::from_detection(&det);
 
         assert_eq!(table.walls.len(), 1);
-        assert!((table.total_wall_length() - 10.0).abs() < 1e-9);
-        assert!((table.total_wall_footprint() - 2.0).abs() < 1e-9);
+        // 10 length × 3.0 height = 30 gross; volume 10 × 0.2 × 3.0 = 6.
+        assert!((table.total_wall_gross_area() - 30.0).abs() < 1e-9);
+        assert!((table.total_wall_volume() - 6.0).abs() < 1e-9);
+        // Door 0.9 × 2.1 = 1.89 opening area.
+        assert_eq!(table.openings.len(), 1);
+        assert!((table.total_opening_area() - 1.89).abs() < 1e-9);
+        assert!((table.total_wall_net_area() - (30.0 - 1.89)).abs() < 1e-9);
         assert!((table.total_room_area() - 12.0).abs() < 1e-9);
-
-        let csv = table.to_csv();
-        assert!(csv.starts_with("category,id,layer,length,thickness,area,perimeter\n"));
-        assert!(csv.contains("WALL,0,A-WALL,10.000,0.200,2.000,\n"));
-        assert!(csv.contains("ROOM,0,A-ROOM,,,12.000,14.000\n"));
     }
 
     #[test]
-    fn deterministic_output() {
-        let mut doc = Document::new();
-        doc.add_geometry(
-            "A-WALL",
-            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(5.0, 0.0))),
-        );
-        doc.add_geometry(
-            "A-WALL",
-            Geometry::Line(Segment::new(Point2::new(0.0, 0.15), Point2::new(5.0, 0.15))),
-        );
+    fn csv_has_costcodes_and_is_deterministic() {
+        let doc = sample_doc();
         let det = detect(&doc, &DetectionConfig::default());
-        let a = TakeoffTable::from_detection(&det).to_csv();
-        let b = TakeoffTable::from_detection(&det).to_csv();
-        assert_eq!(a, b);
+        let table = TakeoffTable::from_detection(&det);
+        let csv = table.to_csv();
+
+        assert!(csv.starts_with(
+            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code\n"
+        ));
+        assert!(csv.contains("WALL,0,,10.000,0.200,3.000,30.000,6.000,,09 21 00\n"));
+        assert!(csv.contains("OPENING,1,Door,0.900,,2.100,1.890,,,08 10 00\n"));
+        assert!(csv.contains("ROOM,0,,,,,12.000,,14.000,09 60 00\n"));
+        assert_eq!(csv, table.to_csv());
     }
 }

@@ -109,9 +109,11 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
 
     let detection = detect(&doc, &cfg);
     println!(
-        "Analyzed: {} walls, {} rooms, {} graph nodes",
+        "Analyzed: {} walls, {} openings, {} rooms, {} structural, {} graph nodes",
         detection.walls.len(),
+        detection.openings.len(),
         detection.rooms.len(),
+        detection.structural.len(),
         detection.graph.nodes.len()
     );
 
@@ -129,9 +131,9 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
     }
 
     println!(
-        "Totals: wall length {:.3}, wall footprint {:.3}, room area {:.3}",
+        "Totals: wall length {:.3}, net wall area {:.3}, room area {:.3}",
         table.total_wall_length(),
-        table.total_wall_footprint(),
+        table.total_wall_net_area(),
         table.total_room_area()
     );
     Ok(())

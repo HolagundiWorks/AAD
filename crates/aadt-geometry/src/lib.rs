@@ -191,6 +191,29 @@ impl Segment {
     }
 }
 
+/// A circle — used for round columns and other radial features.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Circle {
+    pub center: Point2,
+    pub radius: f64,
+}
+
+impl Circle {
+    pub const fn new(center: Point2, radius: f64) -> Self {
+        Self { center, radius }
+    }
+
+    /// Enclosed area (π r²).
+    pub fn area(self) -> f64 {
+        std::f64::consts::PI * self.radius * self.radius
+    }
+
+    /// Circumference (2 π r).
+    pub fn circumference(self) -> f64 {
+        2.0 * std::f64::consts::PI * self.radius
+    }
+}
+
 /// An axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bbox {
