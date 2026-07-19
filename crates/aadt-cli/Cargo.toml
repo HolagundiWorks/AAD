@@ -1,0 +1,21 @@
+[package]
+name = "aadt-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "AADT command-line driver: headless entry point for the takeoff pipeline, batch runs, and tests."
+
+[[bin]]
+name = "aadt"
+path = "src/main.rs"
+
+[dependencies]
+aadt-dxf.workspace = true
+aadt-detect.workspace = true
+aadt-takeoff.workspace = true
+
+[lints]
+workspace = true

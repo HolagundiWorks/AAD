@@ -1,0 +1,16 @@
+[package]
+name = "aadt-docs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Documentation & sheet production: title blocks, notes library, PLOTSETUP, presentation prep. Skeleton — built in M5."
+
+[dependencies]
+aadt-model.workspace = true
+aadt-takeoff.workspace = true
+
+[lints]
+workspace = true

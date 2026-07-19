@@ -1,0 +1,20 @@
+[package]
+name = "aadt-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Desktop application shell (egui/Slint) tying the CAD core, render canvas, and AADT engine together. Skeleton — built from M1."
+
+[dependencies]
+aadt-model.workspace = true
+aadt-command.workspace = true
+aadt-render.workspace = true
+aadt-detect.workspace = true
+aadt-takeoff.workspace = true
+aadt-ai.workspace = true
+
+[lints]
+workspace = true

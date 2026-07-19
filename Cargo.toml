@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aadt-geometry",
+    "crates/aadt-model",
+    "crates/aadt-dxf",
+    "crates/aadt-detect",
+    "crates/aadt-takeoff",
+    "crates/aadt-command",
+    "crates/aadt-render",
+    "crates/aadt-ai",
+    "crates/aadt-lisp",
+    "crates/aadt-docs",
+    "crates/aadt-pdf",
+    "crates/aadt-app",
+    "crates/aadt-cli",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.90"
+license = "Apache-2.0"
+repository = "https://github.com/holagundiworks/aiadt"
+authors = ["HolagundiWorks"]
+
+# AADT M0 is deliberately dependency-free (std only) to keep the build hermetic
+# and CI fast. External crates (dxf, wgpu, egui, rusqlite, ollama clients, ...)
+# arrive with the milestones that need them — see docs/ROADMAP.md and docs/adr.
+[workspace.dependencies]
+aadt-geometry = { path = "crates/aadt-geometry" }
+aadt-model = { path = "crates/aadt-model" }
+aadt-dxf = { path = "crates/aadt-dxf" }
+aadt-detect = { path = "crates/aadt-detect" }
+aadt-takeoff = { path = "crates/aadt-takeoff" }
+aadt-command = { path = "crates/aadt-command" }
+aadt-render = { path = "crates/aadt-render" }
+aadt-ai = { path = "crates/aadt-ai" }
+aadt-lisp = { path = "crates/aadt-lisp" }
+aadt-docs = { path = "crates/aadt-docs" }
+aadt-pdf = { path = "crates/aadt-pdf" }
+aadt-app = { path = "crates/aadt-app" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

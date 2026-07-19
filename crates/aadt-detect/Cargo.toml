@@ -1,0 +1,16 @@
+[package]
+name = "aadt-detect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Element detection & classification: deterministic wall pairing, wall graph, room extraction. Openings/structural/furniture + AI wall-typing in later milestones."
+
+[dependencies]
+aadt-geometry.workspace = true
+aadt-model.workspace = true
+
+[lints]
+workspace = true

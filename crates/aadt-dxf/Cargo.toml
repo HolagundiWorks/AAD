@@ -1,0 +1,16 @@
+[package]
+name = "aadt-dxf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "DXF import (LINE, LWPOLYLINE) into the document model. Full entity set + DXF export + DWG in later milestones (ADR-0002)."
+
+[dependencies]
+aadt-geometry.workspace = true
+aadt-model.workspace = true
+
+[lints]
+workspace = true

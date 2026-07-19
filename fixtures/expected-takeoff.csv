@@ -1,0 +1,9 @@
+category,id,layer,length,thickness,area,perimeter
+WALL,0,A-WALL,10.000,0.200,2.000,
+WALL,1,A-WALL,10.000,0.200,2.000,
+WALL,2,A-WALL,8.000,0.200,1.600,
+WALL,3,A-WALL,8.000,0.200,1.600,
+ROOM,0,A-ROOM,,,12.000,14.000
+ROOM,1,A-ROOM,,,30.000,22.000
+TOTAL,walls,,36.000,,7.200,
+TOTAL,rooms,,,,42.000,

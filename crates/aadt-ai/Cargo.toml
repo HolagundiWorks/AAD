@@ -1,0 +1,17 @@
+[package]
+name = "aadt-ai"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "AI orchestration: on-demand Ollama subprocess, structured JSON prompting, audit log. Skeleton — built in M4."
+
+[dependencies]
+aadt-model.workspace = true
+aadt-detect.workspace = true
+aadt-takeoff.workspace = true
+
+[lints]
+workspace = true

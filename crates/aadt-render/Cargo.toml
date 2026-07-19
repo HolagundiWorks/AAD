@@ -1,0 +1,15 @@
+[package]
+name = "aadt-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "GPU-accelerated 2D canvas (wgpu): pan/zoom/redraw for 100k+ entities. Skeleton — built in M1."
+
+[dependencies]
+aadt-model.workspace = true
+
+[lints]
+workspace = true

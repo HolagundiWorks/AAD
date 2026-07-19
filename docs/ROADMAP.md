@@ -1,0 +1,115 @@
+# AADT Roadmap
+
+This roadmap sequences AADT from a proven deterministic takeoff slice up to the
+full product. It reorders the spec's suggested phases (§10) so the **element
+detection and takeoff pipeline — the product's reason for existing — is proven
+first**, on the minimum substrate it needs, rather than after a full CAD core.
+
+Each milestone is a shippable, verifiable increment. Crate skeletons for later
+milestones already exist and document their intended responsibility.
+
+## Guiding constraints (from the spec §8)
+
+- **Deterministic core.** Geometry, numbering, and quantity computation are
+  reproducible and auditable **independent of AI availability**.
+- **Local-first, on-demand AI.** No AI runs in the background; actions are
+  invoked explicitly and release resources afterward.
+- **Offline-capable.** Full drafting, detection/takeoff, and PDF markup work
+  with no internet connection.
+
+## Two deliberate deviations from spec §10
+
+1. **LISP is deferred from Phase 1 to M6.** The AutoLISP-compatible interpreter
+   is a large sub-project. The command registry (`aadt-command`) is designed
+   LISP-ready from M1 so firm-routine migration is not architecturally blocked,
+   but a full interpreter is not on the critical path to the takeoff
+   differentiator. See ADR references in [`adr/`](adr/).
+2. **DWG read/write is deferred behind DXF.** ASCII DXF is tractable now and
+   covers file exchange for the slice; binary DWG needs the ODA SDK or a
+   LibreDWG FFI binding and gets its own milestone. See
+   [`adr/0002-dwg-dxf-strategy.md`](adr/0002-dwg-dxf-strategy.md).
+
+---
+
+## M0 — Deterministic Takeoff Vertical Slice ✅ (implemented)
+
+**Goal:** prove the differentiator end-to-end, headless, with no GUI and no AI.
+
+`DXF import → wall/room detection → deterministic takeoff → CSV export`, driven
+by the `aadt` CLI and covered by a golden-file test.
+
+Delivered:
+- `aadt-geometry` — the subset of the 2D kernel the detector needs (points,
+  vectors, segments, polylines, tolerance, bbox, parallel/offset/overlap).
+- `aadt-model` — in-memory entity store with layers and attributes.
+- `aadt-dxf` — dependency-free reader for `LINE` and `LWPOLYLINE`.
+- `aadt-detect` — deterministic wall pairing, wall graph, room extraction.
+- `aadt-takeoff` — wall length/thickness/footprint, room area/perimeter, CSV.
+- `aadt-cli` — `aadt takeoff <input.dxf> [--csv <out>]`.
+
+Verify: `cargo test --workspace` (golden + reproducibility), and
+`cargo run -p aadt-cli -- takeoff fixtures/sample-floorplan.dxf --csv out.csv`.
+
+---
+
+## M1 — CAD Core Substrate
+
+Turn the M0 skeletons into a usable drafting surface (spec §4).
+
+- Full document model with **atomic undo/redo transactions** (§4.1) — every
+  operation, including AADT insertions, is a single undoable transaction.
+- Command interpreter: aliases, history, tab-completion, script/batch (§4.2).
+- Rendering: `wgpu` 2D canvas targeting 60fps on 100k+ entities (§4.3).
+- Interactive draw/modify/annotate/organize commands (curated ~60–80 set).
+- Full DXF entity set (legacy `POLYLINE`/`VERTEX`, arcs, circles, text, hatch,
+  blocks, dimensions) and **DXF export** / round-trip.
+
+## M2 — Element Detection & Classification (full, deterministic)
+
+Complete spec §5.1 steps 3–5, still deterministic:
+- Openings (attributed door/window blocks), structural elements (layer + shape
+  signature), furniture (block name / library metadata).
+- Tagging at element centroid; sequential numbering by configurable rule.
+- Room derivation as minimal cycles of the wall graph (beyond M0's explicit
+  closed polylines).
+
+## M3 — Takeoff & Quantity Engine (full)
+
+The flagship deliverable, complete (spec §5.2):
+- **Live-linked** model-bound tables — editing a wall updates the table (the
+  link-and-update mechanism, the technical heart of the product).
+- Wall area/volume from height attributes; opening subtraction.
+- **Cost-code mapping** (CSI MasterFormat out of the box, plus custom) — see
+  [`adr/0005-cost-code-standard.md`](adr/0005-cost-code-standard.md).
+- Excel export and in-drawing schedule tables.
+
+## M4 — AI Orchestration Layer
+
+Layer AI on the proven deterministic base (spec §6):
+- On-demand Ollama subprocess with warm-idle lifecycle and auto-unload.
+- Structured JSON prompting; structured JSON responses applied as undoable ops.
+- Wall-type inference (§5.1 step 6), anomaly flagging, schedule formatting.
+- Graceful degradation when Ollama is unavailable; never blocks drafting.
+- Per-invocation audit log of exactly what structured data was sent (§6.3).
+
+## M5 — Documentation & Sheet Production
+
+Spec §5.3: title-block templates, general notes library, `PLOTSETUP` workflow,
+AI-assisted notes suggestion (overridable), `AADT-PRESENT`, documentation QA.
+
+## M6 — LISP Engine
+
+Spec §4.4: embedded AutoLISP-syntax interpreter — entity create/query/modify,
+selection sets, command invocation, sandboxed file I/O, and **read access to
+AADT Engine outputs** (wall graph, detected elements, takeoff data).
+
+## M7 — PDF Markup & Comparison
+
+Spec §4.5 / §6.4: PDF viewing, markup and measurement tools, markup list,
+document comparison, batch tools, and AADT-narrated change summaries after a
+`COMPARE`.
+
+## M8 — Cloud Collaboration (separate track)
+
+Spec §11 Phase 7: opt-in real-time multi-user markup, architected independently
+from the local-first core.

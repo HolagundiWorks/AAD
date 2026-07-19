@@ -1,0 +1,19 @@
+[package]
+name = "aadt-takeoff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Takeoff & quantity engine: deterministic wall/room quantities + CSV export. Live-linked tables, cost codes, Excel in later milestones."
+
+[dependencies]
+aadt-detect.workspace = true
+
+[dev-dependencies]
+aadt-geometry.workspace = true
+aadt-model.workspace = true
+
+[lints]
+workspace = true
