@@ -52,6 +52,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "render" => cmd_render(rest),
         "view" => cmd_view(rest),
         "sheet" => cmd_sheet(rest),
+        "lisp" => cmd_lisp(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -207,6 +208,46 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Run an embedded LISP script. With `--dxf`, the drawing is loaded and the
+/// `aadt-*` query functions are available to the script (read-only).
+fn cmd_lisp(args: &[String]) -> Result<(), String> {
+    let mut script: Option<String> = None;
+    let mut dxf: Option<String> = None;
+
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--dxf" => dxf = Some(expect_value(&mut it, "--dxf")?),
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => script = Some(other.to_string()),
+        }
+    }
+
+    let script = script.ok_or_else(|| format!("lisp needs a script file\n\n{USAGE}"))?;
+    let src = std::fs::read_to_string(&script).map_err(|e| format!("reading {script}: {e}"))?;
+
+    let mut lisp = aadt_lisp::Interpreter::new();
+    if let Some(path) = &dxf {
+        let doc = aadt_dxf::import_path(path).map_err(|e| e.to_string())?;
+        aadt_lisp::host::install_document(
+            lisp.env(),
+            std::rc::Rc::new(std::cell::RefCell::new(doc)),
+        );
+        println!("Loaded {path} — aadt-* queries available");
+    }
+
+    let result = lisp.eval_str(&src).map_err(|e| e.to_string())?;
+    let out = lisp.output();
+    if !out.is_empty() {
+        print!("{out}");
+        if !out.ends_with('\n') {
+            println!();
+        }
+    }
+    println!("=> {result}");
+    Ok(())
+}
+
 const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
@@ -218,6 +259,7 @@ Usage:
   aadt view <input.dxf>                  Open the interactive canvas window (needs --features gui)
   aadt sheet <input.dxf> --out <out.dxf> Compose a sheet: border, title block, notes, QA
       [--size A1] [--project X] [--title Y] [--number A-101] [--scale 1:100] [--date D] [--by NN]
+  aadt lisp <script.lsp> [--dxf <in.dxf>] Run a LISP script (with aadt-* queries when --dxf given)
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)

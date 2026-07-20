@@ -10,6 +10,11 @@ description = "Embedded Scheme/AutoLISP-compatible interpreter with read access 
 
 [dependencies]
 aadt-model.workspace = true
+aadt-detect.workspace = true
+aadt-takeoff.workspace = true
+
+[dev-dependencies]
+aadt-geometry.workspace = true
 
 [lints]
 workspace = true
