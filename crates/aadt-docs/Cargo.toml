@@ -9,7 +9,9 @@ authors.workspace = true
 description = "Documentation & sheet production: title blocks, notes library, PLOTSETUP, presentation prep. Skeleton — built in M5."
 
 [dependencies]
+aadt-geometry.workspace = true
 aadt-model.workspace = true
+aadt-detect.workspace = true
 aadt-takeoff.workspace = true
 
 [lints]

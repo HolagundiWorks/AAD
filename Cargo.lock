@@ -30,6 +30,7 @@ dependencies = [
  "aadt-app",
  "aadt-command",
  "aadt-detect",
+ "aadt-docs",
  "aadt-dxf",
  "aadt-geometry",
  "aadt-render",
@@ -56,6 +57,8 @@ dependencies = [
 name = "aadt-docs"
 version = "0.0.0"
 dependencies = [
+ "aadt-detect",
+ "aadt-geometry",
  "aadt-model",
  "aadt-takeoff",
 ]

@@ -18,6 +18,7 @@ aadt-command.workspace = true
 aadt-dxf.workspace = true
 aadt-detect.workspace = true
 aadt-takeoff.workspace = true
+aadt-docs.workspace = true
 aadt-geometry.workspace = true
 aadt-render = { workspace = true, optional = true }
 
