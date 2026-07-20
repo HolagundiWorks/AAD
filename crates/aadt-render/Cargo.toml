@@ -9,6 +9,7 @@ authors.workspace = true
 description = "GPU-accelerated 2D canvas (wgpu): pan/zoom/redraw for 100k+ entities. Skeleton — built in M1."
 
 [dependencies]
+aadt-geometry.workspace = true
 aadt-model.workspace = true
 
 [lints]
