@@ -526,7 +526,14 @@ fn detect_walls(doc: &Document, cfg: &DetectionConfig) -> Vec<Wall> {
                 layer: e.layer.clone(),
                 seg: *s,
             }),
-            Geometry::Polyline(_) | Geometry::Circle(_) | Geometry::Insert(_) => None,
+            // Arcs are deliberately not wall faces: a curved wall needs arc-pair
+            // detection, not chord approximation, or it would be reported as a
+            // run of short straight walls. Tracked for a later milestone.
+            Geometry::Polyline(_)
+            | Geometry::Circle(_)
+            | Geometry::Arc(_)
+            | Geometry::Text(_)
+            | Geometry::Insert(_) => None,
         })
         .collect();
 

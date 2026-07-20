@@ -3,16 +3,20 @@
 //! DWG/DXF round-trip is non-negotiable for architects exchanging files (spec §7).
 //! This crate reads and writes the ASCII DXF entity types AADT currently models:
 //!
-//! - **Import:** `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`, `CIRCLE`, and
-//!   `INSERT` (block references, with their trailing `ATTRIB` values).
-//! - **Export:** `LINE`, `LWPOLYLINE`, `CIRCLE`, and `INSERT` (+`ATTRIB`).
+//! - **Import:** `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`, `CIRCLE`,
+//!   `ARC`, `TEXT`, and `INSERT` (block references, with their trailing
+//!   `ATTRIB` values).
+//! - **Export:** `LINE`, `LWPOLYLINE`, `CIRCLE`, `ARC`, `TEXT`, and `INSERT`
+//!   (+`ATTRIB`).
 //!
 //! Coordinates use Rust's shortest round-trip float formatting and insert
 //! attributes are written in sorted key order, so an import → export → import cycle
 //! reproduces the document exactly.
 //!
 //! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): the remaining DXF
-//! entity set (arcs, text, hatches, dimensions) grows through M1/M2, and binary
+//! entity set (hatches, dimensions, and `BLOCK` definitions) grows through
+//! M1/M2 — an `INSERT` currently references a block by name without the
+//! definition being modelled. Binary
 //! **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI binding. The
 //! public entry points are stable so a fuller backend (e.g. the `dxf` crate) can
 //! replace the internal parser without touching callers.
@@ -21,8 +25,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
-use aadt_geometry::{Circle, Point2, Polyline, Segment};
-use aadt_model::{Document, Geometry, Insert};
+use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
+use aadt_model::{Document, Geometry, Insert, Text};
 
 /// Error raised while reading or writing a DXF file.
 #[derive(Debug)]
@@ -75,6 +79,8 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
             "LINE" if in_entities => import_line(&mut doc, rec),
             "LWPOLYLINE" if in_entities => import_lwpolyline(&mut doc, rec),
             "CIRCLE" if in_entities => import_circle(&mut doc, rec),
+            "ARC" if in_entities => import_arc(&mut doc, rec),
+            "TEXT" if in_entities => import_text(&mut doc, rec),
             "POLYLINE" if in_entities => {
                 // Legacy POLYLINE consumes the following VERTEX records up to SEQEND.
                 i = import_polyline(&mut doc, &records, i);
@@ -255,6 +261,36 @@ fn import_circle(doc: &mut Document, rec: &Record) {
     );
 }
 
+/// Import an `ARC`: centre (10/20), radius (40), start/end angle (50/51) in
+/// degrees counter-clockwise — the same convention [`Arc`] uses.
+fn import_arc(doc: &mut Document, rec: &Record) {
+    let (Some(cx), Some(cy), Some(r)) = (rec.float(10), rec.float(20), rec.float(40)) else {
+        return;
+    };
+    let start = rec.float(50).unwrap_or(0.0);
+    let end = rec.float(51).unwrap_or(360.0);
+    doc.add_geometry(
+        rec.layer(),
+        Geometry::Arc(Arc::new(Point2::new(cx, cy), r, start, end)),
+    );
+}
+
+/// Import a `TEXT`: value (1), insertion point (10/20), height (40), rotation (50).
+/// A text entity with no value is still imported — an empty label is a drafting
+/// mistake to surface, not a record to silently drop.
+fn import_text(doc: &mut Document, rec: &Record) {
+    let (Some(x), Some(y)) = (rec.float(10), rec.float(20)) else {
+        return;
+    };
+    let value = rec.string(1).unwrap_or("").to_string();
+    let height = rec.float(40).unwrap_or(0.0);
+    let rotation = rec.float(50).unwrap_or(0.0);
+    doc.add_geometry(
+        rec.layer(),
+        Geometry::Text(Text::new(value, Point2::new(x, y), height, rotation)),
+    );
+}
+
 /// Import an `INSERT` (block reference) at `start`, gathering any following
 /// `ATTRIB` records (tag → value) up to the `SEQEND` into the entity's attributes.
 /// Returns the index of the next unconsumed record.
@@ -319,6 +355,18 @@ pub fn export_str(doc: &Document) -> String {
                 out.push_str(&format!(
                     "0\nCIRCLE\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n",
                     e.layer, c.center.x, c.center.y, c.radius
+                ));
+            }
+            Geometry::Arc(a) => {
+                out.push_str(&format!(
+                    "0\nARC\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n50\n{}\n51\n{}\n",
+                    e.layer, a.center.x, a.center.y, a.radius, a.start_angle, a.end_angle
+                ));
+            }
+            Geometry::Text(t) => {
+                out.push_str(&format!(
+                    "0\nTEXT\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n1\n{}\n50\n{}\n",
+                    e.layer, t.position.x, t.position.y, t.height, t.value, t.rotation
                 ));
             }
             Geometry::Insert(ins) => {
@@ -560,5 +608,94 @@ EOF
         let e1: Vec<_> = doc1.entities().into_iter().cloned().collect();
         let e2: Vec<_> = doc2.entities().into_iter().cloned().collect();
         assert_eq!(e1, e2, "circle/insert round-trip changed the document");
+    }
+
+    /// A door swing (ARC) and a room label (TEXT) — the two annotation entities
+    /// a real floor plan carries alongside its walls.
+    const ANNOTATED: &str = "\
+0
+SECTION
+2
+ENTITIES
+0
+ARC
+8
+A-DOOR
+10
+3.0
+20
+0.0
+40
+0.9
+50
+0.0
+51
+90.0
+0
+TEXT
+8
+A-ANNO
+10
+2.5
+20
+1.5
+40
+0.25
+1
+LIVING ROOM
+50
+0.0
+0
+ENDSEC
+0
+EOF
+";
+
+    #[test]
+    fn imports_arc_and_text() {
+        let doc = import_str(ANNOTATED).unwrap();
+        assert_eq!(doc.len(), 2);
+        let entities = doc.entities();
+        match &entities[0].geometry {
+            Geometry::Arc(a) => {
+                assert_eq!(a.center, Point2::new(3.0, 0.0));
+                assert!((a.radius - 0.9).abs() < 1e-9);
+                assert!((a.sweep() - 90.0).abs() < 1e-9);
+            }
+            other => panic!("expected arc, got {other:?}"),
+        }
+        assert_eq!(entities[0].layer, "A-DOOR");
+        match &entities[1].geometry {
+            Geometry::Text(t) => {
+                // The value must survive verbatim, spaces included.
+                assert_eq!(t.value, "LIVING ROOM");
+                assert_eq!(t.position, Point2::new(2.5, 1.5));
+                assert!((t.height - 0.25).abs() < 1e-9);
+            }
+            other => panic!("expected text, got {other:?}"),
+        }
+        assert_eq!(entities[1].layer, "A-ANNO");
+    }
+
+    #[test]
+    fn round_trip_preserves_arc_and_text() {
+        let doc1 = import_str(ANNOTATED).unwrap();
+        let doc2 = import_str(&export_str(&doc1)).unwrap();
+        let e1: Vec<_> = doc1.entities().into_iter().cloned().collect();
+        let e2: Vec<_> = doc2.entities().into_iter().cloned().collect();
+        assert_eq!(e1, e2, "arc/text round-trip changed the document");
+    }
+
+    #[test]
+    fn arcs_and_text_are_not_wall_faces() {
+        // Guards the layering decision: annotation entities must not leak into
+        // the segment stream that wall detection consumes.
+        let doc = import_str(ANNOTATED).unwrap();
+        for e in doc.entities() {
+            assert!(
+                e.geometry.segments().is_empty(),
+                "arc/text contributed segments to detection"
+            );
+        }
     }
 }

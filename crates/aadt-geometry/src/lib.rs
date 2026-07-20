@@ -214,6 +214,77 @@ impl Circle {
     }
 }
 
+/// A circular arc — door swings, curved walls, and radial annotation.
+///
+/// Angles are in **degrees**, counter-clockwise from +x, following the DXF
+/// convention so import/export need no unit conversion. The arc runs
+/// counter-clockwise from `start_angle` to `end_angle`; when `end_angle` is not
+/// greater than `start_angle` it is taken to wrap through 360°, so a
+/// 350°→10° arc sweeps 20° rather than -340°.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Arc {
+    pub center: Point2,
+    pub radius: f64,
+    pub start_angle: f64,
+    pub end_angle: f64,
+}
+
+impl Arc {
+    pub const fn new(center: Point2, radius: f64, start_angle: f64, end_angle: f64) -> Self {
+        Self {
+            center,
+            radius,
+            start_angle,
+            end_angle,
+        }
+    }
+
+    /// Swept angle in degrees, always in `(0, 360]` for a non-degenerate arc.
+    pub fn sweep(self) -> f64 {
+        let mut d = self.end_angle - self.start_angle;
+        while d <= 0.0 {
+            d += 360.0;
+        }
+        while d > 360.0 {
+            d -= 360.0;
+        }
+        d
+    }
+
+    /// Arc length along the curve.
+    pub fn length(self) -> f64 {
+        self.radius * self.sweep().to_radians()
+    }
+
+    /// The point at `t` along the sweep, `t` in `[0, 1]`.
+    pub fn point_at(self, t: f64) -> Point2 {
+        let a = (self.start_angle + self.sweep() * t).to_radians();
+        Point2::new(
+            self.center.x + self.radius * a.cos(),
+            self.center.y + self.radius * a.sin(),
+        )
+    }
+
+    pub fn start_point(self) -> Point2 {
+        self.point_at(0.0)
+    }
+
+    pub fn end_point(self) -> Point2 {
+        self.point_at(1.0)
+    }
+
+    /// Approximate the arc as `segments` chords. Used by consumers that only
+    /// understand straight edges (rendering, length take-off); `segments` is
+    /// clamped to at least 1.
+    pub fn to_polyline(self, segments: usize) -> Polyline {
+        let n = segments.max(1);
+        let verts = (0..=n)
+            .map(|i| self.point_at(i as f64 / n as f64))
+            .collect();
+        Polyline::new(verts, false)
+    }
+}
+
 /// An axis-aligned bounding box.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bbox {
@@ -413,6 +484,45 @@ mod tests {
         assert!((rect.perimeter() - 14.0).abs() < 1e-9);
         let c = rect.centroid().unwrap();
         assert!((c.x - 2.0).abs() < 1e-9 && (c.y - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn arc_sweep_length_and_endpoints() {
+        // Quarter arc of radius 2, from +x to +y.
+        let a = Arc::new(Point2::new(0.0, 0.0), 2.0, 0.0, 90.0);
+        assert!((a.sweep() - 90.0).abs() < 1e-9);
+        assert!((a.length() - std::f64::consts::PI).abs() < 1e-9);
+        let s = a.start_point();
+        let e = a.end_point();
+        assert!((s.x - 2.0).abs() < 1e-9 && s.y.abs() < 1e-9);
+        assert!(e.x.abs() < 1e-9 && (e.y - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn arc_sweep_wraps_through_zero() {
+        // 350 -> 10 is a 20 degree arc, not -340.
+        let a = Arc::new(Point2::new(0.0, 0.0), 1.0, 350.0, 10.0);
+        assert!((a.sweep() - 20.0).abs() < 1e-9);
+        // A full circle stays 360, not collapsing to 0.
+        let full = Arc::new(Point2::new(0.0, 0.0), 1.0, 0.0, 360.0);
+        assert!((full.sweep() - 360.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn arc_to_polyline_tracks_the_curve() {
+        let a = Arc::new(Point2::new(0.0, 0.0), 5.0, 0.0, 180.0);
+        let p = a.to_polyline(8);
+        assert_eq!(p.vertices.len(), 9, "n segments yields n+1 vertices");
+        assert!(!p.closed);
+        // Every sampled vertex sits on the circle.
+        for v in &p.vertices {
+            assert!((v.distance(Point2::new(0.0, 0.0)) - 5.0).abs() < 1e-9);
+        }
+        // Chords underestimate the true arc length but converge from below.
+        assert!(p.length() < a.length());
+        assert!(a.to_polyline(256).length() > p.length());
+        // Degenerate segment counts do not panic.
+        assert_eq!(a.to_polyline(0).vertices.len(), 2);
     }
 
     #[test]

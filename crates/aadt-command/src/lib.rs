@@ -278,6 +278,8 @@ impl Command for ListCmd {
                 Geometry::Line(_) => "LINE",
                 Geometry::Polyline(_) => "POLYLINE",
                 Geometry::Circle(_) => "CIRCLE",
+                Geometry::Arc(_) => "ARC",
+                Geometry::Text(_) => "TEXT",
                 Geometry::Insert(_) => "INSERT",
             };
             lines.push(format!("  {} {} [{}]", e.id.0, kind, e.layer));

@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use aadt_geometry::{Circle, Point2, Polyline, Segment};
+use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
 
 /// Stable identifier for an entity within a [`Document`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -55,6 +55,30 @@ impl Insert {
     }
 }
 
+/// A single-line text entity (DXF `TEXT`): room labels, annotation, tag values
+/// drawn in the drawing rather than carried as a block attribute.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Text {
+    pub value: String,
+    /// Insertion point (DXF group 10/20).
+    pub position: Point2,
+    /// Cap height in drawing units (DXF group 40).
+    pub height: f64,
+    /// Rotation in degrees (DXF convention).
+    pub rotation: f64,
+}
+
+impl Text {
+    pub fn new(value: impl Into<String>, position: Point2, height: f64, rotation: f64) -> Self {
+        Self {
+            value: value.into(),
+            position,
+            height,
+            rotation,
+        }
+    }
+}
+
 /// The geometric payload of an entity. A subset of spec §4.1's entity set, growing
 /// through M1/M2.
 #[derive(Debug, Clone, PartialEq)]
@@ -62,17 +86,28 @@ pub enum Geometry {
     Line(Segment),
     Polyline(Polyline),
     Circle(Circle),
+    Arc(Arc),
+    Text(Text),
     Insert(Insert),
 }
 
 impl Geometry {
-    /// The straight segments this geometry contributes (lines and polylines); empty
-    /// for circles and block inserts.
+    /// The straight segments this geometry contributes.
+    ///
+    /// Lines and polylines contribute their own edges. **Arcs contribute
+    /// nothing**: chord approximation is a rendering concern with a
+    /// caller-chosen tolerance, and silently returning chords here would let
+    /// them reach wall detection, where a curved wall would be paired as a run
+    /// of short straight faces. Consumers that want chords call
+    /// [`Arc::to_polyline`] explicitly. Circles, text, and inserts are likewise
+    /// empty.
     pub fn segments(&self) -> Vec<Segment> {
         match self {
             Geometry::Line(s) => vec![*s],
             Geometry::Polyline(p) => p.segments(),
-            Geometry::Circle(_) | Geometry::Insert(_) => Vec::new(),
+            Geometry::Circle(_) | Geometry::Arc(_) | Geometry::Text(_) | Geometry::Insert(_) => {
+                Vec::new()
+            }
         }
     }
 }
@@ -336,7 +371,21 @@ impl Document {
                     pts.push(s.b);
                 }
                 Geometry::Polyline(p) => pts.extend(p.vertices.iter().copied()),
-                Geometry::Circle(c) => pts.push(c.center),
+                // Cardinal extremes, not just the centre: a bbox built from
+                // centres alone clips every circle by its radius, which would
+                // cut a zoom-to-extents short.
+                Geometry::Circle(c) => {
+                    pts.push(Point2::new(c.center.x - c.radius, c.center.y));
+                    pts.push(Point2::new(c.center.x + c.radius, c.center.y));
+                    pts.push(Point2::new(c.center.x, c.center.y - c.radius));
+                    pts.push(Point2::new(c.center.x, c.center.y + c.radius));
+                }
+                // Sampled along the sweep, so a bulging arc is not understated
+                // by its endpoints alone.
+                Geometry::Arc(a) => pts.extend(a.to_polyline(16).vertices),
+                // The insertion point only: text extent needs font metrics AADT
+                // does not model.
+                Geometry::Text(t) => pts.push(t.position),
                 Geometry::Insert(ins) => pts.push(ins.position),
             }
         }
