@@ -6,12 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "AI orchestration: on-demand Ollama subprocess, structured JSON prompting, audit log. Skeleton — built in M4."
+description = "AI orchestration: structured JSON prompting, wall-type inference, audit log, graceful degradation, local Ollama client."
 
 [dependencies]
-aadt-model.workspace = true
 aadt-detect.workspace = true
-aadt-takeoff.workspace = true
+
+[dev-dependencies]
+aadt-geometry.workspace = true
+aadt-model.workspace = true
 
 [lints]
 workspace = true

@@ -104,12 +104,21 @@ Spec §5.2. **Core implemented:**
 
 ## M4 — AI Orchestration Layer
 
-Layer AI on the proven deterministic base (spec §6):
-- On-demand Ollama subprocess with warm-idle lifecycle and auto-unload.
-- Structured JSON prompting; structured JSON responses applied as undoable ops.
-- Wall-type inference (§5.1 step 6), anomaly flagging, schedule formatting.
-- Graceful degradation when Ollama is unavailable; never blocks drafting.
-- Per-invocation audit log of exactly what structured data was sent (§6.3).
+Layer AI on the proven deterministic base (spec §6). **Core implemented** (in
+`aadt-ai`):
+- ✅ Structured-data extraction (`extract_wall_facts` — no raw geometry, §6.2)
+  and a deterministic JSON-only prompt builder.
+- ✅ Wall-type inference (§5.1 step 6): `ModelClient` trait, response parser,
+  and the `infer_wall_types` orchestrator, exercised end-to-end with a
+  `MockClient`.
+- ✅ **Graceful degradation** — an unavailable model yields `AiError::Unavailable`
+  and never blocks the deterministic pipeline (§6.1 step 7).
+- ✅ Per-invocation **audit log** of exactly what structured data was sent (§6.3).
+- ✅ `OllamaClient` — a dependency-free HTTP client to `localhost:11434` over
+  `std::net` (requires a running Ollama; not unit-tested).
+- **Remaining:** subprocess spawn / warm-idle / auto-unload lifecycle; applying
+  results as undoable ops in the app; anomaly flagging; schedule formatting;
+  notes suggestion.
 
 ## M5 — Documentation & Sheet Production
 
