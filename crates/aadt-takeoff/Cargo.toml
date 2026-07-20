@@ -11,8 +11,8 @@ description = "Takeoff & quantity engine: deterministic wall/room/opening quanti
 [dependencies]
 aadt-detect.workspace = true
 aadt-model.workspace = true
-
-[dev-dependencies]
+# Promoted from dev-dependencies: schedule tables place real Point2/Segment
+# geometry into the document, not just in tests.
 aadt-geometry.workspace = true
 
 [lints]

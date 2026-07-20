@@ -26,6 +26,7 @@
 //! Deferred (see `docs/ROADMAP.md`): in-drawing schedule tables → later M3 work;
 //! AI schedule formatting / anomaly flagging → M4.
 
+pub mod schedule;
 pub mod xlsx;
 
 use aadt_detect::{detect, Detection, DetectionConfig, OpeningKind, StructuralKind};

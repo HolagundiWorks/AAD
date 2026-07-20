@@ -30,6 +30,7 @@ dependencies = [
  "aadt-command",
  "aadt-detect",
  "aadt-dxf",
+ "aadt-geometry",
  "aadt-takeoff",
 ]
 

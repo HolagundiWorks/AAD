@@ -8,6 +8,8 @@
 
 use aadt_command::{Command, Context, Interpreter};
 use aadt_detect::{detect, DetectionConfig};
+use aadt_geometry::Point2;
+use aadt_takeoff::schedule::ScheduleStyle;
 use aadt_takeoff::TakeoffTable;
 
 /// Register the file-I/O and engine commands onto an interpreter.
@@ -16,6 +18,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(OpenCmd));
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(TakeoffCmd));
+    registry.register(Box::new(ScheduleCmd));
 }
 
 struct OpenCmd;
@@ -45,6 +48,45 @@ impl Command for SaveCmd {
         let path = args.first().ok_or("SAVE: missing path")?;
         aadt_dxf::export_path(&ctx.doc, path).map_err(|e| e.to_string())?;
         Ok(format!("saved {} entities to {path}", ctx.doc.len()))
+    }
+}
+
+struct ScheduleCmd;
+impl Command for ScheduleCmd {
+    fn name(&self) -> &str {
+        "SCHEDULE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AADT-SCHEDULE"]
+    }
+    fn help(&self) -> &str {
+        "SCHEDULE [x y] — place the takeoff into the drawing as a table"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let origin = match args {
+            [] => Point2::new(0.0, 0.0),
+            [x, y] => Point2::new(
+                x.parse::<f64>()
+                    .map_err(|_| format!("SCHEDULE: bad x {x}"))?,
+                y.parse::<f64>()
+                    .map_err(|_| format!("SCHEDULE: bad y {y}"))?,
+            ),
+            _ => return Err("SCHEDULE: expected no arguments or 'x y'".to_string()),
+        };
+
+        let detection = detect(&ctx.doc, &DetectionConfig::default());
+        let table = TakeoffTable::from_detection(&detection);
+        let style = ScheduleStyle {
+            origin,
+            ..Default::default()
+        };
+        let ids = table.insert_schedule(&mut ctx.doc, &style);
+        Ok(format!(
+            "placed schedule at {},{} ({} entities; UNDO removes it)",
+            origin.x,
+            origin.y,
+            ids.len()
+        ))
     }
 }
 
