@@ -333,6 +333,35 @@ impl Polyline {
         let factor = 1.0 / (6.0 * a);
         Some(Point2::new(cx * factor, cy * factor))
     }
+
+    /// Whether `p` lies inside the closed ring, by crossing number (ray casting
+    /// along +x). Meaningful only for closed rings; always `false` for < 3
+    /// vertices or an open polyline.
+    ///
+    /// Points exactly on the boundary are not guaranteed either way — the test
+    /// is used to decide room containment, where callers compare centroids that
+    /// sit well inside or well outside, never on the edge.
+    pub fn contains_point(&self, p: Point2) -> bool {
+        if !self.closed || self.vertices.len() < 3 {
+            return false;
+        }
+        let v = &self.vertices;
+        let n = v.len();
+        let mut inside = false;
+        for i in 0..n {
+            let j = (i + 1) % n;
+            let (a, b) = (v[i], v[j]);
+            // Does the edge straddle the horizontal ray through p?
+            if (a.y > p.y) != (b.y > p.y) {
+                // x of the edge at height p.y.
+                let t = (p.y - a.y) / (b.y - a.y);
+                if p.x < a.x + t * (b.x - a.x) {
+                    inside = !inside;
+                }
+            }
+        }
+        inside
+    }
 }
 
 #[cfg(test)]
@@ -384,5 +413,51 @@ mod tests {
         assert!((rect.perimeter() - 14.0).abs() < 1e-9);
         let c = rect.centroid().unwrap();
         assert!((c.x - 2.0).abs() < 1e-9 && (c.y - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn contains_point_inside_outside_and_concave() {
+        let rect = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(4.0, 0.0),
+                Point2::new(4.0, 3.0),
+                Point2::new(0.0, 3.0),
+            ],
+            true,
+        );
+        assert!(rect.contains_point(Point2::new(2.0, 1.5)));
+        assert!(!rect.contains_point(Point2::new(5.0, 1.5)));
+        assert!(!rect.contains_point(Point2::new(-1.0, 1.5)));
+        // Collinear with the top edge but beyond it.
+        assert!(!rect.contains_point(Point2::new(2.0, 7.0)));
+
+        // L-shape: the notch must read as outside even though it is within the
+        // bounding box — a bbox test would get this wrong.
+        let ell = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(4.0, 0.0),
+                Point2::new(4.0, 1.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(1.0, 4.0),
+                Point2::new(0.0, 4.0),
+            ],
+            true,
+        );
+        assert!(ell.contains_point(Point2::new(0.5, 2.0)));
+        assert!(ell.contains_point(Point2::new(3.0, 0.5)));
+        assert!(!ell.contains_point(Point2::new(3.0, 3.0)));
+
+        // Open polylines and degenerate rings are never containing.
+        let open = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(4.0, 0.0),
+                Point2::new(4.0, 3.0),
+            ],
+            false,
+        );
+        assert!(!open.contains_point(Point2::new(3.0, 1.0)));
     }
 }

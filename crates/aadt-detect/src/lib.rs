@@ -11,13 +11,14 @@
 //!    coincident junctions, edges = wall runs), and extract its bounded faces as
 //!    graph-derived rooms ([`WallGraph::faces`]).
 //! 3. **Rooms** — from explicit closed polylines (area, perimeter, centroid) and,
-//!    separately, from the wall graph's faces.
+//!    separately, from the wall graph's faces. [`Detection::merged_rooms`]
+//!    reconciles the two sources for takeoff (explicit wins).
 //! 4. **Classify** — inserts as doors/windows/furniture by block-name pattern,
 //!    circles/structural-layer rectangles as columns/beams; sequential numbering
 //!    and tag points ([`Detection::tags`]).
 //!
 //! Deferred (see `docs/ROADMAP.md`): AI wall-type inference (spec §5.1 step 6) →
-//! **M4**; a merge/dedup policy between explicit and graph-derived rooms.
+//! **M4**.
 //!
 //! The pipeline is pure and order-independent: it reads a [`Document`] and returns a
 //! [`Detection`]; the same input always yields the same output (spec §8).
@@ -253,8 +254,9 @@ pub struct Detection {
     pub rooms: Vec<Room>,
     pub graph: WallGraph,
     /// Rooms derived from the bounded faces of the wall graph (spec §5.1 step 2).
-    /// Kept separate from [`rooms`](Self::rooms) so the two sources are not
-    /// conflated; a merge/dedup policy for takeoff is a follow-up decision.
+    /// Kept separate from [`rooms`](Self::rooms) so the two sources stay
+    /// individually inspectable; [`merged_rooms`](Self::merged_rooms) reconciles
+    /// them into the set a takeoff should count.
     pub graph_rooms: Vec<Room>,
     pub openings: Vec<Opening>,
     pub structural: Vec<Structural>,
@@ -271,6 +273,50 @@ pub struct Tag {
 }
 
 impl Detection {
+    /// The rooms a takeoff should count: explicit polyline rooms, plus every
+    /// graph-derived room that does not describe a space an explicit room
+    /// already covers (spec §5.1 step 2).
+    ///
+    /// **Policy — explicit wins.** A graph room is dropped when its centroid
+    /// lies inside an explicit room, *or* when it encloses an explicit room's
+    /// centroid. The second half matters: walls bounding a suite that is
+    /// subdivided into explicitly drawn rooms yield one large face enclosing
+    /// them all, and counting it would double-count the floor area.
+    ///
+    /// Only walls-only drawings — no explicit polylines — gain rooms here.
+    /// Where an author drew the boundary, their intent is authoritative: the
+    /// polyline follows the finished face, whereas a graph face follows wall
+    /// centerlines and so overstates area by half the wall thickness all round.
+    ///
+    /// Deterministic: explicit rooms keep their order, then surviving graph
+    /// rooms in face order. Ids are reassigned sequentially across the merged
+    /// set so downstream numbering stays stable.
+    pub fn merged_rooms(&self) -> Vec<Room> {
+        let explicit_centroids: Vec<Point2> = self
+            .rooms
+            .iter()
+            .filter_map(|r| r.boundary.centroid())
+            .collect();
+
+        let mut merged: Vec<Room> = self.rooms.clone();
+        for gr in &self.graph_rooms {
+            let covered = gr
+                .boundary
+                .centroid()
+                .is_some_and(|c| self.rooms.iter().any(|r| r.boundary.contains_point(c)))
+                || explicit_centroids
+                    .iter()
+                    .any(|&c| gr.boundary.contains_point(c));
+            if !covered {
+                merged.push(gr.clone());
+            }
+        }
+        for (i, r) in merged.iter_mut().enumerate() {
+            r.id = i;
+        }
+        merged
+    }
+
     /// Tag points for every numbered element, deterministically ordered
     /// (walls, rooms, openings, structural, furniture).
     pub fn tags(&self) -> Vec<Tag> {
@@ -730,6 +776,98 @@ mod tests {
         assert!((det.graph_rooms[0].perimeter - 40.0).abs() < 1e-6);
         // No explicit polyline rooms in this drawing.
         assert!(det.rooms.is_empty());
+    }
+
+    /// The four walls of `derives_room_from_closed_wall_loop`: centerlines on a
+    /// 10×10 square, each wall a pair of faces 0.2 apart.
+    fn closed_wall_square(doc: &mut Document) {
+        line(doc, "A-WALL", 0.0, -0.1, 10.0, -0.1);
+        line(doc, "A-WALL", 0.0, 0.1, 10.0, 0.1);
+        line(doc, "A-WALL", 0.0, 9.9, 10.0, 9.9);
+        line(doc, "A-WALL", 0.0, 10.1, 10.0, 10.1);
+        line(doc, "A-WALL", -0.1, 0.0, -0.1, 10.0);
+        line(doc, "A-WALL", 0.1, 0.0, 0.1, 10.0);
+        line(doc, "A-WALL", 9.9, 0.0, 9.9, 10.0);
+        line(doc, "A-WALL", 10.1, 0.0, 10.1, 10.0);
+    }
+
+    fn room_polyline(doc: &mut Document, x1: f64, y1: f64, x2: f64, y2: f64) {
+        doc.add_geometry(
+            "A-ROOM",
+            Geometry::Polyline(Polyline::new(
+                vec![
+                    Point2::new(x1, y1),
+                    Point2::new(x2, y1),
+                    Point2::new(x2, y2),
+                    Point2::new(x1, y2),
+                ],
+                true,
+            )),
+        );
+    }
+
+    #[test]
+    fn walls_only_drawing_counts_graph_rooms() {
+        let mut doc = Document::new();
+        closed_wall_square(&mut doc);
+        let det = detect(&doc, &DetectionConfig::default());
+        assert!(det.rooms.is_empty());
+
+        // Without a merge the takeoff would report zero floor area here.
+        let merged = det.merged_rooms();
+        assert_eq!(merged.len(), 1);
+        assert!((merged[0].area - 100.0).abs() < 1e-6);
+        assert_eq!(merged[0].id, 0, "ids are reassigned across the merged set");
+    }
+
+    #[test]
+    fn graph_room_enclosing_explicit_rooms_is_dropped() {
+        // Walls bound a 10x10 suite; the author drew the two rooms inside it.
+        // Counting the enclosing face too would double-count the floor.
+        let mut doc = Document::new();
+        closed_wall_square(&mut doc);
+        room_polyline(&mut doc, 0.1, 0.1, 4.9, 9.9);
+        room_polyline(&mut doc, 5.1, 0.1, 9.9, 9.9);
+
+        let det = detect(&doc, &DetectionConfig::default());
+        assert_eq!(det.rooms.len(), 2);
+        assert_eq!(det.graph_rooms.len(), 1);
+
+        let merged = det.merged_rooms();
+        assert_eq!(merged.len(), 2, "the enclosing graph face is dropped");
+        let total: f64 = merged.iter().map(|r| r.area).sum();
+        assert!(
+            total < 100.0,
+            "merged area {total} must not exceed the 100.0 envelope"
+        );
+    }
+
+    #[test]
+    fn graph_room_coincident_with_explicit_room_is_dropped() {
+        // The author traced the same space the walls enclose. Explicit wins:
+        // the polyline follows the finished face, the graph face the centerlines.
+        let mut doc = Document::new();
+        closed_wall_square(&mut doc);
+        room_polyline(&mut doc, 0.1, 0.1, 9.9, 9.9);
+
+        let det = detect(&doc, &DetectionConfig::default());
+        let merged = det.merged_rooms();
+        assert_eq!(merged.len(), 1);
+        assert!(
+            (merged[0].area - 96.04).abs() < 1e-6,
+            "the explicit 9.8x9.8 room survives, not the 100.0 graph face"
+        );
+    }
+
+    #[test]
+    fn merged_rooms_are_deterministic() {
+        let mut doc = Document::new();
+        closed_wall_square(&mut doc);
+        room_polyline(&mut doc, 0.1, 0.1, 4.9, 9.9);
+        let det = detect(&doc, &DetectionConfig::default());
+        let a: Vec<f64> = det.merged_rooms().iter().map(|r| r.area).collect();
+        let b: Vec<f64> = det.merged_rooms().iter().map(|r| r.area).collect();
+        assert_eq!(a, b);
     }
 
     #[test]

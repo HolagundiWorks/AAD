@@ -175,8 +175,10 @@ impl TakeoffTable {
             })
             .collect();
 
+        // Explicit polylines plus non-duplicate graph-derived faces, so a
+        // walls-only drawing still yields floor area. See `Detection::merged_rooms`.
         let rooms = det
-            .rooms
+            .merged_rooms()
             .iter()
             .map(|r| RoomTakeoff {
                 id: r.id,
