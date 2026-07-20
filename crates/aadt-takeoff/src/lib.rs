@@ -20,8 +20,13 @@
 //! updates the table, the link-and-update mechanism spec §5.2 calls the "technical
 //! heart of the product."
 //!
-//! Deferred (see `docs/ROADMAP.md`): true `.xlsx` export and in-drawing schedule
-//! tables → later M3 work; AI schedule formatting / anomaly flagging → M4.
+//! Exports: [`Takeoff::to_csv`] and [`Takeoff::to_xlsx`] (a real OOXML workbook,
+//! written dependency-free by the [`xlsx`] module) carry identical rows.
+//!
+//! Deferred (see `docs/ROADMAP.md`): in-drawing schedule tables → later M3 work;
+//! AI schedule formatting / anomaly flagging → M4.
+
+pub mod xlsx;
 
 use aadt_detect::{detect, Detection, DetectionConfig, OpeningKind, StructuralKind};
 use aadt_model::Document;
@@ -303,6 +308,126 @@ impl TakeoffTable {
         ));
         out
     }
+
+    /// Render the same table as a real `.xlsx` workbook (OOXML, not a renamed
+    /// CSV). Columns and row order match [`to_csv`](Self::to_csv) exactly, and
+    /// numbers carry the same rounding, so the two exports can be reconciled
+    /// cell for cell.
+    ///
+    /// Quantities are written as **numbers**, not text — the point of shipping
+    /// `.xlsx` over CSV is that an estimator can sum a column without a
+    /// text-to-number pass first.
+    ///
+    /// Output is byte-for-byte deterministic (see the `xlsx` module).
+    pub fn to_xlsx(&self) -> Vec<u8> {
+        xlsx::workbook(&[self.sheet()])
+    }
+
+    /// The takeoff as a spreadsheet sheet, shared by `.xlsx` export and the
+    /// in-drawing schedule table.
+    fn sheet(&self) -> xlsx::Sheet {
+        use xlsx::Cell;
+
+        let mut sheet = xlsx::Sheet::new("Takeoff");
+        sheet.push_row(
+            [
+                "category",
+                "ref",
+                "kind",
+                "length",
+                "thickness",
+                "height",
+                "area",
+                "volume",
+                "perimeter",
+                "cost_code",
+            ]
+            .iter()
+            .map(|h| Cell::text(*h))
+            .collect(),
+        );
+
+        let n = |v: f64| Cell::Number(num(v));
+
+        for w in &self.walls {
+            sheet.push_row(vec![
+                Cell::text("WALL"),
+                Cell::Number(w.id.to_string()),
+                Cell::Empty,
+                n(w.length),
+                n(w.thickness),
+                n(w.height),
+                n(w.gross_area),
+                n(w.volume),
+                Cell::Empty,
+                Cell::text(&w.cost_code),
+            ]);
+        }
+        for o in &self.openings {
+            sheet.push_row(vec![
+                Cell::text("OPENING"),
+                Cell::Number(o.number.to_string()),
+                Cell::text(&o.kind),
+                n(o.width),
+                Cell::Empty,
+                n(o.height),
+                n(o.area),
+                Cell::Empty,
+                Cell::Empty,
+                Cell::text(&o.cost_code),
+            ]);
+        }
+        for r in &self.rooms {
+            sheet.push_row(vec![
+                Cell::text("ROOM"),
+                Cell::Number(r.id.to_string()),
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                n(r.area),
+                Cell::Empty,
+                n(r.perimeter),
+                Cell::text(&r.cost_code),
+            ]);
+        }
+        for s in &self.structural {
+            sheet.push_row(vec![
+                Cell::text("STRUCTURAL"),
+                Cell::Number(s.number.to_string()),
+                Cell::text(&s.kind),
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+                Cell::text(&s.cost_code),
+            ]);
+        }
+
+        let total = |label: &str, cells: Vec<(usize, Cell)>| {
+            let mut row = vec![Cell::Empty; 10];
+            row[0] = Cell::text("TOTAL");
+            row[1] = Cell::text(label);
+            for (i, c) in cells {
+                row[i] = c;
+            }
+            row
+        };
+        sheet.push_row(total(
+            "walls-gross",
+            vec![
+                (3, n(self.total_wall_length())),
+                (6, n(self.total_wall_gross_area())),
+                (7, n(self.total_wall_volume())),
+            ],
+        ));
+        sheet.push_row(total("openings", vec![(6, n(self.total_opening_area()))]));
+        sheet.push_row(total("walls-net", vec![(6, n(self.total_wall_net_area()))]));
+        sheet.push_row(total("rooms", vec![(6, n(self.total_room_area()))]));
+        sheet
+    }
 }
 
 /// A takeoff table linked to a document: it recomputes only when the document
@@ -414,6 +539,62 @@ mod tests {
         assert!((table.total_opening_area() - 1.89).abs() < 1e-9);
         assert!((table.total_wall_net_area() - (30.0 - 1.89)).abs() < 1e-9);
         assert!((table.total_room_area() - 12.0).abs() < 1e-9);
+    }
+
+    /// The `.xlsx` and `.csv` exports must never disagree — an estimator who
+    /// opens both should reconcile them cell for cell. This compares the sheet
+    /// grid against the CSV text rather than trusting the two writers to stay
+    /// in step by inspection.
+    #[test]
+    fn xlsx_grid_matches_the_csv_exactly() {
+        let doc = sample_doc();
+        let det = detect(&doc, &DetectionConfig::default());
+        let table = TakeoffTable::from_detection(&det);
+
+        let csv = table.to_csv();
+        let csv_rows: Vec<Vec<&str>> = csv
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.split(',').collect())
+            .collect();
+        let sheet = table.sheet();
+
+        assert_eq!(
+            sheet.rows.len(),
+            csv_rows.len(),
+            "row count differs between xlsx and csv"
+        );
+        for (i, (srow, crow)) in sheet.rows.iter().zip(&csv_rows).enumerate() {
+            assert_eq!(srow.len(), crow.len(), "row {i} has a different width");
+            for (j, (cell, want)) in srow.iter().zip(crow).enumerate() {
+                let got = match cell {
+                    xlsx::Cell::Empty => "",
+                    xlsx::Cell::Text(t) => t.as_str(),
+                    xlsx::Cell::Number(n) => n.as_str(),
+                };
+                assert_eq!(got, *want, "row {i} column {j} differs");
+            }
+        }
+    }
+
+    #[test]
+    fn xlsx_quantities_are_numeric_cells() {
+        // The reason to ship .xlsx rather than CSV: a column must sum without
+        // a text-to-number conversion pass first.
+        let doc = sample_doc();
+        let det = detect(&doc, &DetectionConfig::default());
+        let sheet = TakeoffTable::from_detection(&det).sheet();
+
+        let header = &sheet.rows[0];
+        assert!(
+            matches!(header[6], xlsx::Cell::Text(_)),
+            "header stays text"
+        );
+        let area_col = sheet.rows[1][6].clone();
+        assert!(
+            matches!(area_col, xlsx::Cell::Number(_)),
+            "wall area must be a number cell, got {area_col:?}"
+        );
     }
 
     #[test]

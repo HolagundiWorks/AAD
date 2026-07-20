@@ -4,7 +4,8 @@
 //! shell (`aadt-app`) grows from M1; until then this binary drives the pipeline:
 //!
 //! ```text
-//! aadt takeoff <input.dxf> [--csv <out.csv>]     # one-shot deterministic takeoff
+//! aadt takeoff <input.dxf> [--csv <out.csv>] [--xlsx <out.xlsx>]
+//!                                                 # one-shot deterministic takeoff
 //!              [--min-thickness <n>] [--max-thickness <n>] [--min-overlap <n>]
 //! aadt run <script.aadt>                          # execute a command script
 //! ```
@@ -56,6 +57,7 @@ Usage:
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
+  --xlsx <path>            Write the takeoff as an .xlsx workbook to <path>
   --min-thickness <n>      Minimum wall face offset (default 0.05)
   --max-thickness <n>      Maximum wall face offset (default 1.0)
   --min-overlap <n>        Minimum wall run overlap (default 0.1)
@@ -84,12 +86,14 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
 fn cmd_takeoff(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
     let mut csv_out: Option<String> = None;
+    let mut xlsx_out: Option<String> = None;
     let mut cfg = DetectionConfig::default();
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--csv" => csv_out = Some(expect_value(&mut it, "--csv")?),
+            "--xlsx" => xlsx_out = Some(expect_value(&mut it, "--xlsx")?),
             "--min-thickness" => cfg.min_thickness = parse_num(&mut it, "--min-thickness")?,
             "--max-thickness" => cfg.max_thickness = parse_num(&mut it, "--max-thickness")?,
             "--min-overlap" => cfg.min_overlap = parse_num(&mut it, "--min-overlap")?,
@@ -125,9 +129,17 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
             std::fs::write(path, &csv).map_err(|e| format!("writing {path}: {e}"))?;
             println!("Wrote takeoff to {path}");
         }
-        None => {
+        // Only fall back to stdout when no file output at all was requested,
+        // so `--xlsx` alone does not also dump the CSV to the terminal.
+        None if xlsx_out.is_none() => {
             print!("\n{csv}");
         }
+        None => {}
+    }
+
+    if let Some(path) = &xlsx_out {
+        std::fs::write(path, table.to_xlsx()).map_err(|e| format!("writing {path}: {e}"))?;
+        println!("Wrote takeoff workbook to {path}");
     }
 
     println!(
