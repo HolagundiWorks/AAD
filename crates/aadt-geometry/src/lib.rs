@@ -151,6 +151,23 @@ impl Segment {
         }
     }
 
+    /// Shortest distance from `p` to the segment itself, clamped to the
+    /// endpoints.
+    ///
+    /// Differs from [`perpendicular_distance`](Self::perpendicular_distance),
+    /// which measures to the *infinite* line: a point far beyond a segment's end
+    /// can sit on that line at distance zero while being nowhere near the
+    /// segment.
+    pub fn distance_to_point(self, p: Point2) -> f64 {
+        match self.direction() {
+            Some(d) => {
+                let t = (p - self.a).dot(d).clamp(0.0, self.length());
+                (self.a + d * t).distance(p)
+            }
+            None => p.distance(self.a),
+        }
+    }
+
     /// Perpendicular foot of `p` on the infinite line through this segment.
     pub fn foot_of(self, p: Point2) -> Point2 {
         match self.direction() {
@@ -484,6 +501,23 @@ mod tests {
         assert!((rect.perimeter() - 14.0).abs() < 1e-9);
         let c = rect.centroid().unwrap();
         assert!((c.x - 2.0).abs() < 1e-9 && (c.y - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn distance_to_point_clamps_at_the_endpoints() {
+        let s = Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+        // Alongside the segment: same as the perpendicular distance.
+        assert!((s.distance_to_point(Point2::new(5.0, 3.0)) - 3.0).abs() < 1e-9);
+        // Beyond the end and collinear: on the infinite line, but 5 from the
+        // segment. This is the case perpendicular_distance gets wrong.
+        let past = Point2::new(15.0, 0.0);
+        assert!(s.perpendicular_distance(past).abs() < 1e-9);
+        assert!((s.distance_to_point(past) - 5.0).abs() < 1e-9);
+        // Beyond the start, off-axis: distance to the start point.
+        assert!((s.distance_to_point(Point2::new(-3.0, 4.0)) - 5.0).abs() < 1e-9);
+        // Degenerate segment falls back to point distance.
+        let dot = Segment::new(Point2::new(1.0, 1.0), Point2::new(1.0, 1.0));
+        assert!((dot.distance_to_point(Point2::new(1.0, 4.0)) - 3.0).abs() < 1e-9);
     }
 
     #[test]

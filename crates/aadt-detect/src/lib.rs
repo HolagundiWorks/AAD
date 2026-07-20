@@ -23,6 +23,8 @@
 //! The pipeline is pure and order-independent: it reads a [`Document`] and returns a
 //! [`Detection`]; the same input always yields the same output (spec §8).
 
+pub mod anomaly;
+
 use std::collections::HashSet;
 
 use aadt_geometry::{Point2, Polyline, Segment, LENGTH_EPS};

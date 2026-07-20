@@ -19,6 +19,7 @@ mod commands;
 use std::process::ExitCode;
 
 use aadt_command::{Context, Interpreter};
+use aadt_detect::anomaly::{AnomalyConfig, Severity};
 use aadt_detect::{detect, DetectionConfig};
 use aadt_takeoff::TakeoffTable;
 
@@ -148,7 +149,30 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
         table.total_wall_net_area(),
         table.total_room_area()
     );
+
+    // Advisory only — printed after the numbers so the quantities stay the
+    // headline, but printed at all because a silently wrong takeoff is this
+    // product's worst failure.
+    let flags = detection.anomalies(&AnomalyConfig::default());
+    if !flags.is_empty() {
+        println!("\n{} anomal{} found:", flags.len(), plural(flags.len()));
+        for f in &flags {
+            let mark = match f.severity {
+                Severity::Warning => "warning",
+                Severity::Info => "info",
+            };
+            println!("  [{mark}] {}: {}", f.kind.as_token(), f.message);
+        }
+    }
     Ok(())
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 {
+        "y"
+    } else {
+        "ies"
+    }
 }
 
 fn expect_value(it: &mut std::slice::Iter<'_, String>, flag: &str) -> Result<String, String> {
