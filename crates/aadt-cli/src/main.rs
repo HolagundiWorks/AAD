@@ -8,13 +8,17 @@
 //!                                                 # one-shot deterministic takeoff
 //!              [--min-thickness <n>] [--max-thickness <n>] [--min-overlap <n>]
 //! aadt run <script.aadt>                          # execute a command script
+//! aadt shell                                      # interactive command prompt
 //! ```
 //!
 //! `run` executes a script through the command interpreter (`aadt-command`) with the
 //! drawing built-ins plus `OPEN`/`SAVE`/`TAKEOFF`, mirroring the CAD command-line
-//! convention users already trust (spec §4.2, §4.3, §6.2).
+//! convention users already trust (spec §4.2, §4.3, §6.2). `shell` drives the same
+//! command set interactively through [`aadt_app::Session`] — the GUI-agnostic core a
+//! future desktop front-end will share (see `shell.rs`).
 
 mod commands;
+mod shell;
 
 use std::process::ExitCode;
 
@@ -41,6 +45,7 @@ fn run(args: &[String]) -> Result<(), String> {
     match command.as_str() {
         "takeoff" => cmd_takeoff(rest),
         "run" => cmd_run(rest),
+        "shell" | "repl" => shell::run(),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -55,6 +60,7 @@ AADT — AI-Aided Architecture Design and Takeoff
 Usage:
   aadt takeoff <input.dxf> [options]     One-shot deterministic takeoff
   aadt run <script.aadt>                 Execute a command script
+  aadt shell                             Interactive command prompt (read from stdin)
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
@@ -64,8 +70,10 @@ Takeoff options:
   --min-overlap <n>        Minimum wall run overlap (default 0.1)
   -h, --help               Show this help
 
-Script commands: LINE, LAYER, ERASE, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF
-(and aliases). Lines starting with # or ; are comments.";
+Script commands: LINE, POLYLINE, CIRCLE, ARC, TEXT, INSERT, MOVE, COPY, ERASE,
+LAYER, LAYERS, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF, SCHEDULE (and aliases).
+Lines starting with # or ; are comments. In `shell`, :help / :complete / :quit
+are meta-commands.";
 
 fn cmd_run(args: &[String]) -> Result<(), String> {
     let path = args

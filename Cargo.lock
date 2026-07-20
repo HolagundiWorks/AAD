@@ -27,6 +27,7 @@ dependencies = [
 name = "aadt-cli"
 version = "0.0.0"
 dependencies = [
+ "aadt-app",
  "aadt-command",
  "aadt-detect",
  "aadt-dxf",
@@ -92,6 +93,7 @@ version = "0.0.0"
 name = "aadt-render"
 version = "0.0.0"
 dependencies = [
+ "aadt-geometry",
  "aadt-model",
 ]
 
