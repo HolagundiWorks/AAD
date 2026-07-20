@@ -25,6 +25,9 @@ use std::process::ExitCode;
 use aadt_command::{Context, Interpreter};
 use aadt_detect::anomaly::{AnomalyConfig, Severity};
 use aadt_detect::{detect, DetectionConfig};
+use aadt_docs::{
+    NotesLibrary, NotesStyle, Orientation, PaperSize, QaSeverity, Sheet, SheetReview, TitleBlock,
+};
 use aadt_takeoff::TakeoffTable;
 
 fn main() -> ExitCode {
@@ -47,6 +50,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "run" => cmd_run(rest),
         "shell" | "repl" => shell::run(),
         "render" => cmd_render(rest),
+        "sheet" => cmd_sheet(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -102,6 +106,83 @@ fn cmd_render(_args: &[String]) -> Result<(), String> {
     Err("the `render` command needs the GPU backend; rebuild with `--features gpu`".to_string())
 }
 
+/// Compose a sheet: place a border, a title block, and the notes the drawing's
+/// detected elements call for, then run documentation QA and save (spec §5.3).
+fn cmd_sheet(args: &[String]) -> Result<(), String> {
+    let mut input: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut size = "A1".to_string();
+    let mut tb = TitleBlock::default();
+
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--out" => out = Some(expect_value(&mut it, "--out")?),
+            "--size" => size = expect_value(&mut it, "--size")?,
+            "--project" => tb.project = expect_value(&mut it, "--project")?,
+            "--title" => tb.sheet_title = expect_value(&mut it, "--title")?,
+            "--number" => tb.sheet_number = expect_value(&mut it, "--number")?,
+            "--scale" => tb.scale = expect_value(&mut it, "--scale")?,
+            "--date" => tb.date = expect_value(&mut it, "--date")?,
+            "--by" => tb.drawn_by = expect_value(&mut it, "--by")?,
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => input = Some(other.to_string()),
+        }
+    }
+
+    let input = input.ok_or_else(|| format!("sheet needs an input DXF\n\n{USAGE}"))?;
+    let out = out.ok_or("sheet needs --out <path>")?;
+    let paper =
+        PaperSize::from_name(&size).ok_or_else(|| format!("unknown paper size {size:?}"))?;
+
+    let mut doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
+    println!("Loaded {input} ({} entities)", doc.len());
+
+    // Suggest notes from the original drawing, before the sheet border and title
+    // block add geometry of their own.
+    let det = detect(&doc, &DetectionConfig::default());
+    let notes = NotesLibrary::standard().suggest(&det);
+
+    let sheet = Sheet::new(paper, Orientation::Landscape, 10.0);
+    sheet.place(&mut doc);
+    tb.place_on_sheet(&mut doc, &sheet);
+
+    let (min, max) = sheet.inner();
+    let notes_style = NotesStyle {
+        origin: aadt_geometry::Point2::new(min.x + 5.0, max.y - 5.0),
+        ..Default::default()
+    };
+    aadt_docs::place_notes(&mut doc, &notes, &notes_style);
+
+    // Documentation QA.
+    let review = SheetReview {
+        require_notes: true,
+        note_count: notes.len(),
+        has_border: true,
+    };
+    let findings = review.review(&tb);
+    if findings.is_empty() {
+        println!("QA: complete — ready to issue.");
+    } else {
+        println!("QA: {} finding(s):", findings.len());
+        for f in &findings {
+            let sev = match f.severity {
+                QaSeverity::Blocking => "BLOCKING",
+                QaSeverity::Advisory => "advisory",
+            };
+            println!("  [{sev}] {}", f.message);
+        }
+    }
+
+    aadt_dxf::export_path(&doc, &out).map_err(|e| e.to_string())?;
+    println!(
+        "Wrote sheet to {out} ({} entities, {} notes placed)",
+        doc.len(),
+        notes.len()
+    );
+    Ok(())
+}
+
 const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
@@ -110,6 +191,8 @@ Usage:
   aadt run <script.aadt>                 Execute a command script
   aadt shell                             Interactive command prompt (read from stdin)
   aadt render <input.dxf> --png <out>    Render to a PNG via the GPU canvas (needs --features gpu)
+  aadt sheet <input.dxf> --out <out.dxf> Compose a sheet: border, title block, notes, QA
+      [--size A1] [--project X] [--title Y] [--number A-101] [--scale 1:100] [--date D] [--by NN]
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
