@@ -28,6 +28,7 @@ name = "aadt-cli"
 version = "0.0.0"
 dependencies = [
  "aadt-app",
+ "aadt-collab",
  "aadt-command",
  "aadt-detect",
  "aadt-docs",
@@ -37,6 +38,14 @@ dependencies = [
  "aadt-pdf",
  "aadt-render",
  "aadt-takeoff",
+]
+
+[[package]]
+name = "aadt-collab"
+version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-pdf",
 ]
 
 [[package]]

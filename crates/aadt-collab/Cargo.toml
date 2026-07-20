@@ -1,0 +1,16 @@
+[package]
+name = "aadt-collab"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Cloud collaboration (M8, separate track): a convergent operation log for opt-in real-time multi-user markup."
+
+[dependencies]
+aadt-geometry.workspace = true
+aadt-pdf.workspace = true
+
+[lints]
+workspace = true

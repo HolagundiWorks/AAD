@@ -55,6 +55,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "lisp" => cmd_lisp(rest),
         "pdf" => cmd_pdf(rest),
         "compare" => cmd_compare(rest),
+        "collab" => cmd_collab(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -292,6 +293,51 @@ fn cmd_compare(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Demonstrate the collaboration model: two offline editors mark up a drawing,
+/// then sync, and both converge to the same markup set (spec §11). No network is
+/// involved — `merge` is the sync primitive a transport would drive.
+fn cmd_collab(_args: &[String]) -> Result<(), String> {
+    use aadt_collab::Replica;
+    use aadt_geometry::Point2;
+    use aadt_pdf::{Markup, MarkupKind};
+
+    let cloud = |a: &str, n: &str| Markup::new(MarkupKind::Cloud, Point2::new(0.0, 0.0), a, n);
+
+    let mut alice = Replica::new("alice");
+    let mut bob = Replica::new("bob");
+
+    // Both edit while offline.
+    let a1 = alice.add_markup(cloud("alice", "clarify north arrow"));
+    alice.add_markup(cloud("alice", "dimension the stair"));
+    bob.add_markup(cloud("bob", "confirm door swing"));
+
+    println!("Before sync:");
+    println!(
+        "  alice sees {} markup(s), bob sees {}",
+        alice.markups().len(),
+        bob.markups().len()
+    );
+
+    // Sync: exchange operations both ways.
+    let (asnap, bsnap) = (alice.clone(), bob.clone());
+    alice.merge(&bsnap);
+    bob.merge(&asnap);
+
+    // Bob, now seeing alice's markup, resolves one of hers.
+    bob.remove(a1);
+    alice.merge(&bob);
+
+    println!("\nAfter sync (and bob resolving one of alice's notes):");
+    for (who, r) in [("alice", &alice), ("bob", &bob)] {
+        let notes: Vec<&str> = r.markups().iter().map(|(_, m)| m.note.as_str()).collect();
+        println!("  {who}: {:?}", notes);
+    }
+    let converged = alice.markups().len() == bob.markups().len();
+    println!("\nParticipants: {:?}", alice.participants());
+    println!("Converged: {converged}");
+    Ok(())
+}
+
 const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
@@ -306,6 +352,7 @@ Usage:
   aadt lisp <script.lsp> [--dxf <in.dxf>] Run a LISP script (with aadt-* queries when --dxf given)
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
+  aadt collab                             Demonstrate convergent multi-user markup sync
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)

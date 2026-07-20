@@ -12,6 +12,7 @@ members = [
     "crates/aadt-lisp",
     "crates/aadt-docs",
     "crates/aadt-pdf",
+    "crates/aadt-collab",
     "crates/aadt-app",
     "crates/aadt-cli",
 ]
@@ -39,6 +40,7 @@ aadt-ai = { path = "crates/aadt-ai" }
 aadt-lisp = { path = "crates/aadt-lisp" }
 aadt-docs = { path = "crates/aadt-docs" }
 aadt-pdf = { path = "crates/aadt-pdf" }
+aadt-collab = { path = "crates/aadt-collab" }
 aadt-app = { path = "crates/aadt-app" }
 
 [workspace.lints.rust]

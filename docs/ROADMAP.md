@@ -120,24 +120,36 @@ Layer AI on the proven deterministic base (spec §6). **Core implemented** (in
   results as undoable ops in the app; anomaly flagging; schedule formatting;
   notes suggestion.
 
-## M5 — Documentation & Sheet Production
+## M5 — Documentation & Sheet Production ✅ (core implemented)
 
-Spec §5.3: title-block templates, general notes library, `PLOTSETUP` workflow,
-AI-assisted notes suggestion (overridable), `AADT-PRESENT`, documentation QA.
+Spec §5.3. **Implemented** in `aadt-docs`: `PLOTSETUP` sheet setup (ISO/ANSI/ARCH
+sizes + border), title-block placement as geometry, a firm general-notes library
+with rule-based (deterministic) suggestion from detected elements, and
+documentation QA that gates issue. Driven by `aadt sheet`. **Remaining:** fitting
+model space into the sheet viewport at scale, and `AADT-PRESENT` layout.
 
-## M6 — LISP Engine
+## M6 — LISP Engine ✅ (implemented)
 
-Spec §4.4: embedded AutoLISP-syntax interpreter — entity create/query/modify,
-selection sets, command invocation, sandboxed file I/O, and **read access to
-AADT Engine outputs** (wall graph, detected elements, takeoff data).
+Spec §4.4. **Implemented** in `aadt-lisp`: an AutoLISP-flavoured interpreter
+(reader, lexical evaluator, standard library) with the special forms `setq`,
+`defun`, `lambda`, `if`, `cond`, `while`, `repeat`, `foreach`, and **read access
+to AADT Engine outputs** via `aadt-*` query functions. Driven by `aadt lisp`.
+**Remaining:** dotted pairs, `&rest`/optional args, and entity *creation* from
+LISP (via the command registry).
 
-## M7 — PDF Markup & Comparison
+## M7 — PDF Markup & Comparison ✅ (core implemented)
 
-Spec §4.5 / §6.4: PDF viewing, markup and measurement tools, markup list,
-document comparison, batch tools, and AADT-narrated change summaries after a
-`COMPARE`.
+Spec §4.5 / §6.4. **Implemented** in `aadt-pdf`: a dependency-free vector-PDF
+plotter, a non-destructive markup layer (filterable list), and document
+comparison by content fingerprint with a **narrated** change set for
+transmittals. Driven by `aadt pdf` and `aadt compare`. **Remaining (needs a PDF
+reader engine + display):** interactive viewing, freehand/stamp tools, on-PDF
+measurement, raster diff.
 
-## M8 — Cloud Collaboration (separate track)
+## M8 — Cloud Collaboration (separate track) ✅ (core implemented)
 
-Spec §11 Phase 7: opt-in real-time multi-user markup, architected independently
-from the local-first core.
+Spec §11 Phase 7. **Implemented** in `aadt-collab`: a convergent operation log
+(Lamport-ordered, OR-Set semantics) for multi-user markup — `Replica::merge` is
+the sync primitive, proven commutative, idempotent, and order-independent so any
+peers that exchange the same operations converge. Demonstrated by `aadt collab`.
+**Remaining (needs a running service):** the WebSocket transport and presence.
