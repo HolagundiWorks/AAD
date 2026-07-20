@@ -5,18 +5,20 @@
 //!
 //! - **Import:** `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`, `CIRCLE`,
 //!   `ARC`, `TEXT`, `INSERT` (block references, with their trailing `ATTRIB`
-//!   values), and `BLOCK` definitions from the `BLOCKS` section.
+//!   values), `BLOCK` definitions from the `BLOCKS` section, and `HATCH` /
+//!   linear-aligned `DIMENSION` annotation.
 //! - **Export:** the `BLOCKS` section, then `LINE`, `LWPOLYLINE`, `CIRCLE`,
-//!   `ARC`, `TEXT`, and `INSERT` (+`ATTRIB`).
+//!   `ARC`, `TEXT`, `INSERT` (+`ATTRIB`), `HATCH`, and `DIMENSION`.
 //!
 //! Coordinates use Rust's shortest round-trip float formatting and insert
 //! attributes are written in sorted key order, so an import → export → import cycle
 //! reproduces the document exactly.
 //!
-//! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): the remaining DXF
-//! entity set (hatches and dimensions) grows through M1/M2, and block content is
-//! limited to single-record geometry — a nested `INSERT` inside a block is
-//! skipped rather than mis-parsed. Binary
+//! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): hatches read as a
+//! single polygonal boundary (multi-path/edge geometry is not modeled),
+//! dimensions cover the linear/aligned subset (radial/angular/ordinate are not),
+//! and block content is limited to single-record geometry — a nested `INSERT`
+//! inside a block is skipped rather than mis-parsed. Binary
 //! **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI binding. The
 //! public entry points are stable so a fuller backend (e.g. the `dxf` crate) can
 //! replace the internal parser without touching callers.
@@ -26,7 +28,7 @@ use std::fmt;
 use std::path::Path;
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{Block, Document, Geometry, Insert, Text};
+use aadt_model::{Block, Dimension, DimensionKind, Document, Geometry, Hatch, Insert, Text};
 
 /// Error raised while reading or writing a DXF file.
 #[derive(Debug)]
@@ -97,6 +99,8 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
                 i = import_insert(&mut doc, &records, i);
                 continue;
             }
+            "HATCH" if section == Section::Entities => import_hatch(&mut doc, rec),
+            "DIMENSION" if section == Section::Entities => import_dimension(&mut doc, rec),
             _ if section == Section::Entities => {
                 if let Some((layer, geom)) = simple_geometry(rec) {
                     doc.add_geometry(layer, geom);
@@ -336,6 +340,64 @@ fn add_polyline(doc: &mut Document, layer: String, vertices: Vec<Point2>, closed
     doc.add_entity(layer, Geometry::Polyline(poly), attributes);
 }
 
+/// Import a `HATCH`: pattern name (2), solid flag (70), and the boundary as the
+/// record's `10`/`20` vertex pairs. Real hatches encode multiple boundary paths
+/// with edge-type data; AADT reads the vertices as a single closed boundary,
+/// which covers the common polygonal case and preserves the region for
+/// round-trip. A hatch with fewer than three vertices is skipped.
+fn import_hatch(doc: &mut Document, rec: &Record) {
+    let mut vertices = Vec::new();
+    let mut pending_x: Option<f64> = None;
+    for field in &rec.fields {
+        match field.code {
+            10 => pending_x = field.value.trim().parse::<f64>().ok(),
+            20 => {
+                if let (Some(x), Ok(y)) = (pending_x.take(), field.value.trim().parse::<f64>()) {
+                    vertices.push(Point2::new(x, y));
+                }
+            }
+            _ => {}
+        }
+    }
+    if vertices.len() < 3 {
+        return;
+    }
+    let pattern = rec.string(2).unwrap_or("SOLID").to_string();
+    let mut hatch = Hatch::new(rec.layer(), Polyline::new(vertices, true), pattern);
+    // An explicit 70 flag overrides the name-derived solid guess.
+    if let Some(flag) = rec.int(70) {
+        hatch.solid = flag != 0;
+    }
+    doc.add_hatch(hatch);
+}
+
+/// Import a linear/aligned `DIMENSION`: measured points (13/23, 14/24), text
+/// anchor (11/21), text override (1), stored measurement (42), and type (70).
+/// Type flag bit 0..2 == 1 is aligned; everything else is read as linear.
+/// Radial, angular, and ordinate dimensions are not modeled and are skipped
+/// (no measured points to read in the 13/14 slots).
+fn import_dimension(doc: &mut Document, rec: &Record) {
+    let (Some(x1), Some(y1), Some(x2), Some(y2)) =
+        (rec.float(13), rec.float(23), rec.float(14), rec.float(24))
+    else {
+        return;
+    };
+    let kind = match rec.int(70).map(|f| f & 7) {
+        Some(1) => DimensionKind::Aligned,
+        _ => DimensionKind::Linear,
+    };
+    let anchor = Point2::new(rec.float(11).unwrap_or(0.0), rec.float(21).unwrap_or(0.0));
+    doc.add_dimension(Dimension {
+        layer: rec.layer(),
+        kind,
+        p1: Point2::new(x1, y1),
+        p2: Point2::new(x2, y2),
+        text_anchor: anchor,
+        text: rec.string(1).unwrap_or("").to_string(),
+        measurement: rec.float(42).unwrap_or(0.0),
+    });
+}
+
 /// Import an `INSERT` (block reference) at `start`, gathering any following
 /// `ATTRIB` records (tag → value) up to the `SEQEND` into the entity's attributes.
 /// Returns the index of the next unconsumed record.
@@ -400,8 +462,48 @@ pub fn export_str(doc: &Document) -> String {
     for e in doc.entities() {
         write_geometry(&mut out, &e.layer, &e.geometry, Some(&e.attributes));
     }
+    // Annotation follows the drawn entities, in insertion order.
+    for h in doc.hatches() {
+        write_hatch(&mut out, h);
+    }
+    for d in doc.dimensions() {
+        write_dimension(&mut out, d);
+    }
     out.push_str("0\nENDSEC\n0\nEOF\n");
     out
+}
+
+fn write_hatch(out: &mut String, h: &aadt_model::Hatch) {
+    out.push_str(&format!(
+        "0\nHATCH\n8\n{}\n2\n{}\n70\n{}\n91\n1\n93\n{}\n",
+        h.layer,
+        h.pattern,
+        i32::from(h.solid),
+        h.boundary.vertices.len(),
+    ));
+    for v in &h.boundary.vertices {
+        out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
+    }
+}
+
+fn write_dimension(out: &mut String, d: &Dimension) {
+    let ty = match d.kind {
+        DimensionKind::Linear => 0,
+        DimensionKind::Aligned => 1,
+    };
+    out.push_str(&format!(
+        "0\nDIMENSION\n8\n{}\n70\n{}\n13\n{}\n23\n{}\n14\n{}\n24\n{}\n11\n{}\n21\n{}\n1\n{}\n42\n{}\n",
+        d.layer,
+        ty,
+        d.p1.x,
+        d.p1.y,
+        d.p2.x,
+        d.p2.y,
+        d.text_anchor.x,
+        d.text_anchor.y,
+        d.text,
+        d.measurement,
+    ));
 }
 
 /// Write one geometry as a DXF entity. `attributes` carries `INSERT` block
@@ -890,5 +992,170 @@ EOF
             Geometry::Insert(ins) => assert!(doc.block(&ins.name).is_none()),
             other => panic!("expected insert, got {other:?}"),
         }
+    }
+
+    /// A HATCH (ANSI31 pattern over a triangle) and a linear DIMENSION.
+    const ANNOTATION: &str = "\
+0
+SECTION
+2
+ENTITIES
+0
+HATCH
+8
+A-FLOR
+2
+ANSI31
+70
+0
+91
+1
+93
+3
+10
+0.0
+20
+0.0
+10
+4.0
+20
+0.0
+10
+4.0
+20
+3.0
+0
+DIMENSION
+8
+A-DIMS
+70
+0
+13
+0.0
+23
+0.0
+14
+10.0
+24
+0.0
+11
+5.0
+21
+-1.0
+1
+10.00
+42
+10.0
+0
+ENDSEC
+0
+EOF
+";
+
+    #[test]
+    fn imports_hatch_and_dimension() {
+        let doc = import_str(ANNOTATION).unwrap();
+        // Neither is a placed entity.
+        assert_eq!(doc.len(), 0);
+
+        assert_eq!(doc.hatches().len(), 1);
+        let h = &doc.hatches()[0];
+        assert_eq!(h.layer, "A-FLOR");
+        assert_eq!(h.pattern, "ANSI31");
+        assert!(!h.solid);
+        assert_eq!(h.boundary.vertices.len(), 3);
+        assert!(h.boundary.closed);
+
+        assert_eq!(doc.dimensions().len(), 1);
+        let d = &doc.dimensions()[0];
+        assert_eq!(d.kind, DimensionKind::Linear);
+        assert_eq!(d.p1, Point2::new(0.0, 0.0));
+        assert_eq!(d.p2, Point2::new(10.0, 0.0));
+        assert_eq!(d.text_anchor, Point2::new(5.0, -1.0));
+        assert_eq!(d.text, "10.00");
+        assert!((d.measurement - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn round_trip_preserves_hatch_and_dimension() {
+        let doc1 = import_str(ANNOTATION).unwrap();
+        let doc2 = import_str(&export_str(&doc1)).unwrap();
+        assert_eq!(
+            doc1.hatches(),
+            doc2.hatches(),
+            "hatch changed on round-trip"
+        );
+        assert_eq!(
+            doc1.dimensions(),
+            doc2.dimensions(),
+            "dimension changed on round-trip"
+        );
+    }
+
+    #[test]
+    fn solid_hatch_survives_and_an_undersized_boundary_is_skipped() {
+        let solid = "\
+0
+SECTION
+2
+ENTITIES
+0
+HATCH
+8
+0
+2
+SOLID
+70
+1
+10
+0.0
+20
+0.0
+10
+2.0
+20
+0.0
+10
+1.0
+20
+2.0
+0
+ENDSEC
+0
+EOF
+";
+        let doc = import_str(solid).unwrap();
+        assert_eq!(doc.hatches().len(), 1);
+        assert!(doc.hatches()[0].solid);
+
+        // A two-vertex "hatch" cannot bound a region and is dropped.
+        let degenerate = "\
+0
+SECTION
+2
+ENTITIES
+0
+HATCH
+8
+0
+2
+SOLID
+70
+1
+10
+0.0
+20
+0.0
+10
+2.0
+20
+0.0
+0
+ENDSEC
+0
+EOF
+";
+        let doc2 = import_str(degenerate).unwrap();
+        assert!(doc2.hatches().is_empty(), "under-3-vertex hatch skipped");
     }
 }

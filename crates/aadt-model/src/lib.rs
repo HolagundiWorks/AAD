@@ -118,6 +118,71 @@ impl Block {
     }
 }
 
+/// A hatched or filled region (DXF `HATCH`): a closed boundary plus a fill
+/// pattern.
+///
+/// Held in its own [`Document`] table rather than as a [`Geometry`] variant.
+/// A hatch is annotation — it contributes nothing to wall pairing or takeoff
+/// geometry — and keeping it out of the `Geometry` enum spares every consumer a
+/// match arm it would only ever ignore. Modeled for **round-trip fidelity**:
+/// the boundary and pattern name survive an import → export cycle; full pattern
+/// line geometry and multi-path boundaries are deferred.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Hatch {
+    pub layer: String,
+    /// The (closed) boundary the fill occupies.
+    pub boundary: Polyline,
+    /// Pattern name, e.g. `SOLID`, `ANSI31`. Preserved verbatim.
+    pub pattern: String,
+    /// Whether the fill is solid (DXF group 70).
+    pub solid: bool,
+}
+
+impl Hatch {
+    pub fn new(layer: impl Into<String>, boundary: Polyline, pattern: impl Into<String>) -> Self {
+        let pattern = pattern.into();
+        let solid = pattern.eq_ignore_ascii_case("SOLID");
+        Self {
+            layer: layer.into(),
+            boundary,
+            pattern,
+            solid,
+        }
+    }
+}
+
+/// The measured form of a [`Dimension`]. Linear (axis-aligned / rotated) and
+/// aligned (parallel to the measured points) are the two AADT models today;
+/// radial, angular, and ordinate dimensions are deferred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DimensionKind {
+    Linear,
+    Aligned,
+}
+
+/// A linear or aligned dimension (DXF `DIMENSION`).
+///
+/// Like [`Hatch`], held in its own table for round-trip fidelity rather than as
+/// a drawable primitive: the measured points, the text placement, any text
+/// override, and the stored measurement survive a round-trip. The arrows,
+/// extension lines, and text glyphs a CAD app would draw are the renderer's job,
+/// not the model's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Dimension {
+    pub layer: String,
+    pub kind: DimensionKind,
+    /// First measured point (DXF 13/23).
+    pub p1: Point2,
+    /// Second measured point (DXF 14/24).
+    pub p2: Point2,
+    /// Text midpoint (DXF 11/21).
+    pub text_anchor: Point2,
+    /// Text override (DXF group 1); empty means "use the measured value".
+    pub text: String,
+    /// The stored measurement (DXF group 42).
+    pub measurement: f64,
+}
+
 /// The geometric payload of an entity. A subset of spec §4.1's entity set, growing
 /// through M1/M2.
 #[derive(Debug, Clone, PartialEq)]
@@ -233,6 +298,10 @@ pub struct Document {
     /// Block definitions by name. Held apart from `entities` because a
     /// definition is a template, not something placed in the drawing.
     blocks: HashMap<String, Block>,
+    /// Hatched regions. Annotation, held apart from `entities` (see [`Hatch`]).
+    hatches: Vec<Hatch>,
+    /// Dimensions. Annotation, held apart from `entities` (see [`Dimension`]).
+    dimensions: Vec<Dimension>,
     next_id: u64,
     /// The transaction currently being recorded, if any (set only inside `transact`).
     open: Option<Transaction>,
@@ -494,6 +563,31 @@ impl Document {
         v
     }
 
+    // --- Annotation (hatches, dimensions) ------------------------------------
+
+    /// Add a hatch. **Untracked**, like block definitions and file loads:
+    /// annotation arrives with the drawing rather than as a tracked user edit.
+    pub fn add_hatch(&mut self, hatch: Hatch) {
+        self.hatches.push(hatch);
+        self.revision += 1;
+    }
+
+    /// Hatches in insertion order (deterministic).
+    pub fn hatches(&self) -> &[Hatch] {
+        &self.hatches
+    }
+
+    /// Add a dimension. **Untracked**, for the same reason as [`add_hatch`](Self::add_hatch).
+    pub fn add_dimension(&mut self, dimension: Dimension) {
+        self.dimensions.push(dimension);
+        self.revision += 1;
+    }
+
+    /// Dimensions in insertion order (deterministic).
+    pub fn dimensions(&self) -> &[Dimension] {
+        &self.dimensions
+    }
+
     pub fn len(&self) -> usize {
         self.entities.len()
     }
@@ -536,6 +630,15 @@ impl Document {
                 Geometry::Text(t) => pts.push(t.position),
                 Geometry::Insert(ins) => pts.push(ins.position),
             }
+        }
+        // Annotation lives outside the entity store but still bounds the drawing.
+        for h in &self.hatches {
+            pts.extend(h.boundary.vertices.iter().copied());
+        }
+        for d in &self.dimensions {
+            pts.push(d.p1);
+            pts.push(d.p2);
+            pts.push(d.text_anchor);
         }
         pts
     }
@@ -657,6 +760,64 @@ mod tests {
         let names: Vec<&str> = doc.blocks().iter().map(|b| b.name.as_str()).collect();
         assert_eq!(names, vec!["A", "B"], "listed by name, deduplicated");
         assert_eq!(doc.block("B").unwrap().base, Point2::new(5.0, 5.0));
+    }
+
+    #[test]
+    fn hatches_and_dimensions_live_apart_from_entities() {
+        let mut doc = Document::new();
+        doc.add_geometry("A-WALL", line(0.0, 0.0, 10.0, 0.0));
+
+        let boundary = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(4.0, 0.0),
+                Point2::new(4.0, 3.0),
+                Point2::new(0.0, 3.0),
+            ],
+            true,
+        );
+        doc.add_hatch(Hatch::new("A-FLOR", boundary, "ANSI31"));
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".into(),
+            kind: DimensionKind::Linear,
+            p1: Point2::new(0.0, 0.0),
+            p2: Point2::new(10.0, 0.0),
+            text_anchor: Point2::new(5.0, -1.0),
+            text: String::new(),
+            measurement: 10.0,
+        });
+
+        // Annotation is not an entity: the drawing still holds just the wall.
+        assert_eq!(doc.len(), 1);
+        assert_eq!(doc.hatches().len(), 1);
+        assert_eq!(doc.dimensions().len(), 1);
+        assert!(!doc.hatches()[0].solid, "ANSI31 is a pattern, not solid");
+
+        // But annotation still bounds the drawing (points feed zoom-to-extents).
+        let pts = doc.points();
+        assert!(pts.iter().any(|p| p.x == 4.0 && p.y == 3.0), "hatch corner");
+        assert!(
+            pts.iter().any(|p| (p.y + 1.0).abs() < 1e-9),
+            "dim text anchor"
+        );
+    }
+
+    #[test]
+    fn hatch_solid_flag_follows_the_pattern_name() {
+        let sq = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+            ],
+            true,
+        );
+        assert!(Hatch::new("0", sq.clone(), "SOLID").solid);
+        assert!(
+            Hatch::new("0", sq.clone(), "solid").solid,
+            "case-insensitive"
+        );
+        assert!(!Hatch::new("0", sq, "ANSI31").solid);
     }
 
     #[test]
