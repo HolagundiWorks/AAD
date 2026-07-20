@@ -16,9 +16,14 @@
 //! - **Requires a running model, not unit-tested here:** [`OllamaClient`], a thin
 //!   dependency-free HTTP client to `localhost:11434` over `std::net`.
 //!
-//! The full lifecycle (subprocess spawn / warm-idle / auto-unload, spec §6.1) and
-//! other AI actions (anomaly flagging, schedule formatting, notes suggestion) build
-//! on this surface in later M4 work.
+//! The process lifecycle (spawn / warm-idle / auto-unload, spec §6.1) lives in
+//! [`lifecycle`]: its policy is fully tested against an injected clock and a fake
+//! process, and auto-unload is poll-driven so nothing runs in the background.
+//!
+//! Other AI actions (anomaly flagging, schedule formatting, notes suggestion)
+//! build on this surface in later M4 work.
+
+pub mod lifecycle;
 
 use std::fmt;
 
