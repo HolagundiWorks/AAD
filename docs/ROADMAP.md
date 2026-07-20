@@ -83,8 +83,10 @@ Spec §5.1 steps 3–5, deterministic. **Mostly implemented:**
   furniture (block-name patterns) — all via `ClassifyConfig`. See `aadt-detect`.
 - ✅ Sequential numbering per category; tag points at element centroid/insertion
   (`Detection::tags`).
-- **Remaining:** room derivation as minimal cycles of the wall graph (beyond
-  M0's explicit closed polylines); block/insert support in the interactive UI.
+- ✅ Room derivation from the wall graph's bounded faces (`WallGraph::faces`,
+  `Detection::graph_rooms`), alongside M0's explicit closed polylines.
+- **Remaining:** a merge/dedup policy between explicit and graph-derived rooms;
+  block/insert support in the interactive UI.
 
 ## M3 — Takeoff & Quantity Engine
 

@@ -1,26 +1,28 @@
 //! # aadt-detect — Element Detection & Classification (flagship, spec §5.1)
 //!
 //! A geometry/topology pipeline, **deterministic by construction** — precision here
-//! is what makes downstream takeoff numbers trustworthy (spec §5.1). M0 implements
-//! the deterministic core of steps 1–2:
+//! is what makes downstream takeoff numbers trustworthy (spec §5.1):
 //!
 //! 1. **Detect walls** — pair parallel `LINE` faces at a consistent offset within a
 //!    configurable thickness range and with sufficient overlap; each pair yields a
 //!    wall with a centerline, thickness, and length. Layer-name hints (e.g.
 //!    `A-WALL`) raise confidence but are not required.
 //! 2. **Resolve topology** — merge wall endpoints into a [`WallGraph`] (nodes =
-//!    coincident junctions, edges = wall runs).
-//! 3. **Rooms** — extract closed polylines as room boundaries (area, perimeter,
-//!    centroid).
+//!    coincident junctions, edges = wall runs), and extract its bounded faces as
+//!    graph-derived rooms ([`WallGraph::faces`]).
+//! 3. **Rooms** — from explicit closed polylines (area, perimeter, centroid) and,
+//!    separately, from the wall graph's faces.
+//! 4. **Classify** — inserts as doors/windows/furniture by block-name pattern,
+//!    circles/structural-layer rectangles as columns/beams; sequential numbering
+//!    and tag points ([`Detection::tags`]).
 //!
-//! Deferred (see `docs/ROADMAP.md`):
-//! - Openings, structural elements, furniture, tagging, and numbering (spec §5.1
-//!   steps 3–5) → **M2**.
-//! - Deriving rooms as minimal cycles of the wall graph, and AI wall-type inference
-//!   (spec §5.1 step 6) → **M2 / M4**. M0 takes rooms from explicit closed polylines.
+//! Deferred (see `docs/ROADMAP.md`): AI wall-type inference (spec §5.1 step 6) →
+//! **M4**; a merge/dedup policy between explicit and graph-derived rooms.
 //!
 //! The pipeline is pure and order-independent: it reads a [`Document`] and returns a
 //! [`Detection`]; the same input always yields the same output (spec §8).
+
+use std::collections::HashSet;
 
 use aadt_geometry::{Point2, Polyline, Segment, LENGTH_EPS};
 use aadt_model::{Document, EntityId, Geometry};
@@ -119,6 +121,84 @@ pub struct WallGraph {
     pub edges: Vec<(usize, usize, usize)>,
 }
 
+impl WallGraph {
+    /// Extract the bounded interior faces of the planar wall graph as cycles of
+    /// node indices (spec §5.1 step 2: the wall graph yields room boundaries).
+    ///
+    /// Uses the standard next-half-edge traversal: at each node the incident edges
+    /// are sorted by angle, and a face is traced by always taking the next edge
+    /// clockwise from the reverse of the arriving edge. Every directed half-edge
+    /// belongs to exactly one traced face; the single unbounded outer face is
+    /// discarded by keeping only clockwise (negative-signed-area) cycles.
+    pub fn faces(&self) -> Vec<Vec<usize>> {
+        let n = self.nodes.len();
+        if n == 0 {
+            return Vec::new();
+        }
+
+        // Adjacency, each neighbour list sorted counter-clockwise by angle.
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for &(a, b, _) in &self.edges {
+            if a != b {
+                adj[a].push(b);
+                adj[b].push(a);
+            }
+        }
+        for (v, list) in adj.iter_mut().enumerate() {
+            let vp = self.nodes[v];
+            list.sort_by(|&x, &y| {
+                let ax = (self.nodes[x].y - vp.y).atan2(self.nodes[x].x - vp.x);
+                let ay = (self.nodes[y].y - vp.y).atan2(self.nodes[y].x - vp.x);
+                ax.total_cmp(&ay)
+            });
+            list.dedup();
+        }
+
+        let position = |v: usize, u: usize| adj[v].iter().position(|&w| w == u);
+
+        let mut visited: HashSet<(usize, usize)> = HashSet::new();
+        let mut raw_faces: Vec<Vec<usize>> = Vec::new();
+        let safety_cap = self.edges.len() * 4 + 8;
+
+        for &(a, b, _) in &self.edges {
+            for &(sa, sb) in &[(a, b), (b, a)] {
+                if visited.contains(&(sa, sb)) {
+                    continue;
+                }
+                let (mut u, mut v) = (sa, sb);
+                let mut cycle = Vec::new();
+                loop {
+                    visited.insert((u, v));
+                    cycle.push(u);
+                    let Some(k) = position(v, u) else { break };
+                    let m = adj[v].len();
+                    let w = adj[v][(k + m - 1) % m];
+                    u = v;
+                    v = w;
+                    if (u, v) == (sa, sb) {
+                        break;
+                    }
+                    if cycle.len() > safety_cap {
+                        break;
+                    }
+                }
+                if cycle.len() >= 3 {
+                    raw_faces.push(cycle);
+                }
+            }
+        }
+
+        // Keep clockwise cycles (negative signed area) — the bounded interior faces.
+        raw_faces
+            .into_iter()
+            .filter(|cycle| {
+                let verts: Vec<Point2> = cycle.iter().map(|&i| self.nodes[i]).collect();
+                Polyline::new(verts, true).signed_area() < -LENGTH_EPS
+            })
+            .collect()
+    }
+}
+
 /// The kind of a detected opening.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpeningKind {
@@ -169,8 +249,13 @@ pub struct Furniture {
 #[derive(Debug, Clone, Default)]
 pub struct Detection {
     pub walls: Vec<Wall>,
+    /// Rooms from explicit closed polylines in the drawing.
     pub rooms: Vec<Room>,
     pub graph: WallGraph,
+    /// Rooms derived from the bounded faces of the wall graph (spec §5.1 step 2).
+    /// Kept separate from [`rooms`](Self::rooms) so the two sources are not
+    /// conflated; a merge/dedup policy for takeoff is a follow-up decision.
+    pub graph_rooms: Vec<Room>,
     pub openings: Vec<Opening>,
     pub structural: Vec<Structural>,
     pub furniture: Vec<Furniture>,
@@ -239,15 +324,44 @@ pub fn detect(doc: &Document, cfg: &DetectionConfig) -> Detection {
     let walls = detect_walls(doc, cfg);
     let rooms = detect_rooms(doc);
     let graph = build_graph(&walls, cfg);
+    let graph_rooms = derive_graph_rooms(&graph);
     let (openings, structural, furniture) = classify(doc, &cfg.classify);
     Detection {
         walls,
         rooms,
         graph,
+        graph_rooms,
         openings,
         structural,
         furniture,
     }
+}
+
+/// Build rooms from the bounded faces of the wall graph. Graph-derived rooms carry
+/// no source entity or layer, so `source` is a sentinel and `layer` is empty.
+fn derive_graph_rooms(graph: &WallGraph) -> Vec<Room> {
+    graph
+        .faces()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, cycle)| {
+            let verts: Vec<Point2> = cycle.iter().map(|&idx| graph.nodes[idx]).collect();
+            let boundary = Polyline::new(verts, true);
+            let area = boundary.area();
+            if area <= LENGTH_EPS {
+                return None;
+            }
+            let perimeter = boundary.perimeter();
+            Some(Room {
+                id: i,
+                boundary,
+                area,
+                perimeter,
+                layer: String::new(),
+                source: EntityId(u64::MAX),
+            })
+        })
+        .collect()
 }
 
 /// Classify block inserts (doors/windows/furniture) and structural geometry
@@ -587,6 +701,46 @@ mod tests {
         assert_eq!(det.structural.len(), 2);
         assert_eq!(det.structural[0].kind, StructuralKind::Column);
         assert_eq!(det.structural[1].kind, StructuralKind::Beam);
+    }
+
+    #[test]
+    fn derives_room_from_closed_wall_loop() {
+        // Four walls whose centerlines meet at the corners of a 10×10 square.
+        // Each wall is a pair of faces 0.2 apart straddling the centerline.
+        let mut doc = Document::new();
+        // Bottom (centerline y=0), top (y=10), left (x=0), right (x=10).
+        line(&mut doc, "A-WALL", 0.0, -0.1, 10.0, -0.1);
+        line(&mut doc, "A-WALL", 0.0, 0.1, 10.0, 0.1);
+        line(&mut doc, "A-WALL", 0.0, 9.9, 10.0, 9.9);
+        line(&mut doc, "A-WALL", 0.0, 10.1, 10.0, 10.1);
+        line(&mut doc, "A-WALL", -0.1, 0.0, -0.1, 10.0);
+        line(&mut doc, "A-WALL", 0.1, 0.0, 0.1, 10.0);
+        line(&mut doc, "A-WALL", 9.9, 0.0, 9.9, 10.0);
+        line(&mut doc, "A-WALL", 10.1, 0.0, 10.1, 10.0);
+
+        let det = detect(&doc, &DetectionConfig::default());
+        assert_eq!(det.walls.len(), 4, "expected four walls");
+        assert_eq!(
+            det.graph.nodes.len(),
+            4,
+            "centerlines should share four corners"
+        );
+        assert_eq!(det.graph_rooms.len(), 1, "one enclosed room");
+        assert!((det.graph_rooms[0].area - 100.0).abs() < 1e-6);
+        assert!((det.graph_rooms[0].perimeter - 40.0).abs() < 1e-6);
+        // No explicit polyline rooms in this drawing.
+        assert!(det.rooms.is_empty());
+    }
+
+    #[test]
+    fn no_graph_rooms_when_walls_do_not_close() {
+        let mut doc = Document::new();
+        // Two disjoint walls -> no cycle.
+        line(&mut doc, "A-WALL", 0.0, 0.0, 10.0, 0.0);
+        line(&mut doc, "A-WALL", 0.0, 0.2, 10.0, 0.2);
+        let det = detect(&doc, &DetectionConfig::default());
+        assert_eq!(det.walls.len(), 1);
+        assert!(det.graph_rooms.is_empty());
     }
 
     #[test]
