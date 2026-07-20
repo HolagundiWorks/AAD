@@ -426,27 +426,22 @@ impl Command for MoveCmd {
         &["M"]
     }
     fn help(&self) -> &str {
-        "MOVE id dx dy — translate an entity (issues a new id; UNDO restores)"
+        "MOVE id dx dy — translate an entity in place, keeping its id (UNDO restores)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let raw = args.first().ok_or("MOVE: missing entity id")?;
         let id = parse_entity_id(raw, "MOVE")?;
         let dx = parse_f64(args, 1, "MOVE")?;
         let dy = parse_f64(args, 2, "MOVE")?;
-        // The model exposes add/remove but no in-place edit (it is Track A's, and
-        // consumed read-only here), so a move is a remove + re-add inside one
-        // transaction. Undo/redo stay atomic; the entity is re-issued a fresh id.
-        let existing = ctx
-            .doc
-            .get(id)
-            .ok_or_else(|| format!("MOVE: no entity with id {}", id.0))?;
-        let layer = existing.layer.clone();
-        let moved = translate_geometry(&existing.geometry, dx, dy);
-        let new_id = ctx.doc.transact("MOVE", |d| {
-            d.remove_entity(id);
-            d.add_geometry(layer, moved)
-        });
-        Ok(format!("moved entity {} to new id {}", id.0, new_id.0))
+        // `translate_entity` records a single undoable in-place edit that
+        // preserves the entity's id, layer, and attributes — no remove+re-add,
+        // so any reference to the id survives a move. Returns false for no such id.
+        let moved = ctx.doc.transact("MOVE", |d| d.translate_entity(id, dx, dy));
+        if moved {
+            Ok(format!("moved entity {}", id.0))
+        } else {
+            Err(format!("MOVE: no entity with id {}", id.0))
+        }
     }
 }
 
@@ -746,26 +741,32 @@ mod tests {
     }
 
     #[test]
-    fn move_is_atomic_and_undoable() {
+    fn move_keeps_the_id_and_is_undoable() {
         let interp = Interpreter::with_builtins();
         let mut ctx = Context::new();
         interp.eval_line(&mut ctx, "CIRCLE 0 0 1 L").unwrap();
-        let old_id = ctx.doc.entities()[0].id;
+        let id = ctx.doc.entities()[0].id;
 
         let msg = interp.eval_line(&mut ctx, "MOVE 0 10 5").unwrap().unwrap();
-        assert!(msg.contains("new id"), "got {msg:?}");
+        assert!(
+            !msg.contains("new id"),
+            "id is preserved, not re-minted: {msg:?}"
+        );
         assert_eq!(ctx.doc.len(), 1, "move keeps a single entity");
-        assert!(ctx.doc.get(old_id).is_none(), "old id is retired");
-        if let Geometry::Circle(c) = &ctx.doc.entities()[0].geometry {
+
+        // The entity is still reachable under its original id, now translated.
+        let moved = ctx.doc.get(id).expect("id survives the move");
+        if let Geometry::Circle(c) = &moved.geometry {
             assert_eq!(c.center, Point2::new(10.0, 5.0));
         } else {
             panic!("expected a circle");
         }
 
-        // One UNDO reverses the whole move.
+        // One UNDO restores the original geometry under that same id.
         interp.eval_line(&mut ctx, "UNDO").unwrap();
         assert_eq!(ctx.doc.len(), 1);
-        if let Geometry::Circle(c) = &ctx.doc.entities()[0].geometry {
+        let restored = ctx.doc.get(id).expect("id is stable across undo too");
+        if let Geometry::Circle(c) = &restored.geometry {
             assert_eq!(c.center, Point2::new(0.0, 0.0));
         } else {
             panic!("expected a circle");
