@@ -149,6 +149,35 @@ impl Geometry {
             }
         }
     }
+
+    /// This geometry shifted by `(dx, dy)`. A rigid translation: sizes, radii,
+    /// and arc angles are unchanged, only positions move.
+    pub fn translated(&self, dx: f64, dy: f64) -> Geometry {
+        let shift = |p: Point2| Point2::new(p.x + dx, p.y + dy);
+        match self {
+            Geometry::Line(s) => Geometry::Line(Segment::new(shift(s.a), shift(s.b))),
+            Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
+                p.vertices.iter().map(|&v| shift(v)).collect(),
+                p.closed,
+            )),
+            Geometry::Circle(c) => Geometry::Circle(Circle::new(shift(c.center), c.radius)),
+            Geometry::Arc(a) => Geometry::Arc(Arc::new(
+                shift(a.center),
+                a.radius,
+                a.start_angle,
+                a.end_angle,
+            )),
+            Geometry::Text(t) => Geometry::Text(Text::new(
+                t.value.clone(),
+                shift(t.position),
+                t.height,
+                t.rotation,
+            )),
+            Geometry::Insert(i) => {
+                Geometry::Insert(Insert::new(i.name.clone(), shift(i.position), i.rotation))
+            }
+        }
+    }
 }
 
 /// A single drawing entity: geometry plus the layer it lives on and free-form
@@ -178,6 +207,13 @@ enum Op {
     RemoveEntity(Entity),
     /// A new layer was created (undo removes it, redo recreates it).
     AddLayer(String),
+    /// An entity's geometry was replaced in place, its id preserved (undo
+    /// restores `before`, redo reapplies `after`).
+    ReplaceGeometry {
+        id: EntityId,
+        before: Geometry,
+        after: Geometry,
+    },
 }
 
 /// A group of primitive changes committed and undone as one atomic unit.
@@ -300,6 +336,11 @@ impl Document {
             Op::AddLayer(name) => {
                 self.layers.insert(name.clone(), Layer::new(name.clone()));
             }
+            Op::ReplaceGeometry { id, after, .. } => {
+                if let Some(e) = self.entities.get_mut(id) {
+                    e.geometry = after.clone();
+                }
+            }
         }
     }
 
@@ -313,6 +354,11 @@ impl Document {
             }
             Op::AddLayer(name) => {
                 self.layers.remove(name);
+            }
+            Op::ReplaceGeometry { id, before, .. } => {
+                if let Some(e) = self.entities.get_mut(id) {
+                    e.geometry = before.clone();
+                }
             }
         }
     }
@@ -372,6 +418,38 @@ impl Document {
         self.record(Op::RemoveEntity(entity.clone()));
         self.revision += 1;
         Some(entity)
+    }
+
+    /// Replace an entity's geometry in place, keeping its id, layer, and
+    /// attributes. Returns `false` if no entity has that id.
+    ///
+    /// Recorded as a single [`Op::ReplaceGeometry`] so undo/redo is exact — the
+    /// id-preserving alternative to remove-then-add, which would mint a new id
+    /// and break any reference held to the old one.
+    pub fn replace_geometry(&mut self, id: EntityId, geometry: Geometry) -> bool {
+        let Some(entity) = self.entities.get_mut(&id) else {
+            return false;
+        };
+        let before = entity.geometry.clone();
+        entity.geometry = geometry.clone();
+        self.record(Op::ReplaceGeometry {
+            id,
+            before,
+            after: geometry,
+        });
+        self.revision += 1;
+        true
+    }
+
+    /// Translate an entity by `(dx, dy)`, keeping its id. Returns `false` if no
+    /// entity has that id. A convenience over [`replace_geometry`](Self::replace_geometry)
+    /// with a rigid [`Geometry::translated`].
+    pub fn translate_entity(&mut self, id: EntityId, dx: f64, dy: f64) -> bool {
+        let Some(entity) = self.entities.get(&id) else {
+            return false;
+        };
+        let moved = entity.geometry.translated(dx, dy);
+        self.replace_geometry(id, moved)
     }
 
     // --- Query ---------------------------------------------------------------
@@ -481,6 +559,75 @@ mod tests {
         assert_eq!(doc.layer("A-WALL").map(|l| l.name.as_str()), Some("A-WALL"));
         let ids: Vec<EntityId> = doc.entities().iter().map(|e| e.id).collect();
         assert_eq!(ids, vec![a, b]);
+    }
+
+    #[test]
+    fn translate_entity_moves_geometry_and_keeps_the_id() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry("A-WALL", line(0.0, 0.0, 10.0, 0.0));
+
+        let moved = doc.transact("move", |d| d.translate_entity(id, 3.0, 4.0));
+        assert!(moved);
+
+        let e = doc.get(id).expect("id is preserved, not re-minted");
+        match &e.geometry {
+            Geometry::Line(s) => {
+                assert_eq!(s.a, Point2::new(3.0, 4.0));
+                assert_eq!(s.b, Point2::new(13.0, 4.0));
+            }
+            other => panic!("expected line, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn translate_is_one_undoable_step_that_restores_exactly() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry("A-WALL", line(1.0, 1.0, 2.0, 2.0));
+        let original = doc.get(id).unwrap().geometry.clone();
+
+        doc.transact("move", |d| d.translate_entity(id, 5.0, -5.0));
+        assert_ne!(doc.get(id).unwrap().geometry, original);
+
+        doc.undo();
+        assert_eq!(
+            doc.get(id).unwrap().geometry,
+            original,
+            "undo restores the pre-move geometry under the same id"
+        );
+
+        doc.redo();
+        assert_ne!(doc.get(id).unwrap().geometry, original, "redo re-applies");
+    }
+
+    #[test]
+    fn replace_geometry_preserves_layer_and_attributes() {
+        let mut doc = Document::new();
+        let mut attrs = HashMap::new();
+        attrs.insert("width".to_string(), "0.9".to_string());
+        let id = doc.add_entity("A-DOOR", line(0.0, 0.0, 1.0, 0.0), attrs);
+
+        let ok = doc.transact("edit", |d| {
+            d.replace_geometry(
+                id,
+                Geometry::Circle(Circle::new(Point2::new(5.0, 5.0), 2.0)),
+            )
+        });
+        assert!(ok);
+
+        let e = doc.get(id).unwrap();
+        assert!(matches!(e.geometry, Geometry::Circle(_)));
+        assert_eq!(e.layer, "A-DOOR", "layer is untouched");
+        assert_eq!(e.attribute("width"), Some("0.9"), "attributes survive");
+    }
+
+    #[test]
+    fn translate_reports_missing_ids_without_recording() {
+        let mut doc = Document::new();
+        let r0 = doc.revision();
+        let moved = doc.transact("move", |d| d.translate_entity(EntityId(999), 1.0, 1.0));
+        assert!(!moved, "no such entity");
+        assert_eq!(doc.revision(), r0, "a no-op must not bump the revision");
+        assert!(!doc.can_undo(), "and must leave no undo entry");
     }
 
     #[test]
