@@ -25,6 +25,8 @@ aadt-render = { workspace = true, optional = true }
 # The `aadt render` command — GPU canvas → PNG. Off by default so the standard
 # CLI stays std-only; enable with `--features gpu`.
 gpu = ["dep:aadt-render", "aadt-render/gpu"]
+# The `aadt view` command — interactive window. Implies `gpu`.
+gui = ["gpu", "aadt-render/gui"]
 
 [lints]
 workspace = true

@@ -50,10 +50,64 @@ impl std::error::Error for GpuError {}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct Vertex {
+pub(crate) struct Vertex {
     /// Position in normalized device coordinates (−1..1, y up).
     pos: [f32; 2],
     color: [f32; 3],
+}
+
+/// The clear colour shared by the offscreen canvas and the window — a dark
+/// "model space" so the light layer colours read.
+pub(crate) const BACKGROUND: wgpu::Color = wgpu::Color {
+    r: 0.055,
+    g: 0.07,
+    b: 0.09,
+    a: 1.0,
+};
+
+/// Build the line-drawing pipeline. Shared so the offscreen renderer and the
+/// windowed [`view`](crate::view) rasterize through exactly the same shader and
+/// state — the pipeline proven by the offscreen pixel tests.
+pub(crate) fn create_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("aadt-canvas-shader"),
+        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("aadt-canvas-pipeline"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs"),
+            compilation_options: Default::default(),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3],
+            })],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::LineList,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 /// An off-screen `wgpu` canvas. Construct with [`WgpuRenderer::new`], paint with
@@ -116,44 +170,7 @@ impl WgpuRenderer {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("aadt-canvas-shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aadt-canvas-pipeline"),
-            layout: None,
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x3],
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline = create_pipeline(&device, format);
 
         Ok(Self {
             device,
@@ -163,13 +180,7 @@ impl WgpuRenderer {
             pipeline,
             width,
             height,
-            // Dark "model space", so light layer colours read clearly.
-            background: wgpu::Color {
-                r: 0.055,
-                g: 0.07,
-                b: 0.09,
-                a: 1.0,
-            },
+            background: BACKGROUND,
             vertices: Vec::new(),
         })
     }
@@ -257,8 +268,22 @@ impl WgpuRenderer {
 
     /// Flatten a [`DrawList`] into NDC line-segment vertices for one camera.
     fn build_vertices(&self, camera: &Camera, list: &DrawList) -> Vec<Vertex> {
+        build_vertices(camera, list, self.width, self.height)
+    }
+}
+
+/// Flatten a [`DrawList`] into NDC line-segment vertices for a camera and a
+/// `width`×`height` target. Shared by the offscreen canvas and the window, so
+/// both draw pixel-for-pixel the same way.
+pub(crate) fn build_vertices(
+    camera: &Camera,
+    list: &DrawList,
+    width: u32,
+    height: u32,
+) -> Vec<Vertex> {
+    {
         let mut v = Vec::new();
-        let (w, h) = (self.width as f64, self.height as f64);
+        let (w, h) = (width as f64, height as f64);
         // World point → NDC (screen y is down; NDC y is up).
         let ndc = |p: Point2| -> [f32; 2] {
             let (sx, sy) = camera.world_to_screen(p);

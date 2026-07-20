@@ -26,6 +26,9 @@
 
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod interact;
+#[cfg(feature = "gui")]
+pub mod view;
 
 use aadt_geometry::{Bbox, Point2};
 use aadt_model::{Document, Geometry};

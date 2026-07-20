@@ -47,6 +47,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "run" => cmd_run(rest),
         "shell" | "repl" => shell::run(),
         "render" => cmd_render(rest),
+        "view" => cmd_view(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -102,6 +103,29 @@ fn cmd_render(_args: &[String]) -> Result<(), String> {
     Err("the `render` command needs the GPU backend; rebuild with `--features gpu`".to_string())
 }
 
+/// Open the interactive canvas window on a DXF. Built only with `--features gui`.
+#[cfg(feature = "gui")]
+fn cmd_view(args: &[String]) -> Result<(), String> {
+    let input = args
+        .iter()
+        .find(|a| !a.starts_with('-'))
+        .ok_or_else(|| format!("view needs an input DXF\n\n{USAGE}"))?;
+    let doc = aadt_dxf::import_path(input).map_err(|e| e.to_string())?;
+    println!(
+        "Opening {input} ({} entities) — drag to pan, scroll to zoom, F to fit, Esc to quit",
+        doc.len()
+    );
+    aadt_render::view::run(doc).map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "gui"))]
+fn cmd_view(_args: &[String]) -> Result<(), String> {
+    Err(
+        "the `view` command needs the interactive window; rebuild with `--features gui`"
+            .to_string(),
+    )
+}
+
 const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
@@ -110,6 +134,7 @@ Usage:
   aadt run <script.aadt>                 Execute a command script
   aadt shell                             Interactive command prompt (read from stdin)
   aadt render <input.dxf> --png <out>    Render to a PNG via the GPU canvas (needs --features gpu)
+  aadt view <input.dxf>                  Open the interactive canvas window (needs --features gui)
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)

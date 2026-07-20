@@ -12,7 +12,9 @@
 .idea/
 .vscode/
 
-# M0 CLI scratch output
+# CLI scratch output
 /tmp-out.csv
 /out.csv
 /out.xlsx
+/out.png
+/*.png
