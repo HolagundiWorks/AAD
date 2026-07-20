@@ -24,6 +24,9 @@
 //! backend is *another `impl Renderer`*, dropped in when there is a screen to
 //! prove it on.
 
+#[cfg(feature = "gpu")]
+pub mod gpu;
+
 use aadt_geometry::{Bbox, Point2};
 use aadt_model::{Document, Geometry};
 

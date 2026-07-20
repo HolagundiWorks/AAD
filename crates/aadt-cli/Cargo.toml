@@ -19,6 +19,12 @@ aadt-dxf.workspace = true
 aadt-detect.workspace = true
 aadt-takeoff.workspace = true
 aadt-geometry.workspace = true
+aadt-render = { workspace = true, optional = true }
+
+[features]
+# The `aadt render` command — GPU canvas → PNG. Off by default so the standard
+# CLI stays std-only; enable with `--features gpu`.
+gpu = ["dep:aadt-render", "aadt-render/gpu"]
 
 [lints]
 workspace = true

@@ -46,12 +46,60 @@ fn run(args: &[String]) -> Result<(), String> {
         "takeoff" => cmd_takeoff(rest),
         "run" => cmd_run(rest),
         "shell" | "repl" => shell::run(),
+        "render" => cmd_render(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
         }
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
     }
+}
+
+/// Render a DXF to a PNG via the GPU canvas. Built only with `--features gpu`;
+/// without it the command explains how to enable it rather than failing opaquely.
+#[cfg(feature = "gpu")]
+fn cmd_render(args: &[String]) -> Result<(), String> {
+    use aadt_render::gpu::WgpuRenderer;
+    use aadt_render::{build_drawlist, Camera, Renderer};
+
+    let mut input: Option<String> = None;
+    let mut png_out: Option<String> = None;
+    let (mut width, mut height) = (1600u32, 1200u32);
+
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--png" => png_out = Some(expect_value(&mut it, "--png")?),
+            "--width" => width = parse_num(&mut it, "--width")? as u32,
+            "--height" => height = parse_num(&mut it, "--height")? as u32,
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => input = Some(other.to_string()),
+        }
+    }
+
+    let input = input.ok_or_else(|| format!("render needs an input DXF\n\n{USAGE}"))?;
+    let out = png_out.ok_or("render needs --png <path>")?;
+
+    let doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
+    println!("Loaded {input} ({} entities)", doc.len());
+
+    let mut renderer = WgpuRenderer::new(width, height).map_err(|e| e.to_string())?;
+    let mut camera = Camera::new((width as f64, height as f64));
+    camera.fit_document(&doc, 0.08);
+
+    let list = build_drawlist(&doc);
+    renderer.render(&camera, &list);
+    renderer.save_png(&out).map_err(|e| e.to_string())?;
+    println!(
+        "Rendered {} primitives to {out} ({width}x{height})",
+        list.len()
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "gpu"))]
+fn cmd_render(_args: &[String]) -> Result<(), String> {
+    Err("the `render` command needs the GPU backend; rebuild with `--features gpu`".to_string())
 }
 
 const USAGE: &str = "\
@@ -61,6 +109,7 @@ Usage:
   aadt takeoff <input.dxf> [options]     One-shot deterministic takeoff
   aadt run <script.aadt>                 Execute a command script
   aadt shell                             Interactive command prompt (read from stdin)
+  aadt render <input.dxf> --png <out>    Render to a PNG via the GPU canvas (needs --features gpu)
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
