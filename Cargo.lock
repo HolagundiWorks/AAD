@@ -34,6 +34,7 @@ dependencies = [
  "aadt-dxf",
  "aadt-geometry",
  "aadt-lisp",
+ "aadt-pdf",
  "aadt-render",
  "aadt-takeoff",
 ]
@@ -96,6 +97,10 @@ dependencies = [
 [[package]]
 name = "aadt-pdf"
 version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-model",
+]
 
 [[package]]
 name = "aadt-render"

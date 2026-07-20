@@ -53,6 +53,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "view" => cmd_view(rest),
         "sheet" => cmd_sheet(rest),
         "lisp" => cmd_lisp(rest),
+        "pdf" => cmd_pdf(rest),
+        "compare" => cmd_compare(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -248,6 +250,48 @@ fn cmd_lisp(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Plot a DXF to a vector PDF (spec §4.5).
+fn cmd_pdf(args: &[String]) -> Result<(), String> {
+    let mut input: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--out" => out = Some(expect_value(&mut it, "--out")?),
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => input = Some(other.to_string()),
+        }
+    }
+    let input = input.ok_or_else(|| format!("pdf needs an input DXF\n\n{USAGE}"))?;
+    let out = out.ok_or("pdf needs --out <path>")?;
+
+    let doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
+    let bytes = aadt_pdf::plot(&doc, aadt_pdf::PageSize::A3_LANDSCAPE);
+    std::fs::write(&out, &bytes).map_err(|e| format!("writing {out}: {e}"))?;
+    println!(
+        "Plotted {input} ({} entities) to {out} ({} bytes)",
+        doc.len(),
+        bytes.len()
+    );
+    Ok(())
+}
+
+/// Compare two DXF revisions and narrate the change set (spec §6.4).
+fn cmd_compare(args: &[String]) -> Result<(), String> {
+    let files: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
+    let [before, after] = files.as_slice() else {
+        return Err(format!(
+            "compare needs two DXF files: <before> <after>\n\n{USAGE}"
+        ));
+    };
+
+    let b = aadt_dxf::import_path(before).map_err(|e| e.to_string())?;
+    let a = aadt_dxf::import_path(after).map_err(|e| e.to_string())?;
+    println!("Comparing {before} → {after}");
+    print!("{}", aadt_pdf::compare(&b, &a).narrate());
+    Ok(())
+}
+
 const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
@@ -260,6 +304,8 @@ Usage:
   aadt sheet <input.dxf> --out <out.dxf> Compose a sheet: border, title block, notes, QA
       [--size A1] [--project X] [--title Y] [--number A-101] [--scale 1:100] [--date D] [--by NN]
   aadt lisp <script.lsp> [--dxf <in.dxf>] Run a LISP script (with aadt-* queries when --dxf given)
+  aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
+  aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
