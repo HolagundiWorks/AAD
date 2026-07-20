@@ -92,10 +92,17 @@ Target 60fps at 100k+ entities (spec §4.3). Pan/zoom, layer colors, grid.
 `aadt-command` registry. **The command line is the primary interface** (spec:
 command-first, always) — the canvas is a viewport, not a toolbar-driven editor.
 
-### B3. Interactive command set (M1, remaining)
+### B3. Interactive command set (M1, remaining) — *in progress*
 The curated ~60–80 draw/modify/annotate/organize commands, registered through
 the existing registry so every one is scriptable and undoable.
 - Verify: each command exercised headlessly via `aadt run <script>`.
+- ✅ First batch landed in `aadt-command`: draw `CIRCLE`/`ARC`/`RECTANG`/`PLINE`,
+  annotate `TEXT`, modify `COPY`/`MOVE` (plus the existing `LINE`/`LAYER`/`ERASE`
+  /`UNDO`/`REDO`/`LIST`), all with aliases and undoable via `Document::transact`.
+  Tested by script and covered end-to-end by `aadt run`.
+- Follow-ups: `OFFSET`/`MIRROR`/`ROTATE`/`SCALE` need an in-place geometry-update
+  API on `Document` (currently `MOVE` reassigns the entity id via remove+add) —
+  **request to Track A** for an additive `Document::update_geometry(id, geom)`.
 
 ### B4. Tab-completion (M1, remaining)
 Completion over command names and aliases in the interactive prompt.
