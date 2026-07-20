@@ -4,19 +4,19 @@
 //! This crate reads and writes the ASCII DXF entity types AADT currently models:
 //!
 //! - **Import:** `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`, `CIRCLE`,
-//!   `ARC`, `TEXT`, and `INSERT` (block references, with their trailing
-//!   `ATTRIB` values).
-//! - **Export:** `LINE`, `LWPOLYLINE`, `CIRCLE`, `ARC`, `TEXT`, and `INSERT`
-//!   (+`ATTRIB`).
+//!   `ARC`, `TEXT`, `INSERT` (block references, with their trailing `ATTRIB`
+//!   values), and `BLOCK` definitions from the `BLOCKS` section.
+//! - **Export:** the `BLOCKS` section, then `LINE`, `LWPOLYLINE`, `CIRCLE`,
+//!   `ARC`, `TEXT`, and `INSERT` (+`ATTRIB`).
 //!
 //! Coordinates use Rust's shortest round-trip float formatting and insert
 //! attributes are written in sorted key order, so an import → export → import cycle
 //! reproduces the document exactly.
 //!
 //! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): the remaining DXF
-//! entity set (hatches, dimensions, and `BLOCK` definitions) grows through
-//! M1/M2 — an `INSERT` currently references a block by name without the
-//! definition being modelled. Binary
+//! entity set (hatches and dimensions) grows through M1/M2, and block content is
+//! limited to single-record geometry — a nested `INSERT` inside a block is
+//! skipped rather than mis-parsed. Binary
 //! **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI binding. The
 //! public entry points are stable so a fuller backend (e.g. the `dxf` crate) can
 //! replace the internal parser without touching callers.
@@ -26,7 +26,7 @@ use std::fmt;
 use std::path::Path;
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{Document, Geometry, Insert, Text};
+use aadt_model::{Block, Document, Geometry, Insert, Text};
 
 /// Error raised while reading or writing a DXF file.
 #[derive(Debug)]
@@ -68,28 +68,39 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
     let records = split_records(&pairs);
 
     let mut doc = Document::new();
-    let mut in_entities = false;
+    let mut section = Section::None;
 
     let mut i = 0;
     while i < records.len() {
         let rec = &records[i];
         match rec.kind.as_str() {
-            "SECTION" => in_entities = rec.string(2) == Some("ENTITIES"),
-            "ENDSEC" => in_entities = false,
-            "LINE" if in_entities => import_line(&mut doc, rec),
-            "LWPOLYLINE" if in_entities => import_lwpolyline(&mut doc, rec),
-            "CIRCLE" if in_entities => import_circle(&mut doc, rec),
-            "ARC" if in_entities => import_arc(&mut doc, rec),
-            "TEXT" if in_entities => import_text(&mut doc, rec),
-            "POLYLINE" if in_entities => {
+            "SECTION" => {
+                section = match rec.string(2) {
+                    Some("ENTITIES") => Section::Entities,
+                    Some("BLOCKS") => Section::Blocks,
+                    _ => Section::Other,
+                };
+            }
+            "ENDSEC" => section = Section::None,
+            // A BLOCK definition consumes its content up to ENDBLK.
+            "BLOCK" if section == Section::Blocks => {
+                i = import_block(&mut doc, &records, i);
+                continue;
+            }
+            "POLYLINE" if section == Section::Entities => {
                 // Legacy POLYLINE consumes the following VERTEX records up to SEQEND.
                 i = import_polyline(&mut doc, &records, i);
                 continue;
             }
-            "INSERT" if in_entities => {
+            "INSERT" if section == Section::Entities => {
                 // A block reference optionally followed by ATTRIB records + SEQEND.
                 i = import_insert(&mut doc, &records, i);
                 continue;
+            }
+            _ if section == Section::Entities => {
+                if let Some((layer, geom)) = simple_geometry(rec) {
+                    doc.add_geometry(layer, geom);
+                }
             }
             _ => {}
         }
@@ -181,37 +192,111 @@ fn split_records(pairs: &[Pair]) -> Vec<Record> {
     records
 }
 
-fn import_line(doc: &mut Document, rec: &Record) {
-    let (Some(x1), Some(y1), Some(x2), Some(y2)) =
-        (rec.float(10), rec.float(20), rec.float(11), rec.float(21))
-    else {
-        return; // Skip malformed lines rather than aborting the whole import.
-    };
-    let seg = Segment::new(Point2::new(x1, y1), Point2::new(x2, y2));
-    doc.add_geometry(rec.layer(), Geometry::Line(seg));
+/// Which DXF section the parser is currently inside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Section {
+    None,
+    Entities,
+    Blocks,
+    /// A section AADT does not read (HEADER, TABLES, …).
+    Other,
 }
 
-fn import_lwpolyline(doc: &mut Document, rec: &Record) {
-    // Vertices arrive as interleaved 10 (x) / 20 (y) fields, possibly with 42
-    // bulge values between them (ignored). Pair each x with the next y.
-    let mut vertices = Vec::new();
-    let mut pending_x: Option<f64> = None;
-    for field in &rec.fields {
-        match field.code {
-            10 => pending_x = field.value.trim().parse::<f64>().ok(),
-            20 => {
-                if let (Some(x), Ok(y)) = (pending_x.take(), field.value.trim().parse::<f64>()) {
-                    vertices.push(Point2::new(x, y));
+/// Parse a single-record entity (`LINE`, `LWPOLYLINE`, `CIRCLE`, `ARC`, `TEXT`)
+/// into its layer and geometry. Returns `None` for record kinds that are not
+/// single-record geometry — `POLYLINE`/`INSERT` (which span several records) and
+/// everything else. Shared by entity and block-content import so both understand
+/// exactly the same set.
+fn simple_geometry(rec: &Record) -> Option<(String, Geometry)> {
+    let geom = match rec.kind.as_str() {
+        "LINE" => {
+            let (x1, y1, x2, y2) = (
+                rec.float(10)?,
+                rec.float(20)?,
+                rec.float(11)?,
+                rec.float(21)?,
+            );
+            Geometry::Line(Segment::new(Point2::new(x1, y1), Point2::new(x2, y2)))
+        }
+        "LWPOLYLINE" => {
+            let mut vertices = Vec::new();
+            let mut pending_x: Option<f64> = None;
+            for field in &rec.fields {
+                match field.code {
+                    10 => pending_x = field.value.trim().parse::<f64>().ok(),
+                    20 => {
+                        if let (Some(x), Ok(y)) =
+                            (pending_x.take(), field.value.trim().parse::<f64>())
+                        {
+                            vertices.push(Point2::new(x, y));
+                        }
+                    }
+                    _ => {}
                 }
             }
-            _ => {}
+            if vertices.len() < 2 {
+                return None;
+            }
+            let closed = rec.int(70).map(|f| f & 1 == 1).unwrap_or(false);
+            Geometry::Polyline(Polyline::new(vertices, closed))
+        }
+        "CIRCLE" => {
+            let (cx, cy, r) = (rec.float(10)?, rec.float(20)?, rec.float(40)?);
+            Geometry::Circle(Circle::new(Point2::new(cx, cy), r))
+        }
+        "ARC" => {
+            let (cx, cy, r) = (rec.float(10)?, rec.float(20)?, rec.float(40)?);
+            let start = rec.float(50).unwrap_or(0.0);
+            let end = rec.float(51).unwrap_or(360.0);
+            Geometry::Arc(Arc::new(Point2::new(cx, cy), r, start, end))
+        }
+        "TEXT" => {
+            let (x, y) = (rec.float(10)?, rec.float(20)?);
+            let value = rec.string(1).unwrap_or("").to_string();
+            let height = rec.float(40).unwrap_or(0.0);
+            let rotation = rec.float(50).unwrap_or(0.0);
+            Geometry::Text(Text::new(value, Point2::new(x, y), height, rotation))
+        }
+        _ => return None,
+    };
+    Some((rec.layer(), geom))
+}
+
+/// Import a `BLOCK` definition at `start`, consuming its content records up to
+/// (and including) the `ENDBLK`. Returns the index of the next unconsumed record.
+///
+/// Block content is limited to single-record geometry: nested `INSERT`s and
+/// legacy `POLYLINE`s inside a block are skipped rather than mis-parsed, so an
+/// unusual block loses detail but never corrupts the surrounding drawing.
+fn import_block(doc: &mut Document, records: &[Record], start: usize) -> usize {
+    let header = &records[start];
+    let name = header.string(2).unwrap_or("").to_string();
+    let base = Point2::new(
+        header.float(10).unwrap_or(0.0),
+        header.float(20).unwrap_or(0.0),
+    );
+    let mut block = Block::new(name, base);
+
+    let mut j = start + 1;
+    while j < records.len() {
+        match records[j].kind.as_str() {
+            "ENDBLK" => {
+                j += 1;
+                break;
+            }
+            _ => {
+                if let Some((layer, geom)) = simple_geometry(&records[j]) {
+                    block.push(layer, geom);
+                }
+                j += 1;
+            }
         }
     }
-    if vertices.len() < 2 {
-        return;
+    // A block with no name is malformed; keep only named definitions.
+    if !block.name.is_empty() {
+        doc.add_block(block);
     }
-    let closed = rec.int(70).map(|f| f & 1 == 1).unwrap_or(false);
-    add_polyline(doc, rec.layer(), vertices, closed);
+    j
 }
 
 /// Import a legacy `POLYLINE` header at `start`, consuming the following `VERTEX`
@@ -251,46 +336,6 @@ fn add_polyline(doc: &mut Document, layer: String, vertices: Vec<Point2>, closed
     doc.add_entity(layer, Geometry::Polyline(poly), attributes);
 }
 
-fn import_circle(doc: &mut Document, rec: &Record) {
-    let (Some(cx), Some(cy), Some(r)) = (rec.float(10), rec.float(20), rec.float(40)) else {
-        return;
-    };
-    doc.add_geometry(
-        rec.layer(),
-        Geometry::Circle(Circle::new(Point2::new(cx, cy), r)),
-    );
-}
-
-/// Import an `ARC`: centre (10/20), radius (40), start/end angle (50/51) in
-/// degrees counter-clockwise — the same convention [`Arc`] uses.
-fn import_arc(doc: &mut Document, rec: &Record) {
-    let (Some(cx), Some(cy), Some(r)) = (rec.float(10), rec.float(20), rec.float(40)) else {
-        return;
-    };
-    let start = rec.float(50).unwrap_or(0.0);
-    let end = rec.float(51).unwrap_or(360.0);
-    doc.add_geometry(
-        rec.layer(),
-        Geometry::Arc(Arc::new(Point2::new(cx, cy), r, start, end)),
-    );
-}
-
-/// Import a `TEXT`: value (1), insertion point (10/20), height (40), rotation (50).
-/// A text entity with no value is still imported — an empty label is a drafting
-/// mistake to surface, not a record to silently drop.
-fn import_text(doc: &mut Document, rec: &Record) {
-    let (Some(x), Some(y)) = (rec.float(10), rec.float(20)) else {
-        return;
-    };
-    let value = rec.string(1).unwrap_or("").to_string();
-    let height = rec.float(40).unwrap_or(0.0);
-    let rotation = rec.float(50).unwrap_or(0.0);
-    doc.add_geometry(
-        rec.layer(),
-        Geometry::Text(Text::new(value, Point2::new(x, y), height, rotation)),
-    );
-}
-
 /// Import an `INSERT` (block reference) at `start`, gathering any following
 /// `ATTRIB` records (tag → value) up to the `SEQEND` into the entity's attributes.
 /// Returns the index of the next unconsumed record.
@@ -328,73 +373,105 @@ fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize 
 
 // --- Export ------------------------------------------------------------------
 
-/// Serialize a document to DXF text (LINE + LWPOLYLINE). Entities are written in
-/// ascending id order, so output is deterministic.
+/// Serialize a document to DXF text. A `BLOCKS` section (definitions, by name)
+/// precedes the `ENTITIES` section, matching DXF ordering so a reader sees a
+/// block defined before any `INSERT` references it. Everything is written in a
+/// deterministic order (blocks by name, entities by id).
 pub fn export_str(doc: &Document) -> String {
-    let mut out = String::from("0\nSECTION\n2\nENTITIES\n");
-    for e in doc.entities() {
-        match &e.geometry {
-            Geometry::Line(s) => {
-                out.push_str(&format!(
-                    "0\nLINE\n8\n{}\n10\n{}\n20\n{}\n11\n{}\n21\n{}\n",
-                    e.layer, s.a.x, s.a.y, s.b.x, s.b.y
-                ));
+    let mut out = String::new();
+
+    let blocks = doc.blocks();
+    if !blocks.is_empty() {
+        out.push_str("0\nSECTION\n2\nBLOCKS\n");
+        for b in blocks {
+            out.push_str(&format!(
+                "0\nBLOCK\n2\n{}\n10\n{}\n20\n{}\n",
+                b.name, b.base.x, b.base.y
+            ));
+            for be in &b.entities {
+                write_geometry(&mut out, &be.layer, &be.geometry, None);
             }
-            Geometry::Polyline(p) => {
-                out.push_str(&format!(
-                    "0\nLWPOLYLINE\n8\n{}\n90\n{}\n70\n{}\n",
-                    e.layer,
-                    p.vertices.len(),
-                    i32::from(p.closed)
-                ));
-                for v in &p.vertices {
-                    out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
-                }
-            }
-            Geometry::Circle(c) => {
-                out.push_str(&format!(
-                    "0\nCIRCLE\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n",
-                    e.layer, c.center.x, c.center.y, c.radius
-                ));
-            }
-            Geometry::Arc(a) => {
-                out.push_str(&format!(
-                    "0\nARC\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n50\n{}\n51\n{}\n",
-                    e.layer, a.center.x, a.center.y, a.radius, a.start_angle, a.end_angle
-                ));
-            }
-            Geometry::Text(t) => {
-                out.push_str(&format!(
-                    "0\nTEXT\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n1\n{}\n50\n{}\n",
-                    e.layer, t.position.x, t.position.y, t.height, t.value, t.rotation
-                ));
-            }
-            Geometry::Insert(ins) => {
-                // Attributes are emitted in sorted key order so export is
-                // deterministic and round-trips exactly.
-                let has_attrs = !e.attributes.is_empty();
-                out.push_str(&format!(
-                    "0\nINSERT\n8\n{}\n2\n{}\n10\n{}\n20\n{}\n50\n{}\n66\n{}\n",
-                    e.layer,
-                    ins.name,
-                    ins.position.x,
-                    ins.position.y,
-                    ins.rotation,
-                    i32::from(has_attrs),
-                ));
-                if has_attrs {
-                    let mut tags: Vec<(&String, &String)> = e.attributes.iter().collect();
-                    tags.sort_by(|a, b| a.0.cmp(b.0));
-                    for (tag, value) in tags {
-                        out.push_str(&format!("0\nATTRIB\n1\n{value}\n2\n{tag}\n"));
-                    }
-                    out.push_str("0\nSEQEND\n");
-                }
-            }
+            out.push_str("0\nENDBLK\n");
         }
+        out.push_str("0\nENDSEC\n");
+    }
+
+    out.push_str("0\nSECTION\n2\nENTITIES\n");
+    for e in doc.entities() {
+        write_geometry(&mut out, &e.layer, &e.geometry, Some(&e.attributes));
     }
     out.push_str("0\nENDSEC\n0\nEOF\n");
     out
+}
+
+/// Write one geometry as a DXF entity. `attributes` carries `INSERT` block
+/// attributes; block *content* passes `None` since a definition's geometry has
+/// none of its own.
+fn write_geometry(
+    out: &mut String,
+    layer: &str,
+    geometry: &Geometry,
+    attributes: Option<&HashMap<String, String>>,
+) {
+    match geometry {
+        Geometry::Line(s) => {
+            out.push_str(&format!(
+                "0\nLINE\n8\n{}\n10\n{}\n20\n{}\n11\n{}\n21\n{}\n",
+                layer, s.a.x, s.a.y, s.b.x, s.b.y
+            ));
+        }
+        Geometry::Polyline(p) => {
+            out.push_str(&format!(
+                "0\nLWPOLYLINE\n8\n{}\n90\n{}\n70\n{}\n",
+                layer,
+                p.vertices.len(),
+                i32::from(p.closed)
+            ));
+            for v in &p.vertices {
+                out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
+            }
+        }
+        Geometry::Circle(c) => {
+            out.push_str(&format!(
+                "0\nCIRCLE\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n",
+                layer, c.center.x, c.center.y, c.radius
+            ));
+        }
+        Geometry::Arc(a) => {
+            out.push_str(&format!(
+                "0\nARC\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n50\n{}\n51\n{}\n",
+                layer, a.center.x, a.center.y, a.radius, a.start_angle, a.end_angle
+            ));
+        }
+        Geometry::Text(t) => {
+            out.push_str(&format!(
+                "0\nTEXT\n8\n{}\n10\n{}\n20\n{}\n40\n{}\n1\n{}\n50\n{}\n",
+                layer, t.position.x, t.position.y, t.height, t.value, t.rotation
+            ));
+        }
+        Geometry::Insert(ins) => {
+            // Attributes are emitted in sorted key order so export is
+            // deterministic and round-trips exactly.
+            let attrs = attributes.filter(|a| !a.is_empty());
+            out.push_str(&format!(
+                "0\nINSERT\n8\n{}\n2\n{}\n10\n{}\n20\n{}\n50\n{}\n66\n{}\n",
+                layer,
+                ins.name,
+                ins.position.x,
+                ins.position.y,
+                ins.rotation,
+                i32::from(attrs.is_some()),
+            ));
+            if let Some(attrs) = attrs {
+                let mut tags: Vec<(&String, &String)> = attrs.iter().collect();
+                tags.sort_by(|a, b| a.0.cmp(b.0));
+                for (tag, value) in tags {
+                    out.push_str(&format!("0\nATTRIB\n1\n{value}\n2\n{tag}\n"));
+                }
+                out.push_str("0\nSEQEND\n");
+            }
+        }
+    }
 }
 
 /// Write a document to a DXF file on disk.
@@ -696,6 +773,122 @@ EOF
                 e.geometry.segments().is_empty(),
                 "arc/text contributed segments to detection"
             );
+        }
+    }
+
+    /// A BLOCKS section defining a door symbol (a line + an arc swing), then an
+    /// INSERT of it in the ENTITIES section.
+    const WITH_BLOCK: &str = "\
+0
+SECTION
+2
+BLOCKS
+0
+BLOCK
+2
+DOOR-SINGLE
+10
+0.0
+20
+0.0
+0
+LINE
+8
+0
+10
+0.0
+20
+0.0
+11
+0.9
+21
+0.0
+0
+ARC
+8
+0
+10
+0.0
+20
+0.0
+40
+0.9
+50
+0.0
+51
+90.0
+0
+ENDBLK
+0
+ENDSEC
+0
+SECTION
+2
+ENTITIES
+0
+INSERT
+8
+A-DOOR
+2
+DOOR-SINGLE
+10
+5.0
+20
+3.0
+50
+0.0
+66
+0
+0
+ENDSEC
+0
+EOF
+";
+
+    #[test]
+    fn imports_a_block_definition_and_its_insert() {
+        let doc = import_str(WITH_BLOCK).unwrap();
+        // The definition is not an entity — only the INSERT is placed.
+        assert_eq!(doc.len(), 1, "one placed entity (the insert)");
+
+        let block = doc.block("DOOR-SINGLE").expect("block defined");
+        assert_eq!(block.base, Point2::new(0.0, 0.0));
+        assert_eq!(block.entities.len(), 2, "line + arc swing");
+        assert!(matches!(block.entities[0].geometry, Geometry::Line(_)));
+        assert!(matches!(block.entities[1].geometry, Geometry::Arc(_)));
+
+        // The insert resolves to that definition by name.
+        match &doc.entities()[0].geometry {
+            Geometry::Insert(ins) => {
+                assert_eq!(ins.name, "DOOR-SINGLE");
+                assert!(doc.block(&ins.name).is_some(), "insert resolves");
+            }
+            other => panic!("expected insert, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn round_trip_preserves_block_definitions() {
+        let doc1 = import_str(WITH_BLOCK).unwrap();
+        let doc2 = import_str(&export_str(&doc1)).unwrap();
+
+        let e1: Vec<_> = doc1.entities().into_iter().cloned().collect();
+        let e2: Vec<_> = doc2.entities().into_iter().cloned().collect();
+        assert_eq!(e1, e2, "entities changed across block round-trip");
+
+        let b1: Vec<_> = doc1.blocks().into_iter().cloned().collect();
+        let b2: Vec<_> = doc2.blocks().into_iter().cloned().collect();
+        assert_eq!(b1, b2, "block definitions changed across round-trip");
+    }
+
+    #[test]
+    fn an_insert_may_reference_an_undefined_block() {
+        // A DXF exported without its BLOCKS section is common; the insert must
+        // still import, with resolution simply returning None.
+        let doc = import_str(BLOCKS).unwrap();
+        match &doc.entities()[1].geometry {
+            Geometry::Insert(ins) => assert!(doc.block(&ins.name).is_none()),
+            other => panic!("expected insert, got {other:?}"),
         }
     }
 }

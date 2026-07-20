@@ -79,6 +79,45 @@ impl Text {
     }
 }
 
+/// One piece of geometry inside a [`Block`] definition.
+///
+/// Deliberately not an [`Entity`]: entity ids are document-scoped and identify
+/// something placed in the drawing, whereas block content is a template that may
+/// be instantiated many times (or never). Giving template geometry document ids
+/// would imply a placement that does not exist.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockEntity {
+    pub layer: String,
+    pub geometry: Geometry,
+}
+
+/// A named block *definition*: the geometry an [`Insert`] refers to.
+///
+/// Coordinates are relative to `base`, the block's insertion point.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    pub name: String,
+    pub base: Point2,
+    pub entities: Vec<BlockEntity>,
+}
+
+impl Block {
+    pub fn new(name: impl Into<String>, base: Point2) -> Self {
+        Self {
+            name: name.into(),
+            base,
+            entities: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, layer: impl Into<String>, geometry: Geometry) {
+        self.entities.push(BlockEntity {
+            layer: layer.into(),
+            geometry,
+        });
+    }
+}
+
 /// The geometric payload of an entity. A subset of spec §4.1's entity set, growing
 /// through M1/M2.
 #[derive(Debug, Clone, PartialEq)]
@@ -155,6 +194,9 @@ struct Transaction {
 pub struct Document {
     entities: HashMap<EntityId, Entity>,
     layers: HashMap<String, Layer>,
+    /// Block definitions by name. Held apart from `entities` because a
+    /// definition is a template, not something placed in the drawing.
+    blocks: HashMap<String, Block>,
     next_id: u64,
     /// The transaction currently being recorded, if any (set only inside `transact`).
     open: Option<Transaction>,
@@ -346,6 +388,34 @@ impl Document {
         self.layers.values()
     }
 
+    // --- Block definitions ---------------------------------------------------
+
+    /// Define a block, replacing any existing definition of the same name.
+    ///
+    /// **Untracked**, like a file load: block definitions arrive with the
+    /// drawing rather than as a user edit, so they do not flood the undo
+    /// history. An interactive `BLOCK` command would wrap this in a transaction
+    /// of its own once M1 grows one.
+    pub fn add_block(&mut self, block: Block) {
+        self.blocks.insert(block.name.clone(), block);
+        self.revision += 1;
+    }
+
+    /// The definition an [`Insert`] of `name` refers to, if the drawing carries
+    /// one. Inserts may legitimately reference an undefined block — a DXF can be
+    /// exported without its `BLOCKS` section — so callers must handle `None`
+    /// rather than assume resolution succeeds.
+    pub fn block(&self, name: &str) -> Option<&Block> {
+        self.blocks.get(name)
+    }
+
+    /// All block definitions in ascending name order (deterministic).
+    pub fn blocks(&self) -> Vec<&Block> {
+        let mut v: Vec<&Block> = self.blocks.values().collect();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v
+    }
+
     pub fn len(&self) -> usize {
         self.entities.len()
     }
@@ -411,6 +481,35 @@ mod tests {
         assert_eq!(doc.layer("A-WALL").map(|l| l.name.as_str()), Some("A-WALL"));
         let ids: Vec<EntityId> = doc.entities().iter().map(|e| e.id).collect();
         assert_eq!(ids, vec![a, b]);
+    }
+
+    #[test]
+    fn block_definitions_live_apart_from_entities() {
+        let mut doc = Document::new();
+        doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
+
+        let mut block = Block::new("DOOR", Point2::new(0.0, 0.0));
+        block.push("0", line(0.0, 0.0, 0.9, 0.0));
+        doc.add_block(block);
+
+        // A definition is not an entity: the drawing still holds one wall.
+        assert_eq!(doc.len(), 1);
+        assert!(doc.block("DOOR").is_some());
+        assert!(doc.block("MISSING").is_none());
+        assert_eq!(doc.blocks().len(), 1);
+    }
+
+    #[test]
+    fn redefining_a_block_replaces_it_and_lists_sorted() {
+        let mut doc = Document::new();
+        doc.add_block(Block::new("B", Point2::new(0.0, 0.0)));
+        doc.add_block(Block::new("A", Point2::new(0.0, 0.0)));
+        // Redefine B with different base.
+        doc.add_block(Block::new("B", Point2::new(5.0, 5.0)));
+
+        let names: Vec<&str> = doc.blocks().iter().map(|b| b.name.as_str()).collect();
+        assert_eq!(names, vec!["A", "B"], "listed by name, deduplicated");
+        assert_eq!(doc.block("B").unwrap().base, Point2::new(5.0, 5.0));
     }
 
     #[test]
