@@ -12,7 +12,7 @@
 //! never depends on the flagship engine. The registry is also the seam the M6 LISP
 //! engine will register commands through.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment};
 use aadt_model::{Dimension, DimensionKind, Document, EntityId, Geometry, Hatch, Insert, Text};
@@ -147,6 +147,7 @@ pub fn builtins() -> Registry {
     // Organize.
     r.register(Box::new(LayerCmd));
     r.register(Box::new(LayersCmd));
+    r.register(Box::new(PurgeCmd));
     // Annotate.
     r.register(Box::new(DimCmd));
     r.register(Box::new(DimRadiusCmd));
@@ -1307,6 +1308,92 @@ impl Command for ExplodeCmd {
             }
         });
         Ok(format!("exploded entity {} into {count} entities", id.0))
+    }
+}
+
+struct PurgeCmd;
+impl Command for PurgeCmd {
+    fn name(&self) -> &str {
+        "PURGE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["PU"]
+    }
+    fn help(&self) -> &str {
+        "PURGE [LAYERS|BLOCKS|ALL] — remove unused layers and/or block definitions (default ALL)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let (do_layers, do_blocks) = match args.first().map(|s| s.to_ascii_uppercase()) {
+            None => (true, true),
+            Some(a) if a == "ALL" => (true, true),
+            Some(a) if a == "LAYERS" => (true, false),
+            Some(a) if a == "BLOCKS" => (false, true),
+            Some(a) => {
+                return Err(format!(
+                    "PURGE: unknown option {a:?} (LAYERS, BLOCKS, or ALL)"
+                ))
+            }
+        };
+
+        // Gather what is in use. Layer "0" is always kept.
+        let mut used_layers: HashSet<String> = HashSet::from(["0".to_string()]);
+        let mut used_blocks: HashSet<String> = HashSet::new();
+        for e in ctx.doc.entities() {
+            used_layers.insert(e.layer.clone());
+            if let Geometry::Insert(ins) = &e.geometry {
+                used_blocks.insert(ins.name.clone());
+            }
+        }
+        for h in ctx.doc.hatches() {
+            used_layers.insert(h.layer.clone());
+        }
+        for d in ctx.doc.dimensions() {
+            used_layers.insert(d.layer.clone());
+        }
+        // Conservative single pass: a block referenced only by another (even
+        // unused) block is still kept, and block-internal layers count as used.
+        for b in ctx.doc.blocks() {
+            for be in &b.entities {
+                used_layers.insert(be.layer.clone());
+                if let Geometry::Insert(ins) = &be.geometry {
+                    used_blocks.insert(ins.name.clone());
+                }
+            }
+        }
+
+        let layers_to_remove: Vec<String> = if do_layers {
+            ctx.doc
+                .layers()
+                .map(|l| l.name.clone())
+                .filter(|n| !used_layers.contains(n))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let blocks_to_remove: Vec<String> = if do_blocks {
+            ctx.doc
+                .blocks()
+                .iter()
+                .map(|b| b.name.clone())
+                .filter(|n| !used_blocks.contains(n))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let (nl, nb) = (layers_to_remove.len(), blocks_to_remove.len());
+        if nl == 0 && nb == 0 {
+            return Ok("nothing to purge".to_string());
+        }
+        ctx.doc.transact("PURGE", |d| {
+            for n in &layers_to_remove {
+                d.remove_layer(n);
+            }
+            for n in &blocks_to_remove {
+                d.remove_block(n);
+            }
+        });
+        Ok(format!("purged {nl} layer(s) and {nb} block(s)"))
     }
 }
 
@@ -2832,6 +2919,67 @@ mod tests {
         // An open shape (a line) cannot be hatched.
         interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap(); // id 2
         assert!(interp.eval_line(&mut ctx, "HATCH 2").is_err());
+    }
+
+    #[test]
+    fn purge_removes_unused_layers_and_undoes() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0 A-WALL").unwrap(); // uses A-WALL
+        interp
+            .eval_line(&mut ctx, "LAYER A-UNUSED COLOR 4")
+            .unwrap(); // no entities
+        interp.eval_line(&mut ctx, "LAYER A-ALSO OFF").unwrap(); // no entities
+        assert!(ctx.doc.layer("A-UNUSED").is_some());
+
+        let msg = interp.eval_line(&mut ctx, "PURGE LAYERS").unwrap().unwrap();
+        assert!(msg.contains("purged 2 layer(s)"), "{msg:?}");
+        assert!(ctx.doc.layer("A-UNUSED").is_none());
+        assert!(ctx.doc.layer("A-WALL").is_some(), "a used layer is kept");
+
+        // One UNDO restores the purged layers with their state.
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert_eq!(ctx.doc.layer("A-UNUSED").unwrap().color, 4);
+        assert!(!ctx.doc.layer("A-ALSO").unwrap().visible);
+
+        // Purging again with nothing new to drop is a no-op message.
+        interp.eval_line(&mut ctx, "PURGE LAYERS").unwrap();
+        let m = interp.eval_line(&mut ctx, "PURGE LAYERS").unwrap().unwrap();
+        assert!(m.contains("nothing to purge"), "{m:?}");
+        // Bad option errors.
+        assert!(interp.eval_line(&mut ctx, "PURGE FONTS").is_err());
+    }
+
+    #[test]
+    fn purge_removes_unreferenced_blocks() {
+        use aadt_model::Block;
+
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Two block definitions; only DOOR is referenced by an insert.
+        let mut door = Block::new("DOOR", Point2::new(0.0, 0.0));
+        door.push(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        ctx.doc.add_block(door);
+        let mut ghost = Block::new("GHOST", Point2::new(0.0, 0.0));
+        ghost.push(
+            "0",
+            Geometry::Circle(Circle::new(Point2::new(0.0, 0.0), 1.0)),
+        );
+        ctx.doc.add_block(ghost);
+        interp.eval_line(&mut ctx, "INSERT DOOR 5 5").unwrap();
+
+        let msg = interp.eval_line(&mut ctx, "PURGE BLOCKS").unwrap().unwrap();
+        assert!(msg.contains("1 block(s)"), "{msg:?}");
+        assert!(
+            ctx.doc.block("GHOST").is_none(),
+            "unreferenced block removed"
+        );
+        assert!(ctx.doc.block("DOOR").is_some(), "referenced block kept");
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert!(ctx.doc.block("GHOST").is_some(), "undo restores it");
     }
 
     #[test]

@@ -546,6 +546,9 @@ enum Op {
     AddHatch(Hatch),
     /// A dimension was appended (undo pops it, redo re-appends).
     AddDimension(Dimension),
+    /// A block definition was removed (undo re-inserts it, redo removes it) — the
+    /// undoable half of `PURGE`.
+    RemoveBlock(Block),
 }
 
 /// A group of primitive changes committed and undone as one atomic unit.
@@ -689,6 +692,9 @@ impl Document {
             Op::AddDimension(d) => {
                 self.dimensions.push(d.clone());
             }
+            Op::RemoveBlock(b) => {
+                self.blocks.remove(&b.name);
+            }
         }
     }
 
@@ -722,6 +728,9 @@ impl Document {
             }
             Op::AddDimension(_) => {
                 self.dimensions.pop();
+            }
+            Op::RemoveBlock(b) => {
+                self.blocks.insert(b.name.clone(), b.clone());
             }
         }
     }
@@ -820,6 +829,23 @@ impl Document {
     /// record), and a known layer is shown when it is on and not frozen.
     pub fn layer_shown(&self, layer: &str) -> bool {
         self.layers.get(layer).is_none_or(Layer::shown)
+    }
+
+    /// Remove a layer record, returning whether one existed. Undoable via
+    /// [`Op::SetLayer`] (undo restores the layer with its properties). The
+    /// caller is responsible for the layer being unused — this is the primitive
+    /// `PURGE` drives.
+    pub fn remove_layer(&mut self, name: &str) -> bool {
+        let Some(before) = self.layers.remove(name) else {
+            return false;
+        };
+        self.record(Op::SetLayer {
+            name: name.to_string(),
+            before: Some(before),
+            after: None,
+        });
+        self.revision += 1;
+        true
     }
 
     /// Insert geometry on a layer, auto-registering the layer if unseen, and
@@ -988,6 +1014,21 @@ impl Document {
         let mut v: Vec<&Block> = self.blocks.values().collect();
         v.sort_by(|a, b| a.name.cmp(&b.name));
         v
+    }
+
+    /// Remove a block definition, returning it if present. Recorded as an
+    /// undoable [`Op::RemoveBlock`] when a transaction is open (interactive
+    /// `PURGE`); untracked otherwise. The caller ensures no [`Insert`] still
+    /// references it.
+    pub fn remove_block(&mut self, name: &str) -> Option<Block> {
+        let removed = self.blocks.remove(name);
+        if let Some(block) = &removed {
+            if self.open.is_some() {
+                self.record(Op::RemoveBlock(block.clone()));
+            }
+            self.revision += 1;
+        }
+        removed
     }
 
     // --- Annotation (hatches, dimensions) ------------------------------------
@@ -1341,6 +1382,33 @@ mod tests {
         assert_eq!(doc.dimensions().len(), 1);
         doc.undo();
         assert_eq!(doc.dimensions().len(), 0, "undo pops the dimension");
+    }
+
+    #[test]
+    fn remove_layer_and_block_are_undoable() {
+        let mut doc = Document::new();
+        // A layer with non-default state, and a block definition.
+        doc.transact("color", |d| d.set_layer_color("A-GRID", 5));
+        let mut block = Block::new("DOOR", Point2::new(0.0, 0.0));
+        block.push("0", line(0.0, 0.0, 1.0, 0.0));
+        doc.add_block(block);
+
+        // Remove both in one transaction.
+        doc.transact("purge", |d| {
+            assert!(d.remove_layer("A-GRID"));
+            assert!(d.remove_block("DOOR").is_some());
+        });
+        assert!(doc.layer("A-GRID").is_none());
+        assert!(doc.block("DOOR").is_none());
+
+        // One UNDO restores both, the layer with its colour.
+        doc.undo();
+        assert_eq!(doc.layer("A-GRID").unwrap().color, 5, "colour restored");
+        assert!(doc.block("DOOR").is_some(), "block restored");
+
+        // Removing a missing layer/block is a no-op.
+        assert!(!doc.remove_layer("NOPE"));
+        assert!(doc.remove_block("NOPE").is_none());
     }
 
     #[test]
