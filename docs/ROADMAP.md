@@ -61,19 +61,27 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   groups changes into a single undoable unit; bulk machine edits (file load) stay
   untracked. See `aadt-model`.
 - Command interpreter (§4.2): case-insensitive registry with aliases, history,
-  comments, and script execution; drawing built-ins (`LINE`/`LAYER`/`ERASE`/`UNDO`/
-  `REDO`/`LIST`) plus CLI-registered `OPEN`/`SAVE`/`TAKEOFF`. Driven by `aadt run
-  <script>`. See `aadt-command`, `crates/aadt-cli`.
-- **DXF export** and round-trip, plus legacy `POLYLINE`/`VERTEX` import. See
+  comments, tab-completion, and script execution. Draw (`LINE`, `POLYLINE`,
+  `RECTANGLE`, `CIRCLE`, `ARC`, `TEXT`, `INSERT`), modify (`MOVE`, `COPY`,
+  `ROTATE`, `SCALE`, `MIRROR`, `ARRAY`, `EXPLODE`, `ERASE`), organize
+  (`LAYER`/`LAYERS`), inspect (`LIST`, `DIST`, `AREA`), and history
+  (`UNDO`/`REDO`) built-ins, plus CLI-registered `OPEN`/`SAVE`/`TAKEOFF`/
+  `SCHEDULE`. Driven by `aadt run`/`aadt shell`. See `aadt-command`, `aadt-cli`.
+- **Geometry transforms** (rotate/scale/mirror, all id-preserving and undoable)
+  in `aadt-model`, shared by the commands and the LISP bridge.
+- **DXF round-trip** for `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`,
+  `CIRCLE`, `ARC`, `TEXT`, `INSERT`, `BLOCK`, `HATCH`, and `DIMENSION`. See
   `aadt-dxf`.
+- Rendering seam: [`build_drawlist`] flattens all entities (block inserts
+  instantiated), hatch outlines, and dimensions into a backend-agnostic list;
+  the GPU/window backends live behind `--features gpu`/`gui`/`app`.
 
-**Remaining:**
-- Rendering: `wgpu` 2D canvas targeting 60fps on 100k+ entities (§4.3). *(Needs a
-  display; verified interactively rather than headlessly.)*
-- Interactive draw/modify/annotate/organize commands (curated ~60–80 set) and the
-  `aadt-app` shell with an interactive prompt.
-- Tab-completion; remaining DXF entity types (arcs, circles, text, hatch, blocks,
-  dimensions).
+**Remaining (display-bound):**
+- The live `wgpu` 2D canvas at 60fps on 100k+ entities and a custom egui viewport
+  (§4.3) — the drawlist and camera math are proven headlessly; the GPU path needs
+  a screen to verify.
+- Broadening the interactive command set further toward the ~60–80 curated band
+  (offset/trim/fillet, layer color/visibility, more annotate tools).
 
 ## M2 — Element Detection & Classification (deterministic)
 
@@ -85,8 +93,12 @@ Spec §5.1 steps 3–5, deterministic. **Mostly implemented:**
   (`Detection::tags`).
 - ✅ Room derivation from the wall graph's bounded faces (`WallGraph::faces`,
   `Detection::graph_rooms`), alongside M0's explicit closed polylines.
-- **Remaining:** a merge/dedup policy between explicit and graph-derived rooms;
-  block/insert support in the interactive UI.
+- ✅ Merge/dedup policy between explicit and graph-derived rooms
+  (`Detection::merged_rooms`).
+- ✅ Block instantiation in the engine: `Geometry::instanced` bakes a block
+  reference into world-space geometry (the `EXPLODE` command and `aadt-explode`),
+  the same placement the renderer draws.
+- **Remaining (display-bound):** interactive on-canvas block placement/editing.
 
 ## M3 — Takeoff & Quantity Engine
 
