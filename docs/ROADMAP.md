@@ -72,6 +72,9 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
 - **Selection sets** — a current selection (`SELECT ALL|LAYER|WINDOW|ids`) and
   named `GROUP`s; MOVE/COPY/ERASE/ROTATE/SCALE/MIRROR take an id, a group, `ALL`,
   or `SELECTION` and edit the whole set in one undoable transaction.
+- **Dimensions** — linear/aligned plus **angular** (`DIMANGULAR`) and **radius**
+  (`DIMRADIUS`), each undoable, drawn by the renderer, and round-tripped through
+  DXF (type codes 0/1/2/4 + the 15/25 vertex point).
 - **Undoable annotation** — `add_hatch`/`add_dimension` record an
   `Op::AddHatch`/`Op::AddDimension` inside a transaction (interactive `HATCH`/
   `DIM`) and stay untracked on bulk load, so annotations undo/redo and
@@ -99,7 +102,7 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   (§4.3) — the drawlist and camera math are proven headlessly; the GPU path needs
   a screen to verify.
 - Broadening the interactive command set further toward the ~60–80 curated band
-  (LEADER/MTEXT annotate tools, angular/radial dimensions, GROUP/SELECT sets).
+  (LEADER/MTEXT annotate tools, ordinate/diameter dimensions, PURGE, STRETCH).
 
 ## M2 — Element Detection & Classification (deterministic)
 
