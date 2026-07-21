@@ -118,6 +118,7 @@ pub fn builtins() -> Registry {
     // Draw.
     r.register(Box::new(LineCmd));
     r.register(Box::new(PolylineCmd));
+    r.register(Box::new(RectangCmd));
     r.register(Box::new(CircleCmd));
     r.register(Box::new(ArcCmd));
     r.register(Box::new(TextCmd));
@@ -291,6 +292,39 @@ impl Command for PolylineCmd {
             if closed { ", closed" } else { "" },
             id.0
         ))
+    }
+}
+
+struct RectangCmd;
+impl Command for RectangCmd {
+    fn name(&self) -> &str {
+        "RECTANG"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["REC", "RECTANGLE"]
+    }
+    fn help(&self) -> &str {
+        "RECTANG x1 y1 x2 y2 [layer] — add a closed rectangle from two opposite corners"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let x1 = parse_f64(args, 0, "RECTANG")?;
+        let y1 = parse_f64(args, 1, "RECTANG")?;
+        let x2 = parse_f64(args, 2, "RECTANG")?;
+        let y2 = parse_f64(args, 3, "RECTANG")?;
+        if (x2 - x1).abs() <= f64::EPSILON || (y2 - y1).abs() <= f64::EPSILON {
+            return Err("RECTANG: the two corners must span a non-zero area".to_string());
+        }
+        let layer = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
+        let verts = vec![
+            Point2::new(x1, y1),
+            Point2::new(x2, y1),
+            Point2::new(x2, y2),
+            Point2::new(x1, y2),
+        ];
+        let id = ctx.doc.transact("RECTANG", |d| {
+            d.add_geometry(layer, Geometry::Polyline(Polyline::new(verts, true)))
+        });
+        Ok(format!("RECTANG added as entity {}", id.0))
     }
 }
 
@@ -738,6 +772,38 @@ mod tests {
             })
             .unwrap();
         assert_eq!(text, "KITCHEN 12");
+    }
+
+    #[test]
+    fn rectang_adds_a_closed_four_corner_polyline() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "RECTANG 0 0 4 3 A-ROOM")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 1);
+        match &ctx.doc.entities()[0].geometry {
+            Geometry::Polyline(p) => {
+                assert!(p.closed);
+                assert_eq!(
+                    p.vertices,
+                    vec![
+                        Point2::new(0.0, 0.0),
+                        Point2::new(4.0, 0.0),
+                        Point2::new(4.0, 3.0),
+                        Point2::new(0.0, 3.0),
+                    ]
+                );
+            }
+            other => panic!("expected polyline, got {other:?}"),
+        }
+        assert_eq!(ctx.doc.entities()[0].layer, "A-ROOM");
+        // A degenerate rectangle is rejected and leaves no entity.
+        assert!(interp.eval_line(&mut ctx, "RECTANG 0 0 4 0").is_err());
+        assert_eq!(ctx.doc.len(), 1);
+        // The alias resolves.
+        interp.eval_line(&mut ctx, "REC 0 0 1 1").unwrap();
+        assert_eq!(ctx.doc.len(), 2);
     }
 
     #[test]
