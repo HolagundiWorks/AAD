@@ -64,10 +64,14 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   comments, tab-completion, and script execution. Draw (`LINE`, `POLYLINE`,
   `RECTANGLE`, `CIRCLE`, `ARC`, `TEXT`, `INSERT`), modify (`MOVE`, `COPY`,
   `ROTATE`, `SCALE`, `MIRROR`, `OFFSET`, `TRIM`, `EXTEND`, `FILLET`, `CHAMFER`,
-  `ARRAY`, `EXPLODE`, `ERASE`), organize (`LAYER`/`LAYERS`), inspect (`LIST`,
-  `DIST`, `AREA`), and history (`UNDO`/`REDO`) built-ins, plus CLI-registered
-  `OPEN`/`SAVE`/`TAKEOFF`/`SCHEDULE`. Driven by `aadt run`/`aadt shell`. See
-  `aadt-command`, `aadt-cli`.
+  `ARRAY`, `EXPLODE`, `ERASE`), organize (`LAYER`/`LAYERS`), annotate
+  (`DIM`, `HATCH`), inspect (`LIST`, `DIST`, `AREA`), and history
+  (`UNDO`/`REDO`) built-ins, plus CLI-registered `OPEN`/`SAVE`/`TAKEOFF`/
+  `SCHEDULE`. Driven by `aadt run`/`aadt shell`. See `aadt-command`, `aadt-cli`.
+- **Undoable annotation** — `add_hatch`/`add_dimension` record an
+  `Op::AddHatch`/`Op::AddDimension` inside a transaction (interactive `HATCH`/
+  `DIM`) and stay untracked on bulk load, so annotations undo/redo and
+  round-trip through DXF.
 - **Line-editing geometry** — `Vec2::perp`, segment/line and circle/line
   intersection, arc angle containment, and `Geometry::offset` (mitred
   poly-lines) in the kernel. TRIM/EXTEND handle lines, arcs, and open
@@ -91,8 +95,7 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   (§4.3) — the drawlist and camera math are proven headlessly; the GPU path needs
   a screen to verify.
 - Broadening the interactive command set further toward the ~60–80 curated band
-  (in-drawing DIM/HATCH/LEADER annotate tools — these need undoable dimension/
-  hatch ops, since those tables are currently untracked).
+  (LEADER/MTEXT annotate tools, angular/radial dimensions, GROUP/SELECT sets).
 
 ## M2 — Element Detection & Classification (deterministic)
 
