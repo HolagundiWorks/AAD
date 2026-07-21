@@ -279,6 +279,14 @@ enum Op {
         before: Geometry,
         after: Geometry,
     },
+    /// An entity attribute was set or cleared (undo restores `before`, redo
+    /// reapplies `after`); `None` means the key was absent.
+    SetAttribute {
+        id: EntityId,
+        key: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
 }
 
 /// A group of primitive changes committed and undone as one atomic unit.
@@ -410,6 +418,9 @@ impl Document {
                     e.geometry = after.clone();
                 }
             }
+            Op::SetAttribute { id, key, after, .. } => {
+                Self::write_attribute(&mut self.entities, id, key, after.clone());
+            }
         }
     }
 
@@ -427,6 +438,30 @@ impl Document {
             Op::ReplaceGeometry { id, before, .. } => {
                 if let Some(e) = self.entities.get_mut(id) {
                     e.geometry = before.clone();
+                }
+            }
+            Op::SetAttribute {
+                id, key, before, ..
+            } => {
+                Self::write_attribute(&mut self.entities, id, key, before.clone());
+            }
+        }
+    }
+
+    /// Set or clear an entity attribute in the store (`None` clears it).
+    fn write_attribute(
+        entities: &mut HashMap<EntityId, Entity>,
+        id: &EntityId,
+        key: &str,
+        value: Option<String>,
+    ) {
+        if let Some(e) = entities.get_mut(id) {
+            match value {
+                Some(v) => {
+                    e.attributes.insert(key.to_string(), v);
+                }
+                None => {
+                    e.attributes.remove(key);
                 }
             }
         }
@@ -519,6 +554,33 @@ impl Document {
         };
         let moved = entity.geometry.translated(dx, dy);
         self.replace_geometry(id, moved)
+    }
+
+    /// Set an entity attribute, keeping its id and geometry. Returns `false` if
+    /// no entity has that id, or if the value already equals `value` (a no-op is
+    /// not recorded, so re-applying the same metadata leaves no undo entry).
+    ///
+    /// Recorded as a single [`Op::SetAttribute`] so undo restores exactly the
+    /// prior value — the mechanism AI-derived metadata (wall types, flags) is
+    /// applied through, non-destructively and reversibly (spec §6.1).
+    pub fn set_attribute(&mut self, id: EntityId, key: &str, value: impl Into<String>) -> bool {
+        let value = value.into();
+        let Some(entity) = self.entities.get_mut(&id) else {
+            return false;
+        };
+        let before = entity.attributes.get(key).cloned();
+        if before.as_deref() == Some(value.as_str()) {
+            return false; // unchanged
+        }
+        entity.attributes.insert(key.to_string(), value.clone());
+        self.record(Op::SetAttribute {
+            id,
+            key: key.to_string(),
+            before,
+            after: Some(value),
+        });
+        self.revision += 1;
+        true
     }
 
     // --- Query ---------------------------------------------------------------
@@ -721,6 +783,66 @@ mod tests {
         assert!(matches!(e.geometry, Geometry::Circle(_)));
         assert_eq!(e.layer, "A-DOOR", "layer is untouched");
         assert_eq!(e.attribute("width"), Some("0.9"), "attributes survive");
+    }
+
+    #[test]
+    fn set_attribute_is_recorded_and_exactly_undone() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry("A-WALL", line(0.0, 0.0, 10.0, 0.0));
+
+        let set = doc.transact("classify", |d| {
+            d.set_attribute(id, "wall-type", "structural")
+        });
+        assert!(set);
+        assert_eq!(
+            doc.get(id).unwrap().attribute("wall-type"),
+            Some("structural")
+        );
+
+        doc.undo();
+        assert_eq!(
+            doc.get(id).unwrap().attribute("wall-type"),
+            None,
+            "undo clears an attribute that was absent before"
+        );
+        doc.redo();
+        assert_eq!(
+            doc.get(id).unwrap().attribute("wall-type"),
+            Some("structural")
+        );
+    }
+
+    #[test]
+    fn set_attribute_undo_restores_a_prior_value() {
+        let mut doc = Document::new();
+        let mut attrs = HashMap::new();
+        attrs.insert("wall-type".to_string(), "partition".to_string());
+        let id = doc.add_entity("A-WALL", line(0.0, 0.0, 1.0, 0.0), attrs);
+
+        doc.transact("reclassify", |d| {
+            d.set_attribute(id, "wall-type", "structural")
+        });
+        assert_eq!(
+            doc.get(id).unwrap().attribute("wall-type"),
+            Some("structural")
+        );
+        doc.undo();
+        assert_eq!(
+            doc.get(id).unwrap().attribute("wall-type"),
+            Some("partition"),
+            "undo restores the prior value, not absence"
+        );
+    }
+
+    #[test]
+    fn setting_the_same_attribute_value_is_a_no_op() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
+        doc.transact("a", |d| d.set_attribute(id, "k", "v"));
+        let r = doc.revision();
+        let changed = doc.transact("b", |d| d.set_attribute(id, "k", "v"));
+        assert!(!changed, "re-setting the same value changes nothing");
+        assert_eq!(doc.revision(), r, "and does not bump the revision");
     }
 
     #[test]

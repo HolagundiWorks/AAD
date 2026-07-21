@@ -28,6 +28,7 @@ pub mod lifecycle;
 use std::fmt;
 
 use aadt_detect::Detection;
+use aadt_model::Document;
 
 /// Local Ollama endpoint AADT talks to (spec §6.1).
 pub const OLLAMA_ENDPOINT: &str = "http://localhost:11434";
@@ -242,6 +243,44 @@ pub fn infer_wall_types(
     parse_wall_type_response(&response)
 }
 
+/// The attribute an applied wall type is written to.
+pub const WALL_TYPE_ATTR: &str = "AADT-WALL-TYPE";
+
+/// Apply wall-type [`assignments`](WallTypeAssignment) to `doc` as a single
+/// undoable transaction (`AI-WALL-TYPES`), returning how many walls were
+/// changed.
+///
+/// This is the step that turns an AI inference into a drawing edit — and the
+/// spec's discipline shows in *how*: the result is written as a **non-destructive
+/// attribute** on each wall's two face entities (never moving or replacing
+/// geometry), through the normal transaction stack, so a single `UNDO` reverts
+/// the whole AI pass (spec §6.1). Re-applying the same types changes nothing.
+/// `det` resolves each assignment's wall id to its face entities, so `doc` and
+/// `det` must describe the same drawing.
+pub fn apply_wall_types(
+    doc: &mut Document,
+    det: &Detection,
+    assignments: &[WallTypeAssignment],
+) -> usize {
+    doc.transact("AI-WALL-TYPES", |d| {
+        let mut applied = 0;
+        for a in assignments {
+            let Some(wall) = det.walls.iter().find(|w| w.id == a.id) else {
+                continue;
+            };
+            let token = a.wall_type.as_token();
+            let (e1, e2) = wall.faces;
+            // Either face changing counts the wall as (re)classified.
+            let c1 = d.set_attribute(e1, WALL_TYPE_ATTR, token);
+            let c2 = d.set_attribute(e2, WALL_TYPE_ATTR, token);
+            if c1 || c2 {
+                applied += 1;
+            }
+        }
+        applied
+    })
+}
+
 /// A thin, dependency-free HTTP client to a local Ollama server (spec §6.1).
 ///
 /// **Not unit-tested in this repo** — it requires a running Ollama at
@@ -442,7 +481,7 @@ mod tests {
     use super::*;
     use aadt_detect::{detect, DetectionConfig};
     use aadt_geometry::{Point2, Segment};
-    use aadt_model::{Document, Geometry};
+    use aadt_model::{Document, EntityId, Geometry};
 
     fn one_wall_doc() -> Document {
         let mut doc = Document::new();
@@ -490,6 +529,69 @@ mod tests {
             }
         );
         assert_eq!(got[1].wall_type, WallType::FireRated);
+    }
+
+    #[test]
+    fn apply_wall_types_annotates_faces_as_one_undoable_pass() {
+        let mut doc = one_wall_doc(); // two LINE faces, ids 0 and 1
+        let det = detect(&doc, &DetectionConfig::default());
+        assert_eq!(det.walls.len(), 1);
+        let assignments = vec![WallTypeAssignment {
+            id: 0,
+            wall_type: WallType::Exterior,
+        }];
+
+        let n = apply_wall_types(&mut doc, &det, &assignments);
+        assert_eq!(n, 1, "one wall classified");
+
+        // Both of the wall's face entities carry the inferred type.
+        for id in [EntityId(0), EntityId(1)] {
+            assert_eq!(
+                doc.get(id).unwrap().attribute(WALL_TYPE_ATTR),
+                Some("exterior")
+            );
+        }
+
+        // The whole AI pass is one undoable unit.
+        assert_eq!(doc.undo_label(), Some("AI-WALL-TYPES"));
+        doc.undo();
+        for id in [EntityId(0), EntityId(1)] {
+            assert_eq!(doc.get(id).unwrap().attribute(WALL_TYPE_ATTR), None);
+        }
+    }
+
+    #[test]
+    fn re_applying_the_same_types_changes_nothing() {
+        let mut doc = one_wall_doc();
+        let det = detect(&doc, &DetectionConfig::default());
+        let assignments = vec![WallTypeAssignment {
+            id: 0,
+            wall_type: WallType::Partition,
+        }];
+        assert_eq!(apply_wall_types(&mut doc, &det, &assignments), 1);
+        assert_eq!(
+            apply_wall_types(&mut doc, &det, &assignments),
+            0,
+            "the second pass is a no-op"
+        );
+    }
+
+    #[test]
+    fn infer_then_apply_end_to_end_with_a_mock() {
+        let mut doc = one_wall_doc();
+        let det = detect(&doc, &DetectionConfig::default());
+        let client =
+            MockClient::responding("{\"assignments\":[{\"id\":0,\"wall_type\":\"fire-rated\"}]}");
+        let mut audit = AuditLog::new();
+
+        let assignments = infer_wall_types(&client, &mut audit, &det).unwrap();
+        let n = apply_wall_types(&mut doc, &det, &assignments);
+        assert_eq!(n, 1);
+        assert_eq!(
+            doc.get(EntityId(0)).unwrap().attribute(WALL_TYPE_ATTR),
+            Some("fire-rated")
+        );
+        assert_eq!(audit.entries().len(), 1, "the payload sent was audited");
     }
 
     #[test]

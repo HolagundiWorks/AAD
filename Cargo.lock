@@ -30,6 +30,7 @@ dependencies = [
 name = "aadt-cli"
 version = "0.0.0"
 dependencies = [
+ "aadt-ai",
  "aadt-app",
  "aadt-collab",
  "aadt-command",

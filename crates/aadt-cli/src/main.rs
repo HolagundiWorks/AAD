@@ -57,6 +57,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "compare" => cmd_compare(rest),
         "collab" => cmd_collab(rest),
         "app" => cmd_app(rest),
+        "infer" => cmd_infer(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -276,6 +277,55 @@ fn cmd_lisp(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Infer wall types with the local model and apply them to the drawing as one
+/// undoable pass (spec §5.1 step 6 / §6.1). Degrades cleanly when no model is
+/// running — the deterministic pipeline never depends on the AI being available.
+fn cmd_infer(args: &[String]) -> Result<(), String> {
+    let mut input: Option<String> = None;
+    let mut save: Option<String> = None;
+    let mut model = "llama3".to_string();
+
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--save" => save = Some(expect_value(&mut it, "--save")?),
+            "--model" => model = expect_value(&mut it, "--model")?,
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => input = Some(other.to_string()),
+        }
+    }
+    let input = input.ok_or_else(|| format!("infer needs an input DXF\n\n{USAGE}"))?;
+
+    let mut doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
+    let det = detect(&doc, &DetectionConfig::default());
+    println!("Loaded {input}: {} wall(s) to classify", det.walls.len());
+
+    let client = aadt_ai::OllamaClient::new(model);
+    let mut audit = aadt_ai::AuditLog::new();
+    match aadt_ai::infer_wall_types(&client, &mut audit, &det) {
+        Ok(assignments) => {
+            let n = aadt_ai::apply_wall_types(&mut doc, &det, &assignments);
+            println!(
+                "Applied {n} wall type(s) as '{}' attributes.",
+                aadt_ai::WALL_TYPE_ATTR
+            );
+            if let Some(path) = &save {
+                aadt_dxf::export_path(&doc, path).map_err(|e| e.to_string())?;
+                println!("Wrote {path}");
+            }
+        }
+        // AI is an accelerant, never a dependency (spec §6.1 step 7): any failure
+        // — model down, or a response we can't use — leaves the drawing untouched
+        // and is reported, not fatal.
+        Err(e) => {
+            println!("AI inference skipped: {e}.");
+            println!("The drawing is unchanged — the deterministic pipeline does not need AI.");
+        }
+    }
+    println!("(audit: {} model call(s) logged)", audit.entries().len());
+    Ok(())
+}
+
 /// Plot a DXF to a vector PDF (spec §4.5).
 fn cmd_pdf(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
@@ -393,6 +443,7 @@ Usage:
                                           Run a LISP script; aadt-* can query and draw into the drawing
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
+  aadt infer <input.dxf> [--save <out>]   Infer wall types with the local model and apply them
   aadt collab                             Demonstrate convergent multi-user markup sync
   aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
 
