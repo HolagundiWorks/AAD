@@ -31,7 +31,12 @@ pub mod interact;
 pub mod view;
 
 use aadt_geometry::{Bbox, Point2};
-use aadt_model::{Document, Geometry};
+use aadt_model::{Dimension, Document, Geometry, Hatch};
+
+/// A dimension's value text is drawn at this fraction of the measured span, so it
+/// scales sensibly with the drawing. A dimension style would override it; the
+/// model carries no text height, so this is the renderer's default.
+const DIM_TEXT_FRACTION: f64 = 0.05;
 
 /// Performance target from spec §4.3: entities renderable at 60fps.
 pub const TARGET_ENTITY_COUNT: u32 = 100_000;
@@ -198,12 +203,53 @@ fn instanced_layer(block_entity_layer: &str, insert_layer: &str) -> String {
     }
 }
 
+/// The boundary of a [`Hatch`] as a closed poly-line. The fill pattern itself is
+/// a backend concern (solid fills and pattern lines are the renderer's to draw);
+/// the drawlist carries the outline, tagged with the hatch's layer.
+fn hatch_command(hatch: &Hatch) -> DrawCommand {
+    DrawCommand::Polyline {
+        layer: hatch.layer.clone(),
+        points: hatch.boundary.vertices.clone(),
+        closed: true,
+    }
+}
+
+/// A [`Dimension`] flattened to draw primitives: the dimension line between the
+/// measured points, and the value text at its anchor. Extension lines, arrowheads
+/// and a dimension-line offset belong to a dimension style the model does not yet
+/// carry — the measured span and the value are the parts that render faithfully.
+fn dimension_commands(dim: &Dimension) -> Vec<DrawCommand> {
+    let span = dim.p1.distance(dim.p2);
+    let label = if dim.text.trim().is_empty() {
+        format!("{}", dim.measurement)
+    } else {
+        dim.text.clone()
+    };
+    vec![
+        DrawCommand::Polyline {
+            layer: dim.layer.clone(),
+            points: vec![dim.p1, dim.p2],
+            closed: false,
+        },
+        DrawCommand::Text {
+            layer: dim.layer.clone(),
+            position: dim.text_anchor,
+            // A default height proportional to the span (see [`DIM_TEXT_FRACTION`]),
+            // floored so a zero-length dimension still yields a visible glyph.
+            height: (span * DIM_TEXT_FRACTION).max(f64::MIN_POSITIVE),
+            rotation: 0.0,
+            value: label,
+        },
+    ]
+}
+
 /// Translate a read-only [`Document`] snapshot into a [`DrawList`].
 ///
-/// Entities are visited in the document's deterministic id order, so the same
-/// document always yields byte-identical draw lists — a property the tests lean
-/// on and a future frame-diff optimiser will too. Non-insert geometry maps
-/// one-to-one to a primitive.
+/// Entities are visited in the document's deterministic id order, then hatches
+/// and dimensions in their table order, so the same document always yields
+/// byte-identical draw lists — a property the tests lean on and a future
+/// frame-diff optimiser will too. Non-insert geometry maps one-to-one to a
+/// primitive.
 ///
 /// An [`Geometry::Insert`] is *instantiated*: its referenced block definition
 /// (looked up read-only via [`Document::block`]) is expanded, each block entity
@@ -211,6 +257,9 @@ fn instanced_layer(block_entity_layer: &str, insert_layer: &str) -> String {
 /// via [`instanced_layer`]. When the block is **undefined** — a legitimate case,
 /// e.g. a DXF exported without its `BLOCKS` section — the insert falls back to a
 /// single [`DrawCommand::Marker`] at its insertion point rather than being dropped.
+///
+/// [`Hatch`]es contribute their boundary outline and [`Dimension`]s their
+/// dimension line plus value text (see [`hatch_command`], [`dimension_commands`]).
 pub fn build_drawlist(doc: &Document) -> DrawList {
     let mut commands = Vec::with_capacity(doc.len());
     for e in doc.entities() {
@@ -235,6 +284,12 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
             },
             other => commands.push(primitive(other, &Xform::IDENTITY, e.layer.clone())),
         }
+    }
+    for hatch in doc.hatches() {
+        commands.push(hatch_command(hatch));
+    }
+    for dim in doc.dimensions() {
+        commands.extend(dimension_commands(dim));
     }
     DrawList { commands }
 }
@@ -599,8 +654,72 @@ mod tests {
     }
 
     #[test]
+    fn hatches_and_dimensions_join_the_drawlist() {
+        use aadt_model::DimensionKind;
+
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+        );
+        doc.add_hatch(Hatch::new(
+            "A-FLOR",
+            Polyline::new(
+                vec![
+                    Point2::new(0.0, 0.0),
+                    Point2::new(4.0, 0.0),
+                    Point2::new(4.0, 3.0),
+                    Point2::new(0.0, 3.0),
+                ],
+                true,
+            ),
+            "ANSI31",
+        ));
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::Linear,
+            p1: Point2::new(0.0, 0.0),
+            p2: Point2::new(10.0, 0.0),
+            text_anchor: Point2::new(5.0, -1.0),
+            text: String::new(),
+            measurement: 10.0,
+        });
+
+        let list = build_drawlist(&doc);
+        // 1 entity + 1 hatch outline + (1 dim line + 1 dim text) = 4.
+        assert_eq!(list.len(), 4);
+
+        // The hatch renders as a closed boundary on its layer.
+        let hatch = list
+            .commands
+            .iter()
+            .find(|c| c.layer() == "A-FLOR")
+            .expect("hatch boundary present");
+        assert!(matches!(
+            hatch,
+            DrawCommand::Polyline { closed: true, points, .. } if points.len() == 4
+        ));
+
+        // The dimension renders as a span line plus its measured value as text.
+        let dim_text = list.commands.iter().find_map(|c| match c {
+            DrawCommand::Text { layer, value, .. } if layer == "A-DIMS" => Some(value.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            dim_text.as_deref(),
+            Some("10"),
+            "empty override → measurement"
+        );
+    }
+
+    #[test]
     fn drawlist_is_deterministic() {
-        let doc = sample_doc();
+        let mut doc = sample_doc();
+        doc.add_hatch(Hatch::new(
+            "A-FLOR",
+            Polyline::new(vec![Point2::new(0.0, 0.0), Point2::new(1.0, 0.0)], true),
+            "SOLID",
+        ));
         assert_eq!(build_drawlist(&doc), build_drawlist(&doc));
     }
 
