@@ -12,7 +12,9 @@
 //! never depends on the flagship engine. The registry is also the seam the M6 LISP
 //! engine will register commands through.
 
-use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
+use std::collections::HashMap;
+
+use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment};
 use aadt_model::{Dimension, DimensionKind, Document, EntityId, Geometry, Hatch, Insert, Text};
 
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.
@@ -42,11 +44,16 @@ pub trait Command {
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String>;
 }
 
-/// Session state a command operates on: the working document plus command history.
+/// Session state a command operates on: the working document, command history,
+/// the current selection (the last `SELECT`), and named groups.
 #[derive(Debug, Default)]
 pub struct Context {
     pub doc: Document,
     pub history: Vec<String>,
+    /// The most recent `SELECT` result — editable in bulk as `SELECTION`.
+    pub selection: Vec<EntityId>,
+    /// Named, persistent selection sets built with `GROUP`.
+    pub groups: HashMap<String, Vec<EntityId>>,
 }
 
 impl Context {
@@ -143,6 +150,11 @@ pub fn builtins() -> Registry {
     // Annotate.
     r.register(Box::new(DimCmd));
     r.register(Box::new(HatchCmd));
+    // Selection sets.
+    r.register(Box::new(SelectCmd));
+    r.register(Box::new(GroupCmd));
+    r.register(Box::new(GroupsCmd));
+    r.register(Box::new(UngroupCmd));
     // History and inspection.
     r.register(Box::new(UndoCmd));
     r.register(Box::new(RedoCmd));
@@ -266,6 +278,69 @@ fn translate_geometry(g: &Geometry, dx: f64, dy: f64) -> Geometry {
             ins.position + d,
             ins.rotation,
         )),
+    }
+}
+
+/// A bounding box around a geometry's defining points — circles/arcs use their
+/// centre ± radius. Used by `SELECT WINDOW`.
+fn entity_extent(g: &Geometry) -> Option<Bbox> {
+    let pts: Vec<Point2> = match g {
+        Geometry::Line(s) => vec![s.a, s.b],
+        Geometry::Polyline(p) => p.vertices.clone(),
+        Geometry::Circle(c) => vec![
+            Point2::new(c.center.x - c.radius, c.center.y - c.radius),
+            Point2::new(c.center.x + c.radius, c.center.y + c.radius),
+        ],
+        Geometry::Arc(a) => vec![
+            Point2::new(a.center.x - a.radius, a.center.y - a.radius),
+            Point2::new(a.center.x + a.radius, a.center.y + a.radius),
+        ],
+        Geometry::Text(t) => vec![t.position],
+        Geometry::Insert(i) => vec![i.position],
+    };
+    Bbox::of_points(pts)
+}
+
+/// Resolve an edit command's target token to a set of entity ids: `ALL`,
+/// `SELECTION` (the last `SELECT`), a group name, or a single numeric id. Ids
+/// that no longer exist are dropped, so a group survives erasing a member.
+fn resolve_targets(ctx: &Context, token: &str, cmd: &str) -> Result<Vec<EntityId>, String> {
+    let exists = |id: &EntityId| ctx.doc.get(*id).is_some();
+    let ids: Vec<EntityId> = match token.to_ascii_uppercase().as_str() {
+        "ALL" => {
+            let mut v: Vec<EntityId> = ctx.doc.entities().iter().map(|e| e.id).collect();
+            v.sort();
+            v
+        }
+        "SELECTION" => ctx.selection.iter().copied().filter(exists).collect(),
+        _ => {
+            if let Some(g) = ctx.groups.get(token) {
+                g.iter().copied().filter(exists).collect()
+            } else if let Ok(n) = token.parse::<u64>() {
+                let id = EntityId(n);
+                if !exists(&id) {
+                    return Err(format!("{cmd}: no entity with id {n}"));
+                }
+                vec![id]
+            } else {
+                return Err(format!(
+                    "{cmd}: {token:?} is not an id, a group, ALL, or SELECTION"
+                ));
+            }
+        }
+    };
+    if ids.is_empty() {
+        return Err(format!("{cmd}: the target set is empty"));
+    }
+    Ok(ids)
+}
+
+/// English count suffix: "1 entity" vs "3 entities".
+fn entities_word(n: usize) -> &'static str {
+    if n == 1 {
+        "entity"
+    } else {
+        "entities"
     }
 }
 
@@ -482,22 +557,22 @@ impl Command for MoveCmd {
         &["M"]
     }
     fn help(&self) -> &str {
-        "MOVE id dx dy — translate an entity in place, keeping its id (UNDO restores)"
+        "MOVE target dx dy — translate an id, group, ALL, or SELECTION in place (one UNDO)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("MOVE: missing entity id")?;
-        let id = parse_entity_id(raw, "MOVE")?;
+        let token = args.first().ok_or("MOVE: missing target")?;
+        let targets = resolve_targets(ctx, token, "MOVE")?;
         let dx = parse_f64(args, 1, "MOVE")?;
         let dy = parse_f64(args, 2, "MOVE")?;
-        // `translate_entity` records a single undoable in-place edit that
-        // preserves the entity's id, layer, and attributes — no remove+re-add,
-        // so any reference to the id survives a move. Returns false for no such id.
-        let moved = ctx.doc.transact("MOVE", |d| d.translate_entity(id, dx, dy));
-        if moved {
-            Ok(format!("moved entity {}", id.0))
-        } else {
-            Err(format!("MOVE: no entity with id {}", id.0))
-        }
+        // One transaction over the whole set, so a group move is a single UNDO.
+        // `translate_entity` preserves each id, layer, and attributes.
+        let n = targets.len();
+        ctx.doc.transact("MOVE", |d| {
+            for id in &targets {
+                d.translate_entity(*id, dx, dy);
+            }
+        });
+        Ok(format!("moved {n} {}", entities_word(n)))
     }
 }
 
@@ -510,21 +585,26 @@ impl Command for CopyCmd {
         &["CP", "CO"]
     }
     fn help(&self) -> &str {
-        "COPY id dx dy — duplicate an entity, translated by (dx, dy)"
+        "COPY target dx dy — duplicate an id, group, ALL, or SELECTION, translated by (dx, dy)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("COPY: missing entity id")?;
-        let id = parse_entity_id(raw, "COPY")?;
+        let token = args.first().ok_or("COPY: missing target")?;
+        let targets = resolve_targets(ctx, token, "COPY")?;
         let dx = parse_f64(args, 1, "COPY")?;
         let dy = parse_f64(args, 2, "COPY")?;
-        let existing = ctx
-            .doc
-            .get(id)
-            .ok_or_else(|| format!("COPY: no entity with id {}", id.0))?;
-        let layer = existing.layer.clone();
-        let clone = translate_geometry(&existing.geometry, dx, dy);
-        let new_id = ctx.doc.transact("COPY", |d| d.add_geometry(layer, clone));
-        Ok(format!("copied entity {} as entity {}", id.0, new_id.0))
+        // Build the translated copies before mutating (borrow ends first).
+        let clones: Vec<(String, Geometry)> = targets
+            .iter()
+            .filter_map(|id| ctx.doc.get(*id))
+            .map(|e| (e.layer.clone(), translate_geometry(&e.geometry, dx, dy)))
+            .collect();
+        let n = clones.len();
+        ctx.doc.transact("COPY", |d| {
+            for (layer, g) in clones {
+                d.add_geometry(layer, g);
+            }
+        });
+        Ok(format!("copied {n} {}", entities_word(n)))
     }
 }
 
@@ -537,23 +617,22 @@ impl Command for RotateCmd {
         &["RO"]
     }
     fn help(&self) -> &str {
-        "ROTATE id cx cy angle — rotate an entity about (cx, cy) by angle degrees (CCW), keeping its id"
+        "ROTATE target cx cy angle — rotate an id, group, ALL, or SELECTION about (cx, cy) by angle degrees (CCW)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("ROTATE: missing entity id")?;
-        let id = parse_entity_id(raw, "ROTATE")?;
+        let token = args.first().ok_or("ROTATE: missing target")?;
+        let targets = resolve_targets(ctx, token, "ROTATE")?;
         let cx = parse_f64(args, 1, "ROTATE")?;
         let cy = parse_f64(args, 2, "ROTATE")?;
         let deg = parse_f64(args, 3, "ROTATE")?;
         let pivot = Point2::new(cx, cy);
-        let done = ctx
-            .doc
-            .transact("ROTATE", |d| d.rotate_entity(id, pivot, deg.to_radians()));
-        if done {
-            Ok(format!("rotated entity {} by {deg}°", id.0))
-        } else {
-            Err(format!("ROTATE: no entity with id {}", id.0))
-        }
+        let n = targets.len();
+        ctx.doc.transact("ROTATE", |d| {
+            for id in &targets {
+                d.rotate_entity(*id, pivot, deg.to_radians());
+            }
+        });
+        Ok(format!("rotated {n} {} by {deg}°", entities_word(n)))
     }
 }
 
@@ -566,11 +645,11 @@ impl Command for ScaleCmd {
         &["SC"]
     }
     fn help(&self) -> &str {
-        "SCALE id cx cy factor — scale an entity about (cx, cy) by factor, keeping its id"
+        "SCALE target cx cy factor — scale an id, group, ALL, or SELECTION about (cx, cy) by factor"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("SCALE: missing entity id")?;
-        let id = parse_entity_id(raw, "SCALE")?;
+        let token = args.first().ok_or("SCALE: missing target")?;
+        let targets = resolve_targets(ctx, token, "SCALE")?;
         let cx = parse_f64(args, 1, "SCALE")?;
         let cy = parse_f64(args, 2, "SCALE")?;
         let factor = parse_f64(args, 3, "SCALE")?;
@@ -578,14 +657,13 @@ impl Command for ScaleCmd {
             return Err("SCALE: factor must be non-zero".to_string());
         }
         let pivot = Point2::new(cx, cy);
-        let done = ctx
-            .doc
-            .transact("SCALE", |d| d.scale_entity(id, pivot, factor));
-        if done {
-            Ok(format!("scaled entity {} by {factor}", id.0))
-        } else {
-            Err(format!("SCALE: no entity with id {}", id.0))
-        }
+        let n = targets.len();
+        ctx.doc.transact("SCALE", |d| {
+            for id in &targets {
+                d.scale_entity(*id, pivot, factor);
+            }
+        });
+        Ok(format!("scaled {n} {} by {factor}", entities_word(n)))
     }
 }
 
@@ -598,26 +676,23 @@ impl Command for MirrorCmd {
         &["MI"]
     }
     fn help(&self) -> &str {
-        "MIRROR id x1 y1 x2 y2 — reflect an entity across the line (x1,y1)-(x2,y2), keeping its id"
+        "MIRROR target x1 y1 x2 y2 — reflect an id, group, ALL, or SELECTION across the line (x1,y1)-(x2,y2)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("MIRROR: missing entity id")?;
-        let id = parse_entity_id(raw, "MIRROR")?;
-        let x1 = parse_f64(args, 1, "MIRROR")?;
-        let y1 = parse_f64(args, 2, "MIRROR")?;
-        let x2 = parse_f64(args, 3, "MIRROR")?;
-        let y2 = parse_f64(args, 4, "MIRROR")?;
-        let a = Point2::new(x1, y1);
-        let b = Point2::new(x2, y2);
+        let token = args.first().ok_or("MIRROR: missing target")?;
+        let targets = resolve_targets(ctx, token, "MIRROR")?;
+        let a = Point2::new(parse_f64(args, 1, "MIRROR")?, parse_f64(args, 2, "MIRROR")?);
+        let b = Point2::new(parse_f64(args, 3, "MIRROR")?, parse_f64(args, 4, "MIRROR")?);
         if a.coincident(b) {
             return Err("MIRROR: the two axis points must differ".to_string());
         }
-        let done = ctx.doc.transact("MIRROR", |d| d.mirror_entity(id, a, b));
-        if done {
-            Ok(format!("mirrored entity {}", id.0))
-        } else {
-            Err(format!("MIRROR: no entity with id {}", id.0))
-        }
+        let n = targets.len();
+        ctx.doc.transact("MIRROR", |d| {
+            for id in &targets {
+                d.mirror_entity(*id, a, b);
+            }
+        });
+        Ok(format!("mirrored {n} {}", entities_word(n)))
     }
 }
 
@@ -1360,18 +1435,18 @@ impl Command for EraseCmd {
         &["E"]
     }
     fn help(&self) -> &str {
-        "ERASE id — delete an entity by id"
+        "ERASE target — delete an id, group, ALL, or SELECTION (one UNDO)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("ERASE: missing entity id")?;
-        let id = raw
-            .parse::<u64>()
-            .map_err(|_| format!("ERASE: {raw:?} is not an entity id"))?;
-        let removed = ctx.doc.transact("ERASE", |d| d.remove_entity(EntityId(id)));
-        match removed {
-            Some(_) => Ok(format!("erased entity {id}")),
-            None => Err(format!("no entity with id {id}")),
-        }
+        let token = args.first().ok_or("ERASE: missing target")?;
+        let targets = resolve_targets(ctx, token, "ERASE")?;
+        let n = targets.len();
+        ctx.doc.transact("ERASE", |d| {
+            for id in &targets {
+                d.remove_entity(*id);
+            }
+        });
+        Ok(format!("erased {n} {}", entities_word(n)))
     }
 }
 
@@ -1513,6 +1588,153 @@ impl Command for HatchCmd {
             "hatched entity {} ({vertices}-vertex boundary)",
             id.0
         ))
+    }
+}
+
+struct SelectCmd;
+impl Command for SelectCmd {
+    fn name(&self) -> &str {
+        "SELECT"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["SEL"]
+    }
+    fn help(&self) -> &str {
+        "SELECT ALL | LAYER <name> | WINDOW x1 y1 x2 y2 | <id>... — build the current selection"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let sub = args.first().ok_or("SELECT: missing criteria")?;
+        let ids: Vec<EntityId> = match sub.to_ascii_uppercase().as_str() {
+            "ALL" => {
+                let mut v: Vec<EntityId> = ctx.doc.entities().iter().map(|e| e.id).collect();
+                v.sort();
+                v
+            }
+            "LAYER" => {
+                let name = args.get(1).ok_or("SELECT LAYER: missing layer name")?;
+                let mut v: Vec<EntityId> = ctx
+                    .doc
+                    .entities()
+                    .iter()
+                    .filter(|e| &e.layer == name)
+                    .map(|e| e.id)
+                    .collect();
+                v.sort();
+                v
+            }
+            "WINDOW" => {
+                let x1 = parse_f64(args, 1, "SELECT WINDOW")?;
+                let y1 = parse_f64(args, 2, "SELECT WINDOW")?;
+                let x2 = parse_f64(args, 3, "SELECT WINDOW")?;
+                let y2 = parse_f64(args, 4, "SELECT WINDOW")?;
+                let (lo, hi) = (
+                    Point2::new(x1.min(x2), y1.min(y2)),
+                    Point2::new(x1.max(x2), y1.max(y2)),
+                );
+                // Entities whose extent sits fully inside the window.
+                let mut v: Vec<EntityId> = ctx
+                    .doc
+                    .entities()
+                    .iter()
+                    .filter(|e| {
+                        entity_extent(&e.geometry).is_some_and(|bb| {
+                            bb.min.x >= lo.x
+                                && bb.min.y >= lo.y
+                                && bb.max.x <= hi.x
+                                && bb.max.y <= hi.y
+                        })
+                    })
+                    .map(|e| e.id)
+                    .collect();
+                v.sort();
+                v
+            }
+            _ => {
+                // An explicit id list.
+                args.iter()
+                    .map(|a| parse_entity_id(a, "SELECT"))
+                    .collect::<Result<Vec<_>, _>>()?
+            }
+        };
+        ctx.selection = ids;
+        let n = ctx.selection.len();
+        Ok(format!("selected {n} {}", entities_word(n)))
+    }
+}
+
+struct GroupCmd;
+impl Command for GroupCmd {
+    fn name(&self) -> &str {
+        "GROUP"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["G"]
+    }
+    fn help(&self) -> &str {
+        "GROUP name [id...] — name the current selection (or the given ids) as a group"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let name = args.first().ok_or("GROUP: missing name")?.clone();
+        let ids: Vec<EntityId> = if args.len() > 1 {
+            args[1..]
+                .iter()
+                .map(|a| parse_entity_id(a, "GROUP"))
+                .collect::<Result<Vec<_>, _>>()?
+        } else if ctx.selection.is_empty() {
+            return Err("GROUP: no current selection; SELECT first or pass ids".to_string());
+        } else {
+            ctx.selection.clone()
+        };
+        // Every member must exist.
+        for id in &ids {
+            if ctx.doc.get(*id).is_none() {
+                return Err(format!("GROUP: no entity with id {}", id.0));
+            }
+        }
+        let n = ids.len();
+        ctx.groups.insert(name.clone(), ids);
+        Ok(format!("group {name:?} has {n} {}", entities_word(n)))
+    }
+}
+
+struct GroupsCmd;
+impl Command for GroupsCmd {
+    fn name(&self) -> &str {
+        "GROUPS"
+    }
+    fn help(&self) -> &str {
+        "GROUPS — list named groups"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        if ctx.groups.is_empty() {
+            return Ok("no groups".to_string());
+        }
+        let mut names: Vec<&String> = ctx.groups.keys().collect();
+        names.sort();
+        let mut lines = vec![format!("{} group(s):", names.len())];
+        for name in names {
+            let count = ctx.groups[name].len();
+            lines.push(format!("  {name} ({count} {})", entities_word(count)));
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+struct UngroupCmd;
+impl Command for UngroupCmd {
+    fn name(&self) -> &str {
+        "UNGROUP"
+    }
+    fn help(&self) -> &str {
+        "UNGROUP name — delete a named group"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let name = args.first().ok_or("UNGROUP: missing name")?;
+        if ctx.groups.remove(name).is_some() {
+            Ok(format!("group {name:?} removed"))
+        } else {
+            Err(format!("UNGROUP: no group named {name:?}"))
+        }
     }
 }
 
@@ -2197,6 +2419,89 @@ mod tests {
         // A bad colour and unknown option are rejected.
         assert!(interp.eval_line(&mut ctx, "LAYER X COLOR 999").is_err());
         assert!(interp.eval_line(&mut ctx, "LAYER X BOGUS").is_err());
+    }
+
+    #[test]
+    fn group_move_is_one_undoable_step() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap(); // 0
+        interp.eval_line(&mut ctx, "LINE 0 1 1 1").unwrap(); // 1
+        interp.eval_line(&mut ctx, "LINE 0 2 1 2").unwrap(); // 2
+        interp.eval_line(&mut ctx, "GROUP walls 0 1 2").unwrap();
+
+        let msg = interp
+            .eval_line(&mut ctx, "MOVE walls 10 0")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("moved 3 entities"), "{msg:?}");
+        for id in 0..3 {
+            if let Geometry::Line(s) = &ctx.doc.get(EntityId(id)).unwrap().geometry {
+                assert!((s.a.x - 10.0).abs() < 1e-9, "entity {id} shifted");
+            }
+        }
+        // One UNDO restores the whole group.
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        for id in 0..3 {
+            if let Geometry::Line(s) = &ctx.doc.get(EntityId(id)).unwrap().geometry {
+                assert!(s.a.x.abs() < 1e-9, "entity {id} restored by one undo");
+            }
+        }
+    }
+
+    #[test]
+    fn select_by_layer_and_window_then_edit_selection() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0 A-WALL").unwrap(); // 0
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0 A-GRID").unwrap(); // 1
+        interp.eval_line(&mut ctx, "CIRCLE 5 5 1 A-WALL").unwrap(); // 2
+
+        let m = interp
+            .eval_line(&mut ctx, "SELECT LAYER A-WALL")
+            .unwrap()
+            .unwrap();
+        assert!(m.contains("selected 2"), "{m:?}");
+        assert_eq!(ctx.selection.len(), 2);
+
+        // Erase the selection as one undoable step.
+        interp.eval_line(&mut ctx, "ERASE SELECTION").unwrap();
+        assert_eq!(ctx.doc.len(), 1, "only the A-GRID line remains");
+
+        // WINDOW selects entities fully inside the box.
+        interp
+            .eval_line(&mut ctx, "SELECT WINDOW -1 -1 2 2")
+            .unwrap();
+        assert_eq!(ctx.selection.len(), 1);
+        // The far circle (were it still here) would be excluded; a tight box selects none.
+        interp
+            .eval_line(&mut ctx, "SELECT WINDOW 100 100 200 200")
+            .unwrap();
+        assert!(ctx.selection.is_empty());
+    }
+
+    #[test]
+    fn all_target_groups_listing_and_bad_targets() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
+        interp.eval_line(&mut ctx, "CIRCLE 5 5 1").unwrap();
+        interp.eval_line(&mut ctx, "ERASE ALL").unwrap();
+        assert_eq!(ctx.doc.len(), 0, "ALL erases everything");
+
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
+        let id = ctx.doc.entities()[0].id.0;
+        // Unknown group name and missing id both error.
+        assert!(interp.eval_line(&mut ctx, "MOVE nope 1 1").is_err());
+        assert!(interp.eval_line(&mut ctx, "MOVE 999 1 1").is_err());
+
+        interp
+            .eval_line(&mut ctx, &format!("GROUP g {id}"))
+            .unwrap();
+        let g = interp.eval_line(&mut ctx, "GROUPS").unwrap().unwrap();
+        assert!(g.contains("g (1 entity)"), "{g:?}");
+        interp.eval_line(&mut ctx, "UNGROUP g").unwrap();
+        assert!(interp.eval_line(&mut ctx, "UNGROUP g").is_err(), "gone now");
     }
 
     #[test]

@@ -36,6 +36,11 @@ use aadt_model::Document;
 /// deterministic, byte-stable CSV output.
 const DECIMALS: usize = 3;
 
+/// Version of the machine-readable JSON takeoff schema emitted by
+/// [`TakeoffTable::to_json`]. Bump on any field change so downstream engines can
+/// pin/validate. `aadt --version` reports it.
+pub const TAKEOFF_SCHEMA_VERSION: &str = "1.0";
+
 /// CSI MasterFormat cost codes per element category (ADR-0005). Firm-overridable.
 #[derive(Debug, Clone)]
 pub struct CostCodeMap {
@@ -310,6 +315,96 @@ impl TakeoffTable {
         out
     }
 
+    /// Render the takeoff as machine-readable JSON (schema
+    /// [`TAKEOFF_SCHEMA_VERSION`]). Field names and units match
+    /// [`to_csv`](Self::to_csv); quantities use the same 3-decimal rounding,
+    /// emitted as bare JSON numbers so an engine parses types directly instead of
+    /// re-typing CSV strings. Std-only (no `serde`); deterministic.
+    pub fn to_json(&self) -> String {
+        let mut out = String::new();
+        out.push('{');
+        out.push_str(&format!(
+            "\"schema_version\":{},",
+            json_str(TAKEOFF_SCHEMA_VERSION)
+        ));
+        out.push_str(&format!(
+            "\"engine_version\":{},",
+            json_str(&format!("aadt {}", env!("CARGO_PKG_VERSION")))
+        ));
+        // Quantities are in the drawing's own units; the takeoff config assumes metres.
+        out.push_str("\"units\":\"m\",");
+        out.push_str("\"totals\":{");
+        out.push_str(&format!(
+            "\"walls_gross_length\":{},",
+            num(self.total_wall_length())
+        ));
+        out.push_str(&format!(
+            "\"walls_gross_area\":{},",
+            num(self.total_wall_gross_area())
+        ));
+        out.push_str(&format!(
+            "\"walls_volume\":{},",
+            num(self.total_wall_volume())
+        ));
+        out.push_str(&format!(
+            "\"openings_area\":{},",
+            num(self.total_opening_area())
+        ));
+        out.push_str(&format!(
+            "\"walls_net_area\":{},",
+            num(self.total_wall_net_area())
+        ));
+        out.push_str(&format!("\"rooms_area\":{}", num(self.total_room_area())));
+        out.push_str("},");
+        out.push_str("\"walls\":[");
+        for (i, w) in self.walls.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"id\":{},\"length\":{},\"thickness\":{},\"height\":{},\"gross_area\":{},\"volume\":{},\"cost_code\":{}}}",
+                w.id, num(w.length), num(w.thickness), num(w.height), num(w.gross_area), num(w.volume), json_str(&w.cost_code)
+            ));
+        }
+        out.push_str("],\"openings\":[");
+        for (i, o) in self.openings.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"number\":{},\"kind\":{},\"width\":{},\"height\":{},\"area\":{},\"cost_code\":{}}}",
+                o.number, json_str(&o.kind), num(o.width), num(o.height), num(o.area), json_str(&o.cost_code)
+            ));
+        }
+        out.push_str("],\"rooms\":[");
+        for (i, r) in self.rooms.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"id\":{},\"area\":{},\"perimeter\":{},\"cost_code\":{}}}",
+                r.id,
+                num(r.area),
+                num(r.perimeter),
+                json_str(&r.cost_code)
+            ));
+        }
+        out.push_str("],\"structural\":[");
+        for (i, s) in self.structural.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            out.push_str(&format!(
+                "{{\"number\":{},\"kind\":{},\"cost_code\":{}}}",
+                s.number,
+                json_str(&s.kind),
+                json_str(&s.cost_code)
+            ));
+        }
+        out.push_str("]}\n");
+        out
+    }
+
     /// Render the same table as a real `.xlsx` workbook (OOXML, not a renamed
     /// CSV). Columns and row order match [`to_csv`](Self::to_csv) exactly, and
     /// numbers carry the same rounding, so the two exports can be reconciled
@@ -481,6 +576,26 @@ impl LiveTakeoff {
 fn num(v: f64) -> String {
     let v = if v == 0.0 { 0.0 } else { v };
     format!("{v:.DECIMALS$}")
+}
+
+/// Minimal std-only JSON string encoder — wraps a value in quotes and escapes
+/// the characters JSON requires. Used by [`TakeoffTable::to_json`].
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
