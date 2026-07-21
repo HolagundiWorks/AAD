@@ -129,6 +129,7 @@ pub fn builtins() -> Registry {
     r.register(Box::new(RotateCmd));
     r.register(Box::new(ScaleCmd));
     r.register(Box::new(MirrorCmd));
+    r.register(Box::new(OffsetCmd));
     r.register(Box::new(ArrayCmd));
     r.register(Box::new(ExplodeCmd));
     r.register(Box::new(EraseCmd));
@@ -610,6 +611,47 @@ impl Command for MirrorCmd {
         } else {
             Err(format!("MIRROR: no entity with id {}", id.0))
         }
+    }
+}
+
+struct OffsetCmd;
+impl Command for OffsetCmd {
+    fn name(&self) -> &str {
+        "OFFSET"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["O"]
+    }
+    fn help(&self) -> &str {
+        "OFFSET id dist [sx sy] — copy an entity offset by dist (toward (sx,sy) if given)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("OFFSET: missing entity id")?;
+        let id = parse_entity_id(raw, "OFFSET")?;
+        let dist = parse_f64(args, 1, "OFFSET")?;
+        let side = if args.len() >= 4 {
+            Some(Point2::new(
+                parse_f64(args, 2, "OFFSET")?,
+                parse_f64(args, 3, "OFFSET")?,
+            ))
+        } else {
+            None
+        };
+        let existing = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("OFFSET: no entity with id {}", id.0))?;
+        let layer = existing.layer.clone();
+        let offset = existing.geometry.offset(dist, side).ok_or_else(|| {
+            format!(
+                "OFFSET: cannot offset entity {} (needs a line, polyline, circle, or arc, and a non-degenerate result)",
+                id.0
+            )
+        })?;
+        let new_id = ctx
+            .doc
+            .transact("OFFSET", |d| d.add_geometry(layer, offset));
+        Ok(format!("offset entity {} as entity {}", id.0, new_id.0))
     }
 }
 
@@ -1198,6 +1240,30 @@ mod tests {
         interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
         assert!(interp.eval_line(&mut ctx, "SCALE 0 0 0 0").is_err());
         assert!(interp.eval_line(&mut ctx, "MIRROR 0 1 1 1 1").is_err());
+    }
+
+    #[test]
+    fn offset_adds_a_parallel_copy() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL").unwrap();
+        // Offset toward (5, 5) → the copy sits at y = 3 on the same layer.
+        let msg = interp
+            .eval_line(&mut ctx, "OFFSET 0 3 5 5")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("as entity 1"), "{msg:?}");
+        assert_eq!(ctx.doc.len(), 2);
+        let copy = ctx.doc.get(EntityId(1)).unwrap();
+        assert_eq!(copy.layer, "A-WALL", "offset keeps the source layer");
+        if let Geometry::Line(s) = &copy.geometry {
+            assert!(s.a.distance(Point2::new(0.0, 3.0)) < 1e-9, "got {:?}", s.a);
+        } else {
+            panic!("expected line");
+        }
+        // Text cannot be offset.
+        interp.eval_line(&mut ctx, "TEXT 0 0 1 HELLO").unwrap();
+        assert!(interp.eval_line(&mut ctx, "OFFSET 2 1").is_err());
     }
 
     #[test]

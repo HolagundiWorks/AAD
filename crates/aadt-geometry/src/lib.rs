@@ -123,6 +123,13 @@ impl Vec2 {
             Some(Vec2::new(self.x / len, self.y / len))
         }
     }
+
+    /// The left normal — this vector rotated 90° CCW. For a unit direction it is
+    /// the unit normal pointing to the left of travel, the `+` side an OFFSET
+    /// moves toward by default.
+    pub fn perp(self) -> Vec2 {
+        Vec2::new(-self.y, self.x)
+    }
 }
 
 impl std::ops::Mul<f64> for Vec2 {
@@ -238,6 +245,53 @@ impl Segment {
         self.overlap_interval(other)
             .map(|(lo, hi)| hi - lo)
             .unwrap_or(0.0)
+    }
+
+    /// The parameter `t` along this segment (`a` at 0, `b` at 1) closest to `p`.
+    /// The intersection helpers report positions in this parameterisation, so a
+    /// caller can tell whether a hit is inside the segment (`0..=1`) or on its
+    /// extension.
+    pub fn project_param(self, p: Point2) -> f64 {
+        let r = self.b - self.a;
+        let len2 = r.dot(r);
+        if len2 <= LENGTH_EPS * LENGTH_EPS {
+            0.0
+        } else {
+            (p - self.a).dot(r) / len2
+        }
+    }
+
+    /// Intersection of the two *infinite* lines through these segments, plus the
+    /// parameter of that point on `self` (`a` at 0, `b` at 1). `None` when the
+    /// lines are parallel. This is the primitive OFFSET (mitred poly-lines),
+    /// EXTEND, TRIM, and FILLET all build on.
+    pub fn line_intersection(self, other: Segment) -> Option<(Point2, f64)> {
+        let r = self.b - self.a;
+        let s = other.b - other.a;
+        let denom = r.cross(s);
+        if denom.abs() <= LENGTH_EPS {
+            return None;
+        }
+        let t = (other.a - self.a).cross(s) / denom;
+        Some((self.a + r * t, t))
+    }
+
+    /// Intersection point where the two *bounded* segments actually cross, within
+    /// a small tolerance, else `None`. Unlike [`line_intersection`](Self::line_intersection)
+    /// this rejects a crossing that lies on either segment's extension.
+    pub fn segment_intersection(self, other: Segment) -> Option<Point2> {
+        let r = self.b - self.a;
+        let s = other.b - other.a;
+        let denom = r.cross(s);
+        if denom.abs() <= LENGTH_EPS {
+            return None;
+        }
+        let diff = other.a - self.a;
+        let t = diff.cross(s) / denom;
+        let u = diff.cross(r) / denom;
+        let eps = 1e-9;
+        let inside = |v: f64| (-eps..=1.0 + eps).contains(&v);
+        (inside(t) && inside(u)).then(|| self.a + r * t)
     }
 }
 
@@ -526,6 +580,43 @@ mod tests {
         // A degenerate axis leaves the point unchanged.
         let p = Point2::new(1.0, 1.0);
         assert!(p.mirror_across(p, p).distance(p) < 1e-9);
+    }
+
+    #[test]
+    fn perp_is_the_left_normal() {
+        let d = Vec2::new(1.0, 0.0);
+        let n = d.perp();
+        assert!((n.x).abs() < 1e-9 && (n.y - 1.0).abs() < 1e-9, "+x → +y");
+        // Perpendicular to the source, unit-length preserved.
+        assert!(d.dot(n).abs() < 1e-9);
+    }
+
+    #[test]
+    fn line_and_segment_intersection() {
+        let horiz = Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+        let vert = Segment::new(Point2::new(4.0, -5.0), Point2::new(4.0, 5.0));
+        let (p, t) = horiz.line_intersection(vert).unwrap();
+        assert!(p.distance(Point2::new(4.0, 0.0)) < 1e-9);
+        assert!(
+            (t - 0.4).abs() < 1e-9,
+            "0.4 of the way along the horizontal"
+        );
+        assert!(
+            horiz.segment_intersection(vert).is_some(),
+            "they actually cross"
+        );
+
+        // Parallel lines never intersect.
+        let par = Segment::new(Point2::new(0.0, 1.0), Point2::new(10.0, 1.0));
+        assert!(horiz.line_intersection(par).is_none());
+
+        // Infinite lines meet, but the bounded segments do not.
+        let away = Segment::new(Point2::new(20.0, -5.0), Point2::new(20.0, 5.0));
+        assert!(horiz.line_intersection(away).is_some());
+        assert!(
+            horiz.segment_intersection(away).is_none(),
+            "hit is past the segment"
+        );
     }
 
     #[test]

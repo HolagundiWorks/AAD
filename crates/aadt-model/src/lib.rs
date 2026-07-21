@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
+use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment, Vec2};
 
 /// Stable identifier for an entity within a [`Document`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -384,6 +384,94 @@ impl Geometry {
             .rotated(Point2::new(0.0, 0.0), rotation_deg.to_radians())
             .translated(position.x, position.y)
     }
+
+    /// A parallel copy of this geometry, `distance` away. With a `side` point the
+    /// copy moves toward it; without, a positive `distance` moves a line/polyline
+    /// to its left (the `+` normal) and grows a circle/arc. Returns `None` for
+    /// geometry with no parallel offset (text, inserts) or a degenerate result (a
+    /// zero-length line, a radius driven to zero). A poly-line is mitred: adjacent
+    /// offset edges are extended to their intersection.
+    pub fn offset(&self, distance: f64, side: Option<Point2>) -> Option<Geometry> {
+        match self {
+            Geometry::Line(s) => {
+                let n = s.direction()?.perp();
+                let off = n * signed_offset(distance, n, s.a, side);
+                Some(Geometry::Line(Segment::new(s.a + off, s.b + off)))
+            }
+            Geometry::Circle(c) => {
+                let r = c.radius + radial_offset(distance, c.center, c.radius, side);
+                (r > aadt_geometry::LENGTH_EPS).then(|| Geometry::Circle(Circle::new(c.center, r)))
+            }
+            Geometry::Arc(a) => {
+                let r = a.radius + radial_offset(distance, a.center, a.radius, side);
+                (r > aadt_geometry::LENGTH_EPS)
+                    .then(|| Geometry::Arc(Arc::new(a.center, r, a.start_angle, a.end_angle)))
+            }
+            Geometry::Polyline(p) => offset_polyline(p, distance, side),
+            Geometry::Text(_) | Geometry::Insert(_) => None,
+        }
+    }
+}
+
+/// Signed offset for a straight edge: positive moves along `normal` (the edge's
+/// left side); a `side` point flips the sign to move the copy toward it.
+fn signed_offset(distance: f64, normal: Vec2, base: Point2, side: Option<Point2>) -> f64 {
+    match side {
+        Some(sp) if (sp - base).dot(normal) < 0.0 => -distance.abs(),
+        Some(_) => distance.abs(),
+        None => distance,
+    }
+}
+
+/// Signed radial delta for a circle/arc: positive grows the radius; a `side`
+/// point outside the ring grows it, inside shrinks it.
+fn radial_offset(distance: f64, center: Point2, radius: f64, side: Option<Point2>) -> f64 {
+    match side {
+        Some(sp) if sp.distance(center) < radius => -distance.abs(),
+        Some(_) => distance.abs(),
+        None => distance,
+    }
+}
+
+/// Offset a poly-line by mitring: shift each edge's supporting line along its
+/// left normal, then take consecutive intersections as the new vertices (the
+/// endpoints of an open poly-line just shift). Returns `None` if any edge is
+/// zero-length.
+fn offset_polyline(p: &Polyline, distance: f64, side: Option<Point2>) -> Option<Geometry> {
+    let verts = &p.vertices;
+    if verts.len() < 2 {
+        return None;
+    }
+    let segs = p.segments();
+    // Sign the distance once, from the first edge's left normal, so the whole
+    // poly-line offsets consistently to one side.
+    let first = segs.first()?;
+    let d = signed_offset(distance, first.direction()?.perp(), first.a, side);
+
+    let mut lines = Vec::with_capacity(segs.len());
+    for s in &segs {
+        let off = s.direction()?.perp() * d;
+        lines.push(Segment::new(s.a + off, s.b + off));
+    }
+
+    let m = verts.len();
+    let mut out = Vec::with_capacity(m);
+    let meet = |x: Segment, y: Segment, fallback: Point2| {
+        x.line_intersection(y).map(|(pt, _)| pt).unwrap_or(fallback)
+    };
+    if p.closed {
+        let n = lines.len();
+        for i in 0..n {
+            out.push(meet(lines[(i + n - 1) % n], lines[i], lines[i].a));
+        }
+    } else {
+        out.push(lines[0].a);
+        for i in 1..m - 1 {
+            out.push(meet(lines[i - 1], lines[i], lines[i].a));
+        }
+        out.push(lines[lines.len() - 1].b);
+    }
+    Some(Geometry::Polyline(Polyline::new(out, p.closed)))
 }
 
 /// A single drawing entity: geometry plus the layer it lives on and free-form
@@ -1051,6 +1139,73 @@ mod tests {
         } else {
             panic!("expected line");
         }
+    }
+
+    #[test]
+    fn offset_moves_a_line_perpendicular() {
+        // A horizontal line offset by 2 with no side point moves to its left (+y).
+        let g = line(0.0, 0.0, 10.0, 0.0);
+        let Geometry::Line(s) = g.offset(2.0, None).unwrap() else {
+            panic!("expected line");
+        };
+        assert!(s.a.distance(Point2::new(0.0, 2.0)) < 1e-9);
+        assert!(s.b.distance(Point2::new(10.0, 2.0)) < 1e-9);
+
+        // A side point below the line flips it to -y regardless of sign.
+        let Geometry::Line(s) = g.offset(2.0, Some(Point2::new(5.0, -3.0))).unwrap() else {
+            panic!("expected line");
+        };
+        assert!(
+            s.a.distance(Point2::new(0.0, -2.0)) < 1e-9,
+            "toward the side point"
+        );
+    }
+
+    #[test]
+    fn offset_grows_or_shrinks_a_circle_by_side() {
+        let c = Geometry::Circle(Circle::new(Point2::new(0.0, 0.0), 5.0));
+        // No side, positive distance grows.
+        let Geometry::Circle(g) = c.offset(2.0, None).unwrap() else {
+            panic!();
+        };
+        assert!((g.radius - 7.0).abs() < 1e-9);
+        // A side point inside shrinks.
+        let Geometry::Circle(g) = c.offset(2.0, Some(Point2::new(0.0, 0.0))).unwrap() else {
+            panic!();
+        };
+        assert!((g.radius - 3.0).abs() < 1e-9);
+        // Shrinking past the centre is degenerate → None.
+        assert!(c.offset(10.0, Some(Point2::new(0.0, 0.0))).is_none());
+    }
+
+    #[test]
+    fn offset_mitres_a_polyline_corner() {
+        // An L: (0,0)-(4,0)-(4,4). Offsetting inward (right side) by 1 mitres the
+        // corner to (3,1); endpoints shift by 1 along each leg's normal.
+        let poly = Geometry::Polyline(Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(4.0, 0.0),
+                Point2::new(4.0, 4.0),
+            ],
+            false,
+        ));
+        let Geometry::Polyline(p) = poly.offset(1.0, Some(Point2::new(2.0, 2.0))).unwrap() else {
+            panic!("expected polyline");
+        };
+        assert_eq!(p.vertices.len(), 3);
+        // The shared corner moves to the inside mitre point (3,1).
+        assert!(
+            p.vertices[1].distance(Point2::new(3.0, 1.0)) < 1e-9,
+            "got {:?}",
+            p.vertices[1]
+        );
+    }
+
+    #[test]
+    fn offset_of_text_is_none() {
+        let t = Geometry::Text(Text::new("X", Point2::new(0.0, 0.0), 1.0, 0.0));
+        assert!(t.offset(1.0, None).is_none());
     }
 
     #[test]
