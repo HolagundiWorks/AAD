@@ -137,6 +137,81 @@ fn transform(geom: &Geometry, map: &impl Fn(Point2) -> Point2, scale: f64) -> Ge
     }
 }
 
+/// Layer the viewport borders are drawn on.
+pub const VIEWPORT_LAYER: &str = "A-VIEWPORT";
+
+/// One view on a presentation sheet: a drawing, the area it occupies, and a label.
+pub struct View<'a> {
+    pub doc: &'a Document,
+    pub area: DrawingArea,
+    pub label: String,
+}
+
+/// `AADT-PRESENT` — lay several views out on one sheet (spec §5.3). Each view is
+/// scaled to fit its area, framed with a viewport border, and labelled. Returns
+/// the fit scale of each view, in order.
+///
+/// Views are independent placements, so a single sheet can carry an overall plan
+/// and an enlarged detail, or two revisions side by side for comparison.
+pub fn present(sheet_doc: &mut Document, views: &[View]) -> Vec<f64> {
+    let mut scales = Vec::with_capacity(views.len());
+    for v in views {
+        let composed = place_drawing(sheet_doc, v.doc, &v.area);
+        scales.push(composed.scale);
+
+        // A frame around the viewport…
+        let frame = Polyline::new(
+            vec![
+                v.area.min,
+                Point2::new(v.area.max.x, v.area.min.y),
+                v.area.max,
+                Point2::new(v.area.min.x, v.area.max.y),
+            ],
+            true,
+        );
+        sheet_doc.transact("VIEWPORT", |d| {
+            d.add_geometry(VIEWPORT_LAYER, Geometry::Polyline(frame))
+        });
+
+        // …and a label just below it.
+        if !v.label.is_empty() {
+            let at = Point2::new(v.area.min.x, v.area.min.y - 4.0);
+            sheet_doc.transact("VIEWLABEL", |d| {
+                d.add_geometry(
+                    "A-ANNO",
+                    Geometry::Text(Text::new(v.label.clone(), at, 3.0, 0.0)),
+                )
+            });
+        }
+    }
+    scales
+}
+
+/// Split a sheet's drawing area into a `cols × rows` grid of view areas with a
+/// `gutter` (mm) between cells. Row-major, top-left first, so the reading order
+/// matches a sheet. A zero `cols`/`rows` yields no areas.
+pub fn grid_areas(sheet: &Sheet, cols: usize, rows: usize, gutter: f64) -> Vec<DrawingArea> {
+    if cols == 0 || rows == 0 {
+        return Vec::new();
+    }
+    let full = sheet.drawing_area(60.0);
+    let cw = (full.width() - gutter * (cols - 1) as f64) / cols as f64;
+    let ch = (full.height() - gutter * (rows - 1) as f64) / rows as f64;
+    let mut areas = Vec::with_capacity(cols * rows);
+    for r in 0..rows {
+        for c in 0..cols {
+            let x0 = full.min.x + c as f64 * (cw + gutter);
+            // Rows run top to bottom, so row 0 sits at the top of the area.
+            let y1 = full.max.y - r as f64 * (ch + gutter);
+            areas.push(DrawingArea {
+                min: Point2::new(x0, y1 - ch),
+                max: Point2::new(x0 + cw, y1),
+            });
+        }
+    }
+    areas
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +324,95 @@ mod tests {
             ids: vec![],
         };
         assert_eq!(composed.scale_label(1000.0), "1:100");
+    }
+
+    #[test]
+    fn grid_areas_tile_the_drawing_area_without_overlap() {
+        let sheet = Sheet::new(PaperSize::IsoA1, Orientation::Landscape, 10.0);
+        let areas = grid_areas(&sheet, 2, 2, 10.0);
+        assert_eq!(areas.len(), 4);
+        // Top-left cell is above the bottom-left cell.
+        assert!(areas[0].min.y > areas[2].max.y - 1e-9, "row 0 above row 1");
+        // Left column is left of the right column.
+        assert!(
+            areas[0].max.x < areas[1].min.x + 1e-9,
+            "col 0 left of col 1"
+        );
+        // Every cell sits within the drawing area.
+        let full = sheet.drawing_area(60.0);
+        for a in &areas {
+            assert!(a.min.x >= full.min.x - 1e-6 && a.max.x <= full.max.x + 1e-6);
+            assert!(a.min.y >= full.min.y - 1e-6 && a.max.y <= full.max.y + 1e-6);
+        }
+    }
+
+    #[test]
+    fn present_places_each_view_with_a_frame_and_label() {
+        let sheet = Sheet::new(PaperSize::IsoA1, Orientation::Landscape, 10.0);
+        let areas = grid_areas(&sheet, 2, 1, 15.0);
+        let a = model_10x8();
+        let b = model_10x8();
+        let views = vec![
+            View {
+                doc: &a,
+                area: areas[0],
+                label: "PLAN".into(),
+            },
+            View {
+                doc: &b,
+                area: areas[1],
+                label: "DETAIL".into(),
+            },
+        ];
+
+        let mut sheet_doc = Document::new();
+        let scales = present(&mut sheet_doc, &views);
+        assert_eq!(scales.len(), 2);
+        assert!(scales.iter().all(|s| *s > 0.0));
+
+        // Each view: 3 model entities + 1 frame + 1 label = 5; two views = 10.
+        assert_eq!(sheet_doc.len(), 10);
+        // Both labels present.
+        let labels: Vec<&str> = sheet_doc
+            .entities()
+            .into_iter()
+            .filter_map(|e| match &e.geometry {
+                Geometry::Text(t) => Some(t.value.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(labels.contains(&"PLAN") && labels.contains(&"DETAIL"));
+        // A viewport frame was drawn per view.
+        let frames = sheet_doc
+            .entities()
+            .into_iter()
+            .filter(|e| e.layer == VIEWPORT_LAYER)
+            .count();
+        assert_eq!(frames, 2);
+    }
+
+    #[test]
+    fn present_is_deterministic() {
+        let sheet = Sheet::a1_landscape();
+        let areas = grid_areas(&sheet, 2, 1, 15.0);
+        let a = model_10x8();
+        let build = || {
+            let views = vec![
+                View {
+                    doc: &a,
+                    area: areas[0],
+                    label: "one".into(),
+                },
+                View {
+                    doc: &a,
+                    area: areas[1],
+                    label: "two".into(),
+                },
+            ];
+            let mut doc = Document::new();
+            present(&mut doc, &views);
+            doc.points()
+        };
+        assert_eq!(build(), build());
     }
 }

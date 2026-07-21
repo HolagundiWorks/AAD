@@ -58,6 +58,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "collab" => cmd_collab(rest),
         "app" => cmd_app(rest),
         "infer" => cmd_infer(rest),
+        "present" => cmd_present(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -223,6 +224,73 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
         doc.len(),
         notes.len()
     );
+    Ok(())
+}
+
+/// AADT-PRESENT: lay several drawings out as views on one sheet (spec §5.3).
+fn cmd_present(args: &[String]) -> Result<(), String> {
+    let mut inputs: Vec<String> = Vec::new();
+    let mut out: Option<String> = None;
+    let mut size = "A1".to_string();
+
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--out" => out = Some(expect_value(&mut it, "--out")?),
+            "--size" => size = expect_value(&mut it, "--size")?,
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => inputs.push(other.to_string()),
+        }
+    }
+    if inputs.is_empty() {
+        return Err(format!("present needs at least one input DXF\n\n{USAGE}"));
+    }
+    let out = out.ok_or("present needs --out <path>")?;
+    let paper =
+        PaperSize::from_name(&size).ok_or_else(|| format!("unknown paper size {size:?}"))?;
+
+    // Load each drawing, keeping its label (the file stem).
+    let mut docs: Vec<(String, aadt_model::Document)> = Vec::new();
+    for path in &inputs {
+        let d = aadt_dxf::import_path(path).map_err(|e| e.to_string())?;
+        let label = std::path::Path::new(path)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_uppercase())
+            .unwrap_or_default();
+        docs.push((label, d));
+    }
+
+    let sheet = Sheet::new(paper, Orientation::Landscape, 10.0);
+    let mut doc = aadt_model::Document::new();
+    sheet.place(&mut doc);
+
+    // A near-square grid: cols = ceil(sqrt(n)).
+    let n = docs.len();
+    let cols = (n as f64).sqrt().ceil() as usize;
+    let rows = n.div_ceil(cols);
+    let areas = aadt_docs::grid_areas(&sheet, cols, rows, 15.0);
+
+    let views: Vec<aadt_docs::View> = docs
+        .iter()
+        .zip(&areas)
+        .map(|((label, d), area)| aadt_docs::View {
+            doc: d,
+            area: *area,
+            label: label.clone(),
+        })
+        .collect();
+    let scales = aadt_docs::present(&mut doc, &views);
+
+    aadt_dxf::export_path(&doc, &out).map_err(|e| e.to_string())?;
+    println!("Composed {n} view(s) in a {cols}x{rows} grid onto {out}:");
+    for ((label, _), scale) in docs.iter().zip(&scales) {
+        let ratio = if *scale > 0.0 {
+            format!("1:{}", (1000.0 / scale).round() as i64)
+        } else {
+            "empty".to_string()
+        };
+        println!("  {label}: {ratio}");
+    }
     Ok(())
 }
 
@@ -439,6 +507,8 @@ Usage:
   aadt view <input.dxf>                  Open the interactive canvas window (needs --features gui)
   aadt sheet <input.dxf> --out <out.dxf> Compose a sheet: border, title block, notes, QA
       [--size A1] [--project X] [--title Y] [--number A-101] [--scale 1:100] [--date D] [--by NN]
+  aadt present <a.dxf> <b.dxf> ... --out <out.dxf>
+                                          Lay several drawings out as views on one sheet [--size A1]
   aadt lisp <script.lsp> [--dxf <in.dxf>] [--save <out.dxf>]
                                           Run a LISP script; aadt-* can query and draw into the drawing
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF

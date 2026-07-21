@@ -13,7 +13,9 @@
 //! - [`qa`] — documentation QA: deterministic completeness checks that gate
 //!   whether a sheet is ready to issue.
 //! - [`compose`] — fit the model drawing into the sheet's drawing area at a
-//!   single scale, so the plan sits correctly inside the border and title block.
+//!   single scale ([`place_drawing`]), and lay several views out on one sheet
+//!   ([`present`], `AADT-PRESENT`) — an overall plan plus an enlarged detail, or
+//!   two revisions side by side.
 //!
 //! The placement APIs mirror the takeoff schedule table
 //! ([`aadt_takeoff::schedule`]): each draws ordinary geometry through
@@ -21,8 +23,8 @@
 //! notes block is a single undoable, DXF-round-trippable object — not a special
 //! entity type.
 //!
-//! Still ahead in M5: `AADT-PRESENT` layout composition (multiple views per
-//! sheet). That builds on this geometry core.
+//! M5 is complete: sheet setup, title blocks, notes, QA, scaled drawing
+//! composition, and `AADT-PRESENT` multi-view layout all land here.
 
 pub mod compose;
 pub mod notes;
@@ -30,7 +32,7 @@ pub mod qa;
 pub mod sheet;
 pub mod titleblock;
 
-pub use compose::{place_drawing, Composed, DrawingArea};
+pub use compose::{grid_areas, place_drawing, present, Composed, DrawingArea, View};
 pub use notes::{place_notes, NotesLibrary, NotesStyle};
 pub use qa::{QaFinding, QaSeverity, SheetReview};
 pub use sheet::{Orientation, PaperSize, Sheet};
