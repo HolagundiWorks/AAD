@@ -21,16 +21,45 @@ use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EntityId(pub u64);
 
+/// The default AutoCAD Color Index (ACI) — 7, white/black — a fresh layer takes.
+pub const DEFAULT_LAYER_COLOR: u8 = 7;
+
 /// A drawing layer. Layer names carry the convention hints AADT detection uses
-/// (e.g. `A-WALL`), so they are preserved verbatim from the source file.
+/// (e.g. `A-WALL`), so they are preserved verbatim from the source file. A layer
+/// also carries display state — an [ACI](https://en.wikipedia.org/wiki/AutoCAD_DXF)
+/// `color`, whether it is `visible` (DXF encodes "off" as a negative colour), and
+/// whether it is `frozen` (DXF flag 70 bit 1) — so `LAYER … OFF/FREEZE/COLOR`
+/// round-trips and the renderer can hide a whole layer at once.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     pub name: String,
+    /// AutoCAD Color Index (1–255); [`DEFAULT_LAYER_COLOR`] by default.
+    pub color: u8,
+    /// A layer that is off is not drawn.
+    pub visible: bool,
+    /// A frozen layer is neither drawn nor regenerated.
+    pub frozen: bool,
 }
 
 impl Layer {
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
+        Self {
+            name: name.into(),
+            color: DEFAULT_LAYER_COLOR,
+            visible: true,
+            frozen: false,
+        }
+    }
+
+    /// Builder: set the ACI colour.
+    pub fn with_color(mut self, color: u8) -> Self {
+        self.color = color;
+        self
+    }
+
+    /// Whether entities on this layer should be drawn: on and not frozen.
+    pub fn shown(&self) -> bool {
+        self.visible && !self.frozen
     }
 }
 
@@ -384,6 +413,14 @@ enum Op {
     RemoveEntity(Entity),
     /// A new layer was created (undo removes it, redo recreates it).
     AddLayer(String),
+    /// A layer's properties were set (undo restores `before`, redo reapplies
+    /// `after`); `None` means the layer was absent, so create/delete round-trips
+    /// through the same op.
+    SetLayer {
+        name: String,
+        before: Option<Layer>,
+        after: Option<Layer>,
+    },
     /// An entity's geometry was replaced in place, its id preserved (undo
     /// restores `before`, redo reapplies `after`).
     ReplaceGeometry {
@@ -525,6 +562,9 @@ impl Document {
             Op::AddLayer(name) => {
                 self.layers.insert(name.clone(), Layer::new(name.clone()));
             }
+            Op::SetLayer { name, after, .. } => {
+                Self::write_layer(&mut self.layers, name, after.clone());
+            }
             Op::ReplaceGeometry { id, after, .. } => {
                 if let Some(e) = self.entities.get_mut(id) {
                     e.geometry = after.clone();
@@ -547,6 +587,9 @@ impl Document {
             Op::AddLayer(name) => {
                 self.layers.remove(name);
             }
+            Op::SetLayer { name, before, .. } => {
+                Self::write_layer(&mut self.layers, name, before.clone());
+            }
             Op::ReplaceGeometry { id, before, .. } => {
                 if let Some(e) = self.entities.get_mut(id) {
                     e.geometry = before.clone();
@@ -556,6 +599,19 @@ impl Document {
                 id, key, before, ..
             } => {
                 Self::write_attribute(&mut self.entities, id, key, before.clone());
+            }
+        }
+    }
+
+    /// Set or remove a layer in the store (`None` removes it) — the primitive
+    /// [`Op::SetLayer`] apply/invert share.
+    fn write_layer(layers: &mut HashMap<String, Layer>, name: &str, value: Option<Layer>) {
+        match value {
+            Some(l) => {
+                layers.insert(name.to_string(), l);
+            }
+            None => {
+                layers.remove(name);
             }
         }
     }
@@ -597,6 +653,50 @@ impl Document {
             self.record(Op::AddLayer(name));
             self.revision += 1;
         }
+    }
+
+    /// Modify a layer's display state through `f`, creating it first if it does
+    /// not exist. Recorded as one reversible [`Op::SetLayer`] (a fresh layer's
+    /// `before` is `None`, so undo removes it). Returns `false` — recording
+    /// nothing — when `f` leaves the layer unchanged.
+    fn update_layer(&mut self, name: &str, f: impl FnOnce(&mut Layer)) -> bool {
+        let before = self.layers.get(name).cloned();
+        let mut candidate = before.clone().unwrap_or_else(|| Layer::new(name));
+        f(&mut candidate);
+        if before.as_ref() == Some(&candidate) {
+            return false; // no change
+        }
+        self.layers.insert(name.to_string(), candidate.clone());
+        self.record(Op::SetLayer {
+            name: name.to_string(),
+            before,
+            after: Some(candidate),
+        });
+        self.revision += 1;
+        true
+    }
+
+    /// Set a layer's ACI colour, creating the layer if needed. Returns whether it
+    /// changed. Undoable.
+    pub fn set_layer_color(&mut self, name: &str, color: u8) -> bool {
+        self.update_layer(name, |l| l.color = color)
+    }
+
+    /// Turn a layer on or off (an off layer is not drawn). Undoable.
+    pub fn set_layer_visible(&mut self, name: &str, visible: bool) -> bool {
+        self.update_layer(name, |l| l.visible = visible)
+    }
+
+    /// Freeze or thaw a layer (a frozen layer is not drawn). Undoable.
+    pub fn set_layer_frozen(&mut self, name: &str, frozen: bool) -> bool {
+        self.update_layer(name, |l| l.frozen = frozen)
+    }
+
+    /// Whether entities on `layer` should be drawn: a layer unknown to the
+    /// document is shown (an entity may reference a layer with no explicit
+    /// record), and a known layer is shown when it is on and not frozen.
+    pub fn layer_shown(&self, layer: &str) -> bool {
+        self.layers.get(layer).is_none_or(Layer::shown)
     }
 
     /// Insert geometry on a layer, auto-registering the layer if unseen, and
@@ -966,6 +1066,44 @@ mod tests {
         } else {
             panic!("expected circle");
         }
+    }
+
+    #[test]
+    fn layer_state_is_editable_and_undoable() {
+        let mut doc = Document::new();
+        // A used-but-unrecorded layer is shown by default.
+        doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
+        assert!(doc.layer_shown("A-WALL"));
+        assert!(doc.layer("A-WALL").unwrap().shown());
+
+        // Colour it, then turn it off, each an undoable step.
+        doc.transact("color", |d| d.set_layer_color("A-WALL", 5));
+        assert_eq!(doc.layer("A-WALL").unwrap().color, 5);
+
+        doc.transact("off", |d| d.set_layer_visible("A-WALL", false));
+        assert!(!doc.layer_shown("A-WALL"), "an off layer is not shown");
+
+        doc.undo(); // thaw the "off"
+        assert!(doc.layer_shown("A-WALL"));
+        assert_eq!(doc.layer("A-WALL").unwrap().color, 5, "colour survives");
+
+        doc.undo(); // revert the colour
+        assert_eq!(doc.layer("A-WALL").unwrap().color, DEFAULT_LAYER_COLOR);
+
+        // Freezing hides too.
+        doc.transact("freeze", |d| d.set_layer_frozen("A-WALL", true));
+        assert!(!doc.layer_shown("A-WALL"));
+    }
+
+    #[test]
+    fn setting_a_layer_property_to_its_current_value_records_nothing() {
+        let mut doc = Document::new();
+        doc.add_geometry("A", line(0.0, 0.0, 1.0, 0.0));
+        // A brand-new layer already has the default colour; setting it again is a
+        // no-op that leaves nothing to undo.
+        let changed = doc.transact("noop", |d| d.set_layer_color("A", DEFAULT_LAYER_COLOR));
+        assert!(!changed);
+        assert!(!doc.can_undo(), "an unchanged set records no transaction");
     }
 
     #[test]

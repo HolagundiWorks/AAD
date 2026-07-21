@@ -263,6 +263,10 @@ fn dimension_commands(dim: &Dimension) -> Vec<DrawCommand> {
 pub fn build_drawlist(doc: &Document) -> DrawList {
     let mut commands = Vec::with_capacity(doc.len());
     for e in doc.entities() {
+        // A hidden layer (off or frozen) draws nothing.
+        if !doc.layer_shown(&e.layer) {
+            continue;
+        }
         match &e.geometry {
             Geometry::Insert(ins) => match doc.block(&ins.name) {
                 Some(block) => {
@@ -286,10 +290,14 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
         }
     }
     for hatch in doc.hatches() {
-        commands.push(hatch_command(hatch));
+        if doc.layer_shown(&hatch.layer) {
+            commands.push(hatch_command(hatch));
+        }
     }
     for dim in doc.dimensions() {
-        commands.extend(dimension_commands(dim));
+        if doc.layer_shown(&dim.layer) {
+            commands.extend(dimension_commands(dim));
+        }
     }
     DrawList { commands }
 }
@@ -721,6 +729,33 @@ mod tests {
             "SOLID",
         ));
         assert_eq!(build_drawlist(&doc), build_drawlist(&doc));
+    }
+
+    #[test]
+    fn hidden_layers_are_culled_from_the_drawlist() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        doc.add_geometry(
+            "A-GRID",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(0.0, 1.0))),
+        );
+        assert_eq!(build_drawlist(&doc).len(), 2);
+
+        // Turning A-GRID off drops its entity from the frame.
+        doc.set_layer_visible("A-GRID", false);
+        let list = build_drawlist(&doc);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.commands[0].layer(), "A-WALL");
+
+        // Freezing hides too; thawing/turning back on restores it.
+        doc.set_layer_visible("A-GRID", true);
+        doc.set_layer_frozen("A-WALL", true);
+        let list = build_drawlist(&doc);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list.commands[0].layer(), "A-GRID");
     }
 
     #[test]

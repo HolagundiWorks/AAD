@@ -723,14 +723,21 @@ impl Command for LayersCmd {
         "LAYERS — list the drawing's layers"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let mut names: Vec<&str> = ctx.doc.layers().map(|l| l.name.as_str()).collect();
-        names.sort_unstable();
-        if names.is_empty() {
+        let mut layers: Vec<_> = ctx.doc.layers().collect();
+        layers.sort_by(|a, b| a.name.cmp(&b.name));
+        if layers.is_empty() {
             return Ok("no layers".to_string());
         }
-        let mut lines = vec![format!("{} layer(s):", names.len())];
-        for n in names {
-            lines.push(format!("  {n}"));
+        let mut lines = vec![format!("{} layer(s):", layers.len())];
+        for l in layers {
+            let mut flags = format!("color {}", l.color);
+            if !l.visible {
+                flags.push_str(", off");
+            }
+            if l.frozen {
+                flags.push_str(", frozen");
+            }
+            lines.push(format!("  {} [{flags}]", l.name));
         }
         Ok(lines.join("\n"))
     }
@@ -770,14 +777,57 @@ impl Command for LayerCmd {
         &["LA"]
     }
     fn help(&self) -> &str {
-        "LAYER name — create a layer"
+        "LAYER name [COLOR n] [ON|OFF] [FREEZE|THAW] — create or restyle a layer"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let name = args.first().ok_or("LAYER: missing name")?.clone();
+
+        // Parse the optional state changes, in any order.
+        let mut color: Option<u8> = None;
+        let mut visible: Option<bool> = None;
+        let mut frozen: Option<bool> = None;
+        let mut it = args[1..].iter();
+        while let Some(tok) = it.next() {
+            match tok.to_ascii_uppercase().as_str() {
+                "COLOR" | "COL" => {
+                    let v = it.next().ok_or("LAYER: COLOR needs a number (1-255)")?;
+                    color = Some(
+                        v.parse::<u8>()
+                            .ok()
+                            .filter(|c| *c >= 1)
+                            .ok_or_else(|| format!("LAYER: invalid color {v:?} (1-255)"))?,
+                    );
+                }
+                "ON" => visible = Some(true),
+                "OFF" => visible = Some(false),
+                "FREEZE" => frozen = Some(true),
+                "THAW" => frozen = Some(false),
+                other => return Err(format!("LAYER: unknown option {other:?}")),
+            }
+        }
+
         ctx.doc.transact("LAYER", |d| {
-            d.add_layer(aadt_model::Layer::new(name.clone()))
+            d.add_layer(aadt_model::Layer::new(name.clone()));
+            if let Some(c) = color {
+                d.set_layer_color(&name, c);
+            }
+            if let Some(v) = visible {
+                d.set_layer_visible(&name, v);
+            }
+            if let Some(fr) = frozen {
+                d.set_layer_frozen(&name, fr);
+            }
         });
-        Ok(format!("layer {name:?} ready"))
+
+        // Report the resulting state.
+        let l = ctx.doc.layer(&name).expect("layer exists after LAYER");
+        let state = format!(
+            "color {}, {}{}",
+            l.color,
+            if l.visible { "on" } else { "off" },
+            if l.frozen { ", frozen" } else { "" },
+        );
+        Ok(format!("layer {name:?} ready ({state})"))
     }
 }
 
@@ -1269,6 +1319,39 @@ mod tests {
         assert!(interp.eval_line(&mut ctx, "AREA 2").is_err());
         // Inspection left the document unchanged in size.
         assert_eq!(ctx.doc.len(), 3);
+    }
+
+    #[test]
+    fn layer_command_sets_color_and_visibility_and_undoes() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        let msg = interp
+            .eval_line(&mut ctx, "LAYER A-WALL COLOR 5 OFF FREEZE")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("color 5") && msg.contains("off") && msg.contains("frozen"));
+        let l = ctx.doc.layer("A-WALL").unwrap();
+        assert_eq!(l.color, 5);
+        assert!(!l.visible && l.frozen && !l.shown());
+
+        // Back-compat: a bare LAYER just creates a default layer.
+        interp.eval_line(&mut ctx, "LAYER A-ROOM").unwrap();
+        let r = ctx.doc.layer("A-ROOM").unwrap();
+        assert!(r.shown() && r.color == 7);
+
+        // Turn A-WALL back on and thaw it in one command.
+        interp.eval_line(&mut ctx, "LAYER A-WALL ON THAW").unwrap();
+        assert!(ctx.doc.layer("A-WALL").unwrap().shown());
+        // One UNDO reverts that whole restyle.
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert!(
+            !ctx.doc.layer("A-WALL").unwrap().shown(),
+            "undo restores off+frozen"
+        );
+
+        // A bad colour and unknown option are rejected.
+        assert!(interp.eval_line(&mut ctx, "LAYER X COLOR 999").is_err());
+        assert!(interp.eval_line(&mut ctx, "LAYER X BOGUS").is_err());
     }
 
     #[test]

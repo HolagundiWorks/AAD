@@ -28,7 +28,7 @@ use std::fmt;
 use std::path::Path;
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{Block, Dimension, DimensionKind, Document, Geometry, Hatch, Insert, Text};
+use aadt_model::{Block, Dimension, DimensionKind, Document, Geometry, Hatch, Insert, Layer, Text};
 
 /// Error raised while reading or writing a DXF file.
 #[derive(Debug)]
@@ -80,10 +80,15 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
                 section = match rec.string(2) {
                     Some("ENTITIES") => Section::Entities,
                     Some("BLOCKS") => Section::Blocks,
+                    Some("TABLES") => Section::Tables,
                     _ => Section::Other,
                 };
             }
             "ENDSEC" => section = Section::None,
+            // A LAYER table record: name, colour (62; negative = off), flags
+            // (70 bit 1 = frozen). Read before ENTITIES, so the layer carries its
+            // display state before any entity references it.
+            "LAYER" if section == Section::Tables => import_layer(&mut doc, rec),
             // A BLOCK definition consumes its content up to ENDBLK.
             "BLOCK" if section == Section::Blocks => {
                 i = import_block(&mut doc, &records, i);
@@ -202,7 +207,9 @@ enum Section {
     None,
     Entities,
     Blocks,
-    /// A section AADT does not read (HEADER, TABLES, …).
+    /// The TABLES section — read for its `LAYER` table (colour / on-off / frozen).
+    Tables,
+    /// A section AADT does not read (HEADER, …).
     Other,
 }
 
@@ -442,6 +449,9 @@ fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize 
 pub fn export_str(doc: &Document) -> String {
     let mut out = String::new();
 
+    // TABLES (layer state) precede BLOCKS and ENTITIES, per DXF ordering.
+    write_layer_table(&mut out, doc);
+
     let blocks = doc.blocks();
     if !blocks.is_empty() {
         out.push_str("0\nSECTION\n2\nBLOCKS\n");
@@ -471,6 +481,53 @@ pub fn export_str(doc: &Document) -> String {
     }
     out.push_str("0\nENDSEC\n0\nEOF\n");
     out
+}
+
+/// Read a `LAYER` table record into the document's layer table. Colour is DXF
+/// group 62 (negative encodes "off"), frozen is flag 70 bit 1.
+fn import_layer(doc: &mut Document, rec: &Record) {
+    let Some(name) = rec.string(2) else { return };
+    let mut layer = Layer::new(name);
+    if let Some(c) = rec.int(62) {
+        layer.visible = c >= 0;
+        let aci = c.unsigned_abs();
+        if (1..=255).contains(&aci) {
+            layer.color = aci as u8;
+        }
+    }
+    if let Some(flags) = rec.int(70) {
+        layer.frozen = flags & 1 != 0;
+    }
+    doc.add_layer(layer);
+}
+
+/// Write a TABLES section with the LAYER table — but only for layers whose state
+/// differs from the default (colour 7, on, thawed). A drawing that never touched
+/// layer state emits no TABLES section, so existing all-default fixtures are
+/// byte-for-byte unchanged. Layers are written sorted by name for determinism.
+fn write_layer_table(out: &mut String, doc: &Document) {
+    let mut layers: Vec<&Layer> = doc
+        .layers()
+        .filter(|l| l.color != aadt_model::DEFAULT_LAYER_COLOR || !l.visible || l.frozen)
+        .collect();
+    if layers.is_empty() {
+        return;
+    }
+    layers.sort_by(|a, b| a.name.cmp(&b.name));
+    out.push_str("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n");
+    for l in layers {
+        let color = if l.visible {
+            i32::from(l.color)
+        } else {
+            -i32::from(l.color)
+        };
+        let flags = i32::from(l.frozen);
+        out.push_str(&format!(
+            "0\nLAYER\n2\n{}\n70\n{}\n62\n{}\n",
+            l.name, flags, color
+        ));
+    }
+    out.push_str("0\nENDTAB\n0\nENDSEC\n");
 }
 
 fn write_hatch(out: &mut String, h: &aadt_model::Hatch) {
@@ -1089,6 +1146,43 @@ EOF
             doc1.dimensions(),
             doc2.dimensions(),
             "dimension changed on round-trip"
+        );
+    }
+
+    #[test]
+    fn round_trip_preserves_layer_state() {
+        let mut doc = Document::new();
+        let seg = |x, y| Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(x, y)));
+        doc.add_geometry("A-WALL", seg(1.0, 0.0));
+        doc.add_geometry("A-GRID", seg(0.0, 1.0));
+        doc.add_geometry("A-PLAIN", seg(1.0, 1.0));
+        doc.set_layer_color("A-WALL", 5);
+        doc.set_layer_visible("A-WALL", false);
+        doc.set_layer_frozen("A-GRID", true);
+
+        let dxf = export_str(&doc);
+        assert!(dxf.contains("\nTABLES\n"), "a TABLES section is emitted");
+
+        let back = import_str(&dxf).unwrap();
+        let wall = back.layer("A-WALL").expect("A-WALL survives");
+        assert_eq!(wall.color, 5);
+        assert!(!wall.visible, "off layer stays off");
+        assert!(back.layer("A-GRID").unwrap().frozen, "frozen stays frozen");
+        // The all-default layer is shown and needs no explicit record to be so.
+        assert!(back.layer_shown("A-PLAIN"));
+    }
+
+    #[test]
+    fn all_default_layers_emit_no_tables_section() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        let dxf = export_str(&doc);
+        assert!(
+            !dxf.contains("\nTABLES\n"),
+            "default-only layers add no TABLES section, keeping existing output byte-stable"
         );
     }
 
