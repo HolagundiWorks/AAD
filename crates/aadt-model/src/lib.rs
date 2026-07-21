@@ -343,6 +343,18 @@ impl Geometry {
             )),
         }
     }
+
+    /// This (block-space) geometry placed by an insert: shift the block's `base`
+    /// to the origin, rotate by `rotation_deg` (CCW), then translate to
+    /// `position`. This is the rigid placement `position + Rot(θ)·(p − base)` the
+    /// renderer applies to block content, expressed by composing the tested
+    /// [`translated`](Self::translated) and [`rotated`](Self::rotated) transforms —
+    /// so EXPLODE bakes exactly what the canvas would draw.
+    pub fn instanced(&self, base: Point2, position: Point2, rotation_deg: f64) -> Geometry {
+        self.translated(-base.x, -base.y)
+            .rotated(Point2::new(0.0, 0.0), rotation_deg.to_radians())
+            .translated(position.x, position.y)
+    }
 }
 
 /// A single drawing entity: geometry plus the layer it lives on and free-form
@@ -914,6 +926,28 @@ mod tests {
         if let Geometry::Line(s) = &doc.get(id2).unwrap().geometry {
             assert!(s.a.distance(Point2::new(0.0, -1.0)) < 1e-9);
             assert!(s.b.distance(Point2::new(2.0, -1.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+    }
+
+    #[test]
+    fn instanced_matches_base_rotation_and_position() {
+        // A block-space segment (0,0)-(1,0), base (1,1), placed at (10,10) with no
+        // rotation draws from (10,10)-(1,1)=(9,9) to (10,9) — the renderer's rule.
+        let g = line(0.0, 0.0, 1.0, 0.0);
+        let placed = g.instanced(Point2::new(1.0, 1.0), Point2::new(10.0, 10.0), 0.0);
+        if let Geometry::Line(s) = placed {
+            assert!(s.a.distance(Point2::new(9.0, 9.0)) < 1e-9);
+            assert!(s.b.distance(Point2::new(10.0, 9.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+        // With 90° rotation about its own base at the origin, (1,0) -> (0,1).
+        let g2 = line(0.0, 0.0, 1.0, 0.0);
+        let placed2 = g2.instanced(Point2::new(0.0, 0.0), Point2::new(0.0, 0.0), 90.0);
+        if let Geometry::Line(s) = placed2 {
+            assert!(s.b.distance(Point2::new(0.0, 1.0)) < 1e-9, "got {:?}", s.b);
         } else {
             panic!("expected line");
         }

@@ -129,6 +129,8 @@ pub fn builtins() -> Registry {
     r.register(Box::new(RotateCmd));
     r.register(Box::new(ScaleCmd));
     r.register(Box::new(MirrorCmd));
+    r.register(Box::new(ArrayCmd));
+    r.register(Box::new(ExplodeCmd));
     r.register(Box::new(EraseCmd));
     // Organize.
     r.register(Box::new(LayerCmd));
@@ -137,6 +139,8 @@ pub fn builtins() -> Registry {
     r.register(Box::new(UndoCmd));
     r.register(Box::new(RedoCmd));
     r.register(Box::new(ListCmd));
+    r.register(Box::new(DistCmd));
+    r.register(Box::new(AreaCmd));
     r
 }
 
@@ -218,6 +222,13 @@ fn parse_entity_id(raw: &str, flag: &str) -> Result<EntityId, String> {
     raw.parse::<u64>()
         .map(EntityId)
         .map_err(|_| format!("{flag}: {raw:?} is not an entity id"))
+}
+
+fn parse_usize(args: &[String], i: usize, flag: &str) -> Result<usize, String> {
+    args.get(i)
+        .ok_or_else(|| format!("{flag}: missing argument {}", i + 1))?
+        .parse::<usize>()
+        .map_err(|_| format!("{flag}: argument {} is not a non-negative integer", i + 1))
 }
 
 /// Translate a piece of geometry by `(dx, dy)`, returning a moved copy.
@@ -602,6 +613,104 @@ impl Command for MirrorCmd {
     }
 }
 
+struct ArrayCmd;
+impl Command for ArrayCmd {
+    fn name(&self) -> &str {
+        "ARRAY"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AR"]
+    }
+    fn help(&self) -> &str {
+        "ARRAY id rows cols dx dy — rectangular array of copies (rows×cols, spacing dx/dy)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("ARRAY: missing entity id")?;
+        let id = parse_entity_id(raw, "ARRAY")?;
+        let rows = parse_usize(args, 1, "ARRAY")?;
+        let cols = parse_usize(args, 2, "ARRAY")?;
+        let dx = parse_f64(args, 3, "ARRAY")?;
+        let dy = parse_f64(args, 4, "ARRAY")?;
+        if rows == 0 || cols == 0 {
+            return Err("ARRAY: rows and cols must be at least 1".to_string());
+        }
+        let existing = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("ARRAY: no entity with id {}", id.0))?;
+        let layer = existing.layer.clone();
+        let geometry = existing.geometry.clone();
+        // Every grid cell except the original's (0,0) gets a translated copy.
+        let offsets: Vec<(f64, f64)> = (0..rows)
+            .flat_map(|i| (0..cols).map(move |j| (i, j)))
+            .filter(|&(i, j)| !(i == 0 && j == 0))
+            .map(|(i, j)| (j as f64 * dx, i as f64 * dy))
+            .collect();
+        let count = offsets.len();
+        ctx.doc.transact("ARRAY", |d| {
+            for (ox, oy) in &offsets {
+                d.add_geometry(layer.clone(), translate_geometry(&geometry, *ox, *oy));
+            }
+        });
+        Ok(format!("arrayed entity {} into {count} copies", id.0))
+    }
+}
+
+struct ExplodeCmd;
+impl Command for ExplodeCmd {
+    fn name(&self) -> &str {
+        "EXPLODE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["X"]
+    }
+    fn help(&self) -> &str {
+        "EXPLODE id — replace a block reference with its instantiated geometry"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("EXPLODE: missing entity id")?;
+        let id = parse_entity_id(raw, "EXPLODE")?;
+        let entity = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("EXPLODE: no entity with id {}", id.0))?;
+        let Geometry::Insert(ins) = &entity.geometry else {
+            return Err(format!("EXPLODE: entity {} is not a block reference", id.0));
+        };
+        let block = ctx
+            .doc
+            .block(&ins.name)
+            .ok_or_else(|| format!("EXPLODE: block {:?} is not defined", ins.name))?;
+        // Bake each block entity to world space, inheriting the insert's layer for
+        // block-local layer "0" (the DXF convention the renderer also follows).
+        let placed: Vec<(String, Geometry)> = block
+            .entities
+            .iter()
+            .map(|be| {
+                let layer = if be.layer == "0" {
+                    entity.layer.clone()
+                } else {
+                    be.layer.clone()
+                };
+                (
+                    layer,
+                    be.geometry
+                        .instanced(block.base, ins.position, ins.rotation),
+                )
+            })
+            .collect();
+        let count = placed.len();
+        // One atomic, undoable step: drop the insert, add its baked geometry.
+        ctx.doc.transact("EXPLODE", |d| {
+            d.remove_entity(id);
+            for (layer, geometry) in placed {
+                d.add_geometry(layer, geometry);
+            }
+        });
+        Ok(format!("exploded entity {} into {count} entities", id.0))
+    }
+}
+
 struct LayersCmd;
 impl Command for LayersCmd {
     fn name(&self) -> &str {
@@ -693,6 +802,57 @@ impl Command for EraseCmd {
             Some(_) => Ok(format!("erased entity {id}")),
             None => Err(format!("no entity with id {id}")),
         }
+    }
+}
+
+struct DistCmd;
+impl Command for DistCmd {
+    fn name(&self) -> &str {
+        "DIST"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DI"]
+    }
+    fn help(&self) -> &str {
+        "DIST x1 y1 x2 y2 — report the distance between two points"
+    }
+    fn run(&self, _ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let a = Point2::new(parse_f64(args, 0, "DIST")?, parse_f64(args, 1, "DIST")?);
+        let b = Point2::new(parse_f64(args, 2, "DIST")?, parse_f64(args, 3, "DIST")?);
+        let d = a.distance(b);
+        Ok(format!("distance {d} (dx {}, dy {})", b.x - a.x, b.y - a.y))
+    }
+}
+
+struct AreaCmd;
+impl Command for AreaCmd {
+    fn name(&self) -> &str {
+        "AREA"
+    }
+    fn help(&self) -> &str {
+        "AREA id — report the enclosed area of a closed polyline or circle"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("AREA: missing entity id")?;
+        let id = parse_entity_id(raw, "AREA")?;
+        let entity = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("AREA: no entity with id {}", id.0))?;
+        let area = match &entity.geometry {
+            Geometry::Polyline(p) if p.closed => p.area(),
+            Geometry::Circle(c) => std::f64::consts::PI * c.radius * c.radius,
+            Geometry::Polyline(_) => {
+                return Err(format!("AREA: entity {} is an open polyline", id.0))
+            }
+            _ => {
+                return Err(format!(
+                    "AREA: entity {} has no enclosed area (not a closed polyline or circle)",
+                    id.0
+                ))
+            }
+        };
+        Ok(format!("area {area}"))
     }
 }
 
@@ -988,6 +1148,127 @@ mod tests {
         interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
         assert!(interp.eval_line(&mut ctx, "SCALE 0 0 0 0").is_err());
         assert!(interp.eval_line(&mut ctx, "MIRROR 0 1 1 1 1").is_err());
+    }
+
+    #[test]
+    fn array_creates_a_rectangular_grid_of_copies() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 1").unwrap();
+        // 2 rows × 3 cols → 6 cells, 5 new copies plus the original = 6 entities.
+        interp.eval_line(&mut ctx, "ARRAY 0 2 3 10 5").unwrap();
+        assert_eq!(ctx.doc.len(), 6);
+        // The centers span the grid {0,10,20} × {0,5}.
+        let mut centers: Vec<(i64, i64)> = ctx
+            .doc
+            .entities()
+            .iter()
+            .filter_map(|e| match &e.geometry {
+                Geometry::Circle(c) => Some((c.center.x as i64, c.center.y as i64)),
+                _ => None,
+            })
+            .collect();
+        centers.sort_unstable();
+        assert_eq!(
+            centers,
+            [(0, 0), (0, 5), (10, 0), (10, 5), (20, 0), (20, 5)]
+        );
+        // One UNDO removes all copies atomically.
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert_eq!(ctx.doc.len(), 1);
+    }
+
+    #[test]
+    fn explode_bakes_a_block_reference_into_geometry() {
+        use aadt_model::Block;
+
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Define a two-segment block, then reference it.
+        let mut b = Block::new("TEE", Point2::new(0.0, 0.0));
+        b.push(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(2.0, 0.0))),
+        );
+        b.push(
+            "STEEL",
+            Geometry::Line(Segment::new(Point2::new(1.0, 0.0), Point2::new(1.0, 2.0))),
+        );
+        ctx.doc.add_block(b);
+        interp
+            .eval_line(&mut ctx, "INSERT TEE 10 10 0 A-COL")
+            .unwrap();
+        let insert_id = ctx.doc.entities()[0].id;
+
+        interp.eval_line(&mut ctx, "EXPLODE 0").unwrap();
+        // The insert is gone, replaced by the block's two segments.
+        assert!(ctx.doc.get(insert_id).is_none(), "insert removed");
+        assert_eq!(ctx.doc.len(), 2);
+
+        // Layer "0" content inherited the insert's layer; named layer kept.
+        let layers: std::collections::BTreeSet<&str> = ctx
+            .doc
+            .entities()
+            .iter()
+            .map(|e| e.layer.as_str())
+            .collect();
+        assert!(layers.contains("A-COL"));
+        assert!(layers.contains("STEEL"));
+
+        // Geometry is baked at the insertion point (10,10).
+        let baked = ctx.doc.entities().iter().any(|e| {
+            matches!(
+                &e.geometry,
+                Geometry::Line(s) if s.a.distance(Point2::new(10.0, 10.0)) < 1e-9
+            )
+        });
+        assert!(baked, "first segment starts at the insertion point");
+
+        // One UNDO restores the single insert.
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert_eq!(ctx.doc.len(), 1);
+        assert!(matches!(
+            ctx.doc.entities()[0].geometry,
+            Geometry::Insert(_)
+        ));
+    }
+
+    #[test]
+    fn explode_rejects_non_inserts_and_undefined_blocks() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
+        assert!(
+            interp.eval_line(&mut ctx, "EXPLODE 0").is_err(),
+            "a line is not a block ref"
+        );
+        interp.eval_line(&mut ctx, "INSERT GHOST 0 0").unwrap();
+        assert!(
+            interp.eval_line(&mut ctx, "EXPLODE 1").is_err(),
+            "an undefined block cannot be exploded"
+        );
+    }
+
+    #[test]
+    fn dist_and_area_report_without_mutating() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        let d = interp.eval_line(&mut ctx, "DIST 0 0 3 4").unwrap().unwrap();
+        assert!(d.contains("distance 5"), "3-4-5 triangle: {d:?}");
+
+        interp.eval_line(&mut ctx, "RECTANGLE 0 0 4 3").unwrap();
+        let a = interp.eval_line(&mut ctx, "AREA 0").unwrap().unwrap();
+        assert!(a.contains("area 12"), "4×3 rectangle: {a:?}");
+
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 2").unwrap();
+        let ac = interp.eval_line(&mut ctx, "AREA 1").unwrap().unwrap();
+        assert!(ac.contains("area 12.56"), "π·2²: {ac:?}");
+
+        // An open polyline has no enclosed area.
+        interp.eval_line(&mut ctx, "POLYLINE 0 0 1 0 2 2").unwrap();
+        assert!(interp.eval_line(&mut ctx, "AREA 2").is_err());
+        // Inspection left the document unchanged in size.
+        assert_eq!(ctx.doc.len(), 3);
     }
 
     #[test]
