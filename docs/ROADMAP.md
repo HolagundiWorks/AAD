@@ -64,7 +64,7 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   comments, tab-completion, and script execution. Draw (`LINE`, `POLYLINE`,
   `RECTANGLE`, `CIRCLE`, `ARC`, `TEXT`, `INSERT`), modify (`MOVE`, `COPY`,
   `ROTATE`, `SCALE`, `MIRROR`, `OFFSET`, `TRIM`, `EXTEND`, `FILLET`, `CHAMFER`,
-  `ARRAY`, `EXPLODE`, `ERASE`), organize (`LAYER`/`LAYERS`), annotate
+  `ARRAY`, `EXPLODE`, `ERASE`), organize (`LAYER`/`LAYERS`/`PURGE`), annotate
   (`DIM`, `HATCH`), select (`SELECT`, `GROUP`, `GROUPS`, `UNGROUP`), inspect
   (`LIST`, `DIST`, `AREA`), and history (`UNDO`/`REDO`) built-ins, plus
   CLI-registered `OPEN`/`SAVE`/`TAKEOFF`/`SCHEDULE`. Driven by `aadt run`/`aadt
@@ -103,7 +103,7 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   (§4.3) — the drawlist and camera math are proven headlessly; the GPU path needs
   a screen to verify.
 - Broadening the interactive command set further toward the ~60–80 curated band
-  (LEADER/MTEXT annotate tools, PURGE, STRETCH, spline/ellipse geometry).
+  (LEADER/MTEXT annotate tools, STRETCH, spline/ellipse geometry).
 
 ## M2 — Element Detection & Classification (deterministic)
 
