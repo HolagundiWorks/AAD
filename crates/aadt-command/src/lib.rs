@@ -133,6 +133,7 @@ pub fn builtins() -> Registry {
     r.register(Box::new(TrimCmd));
     r.register(Box::new(ExtendCmd));
     r.register(Box::new(FilletCmd));
+    r.register(Box::new(ChamferCmd));
     r.register(Box::new(ArrayCmd));
     r.register(Box::new(ExplodeCmd));
     r.register(Box::new(EraseCmd));
@@ -658,8 +659,8 @@ impl Command for OffsetCmd {
     }
 }
 
-/// Fetch an entity that must be a line — the trim/extend/fillet family works on
-/// straight segments only.
+/// Fetch an entity that must be a line — CHAMFER/FILLET work on straight
+/// segments only.
 fn require_line(ctx: &Context, id: EntityId, cmd: &str) -> Result<Segment, String> {
     match ctx.doc.get(id) {
         Some(e) => match &e.geometry {
@@ -668,6 +669,14 @@ fn require_line(ctx: &Context, id: EntityId, cmd: &str) -> Result<Segment, Strin
         },
         None => Err(format!("{cmd}: no entity with id {}", id.0)),
     }
+}
+
+/// Fetch a copy of an entity's geometry (TRIM/EXTEND accept lines and arcs).
+fn require_geometry(ctx: &Context, id: EntityId, cmd: &str) -> Result<Geometry, String> {
+    ctx.doc
+        .get(id)
+        .map(|e| e.geometry.clone())
+        .ok_or_else(|| format!("{cmd}: no entity with id {}", id.0))
 }
 
 /// Choose start/end so the CCW arc from start to end is the minor (≤180°) arc —
@@ -680,6 +689,70 @@ fn minor_arc(a1: f64, a2: f64) -> (f64, f64) {
     }
 }
 
+/// Tolerance for deciding a point lies on a shape.
+const HIT_EPS: f64 = 1e-6;
+
+/// The endpoint of `s` farther from `x` — the part FILLET/CHAMFER keep.
+fn far_end(x: Point2, s: Segment) -> Point2 {
+    if x.distance(s.a) >= x.distance(s.b) {
+        s.a
+    } else {
+        s.b
+    }
+}
+
+/// Is `p` on the *bounded* shape (line segment, arc sweep, or full circle)?
+fn point_on_shape(g: &Geometry, p: Point2) -> bool {
+    match g {
+        Geometry::Line(s) => s.distance_to_point(p) <= HIT_EPS,
+        Geometry::Arc(a) => a.contains_point(p),
+        Geometry::Circle(c) => (p.distance(c.center) - c.radius).abs() <= HIT_EPS,
+        _ => false,
+    }
+}
+
+/// Intersection points of the two shapes' *unbounded* curves (a line as its
+/// infinite line, an arc/circle as its full circle). Supports line/arc/circle
+/// pairs; arc-vs-arc/circle is not modelled and yields nothing.
+fn curve_crossings(a: &Geometry, b: &Geometry) -> Vec<Point2> {
+    use Geometry::{Arc, Circle, Line};
+    match (a, b) {
+        (Line(s1), Line(s2)) => s1
+            .line_intersection(*s2)
+            .map(|(p, _)| p)
+            .into_iter()
+            .collect(),
+        (Line(s), Arc(ar)) | (Arc(ar), Line(s)) => ar.circle().line_intersections(*s),
+        (Line(s), Circle(c)) | (Circle(c), Line(s)) => c.line_intersections(*s),
+        _ => Vec::new(),
+    }
+}
+
+/// Crossings that lie on *both* bounded shapes — where a cutter genuinely crosses
+/// the target, for TRIM.
+fn bounded_crossings(target: &Geometry, cutter: &Geometry) -> Vec<Point2> {
+    curve_crossings(target, cutter)
+        .into_iter()
+        .filter(|&p| point_on_shape(target, p) && point_on_shape(cutter, p))
+        .collect()
+}
+
+/// Crossings of the target's *unbounded* curve with the bounded boundary — where
+/// an extended target would meet the boundary, for EXTEND.
+fn boundary_crossings(target: &Geometry, boundary: &Geometry) -> Vec<Point2> {
+    curve_crossings(target, boundary)
+        .into_iter()
+        .filter(|&p| point_on_shape(boundary, p))
+        .collect()
+}
+
+/// The point in `pts` nearest `p`.
+fn nearest_to(pts: &[Point2], p: Point2) -> Option<Point2> {
+    pts.iter()
+        .copied()
+        .min_by(|a, b| a.distance(p).total_cmp(&b.distance(p)))
+}
+
 struct TrimCmd;
 impl Command for TrimCmd {
     fn name(&self) -> &str {
@@ -689,29 +762,47 @@ impl Command for TrimCmd {
         &["TR"]
     }
     fn help(&self) -> &str {
-        "TRIM id cutter px py — trim a line at its crossing with another, dropping the piece at (px, py)"
+        "TRIM id cutter px py — trim a line or arc at its crossing with another entity, dropping the piece at (px, py)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let id = parse_entity_id(args.first().ok_or("TRIM: missing entity id")?, "TRIM")?;
         let cutter_id = parse_entity_id(args.get(1).ok_or("TRIM: missing cutter id")?, "TRIM")?;
         let pick = Point2::new(parse_f64(args, 2, "TRIM")?, parse_f64(args, 3, "TRIM")?);
-        let target = require_line(ctx, id, "TRIM")?;
-        let cutter = require_line(ctx, cutter_id, "TRIM")?;
+        let target = require_geometry(ctx, id, "TRIM")?;
+        let cutter = require_geometry(ctx, cutter_id, "TRIM")?;
 
-        let x = target
-            .segment_intersection(cutter)
-            .ok_or("TRIM: the cutter does not cross the entity")?;
-        // Keep the side away from the pick point.
-        let new = if target.project_param(pick) < target.project_param(x) {
-            Segment::new(x, target.b)
-        } else {
-            Segment::new(target.a, x)
+        // Where the cutter genuinely crosses the target; use the one nearest the
+        // pick when there is more than one.
+        let crossings = bounded_crossings(&target, &cutter);
+        let x = nearest_to(&crossings, pick).ok_or("TRIM: the cutter does not cross the entity")?;
+
+        let new = match &target {
+            Geometry::Line(s) => {
+                // Keep the side away from the pick point.
+                let kept = if s.project_param(pick) < s.project_param(x) {
+                    Segment::new(x, s.b)
+                } else {
+                    Segment::new(s.a, x)
+                };
+                if kept.length() <= HIT_EPS {
+                    return Err("TRIM: nothing would be left of the line".to_string());
+                }
+                Geometry::Line(kept)
+            }
+            Geometry::Arc(a) => {
+                // The crossing splits the sweep in two; drop the half the pick is on.
+                let theta = a.angle_of(x);
+                let pick_angle = a.angle_of(pick);
+                let first_half = Arc::new(a.center, a.radius, a.start_angle, theta);
+                if first_half.contains_angle(pick_angle) {
+                    Geometry::Arc(Arc::new(a.center, a.radius, theta, a.end_angle))
+                } else {
+                    Geometry::Arc(first_half)
+                }
+            }
+            _ => return Err(format!("TRIM: entity {} must be a line or arc", id.0)),
         };
-        if new.length() <= aadt_geometry::LENGTH_EPS {
-            return Err("TRIM: nothing would be left of the line".to_string());
-        }
-        ctx.doc
-            .transact("TRIM", |d| d.replace_geometry(id, Geometry::Line(new)));
+        ctx.doc.transact("TRIM", |d| d.replace_geometry(id, new));
         Ok(format!("trimmed entity {}", id.0))
     }
 }
@@ -725,40 +816,75 @@ impl Command for ExtendCmd {
         &["EX"]
     }
     fn help(&self) -> &str {
-        "EXTEND id boundary px py — extend a line to meet another, lengthening the end near (px, py)"
+        "EXTEND id boundary px py — extend a line or arc to meet a boundary entity, lengthening the end near (px, py)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let id = parse_entity_id(args.first().ok_or("EXTEND: missing entity id")?, "EXTEND")?;
         let bound_id =
             parse_entity_id(args.get(1).ok_or("EXTEND: missing boundary id")?, "EXTEND")?;
         let pick = Point2::new(parse_f64(args, 2, "EXTEND")?, parse_f64(args, 3, "EXTEND")?);
-        let target = require_line(ctx, id, "EXTEND")?;
-        let boundary = require_line(ctx, bound_id, "EXTEND")?;
+        let target = require_geometry(ctx, id, "EXTEND")?;
+        let boundary = require_geometry(ctx, bound_id, "EXTEND")?;
 
-        let (x, t) = target
-            .line_intersection(boundary)
-            .ok_or("EXTEND: the lines are parallel")?;
-        // The meeting point must land on the boundary segment, not its extension.
-        let u = boundary.project_param(x);
-        let eps = 1e-9;
-        if !(-eps..=1.0 + eps).contains(&u) {
-            return Err("EXTEND: the extension does not reach the boundary".to_string());
+        // Where the target's *extended* curve meets the boundary.
+        let crossings = boundary_crossings(&target, &boundary);
+        if crossings.is_empty() {
+            return Err("EXTEND: the entity's extension does not reach the boundary".to_string());
         }
-        // Extend the endpoint nearer the pick, and only if that lengthens the line.
-        let near_a = pick.distance(target.a) <= pick.distance(target.b);
-        let new = if near_a {
-            if t >= -eps {
-                return Err("EXTEND: the boundary is not beyond that end".to_string());
+        let eps = 1e-9;
+
+        let new = match &target {
+            Geometry::Line(s) => {
+                let near_a = pick.distance(s.a) <= pick.distance(s.b);
+                // The meeting point must be beyond the end being extended.
+                let reach = crossings.iter().copied().filter(|&x| {
+                    let t = s.project_param(x);
+                    if near_a {
+                        t < -eps
+                    } else {
+                        t > 1.0 + eps
+                    }
+                });
+                let x = nearest_to(&reach.collect::<Vec<_>>(), pick)
+                    .ok_or("EXTEND: the boundary is not beyond that end")?;
+                if near_a {
+                    Geometry::Line(Segment::new(x, s.b))
+                } else {
+                    Geometry::Line(Segment::new(s.a, x))
+                }
             }
-            Segment::new(x, target.b)
-        } else {
-            if t <= 1.0 + eps {
-                return Err("EXTEND: the boundary is not beyond that end".to_string());
+            Geometry::Arc(a) => {
+                // Grow the sweep at the end nearer the pick out to the boundary.
+                let extend_end = pick.distance(a.end_point()) <= pick.distance(a.start_point());
+                let grown = crossings.iter().copied().filter_map(|x| {
+                    let theta = a.angle_of(x);
+                    let new_sweep = if extend_end {
+                        (theta - a.start_angle).rem_euclid(360.0)
+                    } else {
+                        (a.end_angle - theta).rem_euclid(360.0)
+                    };
+                    // Only accept a genuine extension (the sweep must grow).
+                    if new_sweep > a.sweep() + eps {
+                        let arc = if extend_end {
+                            Arc::new(a.center, a.radius, a.start_angle, theta)
+                        } else {
+                            Arc::new(a.center, a.radius, theta, a.end_angle)
+                        };
+                        Some((new_sweep, arc))
+                    } else {
+                        None
+                    }
+                });
+                // Take the smallest growth (nearest reachable boundary).
+                let arc = grown
+                    .min_by(|x, y| x.0.total_cmp(&y.0))
+                    .ok_or("EXTEND: the boundary is not beyond that end")?
+                    .1;
+                Geometry::Arc(arc)
             }
-            Segment::new(target.a, x)
+            _ => return Err(format!("EXTEND: entity {} must be a line or arc", id.0)),
         };
-        ctx.doc
-            .transact("EXTEND", |d| d.replace_geometry(id, Geometry::Line(new)));
+        ctx.doc.transact("EXTEND", |d| d.replace_geometry(id, new));
         Ok(format!("extended entity {}", id.0))
     }
 }
@@ -789,16 +915,8 @@ impl Command for FilletCmd {
             .line_intersection(l2)
             .ok_or("FILLET: the lines are parallel")?;
         // The kept part of each line runs from its far end to the tangent point.
-        let far1 = if x.distance(l1.a) >= x.distance(l1.b) {
-            l1.a
-        } else {
-            l1.b
-        };
-        let far2 = if x.distance(l2.a) >= x.distance(l2.b) {
-            l2.a
-        } else {
-            l2.b
-        };
+        let far1 = far_end(x, l1);
+        let far2 = far_end(x, l2);
         let u1 = (far1 - x)
             .normalized()
             .ok_or("FILLET: a line is degenerate")?;
@@ -847,6 +965,62 @@ impl Command for FilletCmd {
             "filleted entities {} and {} with r={radius}",
             id1.0, id2.0
         ))
+    }
+}
+
+struct ChamferCmd;
+impl Command for ChamferCmd {
+    fn name(&self) -> &str {
+        "CHAMFER"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["CHA"]
+    }
+    fn help(&self) -> &str {
+        "CHAMFER id1 id2 dist1 [dist2] — bevel the corner between two lines (dist2 defaults to dist1)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id1 = parse_entity_id(args.first().ok_or("CHAMFER: missing first id")?, "CHAMFER")?;
+        let id2 = parse_entity_id(args.get(1).ok_or("CHAMFER: missing second id")?, "CHAMFER")?;
+        let dist1 = parse_f64(args, 2, "CHAMFER")?;
+        let dist2 = if args.len() >= 4 {
+            parse_f64(args, 3, "CHAMFER")?
+        } else {
+            dist1
+        };
+        if dist1 < 0.0 || dist2 < 0.0 {
+            return Err("CHAMFER: distances must be non-negative".to_string());
+        }
+        let l1 = require_line(ctx, id1, "CHAMFER")?;
+        let l2 = require_line(ctx, id2, "CHAMFER")?;
+        let layer1 = ctx.doc.get(id1).expect("line exists").layer.clone();
+
+        let (x, _) = l1
+            .line_intersection(l2)
+            .ok_or("CHAMFER: the lines are parallel")?;
+        let far1 = far_end(x, l1);
+        let far2 = far_end(x, l2);
+        let u1 = (far1 - x)
+            .normalized()
+            .ok_or("CHAMFER: a line is degenerate")?;
+        let u2 = (far2 - x)
+            .normalized()
+            .ok_or("CHAMFER: a line is degenerate")?;
+        if u1.dot(u2).abs() >= 1.0 - 1e-9 {
+            return Err("CHAMFER: the lines are collinear".to_string());
+        }
+        if dist1 > x.distance(far1) + 1e-9 || dist2 > x.distance(far2) + 1e-9 {
+            return Err("CHAMFER: a distance is too large for its segment".to_string());
+        }
+        // Trim each line to its bevel point, then join the two with a straight edge.
+        let t1 = x + u1 * dist1;
+        let t2 = x + u2 * dist2;
+        ctx.doc.transact("CHAMFER", |d| {
+            d.replace_geometry(id1, Geometry::Line(Segment::new(far1, t1)));
+            d.replace_geometry(id2, Geometry::Line(Segment::new(far2, t2)));
+            d.add_geometry(layer1, Geometry::Line(Segment::new(t1, t2)));
+        });
+        Ok(format!("chamfered entities {} and {}", id1.0, id2.0))
     }
 }
 
@@ -1542,6 +1716,86 @@ mod tests {
         interp2.eval_line(&mut c2, "LINE 0 0 10 0").unwrap();
         interp2.eval_line(&mut c2, "LINE 0 5 10 5").unwrap();
         assert!(interp2.eval_line(&mut c2, "FILLET 0 1 1").is_err());
+    }
+
+    #[test]
+    fn chamfer_bevels_a_right_angle_corner() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL").unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE 0 0 0 10 A-WALL").unwrap(); // id 1
+        interp.eval_line(&mut ctx, "CHAMFER 0 1 2").unwrap();
+
+        assert_eq!(ctx.doc.len(), 3, "two trimmed lines plus the bevel");
+        if let Geometry::Line(s) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!(
+                s.b.distance(Point2::new(2.0, 0.0)) < 1e-9,
+                "trimmed to the bevel"
+            );
+        } else {
+            panic!("expected line");
+        }
+        // The bevel joins the two trim points (2,0)-(0,2).
+        let bevel = ctx.doc.get(EntityId(2)).unwrap();
+        if let Geometry::Line(s) = &bevel.geometry {
+            let ends = [s.a, s.b];
+            assert!(ends
+                .iter()
+                .any(|p| p.distance(Point2::new(2.0, 0.0)) < 1e-9));
+            assert!(ends
+                .iter()
+                .any(|p| p.distance(Point2::new(0.0, 2.0)) < 1e-9));
+        } else {
+            panic!("expected the bevel line");
+        }
+        // Parallel lines cannot be chamfered.
+        let interp2 = Interpreter::with_builtins();
+        let mut c2 = Context::new();
+        interp2.eval_line(&mut c2, "LINE 0 0 10 0").unwrap();
+        interp2.eval_line(&mut c2, "LINE 0 5 10 5").unwrap();
+        assert!(interp2.eval_line(&mut c2, "CHAMFER 0 1 1").is_err());
+    }
+
+    #[test]
+    fn trim_cuts_an_arc_at_a_line() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Upper semicircle 0°→180°, and a vertical line through the centre.
+        interp.eval_line(&mut ctx, "ARC 0 0 5 0 180").unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE 0 -10 0 10").unwrap(); // id 1, crosses at (0,5)=90°
+                                                                // Pick on the left half → drop it, keep the right quarter [0°, 90°].
+        interp.eval_line(&mut ctx, "TRIM 0 1 -4 1").unwrap();
+        if let Geometry::Arc(a) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!(
+                (a.start_angle - 0.0).abs() < 1e-6,
+                "start {}",
+                a.start_angle
+            );
+            assert!((a.end_angle - 90.0).abs() < 1e-6, "end {}", a.end_angle);
+        } else {
+            panic!("expected arc");
+        }
+    }
+
+    #[test]
+    fn extend_grows_an_arc_to_a_boundary() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // A right-upper quarter 0°→90°, and a line tangent to the circle at (-5,0)=180°.
+        interp.eval_line(&mut ctx, "ARC 0 0 5 0 90").unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE -5 -10 -5 10").unwrap(); // id 1, tangent at 180°
+                                                                  // Pick near the arc's end point (0,5) → grow that end out to 180°.
+        interp.eval_line(&mut ctx, "EXTEND 0 1 0 5").unwrap();
+        if let Geometry::Arc(a) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!((a.start_angle - 0.0).abs() < 1e-6);
+            assert!(
+                (a.end_angle - 180.0).abs() < 1e-6,
+                "grown to 180°, got {}",
+                a.end_angle
+            );
+        } else {
+            panic!("expected arc");
+        }
     }
 
     #[test]

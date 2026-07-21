@@ -323,6 +323,32 @@ impl Circle {
     pub fn circumference(self) -> f64 {
         2.0 * std::f64::consts::PI * self.radius
     }
+
+    /// Where the *infinite* line through `seg` meets this circle: 0 points (miss),
+    /// 1 (tangent), or 2 (secant), ordered along the segment's direction. The
+    /// arc-aware TRIM/EXTEND build on this.
+    pub fn line_intersections(self, seg: Segment) -> Vec<Point2> {
+        let d = seg.b - seg.a;
+        let a = d.dot(d);
+        if a <= LENGTH_EPS * LENGTH_EPS {
+            return Vec::new(); // degenerate segment: no direction
+        }
+        let f = seg.a - self.center;
+        let b = 2.0 * f.dot(d);
+        let c = f.dot(f) - self.radius * self.radius;
+        let disc = b * b - 4.0 * a * c;
+        if disc < -LENGTH_EPS {
+            return Vec::new();
+        }
+        let sq = disc.max(0.0).sqrt();
+        let t1 = (-b - sq) / (2.0 * a);
+        let t2 = (-b + sq) / (2.0 * a);
+        if sq <= LENGTH_EPS {
+            vec![seg.a + d * t1] // tangent
+        } else {
+            vec![seg.a + d * t1, seg.a + d * t2]
+        }
+    }
 }
 
 /// A circular arc — door swings, curved walls, and radial annotation.
@@ -382,6 +408,33 @@ impl Arc {
 
     pub fn end_point(self) -> Point2 {
         self.point_at(1.0)
+    }
+
+    /// The full circle this arc lies on.
+    pub fn circle(self) -> Circle {
+        Circle::new(self.center, self.radius)
+    }
+
+    /// The angle (degrees, `[0, 360)`) from the centre to `p`, whether or not `p`
+    /// is on the arc.
+    pub fn angle_of(self, p: Point2) -> f64 {
+        (p.y - self.center.y)
+            .atan2(p.x - self.center.x)
+            .to_degrees()
+            .rem_euclid(360.0)
+    }
+
+    /// Whether `deg` falls within the arc's CCW sweep from `start_angle` to
+    /// `end_angle` (within a small tolerance).
+    pub fn contains_angle(self, deg: f64) -> bool {
+        let off = (deg - self.start_angle).rem_euclid(360.0);
+        off <= self.sweep() + 1e-6
+    }
+
+    /// Whether `p` lies on the arc: on its circle *and* within its sweep.
+    pub fn contains_point(self, p: Point2) -> bool {
+        (p.distance(self.center) - self.radius).abs() <= 1e-6
+            && self.contains_angle(self.angle_of(p))
     }
 
     /// Approximate the arc as `segments` chords. Used by consumers that only
@@ -624,6 +677,43 @@ mod tests {
             horiz.segment_intersection(away).is_none(),
             "hit is past the segment"
         );
+    }
+
+    #[test]
+    fn circle_line_intersections() {
+        let c = Circle::new(Point2::new(0.0, 0.0), 5.0);
+        // A horizontal line through the centre cuts at (±5, 0).
+        let secant = Segment::new(Point2::new(-10.0, 0.0), Point2::new(10.0, 0.0));
+        let hits = c.line_intersections(secant);
+        assert_eq!(hits.len(), 2);
+        assert!(hits[0].distance(Point2::new(-5.0, 0.0)) < 1e-9);
+        assert!(hits[1].distance(Point2::new(5.0, 0.0)) < 1e-9);
+        // A tangent line touches once.
+        let tangent = Segment::new(Point2::new(-10.0, 5.0), Point2::new(10.0, 5.0));
+        assert_eq!(c.line_intersections(tangent).len(), 1);
+        // A miss returns nothing.
+        assert!(c
+            .line_intersections(Segment::new(
+                Point2::new(-10.0, 9.0),
+                Point2::new(10.0, 9.0)
+            ))
+            .is_empty());
+    }
+
+    #[test]
+    fn arc_angle_and_containment() {
+        // A quarter arc from 0° to 90°.
+        let a = Arc::new(Point2::new(0.0, 0.0), 2.0, 0.0, 90.0);
+        assert!((a.angle_of(Point2::new(0.0, 3.0)) - 90.0).abs() < 1e-9);
+        assert!(a.contains_angle(45.0));
+        assert!(!a.contains_angle(135.0));
+        // Point on the arc vs. on the circle but outside the sweep.
+        assert!(a.contains_point(Point2::new(2.0, 0.0)));
+        assert!(!a.contains_point(Point2::new(-2.0, 0.0)));
+        // Wrap-around: 350°→10° contains 0°.
+        let wrap = Arc::new(Point2::new(0.0, 0.0), 1.0, 350.0, 10.0);
+        assert!(wrap.contains_angle(0.0) && wrap.contains_angle(355.0));
+        assert!(!wrap.contains_angle(180.0));
     }
 
     #[test]
