@@ -69,9 +69,13 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   `SCHEDULE`. Driven by `aadt run`/`aadt shell`. See `aadt-command`, `aadt-cli`.
 - **Geometry transforms** (rotate/scale/mirror, all id-preserving and undoable)
   in `aadt-model`, shared by the commands and the LISP bridge.
-- **DXF round-trip** for `LINE`, `LWPOLYLINE`, legacy `POLYLINE`/`VERTEX`,
-  `CIRCLE`, `ARC`, `TEXT`, `INSERT`, `BLOCK`, `HATCH`, and `DIMENSION`. See
-  `aadt-dxf`.
+- **Layer state** — ACI colour, on/off, and freeze/thaw, undoable
+  (`Document::set_layer_color/visible/frozen`); the `LAYER` command sets it,
+  the renderer hides off/frozen layers, and it round-trips through the DXF
+  `TABLES`/`LAYER` table.
+- **DXF round-trip** for the `LAYER` table plus `LINE`, `LWPOLYLINE`, legacy
+  `POLYLINE`/`VERTEX`, `CIRCLE`, `ARC`, `TEXT`, `INSERT`, `BLOCK`, `HATCH`, and
+  `DIMENSION`. See `aadt-dxf`.
 - Rendering seam: [`build_drawlist`] flattens all entities (block inserts
   instantiated), hatch outlines, and dimensions into a backend-agnostic list;
   the GPU/window backends live behind `--features gpu`/`gui`/`app`.
@@ -81,7 +85,7 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   (§4.3) — the drawlist and camera math are proven headlessly; the GPU path needs
   a screen to verify.
 - Broadening the interactive command set further toward the ~60–80 curated band
-  (offset/trim/fillet, layer color/visibility, more annotate tools).
+  (offset/trim/fillet, more annotate tools).
 
 ## M2 — Element Detection & Classification (deterministic)
 
