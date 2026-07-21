@@ -13,7 +13,7 @@
 //! engine will register commands through.
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{Document, EntityId, Geometry, Insert, Text};
+use aadt_model::{Dimension, DimensionKind, Document, EntityId, Geometry, Hatch, Insert, Text};
 
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.
 ///
@@ -140,6 +140,9 @@ pub fn builtins() -> Registry {
     // Organize.
     r.register(Box::new(LayerCmd));
     r.register(Box::new(LayersCmd));
+    // Annotate.
+    r.register(Box::new(DimCmd));
+    r.register(Box::new(HatchCmd));
     // History and inspection.
     r.register(Box::new(UndoCmd));
     r.register(Box::new(RedoCmd));
@@ -1423,6 +1426,96 @@ impl Command for AreaCmd {
     }
 }
 
+/// Approximate a circle as a closed poly-line of `segments` chords — the boundary
+/// a HATCH of a circular region fills.
+fn circle_polygon(c: Circle, segments: usize) -> Polyline {
+    let n = segments.max(3);
+    let verts = (0..n)
+        .map(|i| {
+            let a = (i as f64 / n as f64) * std::f64::consts::TAU;
+            Point2::new(
+                c.center.x + c.radius * a.cos(),
+                c.center.y + c.radius * a.sin(),
+            )
+        })
+        .collect();
+    Polyline::new(verts, true)
+}
+
+struct DimCmd;
+impl Command for DimCmd {
+    fn name(&self) -> &str {
+        "DIM"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIMLINEAR"]
+    }
+    fn help(&self) -> &str {
+        "DIM x1 y1 x2 y2 [layer] — add an aligned dimension between two points (undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let p1 = Point2::new(parse_f64(args, 0, "DIM")?, parse_f64(args, 1, "DIM")?);
+        let p2 = Point2::new(parse_f64(args, 2, "DIM")?, parse_f64(args, 3, "DIM")?);
+        if p1.coincident(p2) {
+            return Err("DIM: the two points must differ".to_string());
+        }
+        let layer = args.get(4).cloned().unwrap_or_else(|| "A-DIMS".to_string());
+        let measurement = p1.distance(p2);
+        let dim = Dimension {
+            layer,
+            kind: DimensionKind::Aligned,
+            p1,
+            p2,
+            text_anchor: p1.midpoint(p2),
+            text: String::new(),
+            measurement,
+        };
+        ctx.doc.transact("DIM", |d| d.add_dimension(dim));
+        Ok(format!("added dimension measuring {measurement}"))
+    }
+}
+
+struct HatchCmd;
+impl Command for HatchCmd {
+    fn name(&self) -> &str {
+        "HATCH"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["H"]
+    }
+    fn help(&self) -> &str {
+        "HATCH id [pattern] [layer] — fill a closed polyline or circle (pattern default SOLID; undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("HATCH: missing entity id")?;
+        let id = parse_entity_id(raw, "HATCH")?;
+        let entity = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("HATCH: no entity with id {}", id.0))?;
+        let boundary = match &entity.geometry {
+            Geometry::Polyline(p) if p.closed => p.clone(),
+            Geometry::Circle(c) => circle_polygon(*c, 64),
+            _ => {
+                return Err(format!(
+                    "HATCH: entity {} must be a closed polyline or a circle",
+                    id.0
+                ))
+            }
+        };
+        let pattern = args.get(1).cloned().unwrap_or_else(|| "SOLID".to_string());
+        let layer = args.get(2).cloned().unwrap_or_else(|| entity.layer.clone());
+        let vertices = boundary.vertices.len();
+        ctx.doc.transact("HATCH", |d| {
+            d.add_hatch(Hatch::new(layer, boundary, pattern))
+        });
+        Ok(format!(
+            "hatched entity {} ({vertices}-vertex boundary)",
+            id.0
+        ))
+    }
+}
+
 struct UndoCmd;
 impl Command for UndoCmd {
     fn name(&self) -> &str {
@@ -2104,6 +2197,62 @@ mod tests {
         // A bad colour and unknown option are rejected.
         assert!(interp.eval_line(&mut ctx, "LAYER X COLOR 999").is_err());
         assert!(interp.eval_line(&mut ctx, "LAYER X BOGUS").is_err());
+    }
+
+    #[test]
+    fn dim_adds_an_undoable_dimension() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        let msg = interp
+            .eval_line(&mut ctx, "DIM 0 0 4 3 A-DIMS")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("measuring 5"), "3-4-5: {msg:?}");
+        assert_eq!(ctx.doc.dimensions().len(), 1);
+        let d = &ctx.doc.dimensions()[0];
+        assert_eq!(d.layer, "A-DIMS");
+        assert!((d.measurement - 5.0).abs() < 1e-9);
+
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert!(
+            ctx.doc.dimensions().is_empty(),
+            "undo removes the dimension"
+        );
+        interp.eval_line(&mut ctx, "REDO").unwrap();
+        assert_eq!(ctx.doc.dimensions().len(), 1, "redo restores it");
+
+        // Coincident points are rejected.
+        assert!(interp.eval_line(&mut ctx, "DIM 1 1 1 1").is_err());
+    }
+
+    #[test]
+    fn hatch_fills_a_closed_region_and_undoes() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "RECTANGLE 0 0 4 3 A-ROOM")
+            .unwrap(); // id 0
+        interp.eval_line(&mut ctx, "HATCH 0 ANSI31 A-FLOR").unwrap();
+        assert_eq!(ctx.doc.hatches().len(), 1);
+        let h = &ctx.doc.hatches()[0];
+        assert_eq!(h.pattern, "ANSI31");
+        assert_eq!(h.layer, "A-FLOR");
+        assert_eq!(h.boundary.vertices.len(), 4);
+
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert!(ctx.doc.hatches().is_empty(), "undo removes the hatch");
+
+        // A circle hatches as a polygon; pattern defaults to SOLID, layer inherited.
+        interp.eval_line(&mut ctx, "CIRCLE 5 5 2 A-COL").unwrap(); // id 1
+        interp.eval_line(&mut ctx, "HATCH 1").unwrap();
+        let h = ctx.doc.hatches().last().unwrap();
+        assert!(h.solid, "default pattern SOLID is a solid fill");
+        assert_eq!(h.layer, "A-COL", "inherits the entity's layer");
+        assert!(h.boundary.vertices.len() >= 3);
+
+        // An open shape (a line) cannot be hatched.
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap(); // id 2
+        assert!(interp.eval_line(&mut ctx, "HATCH 2").is_err());
     }
 
     #[test]

@@ -524,6 +524,11 @@ enum Op {
         before: Option<String>,
         after: Option<String>,
     },
+    /// A hatch was appended (undo pops it, redo re-appends). Undo is strictly
+    /// LIFO, so the hatch this reverts is always the last in the table.
+    AddHatch(Hatch),
+    /// A dimension was appended (undo pops it, redo re-appends).
+    AddDimension(Dimension),
 }
 
 /// A group of primitive changes committed and undone as one atomic unit.
@@ -661,6 +666,12 @@ impl Document {
             Op::SetAttribute { id, key, after, .. } => {
                 Self::write_attribute(&mut self.entities, id, key, after.clone());
             }
+            Op::AddHatch(h) => {
+                self.hatches.push(h.clone());
+            }
+            Op::AddDimension(d) => {
+                self.dimensions.push(d.clone());
+            }
         }
     }
 
@@ -687,6 +698,13 @@ impl Document {
                 id, key, before, ..
             } => {
                 Self::write_attribute(&mut self.entities, id, key, before.clone());
+            }
+            // Undo is LIFO, so the appended annotation is the last in its table.
+            Op::AddHatch(_) => {
+                self.hatches.pop();
+            }
+            Op::AddDimension(_) => {
+                self.dimensions.pop();
             }
         }
     }
@@ -957,9 +975,14 @@ impl Document {
 
     // --- Annotation (hatches, dimensions) ------------------------------------
 
-    /// Add a hatch. **Untracked**, like block definitions and file loads:
-    /// annotation arrives with the drawing rather than as a tracked user edit.
+    /// Add a hatch. Recorded as an undoable [`Op::AddHatch`] when a transaction
+    /// is open (an interactive `HATCH`), and left **untracked** otherwise — so a
+    /// bulk file load or block instantiation does not flood the undo history,
+    /// exactly like [`add_geometry`](Self::add_geometry).
     pub fn add_hatch(&mut self, hatch: Hatch) {
+        if self.open.is_some() {
+            self.record(Op::AddHatch(hatch.clone()));
+        }
         self.hatches.push(hatch);
         self.revision += 1;
     }
@@ -969,8 +992,12 @@ impl Document {
         &self.hatches
     }
 
-    /// Add a dimension. **Untracked**, for the same reason as [`add_hatch`](Self::add_hatch).
+    /// Add a dimension. Undoable when a transaction is open, untracked otherwise
+    /// — see [`add_hatch`](Self::add_hatch).
     pub fn add_dimension(&mut self, dimension: Dimension) {
+        if self.open.is_some() {
+            self.record(Op::AddDimension(dimension.clone()));
+        }
         self.dimensions.push(dimension);
         self.revision += 1;
     }
@@ -1259,6 +1286,60 @@ mod tests {
         let changed = doc.transact("noop", |d| d.set_layer_color("A", DEFAULT_LAYER_COLOR));
         assert!(!changed);
         assert!(!doc.can_undo(), "an unchanged set records no transaction");
+    }
+
+    #[test]
+    fn add_hatch_and_dimension_are_undoable_when_transacted() {
+        let mut doc = Document::new();
+        let boundary = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(4.0, 0.0),
+                Point2::new(4.0, 3.0),
+                Point2::new(0.0, 3.0),
+            ],
+            true,
+        );
+        doc.transact("hatch", |d| {
+            d.add_hatch(Hatch::new("A-FLOR", boundary.clone(), "ANSI31"))
+        });
+        assert_eq!(doc.hatches().len(), 1);
+        doc.undo();
+        assert_eq!(doc.hatches().len(), 0, "undo pops the hatch");
+        doc.redo();
+        assert_eq!(doc.hatches().len(), 1, "redo re-appends it");
+
+        doc.transact("dim", |d| {
+            d.add_dimension(Dimension {
+                layer: "A-DIMS".to_string(),
+                kind: DimensionKind::Aligned,
+                p1: Point2::new(0.0, 0.0),
+                p2: Point2::new(4.0, 0.0),
+                text_anchor: Point2::new(2.0, -1.0),
+                text: String::new(),
+                measurement: 4.0,
+            })
+        });
+        assert_eq!(doc.dimensions().len(), 1);
+        doc.undo();
+        assert_eq!(doc.dimensions().len(), 0, "undo pops the dimension");
+    }
+
+    #[test]
+    fn bulk_added_annotation_is_untracked() {
+        // No open transaction (a file load) → no undo entry, matching add_geometry.
+        let mut doc = Document::new();
+        let boundary = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+            ],
+            true,
+        );
+        doc.add_hatch(Hatch::new("A", boundary, "SOLID"));
+        assert_eq!(doc.hatches().len(), 1);
+        assert!(!doc.can_undo(), "an untracked add records no undo entry");
     }
 
     #[test]
