@@ -118,6 +118,7 @@ pub fn builtins() -> Registry {
     // Draw.
     r.register(Box::new(LineCmd));
     r.register(Box::new(PolylineCmd));
+    r.register(Box::new(RectangleCmd));
     r.register(Box::new(CircleCmd));
     r.register(Box::new(ArcCmd));
     r.register(Box::new(TextCmd));
@@ -125,6 +126,9 @@ pub fn builtins() -> Registry {
     // Modify.
     r.register(Box::new(MoveCmd));
     r.register(Box::new(CopyCmd));
+    r.register(Box::new(RotateCmd));
+    r.register(Box::new(ScaleCmd));
+    r.register(Box::new(MirrorCmd));
     r.register(Box::new(EraseCmd));
     // Organize.
     r.register(Box::new(LayerCmd));
@@ -417,6 +421,39 @@ impl Command for InsertCmd {
     }
 }
 
+struct RectangleCmd;
+impl Command for RectangleCmd {
+    fn name(&self) -> &str {
+        "RECTANGLE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["REC", "RECTANG"]
+    }
+    fn help(&self) -> &str {
+        "RECTANGLE x1 y1 x2 y2 [layer] — add a closed rectangle by opposite corners"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let x1 = parse_f64(args, 0, "RECTANGLE")?;
+        let y1 = parse_f64(args, 1, "RECTANGLE")?;
+        let x2 = parse_f64(args, 2, "RECTANGLE")?;
+        let y2 = parse_f64(args, 3, "RECTANGLE")?;
+        if (x1 - x2).abs() <= f64::EPSILON || (y1 - y2).abs() <= f64::EPSILON {
+            return Err("RECTANGLE: corners must span a non-zero width and height".to_string());
+        }
+        let layer = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
+        let corners = vec![
+            Point2::new(x1, y1),
+            Point2::new(x2, y1),
+            Point2::new(x2, y2),
+            Point2::new(x1, y2),
+        ];
+        let id = ctx.doc.transact("RECTANGLE", |d| {
+            d.add_geometry(layer, Geometry::Polyline(Polyline::new(corners, true)))
+        });
+        Ok(format!("RECTANGLE added as entity {}", id.0))
+    }
+}
+
 struct MoveCmd;
 impl Command for MoveCmd {
     fn name(&self) -> &str {
@@ -469,6 +506,99 @@ impl Command for CopyCmd {
         let clone = translate_geometry(&existing.geometry, dx, dy);
         let new_id = ctx.doc.transact("COPY", |d| d.add_geometry(layer, clone));
         Ok(format!("copied entity {} as entity {}", id.0, new_id.0))
+    }
+}
+
+struct RotateCmd;
+impl Command for RotateCmd {
+    fn name(&self) -> &str {
+        "ROTATE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["RO"]
+    }
+    fn help(&self) -> &str {
+        "ROTATE id cx cy angle — rotate an entity about (cx, cy) by angle degrees (CCW), keeping its id"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("ROTATE: missing entity id")?;
+        let id = parse_entity_id(raw, "ROTATE")?;
+        let cx = parse_f64(args, 1, "ROTATE")?;
+        let cy = parse_f64(args, 2, "ROTATE")?;
+        let deg = parse_f64(args, 3, "ROTATE")?;
+        let pivot = Point2::new(cx, cy);
+        let done = ctx
+            .doc
+            .transact("ROTATE", |d| d.rotate_entity(id, pivot, deg.to_radians()));
+        if done {
+            Ok(format!("rotated entity {} by {deg}°", id.0))
+        } else {
+            Err(format!("ROTATE: no entity with id {}", id.0))
+        }
+    }
+}
+
+struct ScaleCmd;
+impl Command for ScaleCmd {
+    fn name(&self) -> &str {
+        "SCALE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["SC"]
+    }
+    fn help(&self) -> &str {
+        "SCALE id cx cy factor — scale an entity about (cx, cy) by factor, keeping its id"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("SCALE: missing entity id")?;
+        let id = parse_entity_id(raw, "SCALE")?;
+        let cx = parse_f64(args, 1, "SCALE")?;
+        let cy = parse_f64(args, 2, "SCALE")?;
+        let factor = parse_f64(args, 3, "SCALE")?;
+        if factor == 0.0 {
+            return Err("SCALE: factor must be non-zero".to_string());
+        }
+        let pivot = Point2::new(cx, cy);
+        let done = ctx
+            .doc
+            .transact("SCALE", |d| d.scale_entity(id, pivot, factor));
+        if done {
+            Ok(format!("scaled entity {} by {factor}", id.0))
+        } else {
+            Err(format!("SCALE: no entity with id {}", id.0))
+        }
+    }
+}
+
+struct MirrorCmd;
+impl Command for MirrorCmd {
+    fn name(&self) -> &str {
+        "MIRROR"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["MI"]
+    }
+    fn help(&self) -> &str {
+        "MIRROR id x1 y1 x2 y2 — reflect an entity across the line (x1,y1)-(x2,y2), keeping its id"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let raw = args.first().ok_or("MIRROR: missing entity id")?;
+        let id = parse_entity_id(raw, "MIRROR")?;
+        let x1 = parse_f64(args, 1, "MIRROR")?;
+        let y1 = parse_f64(args, 2, "MIRROR")?;
+        let x2 = parse_f64(args, 3, "MIRROR")?;
+        let y2 = parse_f64(args, 4, "MIRROR")?;
+        let a = Point2::new(x1, y1);
+        let b = Point2::new(x2, y2);
+        if a.coincident(b) {
+            return Err("MIRROR: the two axis points must differ".to_string());
+        }
+        let done = ctx.doc.transact("MIRROR", |d| d.mirror_entity(id, a, b));
+        if done {
+            Ok(format!("mirrored entity {}", id.0))
+        } else {
+            Err(format!("MIRROR: no entity with id {}", id.0))
+        }
     }
 }
 
@@ -790,6 +920,74 @@ mod tests {
             })
             .collect();
         assert_eq!(ys, [0.0, 5.0]);
+    }
+
+    #[test]
+    fn rotate_scale_mirror_transform_in_place_and_undo() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 2 0 A").unwrap();
+        let id = ctx.doc.entities()[0].id;
+
+        // ROTATE 90° about origin: (2,0) -> (0,2).
+        interp.eval_line(&mut ctx, "ROTATE 0 0 0 90").unwrap();
+        assert_eq!(ctx.doc.len(), 1, "rotate keeps a single entity");
+        if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(0.0, 2.0)) < 1e-9, "got {:?}", s.b);
+        } else {
+            panic!("expected line");
+        }
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(2.0, 0.0)) < 1e-9, "undo restores");
+        }
+
+        // SCALE ×2 about origin: (2,0) -> (4,0).
+        interp.eval_line(&mut ctx, "SCALE 0 0 0 2").unwrap();
+        if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(4.0, 0.0)) < 1e-9);
+        }
+
+        // MIRROR across the x-axis: y flips.
+        interp.eval_line(&mut ctx, "MIRROR 0 0 0 1 0").unwrap();
+        if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(s.a.y <= 0.0 && s.b.y <= 0.0, "mirrored below the axis");
+        }
+    }
+
+    #[test]
+    fn rectangle_is_a_closed_four_corner_polyline() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "RECTANGLE 0 0 4 3 A-ROOM")
+            .unwrap();
+        let e = &ctx.doc.entities()[0];
+        assert_eq!(e.layer, "A-ROOM");
+        if let Geometry::Polyline(p) = &e.geometry {
+            assert!(p.closed);
+            assert_eq!(p.vertices.len(), 4);
+            assert!((p.area() - 12.0).abs() < 1e-9, "4×3 rectangle area");
+        } else {
+            panic!("expected polyline");
+        }
+        // A degenerate rectangle is rejected.
+        assert!(interp.eval_line(&mut ctx, "RECTANGLE 0 0 0 3").is_err());
+        // Aliases resolve.
+        assert!(interp.eval_line(&mut ctx, "REC 0 0 1 1").is_ok());
+    }
+
+    #[test]
+    fn transform_commands_reject_missing_ids() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        assert!(interp.eval_line(&mut ctx, "ROTATE 42 0 0 90").is_err());
+        assert!(interp.eval_line(&mut ctx, "SCALE 42 0 0 2").is_err());
+        assert!(interp.eval_line(&mut ctx, "MIRROR 42 0 0 1 0").is_err());
+        // Bad axis / factor guards.
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
+        assert!(interp.eval_line(&mut ctx, "SCALE 0 0 0 0").is_err());
+        assert!(interp.eval_line(&mut ctx, "MIRROR 0 1 1 1 1").is_err());
     }
 
     #[test]

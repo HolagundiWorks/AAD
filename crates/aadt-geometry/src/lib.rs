@@ -40,6 +40,39 @@ impl Point2 {
     pub fn midpoint(self, other: Point2) -> Point2 {
         Point2::new((self.x + other.x) * 0.5, (self.y + other.y) * 0.5)
     }
+
+    /// This point rotated `radians` (CCW) about `pivot`.
+    pub fn rotate_about(self, pivot: Point2, radians: f64) -> Point2 {
+        let (sin, cos) = radians.sin_cos();
+        let dx = self.x - pivot.x;
+        let dy = self.y - pivot.y;
+        Point2::new(pivot.x + dx * cos - dy * sin, pivot.y + dx * sin + dy * cos)
+    }
+
+    /// This point scaled by `factor` about `pivot`. A negative factor reflects
+    /// through the pivot.
+    pub fn scale_about(self, pivot: Point2, factor: f64) -> Point2 {
+        Point2::new(
+            pivot.x + (self.x - pivot.x) * factor,
+            pivot.y + (self.y - pivot.y) * factor,
+        )
+    }
+
+    /// This point reflected across the line through `a` and `b`. A degenerate
+    /// axis (`a == b`) leaves the point unchanged.
+    pub fn mirror_across(self, a: Point2, b: Point2) -> Point2 {
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let denom = dx * dx + dy * dy;
+        if denom <= LENGTH_EPS * LENGTH_EPS {
+            return self;
+        }
+        // Project onto the axis, then reflect across the projection.
+        let t = ((self.x - a.x) * dx + (self.y - a.y) * dy) / denom;
+        let px = a.x + t * dx;
+        let py = a.y + t * dy;
+        Point2::new(2.0 * px - self.x, 2.0 * py - self.y)
+    }
 }
 
 impl std::ops::Sub for Point2 {
@@ -463,6 +496,36 @@ mod tests {
         assert!((a.distance(b) - 5.0).abs() < 1e-9);
         assert!(a.coincident(Point2::new(0.0, 5e-7)));
         assert!(!a.coincident(b));
+    }
+
+    #[test]
+    fn rotate_scale_mirror_about_a_pivot() {
+        let p = Point2::new(2.0, 0.0);
+        let o = Point2::new(0.0, 0.0);
+        // 90° CCW about the origin takes (2,0) to (0,2).
+        let r = p.rotate_about(o, std::f64::consts::FRAC_PI_2);
+        assert!(r.distance(Point2::new(0.0, 2.0)) < 1e-9);
+        // A full turn is the identity.
+        let full = p.rotate_about(o, std::f64::consts::TAU);
+        assert!(full.distance(p) < 1e-9);
+        // Scale ×3 about the origin.
+        assert!(p.scale_about(o, 3.0).distance(Point2::new(6.0, 0.0)) < 1e-9);
+        // Rotating about the pivot itself is a no-op.
+        assert!(o.rotate_about(o, 1.234).distance(o) < 1e-9);
+    }
+
+    #[test]
+    fn mirror_across_an_axis_reflects() {
+        let x_axis = (Point2::new(0.0, 0.0), Point2::new(1.0, 0.0));
+        // Reflecting (3,2) across the x-axis flips y.
+        let m = Point2::new(3.0, 2.0).mirror_across(x_axis.0, x_axis.1);
+        assert!(m.distance(Point2::new(3.0, -2.0)) < 1e-9);
+        // A point on the axis is its own reflection.
+        let on = Point2::new(5.0, 0.0).mirror_across(x_axis.0, x_axis.1);
+        assert!(on.distance(Point2::new(5.0, 0.0)) < 1e-9);
+        // A degenerate axis leaves the point unchanged.
+        let p = Point2::new(1.0, 1.0);
+        assert!(p.mirror_across(p, p).distance(p) < 1e-9);
     }
 
     #[test]

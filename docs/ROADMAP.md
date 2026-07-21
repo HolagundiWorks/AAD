@@ -128,14 +128,15 @@ with rule-based (deterministic) suggestion from detected elements, and
 documentation QA that gates issue. Driven by `aadt sheet`. **Remaining:** fitting
 model space into the sheet viewport at scale, and `AADT-PRESENT` layout.
 
-## M6 — LISP Engine ✅ (implemented)
+## M6 — LISP Engine ✅ (complete)
 
 Spec §4.4. **Implemented** in `aadt-lisp`: an AutoLISP-flavoured interpreter
 (reader, lexical evaluator, standard library) with the special forms `setq`,
 `defun`, `lambda`, `if`, `cond`, `while`, `repeat`, `foreach`, and **read access
 to AADT Engine outputs** via `aadt-*` query functions. Driven by `aadt lisp`.
-**Remaining:** dotted pairs, `&rest`/optional args, and entity *creation* from
-LISP (via the command registry).
+Now also: **dotted pairs** `(a . b)`, lambda **`&rest`** tails and `/`-locals,
+and entity **creation/modification** from LISP (`aadt-add-line`/`circle`/`arc`/
+`text`/`polyline`, `aadt-move`/`erase`) through the undo-tracked engine bridge.
 
 ## M7 — PDF Markup & Comparison ✅ (core implemented)
 
@@ -146,10 +147,14 @@ transmittals. Driven by `aadt pdf` and `aadt compare`. **Remaining (needs a PDF
 reader engine + display):** interactive viewing, freehand/stamp tools, on-PDF
 measurement, raster diff.
 
-## M8 — Cloud Collaboration (separate track) ✅ (core implemented)
+## M8 — Cloud Collaboration (separate track) ✅ (implemented)
 
 Spec §11 Phase 7. **Implemented** in `aadt-collab`: a convergent operation log
-(Lamport-ordered, OR-Set semantics) for multi-user markup — `Replica::merge` is
-the sync primitive, proven commutative, idempotent, and order-independent so any
-peers that exchange the same operations converge. Demonstrated by `aadt collab`.
-**Remaining (needs a running service):** the WebSocket transport and presence.
+(Lamport-ordered, OR-Set semantics) for multi-user markup — `Replica::merge` /
+`Replica::integrate` is the sync primitive, proven commutative, idempotent, and
+order-independent so any peers that exchange the same operations converge. The
+**network transport** now ships too: `aadt-collab::sync` is a dependency-free TCP
+relay (`RelayServer` + `Client`, one line per op via `aadt-collab::wire`),
+verified over a loopback socket in `tests/network.rs` and runnable as
+`aadt collab --net`. **Remaining (needs a running deployment + display):**
+presence/cursors and a hosted session service.

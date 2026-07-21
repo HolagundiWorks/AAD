@@ -243,6 +243,106 @@ impl Geometry {
             }
         }
     }
+
+    /// This geometry rotated `radians` (CCW) about `pivot`. Positions rotate;
+    /// radii and sizes are unchanged; an arc's, text's, and insert's own rotation
+    /// (stored in degrees) advances by the same angle.
+    pub fn rotated(&self, pivot: Point2, radians: f64) -> Geometry {
+        let rot = |p: Point2| p.rotate_about(pivot, radians);
+        let ddeg = radians.to_degrees();
+        match self {
+            Geometry::Line(s) => Geometry::Line(Segment::new(rot(s.a), rot(s.b))),
+            Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
+                p.vertices.iter().map(|&v| rot(v)).collect(),
+                p.closed,
+            )),
+            Geometry::Circle(c) => Geometry::Circle(Circle::new(rot(c.center), c.radius)),
+            Geometry::Arc(a) => Geometry::Arc(Arc::new(
+                rot(a.center),
+                a.radius,
+                a.start_angle + ddeg,
+                a.end_angle + ddeg,
+            )),
+            Geometry::Text(t) => Geometry::Text(Text::new(
+                t.value.clone(),
+                rot(t.position),
+                t.height,
+                t.rotation + ddeg,
+            )),
+            Geometry::Insert(i) => Geometry::Insert(Insert::new(
+                i.name.clone(),
+                rot(i.position),
+                i.rotation + ddeg,
+            )),
+        }
+    }
+
+    /// This geometry scaled by `factor` about `pivot`. Positions scale about the
+    /// pivot; radii and text height scale by `|factor|`; rotations are unchanged.
+    /// An insert has no scale field, so only its insertion point moves.
+    pub fn scaled(&self, pivot: Point2, factor: f64) -> Geometry {
+        let sc = |p: Point2| p.scale_about(pivot, factor);
+        let f = factor.abs();
+        match self {
+            Geometry::Line(s) => Geometry::Line(Segment::new(sc(s.a), sc(s.b))),
+            Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
+                p.vertices.iter().map(|&v| sc(v)).collect(),
+                p.closed,
+            )),
+            Geometry::Circle(c) => Geometry::Circle(Circle::new(sc(c.center), c.radius * f)),
+            Geometry::Arc(a) => Geometry::Arc(Arc::new(
+                sc(a.center),
+                a.radius * f,
+                a.start_angle,
+                a.end_angle,
+            )),
+            Geometry::Text(t) => Geometry::Text(Text::new(
+                t.value.clone(),
+                sc(t.position),
+                t.height * f,
+                t.rotation,
+            )),
+            Geometry::Insert(i) => {
+                Geometry::Insert(Insert::new(i.name.clone(), sc(i.position), i.rotation))
+            }
+        }
+    }
+
+    /// This geometry reflected across the line through `a` and `b`. Reflection
+    /// reverses orientation, so an arc (stored CCW) has its start/end angles
+    /// swapped and reflected about the axis; text and insert rotations reflect
+    /// likewise.
+    pub fn mirrored(&self, a: Point2, b: Point2) -> Geometry {
+        let mir = |p: Point2| p.mirror_across(a, b);
+        // Axis angle in degrees; reflecting angle α about the axis gives 2φ − α.
+        let phi = (b.y - a.y).atan2(b.x - a.x).to_degrees();
+        let refl = |deg: f64| 2.0 * phi - deg;
+        match self {
+            Geometry::Line(s) => Geometry::Line(Segment::new(mir(s.a), mir(s.b))),
+            Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
+                p.vertices.iter().map(|&v| mir(v)).collect(),
+                p.closed,
+            )),
+            Geometry::Circle(c) => Geometry::Circle(Circle::new(mir(c.center), c.radius)),
+            Geometry::Arc(arc) => Geometry::Arc(Arc::new(
+                mir(arc.center),
+                arc.radius,
+                refl(arc.end_angle),
+                refl(arc.start_angle),
+            )),
+            Geometry::Text(t) => Geometry::Text(Text::new(
+                t.value.clone(),
+                mir(t.position),
+                t.height,
+                refl(t.rotation),
+            )),
+            Geometry::Insert(i) => Geometry::Insert(Insert::new(
+                i.name.clone(),
+                mir(i.position),
+                refl(i.rotation),
+            )),
+        }
+    }
 }
 
 /// A single drawing entity: geometry plus the layer it lives on and free-form
@@ -556,6 +656,36 @@ impl Document {
         self.replace_geometry(id, moved)
     }
 
+    /// Rotate an entity `radians` (CCW) about `pivot`, keeping its id. Returns
+    /// `false` if no entity has that id. Undoable via [`replace_geometry`](Self::replace_geometry).
+    pub fn rotate_entity(&mut self, id: EntityId, pivot: Point2, radians: f64) -> bool {
+        let Some(entity) = self.entities.get(&id) else {
+            return false;
+        };
+        let rotated = entity.geometry.rotated(pivot, radians);
+        self.replace_geometry(id, rotated)
+    }
+
+    /// Scale an entity by `factor` about `pivot`, keeping its id. Returns `false`
+    /// if no entity has that id.
+    pub fn scale_entity(&mut self, id: EntityId, pivot: Point2, factor: f64) -> bool {
+        let Some(entity) = self.entities.get(&id) else {
+            return false;
+        };
+        let scaled = entity.geometry.scaled(pivot, factor);
+        self.replace_geometry(id, scaled)
+    }
+
+    /// Reflect an entity across the line through `a` and `b`, keeping its id.
+    /// Returns `false` if no entity has that id.
+    pub fn mirror_entity(&mut self, id: EntityId, a: Point2, b: Point2) -> bool {
+        let Some(entity) = self.entities.get(&id) else {
+            return false;
+        };
+        let mirrored = entity.geometry.mirrored(a, b);
+        self.replace_geometry(id, mirrored)
+    }
+
     /// Set an entity attribute, keeping its id and geometry. Returns `false` if
     /// no entity has that id, or if the value already equals `value` (a no-op is
     /// not recorded, so re-applying the same metadata leaves no undo entry).
@@ -742,6 +872,75 @@ mod tests {
             }
             other => panic!("expected line, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rotate_scale_mirror_entity_keep_the_id_and_undo() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry("A", line(0.0, 0.0, 2.0, 0.0));
+        let original = doc.get(id).unwrap().geometry.clone();
+
+        // Rotate 90° CCW about the origin: (0,0)->(0,0), (2,0)->(0,2).
+        doc.transact("rotate", |d| {
+            d.rotate_entity(id, Point2::new(0.0, 0.0), std::f64::consts::FRAC_PI_2)
+        });
+        if let Geometry::Line(s) = &doc.get(id).unwrap().geometry {
+            assert!(s.a.distance(Point2::new(0.0, 0.0)) < 1e-9);
+            assert!(s.b.distance(Point2::new(0.0, 2.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+        doc.undo();
+        assert_eq!(
+            doc.get(id).unwrap().geometry,
+            original,
+            "rotate undoes exactly"
+        );
+
+        // Scale ×2 about the origin: endpoint (2,0)->(4,0).
+        doc.transact("scale", |d| d.scale_entity(id, Point2::new(0.0, 0.0), 2.0));
+        if let Geometry::Line(s) = &doc.get(id).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(4.0, 0.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+        doc.undo();
+
+        // Mirror across the x-axis: a horizontal line on y=0 is unchanged in shape.
+        let id2 = doc.add_geometry("A", line(0.0, 1.0, 2.0, 1.0));
+        doc.transact("mirror", |d| {
+            d.mirror_entity(id2, Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))
+        });
+        if let Geometry::Line(s) = &doc.get(id2).unwrap().geometry {
+            assert!(s.a.distance(Point2::new(0.0, -1.0)) < 1e-9);
+            assert!(s.b.distance(Point2::new(2.0, -1.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+    }
+
+    #[test]
+    fn scale_grows_a_circle_radius() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry(
+            "A",
+            Geometry::Circle(Circle::new(Point2::new(0.0, 0.0), 2.0)),
+        );
+        doc.transact("scale", |d| d.scale_entity(id, Point2::new(0.0, 0.0), 3.0));
+        if let Geometry::Circle(c) = &doc.get(id).unwrap().geometry {
+            assert!((c.radius - 6.0).abs() < 1e-9);
+        } else {
+            panic!("expected circle");
+        }
+    }
+
+    #[test]
+    fn transforming_a_missing_id_is_false() {
+        let mut doc = Document::new();
+        let ghost = EntityId(999);
+        assert!(!doc.rotate_entity(ghost, Point2::new(0.0, 0.0), 1.0));
+        assert!(!doc.scale_entity(ghost, Point2::new(0.0, 0.0), 2.0));
+        assert!(!doc.mirror_entity(ghost, Point2::new(0.0, 0.0), Point2::new(1.0, 0.0)));
     }
 
     #[test]
