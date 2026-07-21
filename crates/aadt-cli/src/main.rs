@@ -590,10 +590,12 @@ Usage:
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)
   --xlsx <path>            Write the takeoff as an .xlsx workbook to <path>
+  --json <path>            Write the takeoff as machine-readable JSON to <path>
   --min-thickness <n>      Minimum wall face offset (default 0.05)
   --max-thickness <n>      Maximum wall face offset (default 1.0)
   --min-overlap <n>        Minimum wall run overlap (default 0.1)
   -h, --help               Show this help
+  -V, --version            Print the engine and takeoff-schema version
 
 Script commands: LINE, POLYLINE, CIRCLE, ARC, TEXT, INSERT, MOVE, COPY, ERASE,
 LAYER, LAYERS, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF, SCHEDULE (and aliases).
@@ -621,6 +623,7 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
     let mut csv_out: Option<String> = None;
     let mut xlsx_out: Option<String> = None;
+    let mut json_out: Option<String> = None;
     let mut cfg = DetectionConfig::default();
 
     let mut it = args.iter();
@@ -628,6 +631,7 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
         match arg.as_str() {
             "--csv" => csv_out = Some(expect_value(&mut it, "--csv")?),
             "--xlsx" => xlsx_out = Some(expect_value(&mut it, "--xlsx")?),
+            "--json" => json_out = Some(expect_value(&mut it, "--json")?),
             "--min-thickness" => cfg.min_thickness = parse_num(&mut it, "--min-thickness")?,
             "--max-thickness" => cfg.max_thickness = parse_num(&mut it, "--max-thickness")?,
             "--min-overlap" => cfg.min_overlap = parse_num(&mut it, "--min-overlap")?,
@@ -664,8 +668,8 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
             println!("Wrote takeoff to {path}");
         }
         // Only fall back to stdout when no file output at all was requested,
-        // so `--xlsx` alone does not also dump the CSV to the terminal.
-        None if xlsx_out.is_none() => {
+        // so `--xlsx`/`--json` alone do not also dump the CSV to the terminal.
+        None if xlsx_out.is_none() && json_out.is_none() => {
             print!("\n{csv}");
         }
         None => {}
@@ -674,6 +678,11 @@ fn cmd_takeoff(args: &[String]) -> Result<(), String> {
     if let Some(path) = &xlsx_out {
         std::fs::write(path, table.to_xlsx()).map_err(|e| format!("writing {path}: {e}"))?;
         println!("Wrote takeoff workbook to {path}");
+    }
+
+    if let Some(path) = &json_out {
+        std::fs::write(path, table.to_json()).map_err(|e| format!("writing {path}: {e}"))?;
+        println!("Wrote takeoff JSON to {path}");
     }
 
     println!(

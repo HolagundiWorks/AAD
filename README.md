@@ -73,10 +73,17 @@ cargo test --workspace
 
 # Run the M0 takeoff on the sample floor plan
 cargo run -p aadt-cli -- takeoff fixtures/sample-floorplan.dxf --csv out.csv
+
+# Machine-readable output for downstream engines (versioned schema)
+cargo run -p aadt-cli -- takeoff fixtures/sample-floorplan.dxf --json out.json
+cargo run -p aadt-cli -- --version        # engine + takeoff-schema version
 ```
 
 The end-to-end result is asserted against `fixtures/expected-takeoff.csv` by the
-golden test in `crates/aadt-cli/tests/golden.rs`.
+golden test in `crates/aadt-cli/tests/golden.rs`. `--json` emits the same
+quantities as a versioned JSON object (`schema_version`, `engine_version`,
+`units`, `totals`, and typed `walls`/`openings`/`rooms`/`structural`) for
+app-to-app integration — see the AiADT integration spec in the esti repo.
 
 ## Principles
 
