@@ -28,15 +28,24 @@
 //! assert_eq!(alice.markups().len(), bob.markups().len()); // converged
 //! ```
 //!
-//! **Deferred:** the network transport (a WebSocket/session server that pumps
-//! operations between replicas) and presence/cursors. Those need a running
-//! service and a display; [`Replica::merge`] is the sync primitive they drive.
+//! The **network transport** is implemented on top of that primitive: [`sync`]
+//! is a dependency-free ([`std::net`] only) TCP relay — a [`RelayServer`] hub and
+//! a [`Client`] per participant — that ships operations as lines (see [`wire`])
+//! and folds each arriving op in with [`Replica::integrate`]. Because the relay
+//! never decides the markup set, out-of-order and duplicate delivery are safe; it
+//! is verified over a loopback socket in `tests/network.rs`.
+//!
+//! **Still deferred:** presence/cursors and a hosted session service — both need
+//! a running deployment and a display, not new engine logic.
 
 pub mod op;
 pub mod replica;
+pub mod sync;
+pub mod wire;
 
 pub use op::{Action, Op, OpId};
 pub use replica::Replica;
+pub use sync::{Client, RelayServer};
 
 /// Milestone in which cloud collaboration is implemented.
 pub const MILESTONE: &str = "M8";

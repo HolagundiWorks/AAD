@@ -42,16 +42,44 @@ impl Replica {
 
     /// Add a markup locally, returning its id (also the id for a later remove).
     pub fn add_markup(&mut self, markup: Markup) -> OpId {
+        self.add_markup_op(markup).id
+    }
+
+    /// Like [`add_markup`](Replica::add_markup), but returns the whole operation
+    /// so a transport can serialise and broadcast it.
+    pub fn add_markup_op(&mut self, markup: Markup) -> Op {
         let op = self.next_op(Action::Add(markup));
-        let id = op.id.clone();
-        self.record(op);
-        id
+        self.record(op.clone());
+        op
     }
 
     /// Remove the markup added by `target` locally.
     pub fn remove(&mut self, target: OpId) {
+        self.remove_op(target);
+    }
+
+    /// Like [`remove`](Replica::remove), but returns the operation to broadcast.
+    pub fn remove_op(&mut self, target: OpId) -> Op {
         let op = self.next_op(Action::Remove(target));
-        self.record(op);
+        self.record(op.clone());
+        op
+    }
+
+    /// This replica's operation log, in total order — the units a transport
+    /// ships. Sending these and [`integrate`](Replica::integrate)-ing what
+    /// arrives is exactly equivalent to [`merge`](Replica::merge).
+    pub fn ops(&self) -> Vec<Op> {
+        self.ops.values().cloned().collect()
+    }
+
+    /// Absorb a single operation received from the network. Idempotent (a
+    /// repeated op is ignored) and order-independent, just like
+    /// [`merge`](Replica::merge) — a transport calls this for each op it reads.
+    /// Advances the Lamport clock so later local edits sort after it.
+    pub fn integrate(&mut self, op: Op) {
+        self.clock = self.clock.max(op.clock);
+        let key = (op.clock, op.id.site.clone(), op.id.seq);
+        self.ops.entry(key).or_insert(op);
     }
 
     /// Absorb another replica's operations. Idempotent (re-merging changes
@@ -213,6 +241,39 @@ mod tests {
         let once = texts(&bob);
         bob.merge(&snapshot); // merge the same ops again
         assert_eq!(texts(&bob), once, "re-merging changes nothing");
+    }
+
+    #[test]
+    fn integrating_ops_one_by_one_equals_merge() {
+        // The transport ships ops() and integrate()s them; that must land exactly
+        // where merge() would. Here bob receives alice's ops individually.
+        let mut alice = Replica::new("alice");
+        alice.add_markup(note("alice", "a1"));
+        alice.add_markup(note("alice", "a2"));
+
+        let mut by_merge = Replica::new("bob");
+        by_merge.add_markup(note("bob", "b1"));
+        let mut by_integrate = by_merge.clone();
+
+        by_merge.merge(&alice);
+        for op in alice.ops() {
+            by_integrate.integrate(op);
+        }
+
+        assert_eq!(texts(&by_integrate), texts(&by_merge));
+        assert_eq!(texts(&by_integrate).len(), 3);
+    }
+
+    #[test]
+    fn integrate_is_idempotent() {
+        let mut alice = Replica::new("alice");
+        alice.add_markup(note("alice", "x"));
+        let mut bob = Replica::new("bob");
+        let op = alice.ops().into_iter().next().unwrap();
+        bob.integrate(op.clone());
+        let once = texts(&bob);
+        bob.integrate(op); // the same op again
+        assert_eq!(texts(&bob), once, "re-integrating one op changes nothing");
     }
 
     #[test]

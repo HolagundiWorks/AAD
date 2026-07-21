@@ -437,9 +437,13 @@ fn cmd_compare(args: &[String]) -> Result<(), String> {
 }
 
 /// Demonstrate the collaboration model: two offline editors mark up a drawing,
-/// then sync, and both converge to the same markup set (spec §11). No network is
-/// involved — `merge` is the sync primitive a transport would drive.
-fn cmd_collab(_args: &[String]) -> Result<(), String> {
+/// then sync, and both converge to the same markup set (spec §11). By default no
+/// network is involved — `merge` is the sync primitive. With `--net`, the same
+/// scenario runs over a real loopback TCP relay ([`aadt_collab::sync`]).
+fn cmd_collab(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "--net") {
+        return cmd_collab_net();
+    }
     use aadt_collab::Replica;
     use aadt_geometry::Point2;
     use aadt_pdf::{Markup, MarkupKind};
@@ -481,6 +485,63 @@ fn cmd_collab(_args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The same convergence demo, but driven over a real TCP relay on loopback: a
+/// relay server plus two clients, each edit shipped as an operation and merged
+/// on arrival. Proves the transport, not just the CRDT.
+fn cmd_collab_net() -> Result<(), String> {
+    use std::time::{Duration, Instant};
+
+    use aadt_collab::{Client, RelayServer};
+    use aadt_geometry::Point2;
+    use aadt_pdf::{Markup, MarkupKind};
+
+    let cloud = |a: &str, n: &str| Markup::new(MarkupKind::Cloud, Point2::new(0.0, 0.0), a, n);
+
+    let server = RelayServer::start("127.0.0.1:0").map_err(|e| e.to_string())?;
+    println!("Relay listening on {}", server.addr());
+
+    let mut alice = Client::connect(server.addr(), "alice").map_err(|e| e.to_string())?;
+    let mut bob = Client::connect(server.addr(), "bob").map_err(|e| e.to_string())?;
+
+    let a1 = alice
+        .add_markup(cloud("alice", "clarify north arrow"))
+        .map_err(|e| e.to_string())?;
+    bob.add_markup(cloud("bob", "confirm door swing"))
+        .map_err(|e| e.to_string())?;
+
+    // Wait (bounded) for both ops to fan out to both clients.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !(alice.markups().len() == 2 && bob.markups().len() == 2) {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    let show = |who: &str, c: &Client| {
+        let notes: Vec<String> = c.markups().iter().map(|(_, m)| m.note.clone()).collect();
+        println!("  {who}: {notes:?}");
+    };
+    println!("\nAfter both edits fan out over TCP:");
+    show("alice", &alice);
+    show("bob", &bob);
+
+    // Bob resolves one of alice's notes; the remove propagates back.
+    bob.remove(a1).map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && alice.markups().len() != 1 {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+
+    println!("\nAfter bob resolves one of alice's notes:");
+    show("alice", &alice);
+    show("bob", &bob);
+
+    let a = alice.snapshot();
+    let b = bob.snapshot();
+    let converged = a.markups().len() == b.markups().len();
+    println!("\nParticipants: {:?}", a.participants());
+    println!("Converged over the network: {converged}");
+    Ok(())
+}
+
 /// Launch the egui desktop shell (ADR-0001). Built only with `--features app`.
 #[cfg(feature = "app")]
 fn cmd_app(args: &[String]) -> Result<(), String> {
@@ -514,7 +575,8 @@ Usage:
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
   aadt infer <input.dxf> [--save <out>]   Infer wall types with the local model and apply them
-  aadt collab                             Demonstrate convergent multi-user markup sync
+  aadt collab [--net]                     Demonstrate convergent multi-user markup sync
+                                          (--net runs it over a real loopback TCP relay)
   aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
 
 Takeoff options:
