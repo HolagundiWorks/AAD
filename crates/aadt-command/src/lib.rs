@@ -753,6 +753,36 @@ fn nearest_to(pts: &[Point2], p: Point2) -> Option<Point2> {
         .min_by(|a, b| a.distance(p).total_cmp(&b.distance(p)))
 }
 
+/// Crossings of a single poly-line edge with a cutter shape (bounded on both).
+fn segment_crossings(seg: Segment, cutter: &Geometry) -> Vec<Point2> {
+    bounded_crossings(&Geometry::Line(seg), cutter)
+}
+
+/// Distance along an open poly-line from its first vertex to vertex `k`.
+fn length_to_vertex(verts: &[Point2], k: usize) -> f64 {
+    verts[..=k].windows(2).map(|w| w[0].distance(w[1])).sum()
+}
+
+/// Arc-length position of `p`'s nearest projection onto an open poly-line — used
+/// to decide which side of a trim the pick point falls on.
+fn path_param(verts: &[Point2], p: Point2) -> f64 {
+    let mut cum = 0.0;
+    let mut best = (f64::INFINITY, 0.0);
+    for w in verts.windows(2) {
+        let seg = Segment::new(w[0], w[1]);
+        let d = seg.distance_to_point(p);
+        if d < best.0 {
+            let along = match seg.direction() {
+                Some(dir) => (p - w[0]).dot(dir).clamp(0.0, seg.length()),
+                None => 0.0,
+            };
+            best = (d, cum + along);
+        }
+        cum += seg.length();
+    }
+    best.1
+}
+
 struct TrimCmd;
 impl Command for TrimCmd {
     fn name(&self) -> &str {
@@ -762,7 +792,7 @@ impl Command for TrimCmd {
         &["TR"]
     }
     fn help(&self) -> &str {
-        "TRIM id cutter px py — trim a line or arc at its crossing with another entity, dropping the piece at (px, py)"
+        "TRIM id cutter px py — trim a line, arc, or polyline at its crossing with another entity, dropping the piece at (px, py)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let id = parse_entity_id(args.first().ok_or("TRIM: missing entity id")?, "TRIM")?;
@@ -771,13 +801,15 @@ impl Command for TrimCmd {
         let target = require_geometry(ctx, id, "TRIM")?;
         let cutter = require_geometry(ctx, cutter_id, "TRIM")?;
 
-        // Where the cutter genuinely crosses the target; use the one nearest the
-        // pick when there is more than one.
-        let crossings = bounded_crossings(&target, &cutter);
-        let x = nearest_to(&crossings, pick).ok_or("TRIM: the cutter does not cross the entity")?;
+        // The crossing nearest the pick, for the whole-shape (line/arc) targets.
+        let nearest_crossing = || {
+            nearest_to(&bounded_crossings(&target, &cutter), pick)
+                .ok_or_else(|| "TRIM: the cutter does not cross the entity".to_string())
+        };
 
         let new = match &target {
             Geometry::Line(s) => {
+                let x = nearest_crossing()?;
                 // Keep the side away from the pick point.
                 let kept = if s.project_param(pick) < s.project_param(x) {
                     Segment::new(x, s.b)
@@ -790,17 +822,56 @@ impl Command for TrimCmd {
                 Geometry::Line(kept)
             }
             Geometry::Arc(a) => {
+                let x = nearest_crossing()?;
                 // The crossing splits the sweep in two; drop the half the pick is on.
                 let theta = a.angle_of(x);
-                let pick_angle = a.angle_of(pick);
                 let first_half = Arc::new(a.center, a.radius, a.start_angle, theta);
-                if first_half.contains_angle(pick_angle) {
+                if first_half.contains_angle(a.angle_of(pick)) {
                     Geometry::Arc(Arc::new(a.center, a.radius, theta, a.end_angle))
                 } else {
                     Geometry::Arc(first_half)
                 }
             }
-            _ => return Err(format!("TRIM: entity {} must be a line or arc", id.0)),
+            Geometry::Polyline(p) => {
+                if p.closed {
+                    return Err("TRIM: closed polylines are not supported".to_string());
+                }
+                let verts = &p.vertices;
+                // The crossing (edge index, point) nearest the pick.
+                let mut hits: Vec<(usize, Point2)> = Vec::new();
+                for (k, w) in verts.windows(2).enumerate() {
+                    for x in segment_crossings(Segment::new(w[0], w[1]), &cutter) {
+                        hits.push((k, x));
+                    }
+                }
+                let (k, x) = hits
+                    .into_iter()
+                    .min_by(|a, b| a.1.distance(pick).total_cmp(&b.1.distance(pick)))
+                    .ok_or("TRIM: the cutter does not cross the entity")?;
+                // Keep the run of the path away from the pick, cut at the crossing.
+                let x_pos = length_to_vertex(verts, k) + verts[k].distance(x);
+                let new_verts: Vec<Point2> = if path_param(verts, pick) < x_pos {
+                    std::iter::once(x)
+                        .chain(verts[k + 1..].iter().copied())
+                        .collect()
+                } else {
+                    verts[..=k]
+                        .iter()
+                        .copied()
+                        .chain(std::iter::once(x))
+                        .collect()
+                };
+                if new_verts.len() < 2 {
+                    return Err("TRIM: nothing would be left of the polyline".to_string());
+                }
+                Geometry::Polyline(Polyline::new(new_verts, false))
+            }
+            _ => {
+                return Err(format!(
+                    "TRIM: entity {} must be a line, arc, or polyline",
+                    id.0
+                ))
+            }
         };
         ctx.doc.transact("TRIM", |d| d.replace_geometry(id, new));
         Ok(format!("trimmed entity {}", id.0))
@@ -826,11 +897,9 @@ impl Command for ExtendCmd {
         let target = require_geometry(ctx, id, "EXTEND")?;
         let boundary = require_geometry(ctx, bound_id, "EXTEND")?;
 
-        // Where the target's *extended* curve meets the boundary.
+        // Where the target's *extended* curve meets the boundary (whole-shape
+        // targets; the polyline arm crosses only its terminal edge).
         let crossings = boundary_crossings(&target, &boundary);
-        if crossings.is_empty() {
-            return Err("EXTEND: the entity's extension does not reach the boundary".to_string());
-        }
         let eps = 1e-9;
 
         let new = match &target {
@@ -882,7 +951,44 @@ impl Command for ExtendCmd {
                     .1;
                 Geometry::Arc(arc)
             }
-            _ => return Err(format!("EXTEND: entity {} must be a line or arc", id.0)),
+            Geometry::Polyline(p) => {
+                if p.closed {
+                    return Err("EXTEND: closed polylines have no free end".to_string());
+                }
+                let verts = &p.vertices;
+                if verts.len() < 2 {
+                    return Err("EXTEND: the polyline has no edge".to_string());
+                }
+                let n = verts.len();
+                // Extend the terminal edge nearer the pick, moving its free vertex.
+                let extend_end = pick.distance(verts[n - 1]) <= pick.distance(verts[0]);
+                let edge = if extend_end {
+                    Segment::new(verts[n - 2], verts[n - 1])
+                } else {
+                    Segment::new(verts[1], verts[0])
+                };
+                // Crossings of the terminal edge's line with the boundary, beyond
+                // the free vertex.
+                let reach: Vec<Point2> = boundary_crossings(&Geometry::Line(edge), &boundary)
+                    .into_iter()
+                    .filter(|&x| edge.project_param(x) > 1.0 + eps)
+                    .collect();
+                let x = nearest_to(&reach, pick)
+                    .ok_or("EXTEND: the boundary is not beyond that end")?;
+                let mut nv = verts.clone();
+                if extend_end {
+                    nv[n - 1] = x;
+                } else {
+                    nv[0] = x;
+                }
+                Geometry::Polyline(Polyline::new(nv, false))
+            }
+            _ => {
+                return Err(format!(
+                    "EXTEND: entity {} must be a line, arc, or polyline",
+                    id.0
+                ))
+            }
         };
         ctx.doc.transact("EXTEND", |d| d.replace_geometry(id, new));
         Ok(format!("extended entity {}", id.0))
@@ -1716,6 +1822,54 @@ mod tests {
         interp2.eval_line(&mut c2, "LINE 0 0 10 0").unwrap();
         interp2.eval_line(&mut c2, "LINE 0 5 10 5").unwrap();
         assert!(interp2.eval_line(&mut c2, "FILLET 0 1 1").is_err());
+    }
+
+    #[test]
+    fn trim_truncates_a_polyline_at_a_cutter() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // An L-path (0,0)-(4,0)-(4,4), cut by a vertical line at x=2.
+        interp
+            .eval_line(&mut ctx, "POLYLINE 0 0 4 0 4 4 A-ROOM")
+            .unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE 2 -5 2 5").unwrap(); // id 1, crosses edge 0 at (2,0)
+                                                              // Pick near the origin end → that stub is dropped.
+        interp.eval_line(&mut ctx, "TRIM 0 1 0 0").unwrap();
+        if let Geometry::Polyline(p) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert_eq!(p.vertices.len(), 3);
+            assert!(
+                p.vertices[0].distance(Point2::new(2.0, 0.0)) < 1e-9,
+                "cut at (2,0)"
+            );
+            assert!(
+                p.vertices[2].distance(Point2::new(4.0, 4.0)) < 1e-9,
+                "far end kept"
+            );
+        } else {
+            panic!("expected polyline");
+        }
+    }
+
+    #[test]
+    fn extend_stretches_a_polyline_end_to_a_boundary() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "POLYLINE 0 0 4 0 4 4 A-ROOM")
+            .unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE 0 8 10 8").unwrap(); // id 1, boundary y=8
+                                                              // Pick near the (4,4) end → its terminal edge stretches up to y=8.
+        interp.eval_line(&mut ctx, "EXTEND 0 1 4 4").unwrap();
+        if let Geometry::Polyline(p) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert_eq!(p.vertices.len(), 3);
+            assert!(
+                p.vertices[2].distance(Point2::new(4.0, 8.0)) < 1e-9,
+                "end stretched to (4,8), got {:?}",
+                p.vertices[2]
+            );
+        } else {
+            panic!("expected polyline");
+        }
     }
 
     #[test]
