@@ -139,6 +139,13 @@ impl std::ops::Mul<f64> for Vec2 {
     }
 }
 
+impl std::ops::Add for Vec2 {
+    type Output = Vec2;
+    fn add(self, rhs: Vec2) -> Vec2 {
+        Vec2::new(self.x + rhs.x, self.y + rhs.y)
+    }
+}
+
 /// A straight segment between two endpoints.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Segment {
