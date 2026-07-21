@@ -65,9 +65,13 @@ Turn the M0 skeletons into a usable drafting surface (spec §4).
   `RECTANGLE`, `CIRCLE`, `ARC`, `TEXT`, `INSERT`), modify (`MOVE`, `COPY`,
   `ROTATE`, `SCALE`, `MIRROR`, `OFFSET`, `TRIM`, `EXTEND`, `FILLET`, `CHAMFER`,
   `ARRAY`, `EXPLODE`, `ERASE`), organize (`LAYER`/`LAYERS`), annotate
-  (`DIM`, `HATCH`), inspect (`LIST`, `DIST`, `AREA`), and history
-  (`UNDO`/`REDO`) built-ins, plus CLI-registered `OPEN`/`SAVE`/`TAKEOFF`/
-  `SCHEDULE`. Driven by `aadt run`/`aadt shell`. See `aadt-command`, `aadt-cli`.
+  (`DIM`, `HATCH`), select (`SELECT`, `GROUP`, `GROUPS`, `UNGROUP`), inspect
+  (`LIST`, `DIST`, `AREA`), and history (`UNDO`/`REDO`) built-ins, plus
+  CLI-registered `OPEN`/`SAVE`/`TAKEOFF`/`SCHEDULE`. Driven by `aadt run`/`aadt
+  shell`. See `aadt-command`, `aadt-cli`.
+- **Selection sets** — a current selection (`SELECT ALL|LAYER|WINDOW|ids`) and
+  named `GROUP`s; MOVE/COPY/ERASE/ROTATE/SCALE/MIRROR take an id, a group, `ALL`,
+  or `SELECTION` and edit the whole set in one undoable transaction.
 - **Undoable annotation** — `add_hatch`/`add_dimension` record an
   `Op::AddHatch`/`Op::AddDimension` inside a transaction (interactive `HATCH`/
   `DIM`) and stay untracked on bulk load, so annotations undo/redo and

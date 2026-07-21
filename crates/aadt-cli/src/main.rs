@@ -28,7 +28,7 @@ use aadt_detect::{detect, DetectionConfig};
 use aadt_docs::{
     NotesLibrary, NotesStyle, Orientation, PaperSize, QaSeverity, Sheet, SheetReview, TitleBlock,
 };
-use aadt_takeoff::TakeoffTable;
+use aadt_takeoff::{TakeoffTable, TAKEOFF_SCHEMA_VERSION};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -61,6 +61,14 @@ fn run(args: &[String]) -> Result<(), String> {
         "present" => cmd_present(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
+            Ok(())
+        }
+        "--version" | "-V" | "version" => {
+            println!(
+                "aadt {} (takeoff schema {})",
+                env!("CARGO_PKG_VERSION"),
+                TAKEOFF_SCHEMA_VERSION
+            );
             Ok(())
         }
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
