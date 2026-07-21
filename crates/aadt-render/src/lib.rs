@@ -234,9 +234,12 @@ fn dimension_commands(dim: &Dimension) -> Vec<DrawCommand> {
             dim.vertex.distance(dim.p1),
         ),
         DimensionKind::Radius => (vec![vec![dim.vertex, dim.p1]], dim.vertex.distance(dim.p1)),
-        DimensionKind::Linear | DimensionKind::Aligned => {
-            (vec![vec![dim.p1, dim.p2]], dim.p1.distance(dim.p2))
-        }
+        // Linear/aligned span, diameter chord, and ordinate leader all draw p1→p2.
+        DimensionKind::Linear
+        | DimensionKind::Aligned
+        | DimensionKind::Diameter
+        | DimensionKind::OrdinateX
+        | DimensionKind::OrdinateY => (vec![vec![dim.p1, dim.p2]], dim.p1.distance(dim.p2)),
     };
     let mut out: Vec<DrawCommand> = lines
         .into_iter()

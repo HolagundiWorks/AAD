@@ -151,6 +151,8 @@ pub fn builtins() -> Registry {
     r.register(Box::new(DimCmd));
     r.register(Box::new(DimRadiusCmd));
     r.register(Box::new(DimAngularCmd));
+    r.register(Box::new(DimDiameterCmd));
+    r.register(Box::new(DimOrdinateCmd));
     r.register(Box::new(HatchCmd));
     // Selection sets.
     r.register(Box::new(SelectCmd));
@@ -1651,6 +1653,101 @@ impl Command for DimAngularCmd {
     }
 }
 
+struct DimDiameterCmd;
+impl Command for DimDiameterCmd {
+    fn name(&self) -> &str {
+        "DIMDIAMETER"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIMDIA"]
+    }
+    fn help(&self) -> &str {
+        "DIMDIAMETER id [layer] — dimension the diameter of a circle or arc (undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_entity_id(
+            args.first().ok_or("DIMDIAMETER: missing entity id")?,
+            "DIMDIAMETER",
+        )?;
+        let entity = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("DIMDIAMETER: no entity with id {}", id.0))?;
+        let (center, radius) = match &entity.geometry {
+            Geometry::Circle(c) => (c.center, c.radius),
+            Geometry::Arc(a) => (a.center, a.radius),
+            _ => {
+                return Err(format!(
+                    "DIMDIAMETER: entity {} must be a circle or arc",
+                    id.0
+                ))
+            }
+        };
+        // The chord runs across the circle through its centre.
+        let p1 = Point2::new(center.x + radius, center.y);
+        let p2 = Point2::new(center.x - radius, center.y);
+        let layer = args.get(1).cloned().unwrap_or_else(|| entity.layer.clone());
+        let diameter = 2.0 * radius;
+        let dim = Dimension {
+            layer,
+            kind: DimensionKind::Diameter,
+            p1,
+            p2,
+            vertex: center,
+            text_anchor: center,
+            text: String::new(),
+            measurement: diameter,
+        };
+        ctx.doc.transact("DIMDIAMETER", |d| d.add_dimension(dim));
+        Ok(format!("added diameter dimension D{diameter}"))
+    }
+}
+
+struct DimOrdinateCmd;
+impl Command for DimOrdinateCmd {
+    fn name(&self) -> &str {
+        "DIMORDINATE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIMORD"]
+    }
+    fn help(&self) -> &str {
+        "DIMORDINATE fx fy lx ly X|Y [layer] — ordinate dimension of a feature's X or Y from the origin"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let feature = Point2::new(
+            parse_f64(args, 0, "DIMORDINATE")?,
+            parse_f64(args, 1, "DIMORDINATE")?,
+        );
+        let leader = Point2::new(
+            parse_f64(args, 2, "DIMORDINATE")?,
+            parse_f64(args, 3, "DIMORDINATE")?,
+        );
+        let axis = args.get(4).ok_or("DIMORDINATE: missing axis (X or Y)")?;
+        let (kind, measurement) = match axis.to_ascii_uppercase().as_str() {
+            "X" => (DimensionKind::OrdinateX, feature.x),
+            "Y" => (DimensionKind::OrdinateY, feature.y),
+            _ => return Err(format!("DIMORDINATE: axis must be X or Y, got {axis:?}")),
+        };
+        let layer = args.get(5).cloned().unwrap_or_else(|| "A-DIMS".to_string());
+        let dim = Dimension {
+            layer,
+            kind,
+            p1: feature,
+            p2: leader,
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: leader,
+            text: String::new(),
+            measurement,
+        };
+        ctx.doc.transact("DIMORDINATE", |d| d.add_dimension(dim));
+        Ok(format!(
+            "added {} ordinate dimension = {measurement}",
+            axis.to_ascii_uppercase()
+        ))
+    }
+}
+
 struct HatchCmd;
 impl Command for HatchCmd {
     fn name(&self) -> &str {
@@ -2666,6 +2763,45 @@ mod tests {
         // DIMRADIUS on a line is rejected.
         interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
         assert!(interp.eval_line(&mut ctx, "DIMRADIUS 1").is_err());
+    }
+
+    #[test]
+    fn diameter_and_ordinate_dimensions() {
+        use aadt_model::DimensionKind;
+
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 5 A-COL").unwrap(); // id 0
+        let msg = interp
+            .eval_line(&mut ctx, "DIMDIAMETER 0")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("D10"), "{msg:?}");
+        let d = ctx.doc.dimensions().last().unwrap();
+        assert_eq!(d.kind, DimensionKind::Diameter);
+        assert!((d.measurement - 10.0).abs() < 1e-9);
+        // The chord spans the circle through the centre.
+        assert!(d.p1.distance(Point2::new(5.0, 0.0)) < 1e-9);
+        assert!(d.p2.distance(Point2::new(-5.0, 0.0)) < 1e-9);
+
+        // Ordinate: the X coordinate of a feature at (7, 3).
+        let m = interp
+            .eval_line(&mut ctx, "DIMORDINATE 7 3 9 3 X")
+            .unwrap()
+            .unwrap();
+        assert!(m.contains("X ordinate") && m.contains("= 7"), "{m:?}");
+        let o = ctx.doc.dimensions().last().unwrap();
+        assert_eq!(o.kind, DimensionKind::OrdinateX);
+        assert!((o.measurement - 7.0).abs() < 1e-9);
+
+        // Y ordinate reads the y coordinate.
+        interp.eval_line(&mut ctx, "DIMORDINATE 7 3 7 6 Y").unwrap();
+        let o = ctx.doc.dimensions().last().unwrap();
+        assert_eq!(o.kind, DimensionKind::OrdinateY);
+        assert!((o.measurement - 3.0).abs() < 1e-9);
+
+        // A bad axis is rejected.
+        assert!(interp.eval_line(&mut ctx, "DIMORDINATE 1 1 2 2 Z").is_err());
     }
 
     #[test]

@@ -180,9 +180,9 @@ impl Hatch {
     }
 }
 
-/// The measured form of a [`Dimension`]. Linear (axis-aligned / rotated),
-/// aligned (parallel to the measured points), angular (the angle at a vertex),
-/// and radius (a circle/arc radius). Ordinate and diameter are deferred.
+/// The measured form of a [`Dimension`]: linear (axis-aligned / rotated), aligned
+/// (parallel to the measured points), angular (the angle at a vertex), radius and
+/// diameter (a circle/arc size), and ordinate (a single coordinate from a datum).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DimensionKind {
     Linear,
@@ -191,6 +191,13 @@ pub enum DimensionKind {
     Angular,
     /// The radius from [`Dimension::vertex`] (the centre) to `p1` (on the circle).
     Radius,
+    /// The diameter across a circle, `p1`→`p2` through [`Dimension::vertex`].
+    Diameter,
+    /// The X coordinate of the feature `p1` relative to the datum [`Dimension::vertex`],
+    /// with `p2` the leader endpoint.
+    OrdinateX,
+    /// The Y coordinate of the feature `p1` relative to the datum [`Dimension::vertex`].
+    OrdinateY,
 }
 
 /// A dimension annotation (DXF `DIMENSION`).

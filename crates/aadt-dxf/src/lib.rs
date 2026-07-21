@@ -389,10 +389,15 @@ fn import_dimension(doc: &mut Document, rec: &Record) {
     else {
         return;
     };
-    let kind = match rec.int(70).map(|f| f & 7) {
-        Some(1) => DimensionKind::Aligned,
-        Some(2) => DimensionKind::Angular,
-        Some(4) => DimensionKind::Radius,
+    let flags = rec.int(70).unwrap_or(0);
+    let kind = match flags & 7 {
+        1 => DimensionKind::Aligned,
+        2 => DimensionKind::Angular,
+        3 => DimensionKind::Diameter,
+        4 => DimensionKind::Radius,
+        // Ordinate: bit 64 selects the X datum, otherwise the Y datum.
+        6 if flags & 64 != 0 => DimensionKind::OrdinateX,
+        6 => DimensionKind::OrdinateY,
         _ => DimensionKind::Linear,
     };
     let p1 = Point2::new(x1, y1);
@@ -557,7 +562,11 @@ fn write_dimension(out: &mut String, d: &Dimension) {
         DimensionKind::Linear => 0,
         DimensionKind::Aligned => 1,
         DimensionKind::Angular => 2,
+        DimensionKind::Diameter => 3,
         DimensionKind::Radius => 4,
+        // Ordinate is type 6; bit 64 marks the X datum.
+        DimensionKind::OrdinateX => 6 | 64,
+        DimensionKind::OrdinateY => 6,
     };
     out.push_str(&format!(
         "0\nDIMENSION\n8\n{}\n70\n{}\n13\n{}\n23\n{}\n14\n{}\n24\n{}\n15\n{}\n25\n{}\n11\n{}\n21\n{}\n1\n{}\n42\n{}\n",
@@ -1185,14 +1194,53 @@ EOF
             text: String::new(),
             measurement: 90.0,
         });
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::Diameter,
+            p1: Point2::new(5.0, 0.0),
+            p2: Point2::new(-5.0, 0.0),
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: Point2::new(0.0, 0.0),
+            text: String::new(),
+            measurement: 10.0,
+        });
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::OrdinateX,
+            p1: Point2::new(7.0, 3.0),
+            p2: Point2::new(9.0, 3.0),
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: Point2::new(9.0, 3.0),
+            text: String::new(),
+            measurement: 7.0,
+        });
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::OrdinateY,
+            p1: Point2::new(7.0, 3.0),
+            p2: Point2::new(7.0, 6.0),
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: Point2::new(7.0, 6.0),
+            text: String::new(),
+            measurement: 3.0,
+        });
         let back = import_str(&export_str(&doc)).unwrap();
         assert_eq!(
             doc.dimensions(),
             back.dimensions(),
             "kind, vertex, and measurement survive the round-trip"
         );
-        assert_eq!(back.dimensions()[0].kind, DimensionKind::Radius);
-        assert_eq!(back.dimensions()[1].kind, DimensionKind::Angular);
+        let kinds: Vec<DimensionKind> = back.dimensions().iter().map(|d| d.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                DimensionKind::Radius,
+                DimensionKind::Angular,
+                DimensionKind::Diameter,
+                DimensionKind::OrdinateX,
+                DimensionKind::OrdinateY,
+            ]
+        );
     }
 
     #[test]
