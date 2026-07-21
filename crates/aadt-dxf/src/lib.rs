@@ -391,14 +391,23 @@ fn import_dimension(doc: &mut Document, rec: &Record) {
     };
     let kind = match rec.int(70).map(|f| f & 7) {
         Some(1) => DimensionKind::Aligned,
+        Some(2) => DimensionKind::Angular,
+        Some(4) => DimensionKind::Radius,
         _ => DimensionKind::Linear,
     };
+    let p1 = Point2::new(x1, y1);
     let anchor = Point2::new(rec.float(11).unwrap_or(0.0), rec.float(21).unwrap_or(0.0));
+    // The centre/apex (DXF 15/25); absent for linear/aligned → conventionally p1.
+    let vertex = match (rec.float(15), rec.float(25)) {
+        (Some(vx), Some(vy)) => Point2::new(vx, vy),
+        _ => p1,
+    };
     doc.add_dimension(Dimension {
         layer: rec.layer(),
         kind,
-        p1: Point2::new(x1, y1),
+        p1,
         p2: Point2::new(x2, y2),
+        vertex,
         text_anchor: anchor,
         text: rec.string(1).unwrap_or("").to_string(),
         measurement: rec.float(42).unwrap_or(0.0),
@@ -547,15 +556,19 @@ fn write_dimension(out: &mut String, d: &Dimension) {
     let ty = match d.kind {
         DimensionKind::Linear => 0,
         DimensionKind::Aligned => 1,
+        DimensionKind::Angular => 2,
+        DimensionKind::Radius => 4,
     };
     out.push_str(&format!(
-        "0\nDIMENSION\n8\n{}\n70\n{}\n13\n{}\n23\n{}\n14\n{}\n24\n{}\n11\n{}\n21\n{}\n1\n{}\n42\n{}\n",
+        "0\nDIMENSION\n8\n{}\n70\n{}\n13\n{}\n23\n{}\n14\n{}\n24\n{}\n15\n{}\n25\n{}\n11\n{}\n21\n{}\n1\n{}\n42\n{}\n",
         d.layer,
         ty,
         d.p1.x,
         d.p1.y,
         d.p2.x,
         d.p2.y,
+        d.vertex.x,
+        d.vertex.y,
         d.text_anchor.x,
         d.text_anchor.y,
         d.text,
@@ -1147,6 +1160,39 @@ EOF
             doc2.dimensions(),
             "dimension changed on round-trip"
         );
+    }
+
+    #[test]
+    fn round_trip_preserves_angular_and_radius_dimensions() {
+        let mut doc = Document::new();
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::Radius,
+            p1: Point2::new(5.0, 0.0),
+            p2: Point2::new(5.0, 0.0),
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: Point2::new(2.5, 0.0),
+            text: String::new(),
+            measurement: 5.0,
+        });
+        doc.add_dimension(Dimension {
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::Angular,
+            p1: Point2::new(1.0, 0.0),
+            p2: Point2::new(0.0, 1.0),
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: Point2::new(0.5, 0.5),
+            text: String::new(),
+            measurement: 90.0,
+        });
+        let back = import_str(&export_str(&doc)).unwrap();
+        assert_eq!(
+            doc.dimensions(),
+            back.dimensions(),
+            "kind, vertex, and measurement survive the round-trip"
+        );
+        assert_eq!(back.dimensions()[0].kind, DimensionKind::Radius);
+        assert_eq!(back.dimensions()[1].kind, DimensionKind::Angular);
     }
 
     #[test]

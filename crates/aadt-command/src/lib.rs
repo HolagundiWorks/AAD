@@ -149,6 +149,8 @@ pub fn builtins() -> Registry {
     r.register(Box::new(LayersCmd));
     // Annotate.
     r.register(Box::new(DimCmd));
+    r.register(Box::new(DimRadiusCmd));
+    r.register(Box::new(DimAngularCmd));
     r.register(Box::new(HatchCmd));
     // Selection sets.
     r.register(Box::new(SelectCmd));
@@ -1541,12 +1543,111 @@ impl Command for DimCmd {
             kind: DimensionKind::Aligned,
             p1,
             p2,
+            vertex: p1,
             text_anchor: p1.midpoint(p2),
             text: String::new(),
             measurement,
         };
         ctx.doc.transact("DIM", |d| d.add_dimension(dim));
         Ok(format!("added dimension measuring {measurement}"))
+    }
+}
+
+struct DimRadiusCmd;
+impl Command for DimRadiusCmd {
+    fn name(&self) -> &str {
+        "DIMRADIUS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIMRAD"]
+    }
+    fn help(&self) -> &str {
+        "DIMRADIUS id [layer] — dimension the radius of a circle or arc (undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_entity_id(
+            args.first().ok_or("DIMRADIUS: missing entity id")?,
+            "DIMRADIUS",
+        )?;
+        let entity = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("DIMRADIUS: no entity with id {}", id.0))?;
+        let (center, radius) = match &entity.geometry {
+            Geometry::Circle(c) => (c.center, c.radius),
+            Geometry::Arc(a) => (a.center, a.radius),
+            _ => {
+                return Err(format!(
+                    "DIMRADIUS: entity {} must be a circle or arc",
+                    id.0
+                ))
+            }
+        };
+        // The leader touches the circle at its rightmost point.
+        let on_circle = Point2::new(center.x + radius, center.y);
+        let layer = args.get(1).cloned().unwrap_or_else(|| entity.layer.clone());
+        let dim = Dimension {
+            layer,
+            kind: DimensionKind::Radius,
+            p1: on_circle,
+            p2: on_circle,
+            vertex: center,
+            text_anchor: center.midpoint(on_circle),
+            text: String::new(),
+            measurement: radius,
+        };
+        ctx.doc.transact("DIMRADIUS", |d| d.add_dimension(dim));
+        Ok(format!("added radius dimension R{radius}"))
+    }
+}
+
+struct DimAngularCmd;
+impl Command for DimAngularCmd {
+    fn name(&self) -> &str {
+        "DIMANGULAR"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIMANG"]
+    }
+    fn help(&self) -> &str {
+        "DIMANGULAR vx vy x1 y1 x2 y2 [layer] — dimension the angle at (vx,vy) between two rays (undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let v = Point2::new(
+            parse_f64(args, 0, "DIMANGULAR")?,
+            parse_f64(args, 1, "DIMANGULAR")?,
+        );
+        let p1 = Point2::new(
+            parse_f64(args, 2, "DIMANGULAR")?,
+            parse_f64(args, 3, "DIMANGULAR")?,
+        );
+        let p2 = Point2::new(
+            parse_f64(args, 4, "DIMANGULAR")?,
+            parse_f64(args, 5, "DIMANGULAR")?,
+        );
+        let (d1, d2) = (
+            (p1 - v)
+                .normalized()
+                .ok_or("DIMANGULAR: the first ray is degenerate")?,
+            (p2 - v)
+                .normalized()
+                .ok_or("DIMANGULAR: the second ray is degenerate")?,
+        );
+        // Interior angle between the rays, in degrees.
+        let degrees = d1.dot(d2).clamp(-1.0, 1.0).acos().to_degrees();
+        let layer = args.get(6).cloned().unwrap_or_else(|| "A-DIMS".to_string());
+        let dim = Dimension {
+            layer,
+            kind: DimensionKind::Angular,
+            p1,
+            p2,
+            vertex: v,
+            text_anchor: v.midpoint(p1.midpoint(p2)),
+            text: String::new(),
+            measurement: degrees,
+        };
+        ctx.doc.transact("DIMANGULAR", |d| d.add_dimension(dim));
+        Ok(format!("added angular dimension {degrees}°"))
     }
 }
 
@@ -2528,6 +2629,43 @@ mod tests {
 
         // Coincident points are rejected.
         assert!(interp.eval_line(&mut ctx, "DIM 1 1 1 1").is_err());
+    }
+
+    #[test]
+    fn radius_and_angular_dimensions() {
+        use aadt_model::DimensionKind;
+
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 5 A-COL").unwrap(); // id 0
+        let msg = interp.eval_line(&mut ctx, "DIMRADIUS 0").unwrap().unwrap();
+        assert!(msg.contains("R5"), "{msg:?}");
+        let d = ctx.doc.dimensions().last().unwrap();
+        assert_eq!(d.kind, DimensionKind::Radius);
+        assert!(
+            d.vertex.distance(Point2::new(0.0, 0.0)) < 1e-9,
+            "vertex is the centre"
+        );
+        assert!((d.measurement - 5.0).abs() < 1e-9);
+        assert_eq!(d.layer, "A-COL", "inherits the circle's layer");
+
+        // A right angle at the origin between +x and +y rays.
+        let m = interp
+            .eval_line(&mut ctx, "DIMANGULAR 0 0 1 0 0 1 A-DIMS")
+            .unwrap()
+            .unwrap();
+        assert!(m.contains("90"), "{m:?}");
+        let a = ctx.doc.dimensions().last().unwrap();
+        assert_eq!(a.kind, DimensionKind::Angular);
+        assert!((a.measurement - 90.0).abs() < 1e-6);
+
+        // Undo removes the angular dimension (LIFO).
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert_eq!(ctx.doc.dimensions().len(), 1, "only the radius dim remains");
+
+        // DIMRADIUS on a line is rejected.
+        interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
+        assert!(interp.eval_line(&mut ctx, "DIMRADIUS 1").is_err());
     }
 
     #[test]

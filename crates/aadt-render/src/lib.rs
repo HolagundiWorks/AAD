@@ -31,7 +31,7 @@ pub mod interact;
 pub mod view;
 
 use aadt_geometry::{Bbox, Point2};
-use aadt_model::{Dimension, Document, Geometry, Hatch};
+use aadt_model::{Dimension, DimensionKind, Document, Geometry, Hatch};
 
 /// A dimension's value text is drawn at this fraction of the measured span, so it
 /// scales sensibly with the drawing. A dimension style would override it; the
@@ -214,33 +214,48 @@ fn hatch_command(hatch: &Hatch) -> DrawCommand {
     }
 }
 
-/// A [`Dimension`] flattened to draw primitives: the dimension line between the
-/// measured points, and the value text at its anchor. Extension lines, arrowheads
-/// and a dimension-line offset belong to a dimension style the model does not yet
-/// carry — the measured span and the value are the parts that render faithfully.
+/// A [`Dimension`] flattened to draw primitives and the value text at its anchor,
+/// per kind: linear/aligned draw the measured span `p1`→`p2`; angular draws two
+/// rays from the vertex to `p1` and `p2`; radius draws the centre→circle line.
+/// Extension lines, arrowheads and a dimension-line offset belong to a dimension
+/// style the model does not yet carry — the definition geometry and the value are
+/// the parts that render faithfully.
 fn dimension_commands(dim: &Dimension) -> Vec<DrawCommand> {
-    let span = dim.p1.distance(dim.p2);
     let label = if dim.text.trim().is_empty() {
         format!("{}", dim.measurement)
     } else {
         dim.text.clone()
     };
-    vec![
-        DrawCommand::Polyline {
+    // The polylines that visualise the measurement, and a reference length that
+    // scales the value text.
+    let (lines, scale_ref): (Vec<Vec<Point2>>, f64) = match dim.kind {
+        DimensionKind::Angular => (
+            vec![vec![dim.vertex, dim.p1], vec![dim.vertex, dim.p2]],
+            dim.vertex.distance(dim.p1),
+        ),
+        DimensionKind::Radius => (vec![vec![dim.vertex, dim.p1]], dim.vertex.distance(dim.p1)),
+        DimensionKind::Linear | DimensionKind::Aligned => {
+            (vec![vec![dim.p1, dim.p2]], dim.p1.distance(dim.p2))
+        }
+    };
+    let mut out: Vec<DrawCommand> = lines
+        .into_iter()
+        .map(|points| DrawCommand::Polyline {
             layer: dim.layer.clone(),
-            points: vec![dim.p1, dim.p2],
+            points,
             closed: false,
-        },
-        DrawCommand::Text {
-            layer: dim.layer.clone(),
-            position: dim.text_anchor,
-            // A default height proportional to the span (see [`DIM_TEXT_FRACTION`]),
-            // floored so a zero-length dimension still yields a visible glyph.
-            height: (span * DIM_TEXT_FRACTION).max(f64::MIN_POSITIVE),
-            rotation: 0.0,
-            value: label,
-        },
-    ]
+        })
+        .collect();
+    out.push(DrawCommand::Text {
+        layer: dim.layer.clone(),
+        position: dim.text_anchor,
+        // Height proportional to the reference length (see [`DIM_TEXT_FRACTION`]),
+        // floored so a degenerate dimension still yields a visible glyph.
+        height: (scale_ref * DIM_TEXT_FRACTION).max(f64::MIN_POSITIVE),
+        rotation: 0.0,
+        value: label,
+    });
+    out
 }
 
 /// Translate a read-only [`Document`] snapshot into a [`DrawList`].
@@ -688,6 +703,7 @@ mod tests {
             kind: DimensionKind::Linear,
             p1: Point2::new(0.0, 0.0),
             p2: Point2::new(10.0, 0.0),
+            vertex: Point2::new(0.0, 0.0),
             text_anchor: Point2::new(5.0, -1.0),
             text: String::new(),
             measurement: 10.0,

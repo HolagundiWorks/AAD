@@ -180,35 +180,45 @@ impl Hatch {
     }
 }
 
-/// The measured form of a [`Dimension`]. Linear (axis-aligned / rotated) and
-/// aligned (parallel to the measured points) are the two AADT models today;
-/// radial, angular, and ordinate dimensions are deferred.
+/// The measured form of a [`Dimension`]. Linear (axis-aligned / rotated),
+/// aligned (parallel to the measured points), angular (the angle at a vertex),
+/// and radius (a circle/arc radius). Ordinate and diameter are deferred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DimensionKind {
     Linear,
     Aligned,
+    /// The angle between two rays from [`Dimension::vertex`] to `p1` and `p2`.
+    Angular,
+    /// The radius from [`Dimension::vertex`] (the centre) to `p1` (on the circle).
+    Radius,
 }
 
-/// A linear or aligned dimension (DXF `DIMENSION`).
+/// A dimension annotation (DXF `DIMENSION`).
 ///
 /// Like [`Hatch`], held in its own table for round-trip fidelity rather than as
-/// a drawable primitive: the measured points, the text placement, any text
+/// a drawable primitive: the definition points, the text placement, any text
 /// override, and the stored measurement survive a round-trip. The arrows,
 /// extension lines, and text glyphs a CAD app would draw are the renderer's job,
-/// not the model's.
+/// not the model's. Fields are reused per [`kind`](DimensionKind): linear/aligned
+/// measure `p1`→`p2`; angular measures the angle at `vertex` between `p1` and
+/// `p2`; radius measures `vertex`→`p1`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dimension {
     pub layer: String,
     pub kind: DimensionKind,
-    /// First measured point (DXF 13/23).
+    /// First definition point (DXF 13/23).
     pub p1: Point2,
-    /// Second measured point (DXF 14/24).
+    /// Second definition point (DXF 14/24); for a radius, equal to `p1`.
     pub p2: Point2,
+    /// Centre (radius) or angle apex (angular); DXF 15/25. For linear/aligned it
+    /// carries no meaning and conventionally equals `p1`.
+    pub vertex: Point2,
     /// Text midpoint (DXF 11/21).
     pub text_anchor: Point2,
     /// Text override (DXF group 1); empty means "use the measured value".
     pub text: String,
-    /// The stored measurement (DXF group 42).
+    /// The stored measurement (DXF group 42): a length (linear/aligned/radius) or
+    /// an angle in degrees (angular).
     pub measurement: f64,
 }
 
@@ -1315,6 +1325,7 @@ mod tests {
                 kind: DimensionKind::Aligned,
                 p1: Point2::new(0.0, 0.0),
                 p2: Point2::new(4.0, 0.0),
+                vertex: Point2::new(0.0, 0.0),
                 text_anchor: Point2::new(2.0, -1.0),
                 text: String::new(),
                 measurement: 4.0,
@@ -1511,6 +1522,7 @@ mod tests {
             kind: DimensionKind::Linear,
             p1: Point2::new(0.0, 0.0),
             p2: Point2::new(10.0, 0.0),
+            vertex: Point2::new(0.0, 0.0),
             text_anchor: Point2::new(5.0, -1.0),
             text: String::new(),
             measurement: 10.0,
