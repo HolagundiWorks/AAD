@@ -7,9 +7,11 @@
 //! of arithmetic, list, predicate, and string subrs.
 //!
 //! Its distinguishing feature — spec §4.4's extensibility point unique to AADT —
-//! is **read access to AADT Engine outputs**: [`host::install_document`] adds
-//! `aadt-*` functions that let a script query the document, the detected
-//! elements, and the takeoff. See [`host`].
+//! is access to the drawing and the engine: [`host::install_document`] adds
+//! `aadt-*` functions that let a script **query** the document, the detected
+//! elements, and the takeoff, and **create/modify** entities (draw lines,
+//! circles, arcs, text, polylines; move and erase by id). A macro can draw and
+//! then measure what it drew. See [`host`].
 //!
 //! ```
 //! # use aadt_lisp::Interpreter;
@@ -20,8 +22,7 @@
 //!
 //! **Scope:** proper (Vec-backed) lists — dotted pairs and `&rest`/optional
 //! lambda arguments are deferred; association data uses two-element lists, read
-//! with `assoc`/`cadr`. The bridge is read-only; entity creation from LISP builds
-//! on the command registry in a later increment.
+//! with `assoc`/`cadr`.
 
 mod builtins;
 pub mod eval;

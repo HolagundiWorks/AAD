@@ -230,11 +230,13 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
 fn cmd_lisp(args: &[String]) -> Result<(), String> {
     let mut script: Option<String> = None;
     let mut dxf: Option<String> = None;
+    let mut save: Option<String> = None;
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--dxf" => dxf = Some(expect_value(&mut it, "--dxf")?),
+            "--save" => save = Some(expect_value(&mut it, "--save")?),
             other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
             other => script = Some(other.to_string()),
         }
@@ -243,15 +245,19 @@ fn cmd_lisp(args: &[String]) -> Result<(), String> {
     let script = script.ok_or_else(|| format!("lisp needs a script file\n\n{USAGE}"))?;
     let src = std::fs::read_to_string(&script).map_err(|e| format!("reading {script}: {e}"))?;
 
+    // The document is shared with the script so `aadt-*` functions can query and
+    // draw into it; `--dxf` seeds it from a file, otherwise it starts empty.
+    let doc = std::rc::Rc::new(std::cell::RefCell::new(match &dxf {
+        Some(path) => {
+            let d = aadt_dxf::import_path(path).map_err(|e| e.to_string())?;
+            println!("Loaded {path} ({} entities) — aadt-* available", d.len());
+            d
+        }
+        None => aadt_model::Document::new(),
+    }));
+
     let mut lisp = aadt_lisp::Interpreter::new();
-    if let Some(path) = &dxf {
-        let doc = aadt_dxf::import_path(path).map_err(|e| e.to_string())?;
-        aadt_lisp::host::install_document(
-            lisp.env(),
-            std::rc::Rc::new(std::cell::RefCell::new(doc)),
-        );
-        println!("Loaded {path} — aadt-* queries available");
-    }
+    aadt_lisp::host::install_document(lisp.env(), doc.clone());
 
     let result = lisp.eval_str(&src).map_err(|e| e.to_string())?;
     let out = lisp.output();
@@ -262,6 +268,11 @@ fn cmd_lisp(args: &[String]) -> Result<(), String> {
         }
     }
     println!("=> {result}");
+
+    if let Some(path) = &save {
+        aadt_dxf::export_path(&doc.borrow(), path).map_err(|e| e.to_string())?;
+        println!("Wrote {path} ({} entities)", doc.borrow().len());
+    }
     Ok(())
 }
 
@@ -378,7 +389,8 @@ Usage:
   aadt view <input.dxf>                  Open the interactive canvas window (needs --features gui)
   aadt sheet <input.dxf> --out <out.dxf> Compose a sheet: border, title block, notes, QA
       [--size A1] [--project X] [--title Y] [--number A-101] [--scale 1:100] [--date D] [--by NN]
-  aadt lisp <script.lsp> [--dxf <in.dxf>] Run a LISP script (with aadt-* queries when --dxf given)
+  aadt lisp <script.lsp> [--dxf <in.dxf>] [--save <out.dxf>]
+                                          Run a LISP script; aadt-* can query and draw into the drawing
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
   aadt collab                             Demonstrate convergent multi-user markup sync

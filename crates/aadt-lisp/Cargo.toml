@@ -9,12 +9,10 @@ authors.workspace = true
 description = "Embedded Scheme/AutoLISP-compatible interpreter with read access to AADT outputs. Skeleton — built in M6."
 
 [dependencies]
+aadt-geometry.workspace = true
 aadt-model.workspace = true
 aadt-detect.workspace = true
 aadt-takeoff.workspace = true
-
-[dev-dependencies]
-aadt-geometry.workspace = true
 
 [lints]
 workspace = true
