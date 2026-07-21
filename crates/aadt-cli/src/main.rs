@@ -56,6 +56,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "pdf" => cmd_pdf(rest),
         "compare" => cmd_compare(rest),
         "collab" => cmd_collab(rest),
+        "app" => cmd_app(rest),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(())
@@ -338,6 +339,21 @@ fn cmd_collab(_args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Launch the egui desktop shell (ADR-0001). Built only with `--features app`.
+#[cfg(feature = "app")]
+fn cmd_app(args: &[String]) -> Result<(), String> {
+    let doc = match args.iter().find(|a| !a.starts_with('-')) {
+        Some(path) => aadt_dxf::import_path(path).map_err(|e| e.to_string())?,
+        None => aadt_model::Document::new(),
+    };
+    aadt_app::gui::run(doc).map_err(|e| e.to_string())
+}
+
+#[cfg(not(feature = "app"))]
+fn cmd_app(_args: &[String]) -> Result<(), String> {
+    Err("the `app` command needs the desktop shell; rebuild with `--features app`".to_string())
+}
+
 const USAGE: &str = "\
 AADT — AI-Aided Architecture Design and Takeoff
 
@@ -353,6 +369,7 @@ Usage:
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
   aadt collab                             Demonstrate convergent multi-user markup sync
+  aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
 
 Takeoff options:
   --csv <path>             Write the takeoff CSV to <path> (default: stdout)

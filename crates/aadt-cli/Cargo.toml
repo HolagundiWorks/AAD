@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 aadt-app.workspace = true
+aadt-model.workspace = true
 aadt-command.workspace = true
 aadt-dxf.workspace = true
 aadt-detect.workspace = true
@@ -31,6 +32,8 @@ aadt-render = { workspace = true, optional = true }
 gpu = ["dep:aadt-render", "aadt-render/gpu"]
 # The `aadt view` command — interactive window. Implies `gpu`.
 gui = ["gpu", "aadt-render/gui"]
+# The `aadt app` command — the egui desktop shell (ADR-0001).
+app = ["aadt-app/gui"]
 
 [lints]
 workspace = true

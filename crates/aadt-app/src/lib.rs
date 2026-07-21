@@ -13,6 +13,9 @@
 //! and the unit tests below do. Nothing here links a windowing or GPU crate, so
 //! the whole session loop is provable without a display.
 
+#[cfg(feature = "gui")]
+pub mod gui;
+
 use aadt_command::{Context, Interpreter};
 use aadt_model::Document;
 use aadt_render::{build_drawlist, DrawList};
@@ -128,6 +131,14 @@ impl Session {
     /// commands and `Document::transact`), never by reaching in here.
     pub fn document(&self) -> &Document {
         &self.ctx.doc
+    }
+
+    /// Replace the working document — a front-end opening a file at launch. This
+    /// is a bulk load, not a tracked edit: it does not push undo history, exactly
+    /// like importing a DXF (spec §4.1). Interactive edits still go through
+    /// [`feed`](Session::feed).
+    pub fn set_document(&mut self, doc: Document) {
+        self.ctx.doc = doc;
     }
 
     /// A fresh rendering snapshot of the current document. A canvas driver calls
