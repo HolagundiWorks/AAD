@@ -84,6 +84,10 @@ pub fn install_document(env: &Env, doc: Rc<RefCell<Document>>) {
 /// | `(aadt-add-text layer x y height "str")` | single-line text |
 /// | `(aadt-add-polyline layer closed x1 y1 x2 y2 …)` | a polyline |
 /// | `(aadt-move id dx dy)` | translate an entity, keeping its id |
+/// | `(aadt-rotate id cx cy deg)` | rotate an entity about a pivot (returns `t`/`nil`) |
+/// | `(aadt-scale id cx cy factor)` | scale an entity about a pivot |
+/// | `(aadt-mirror id x1 y1 x2 y2)` | reflect an entity across an axis |
+/// | `(aadt-explode id)` | bake a block reference into geometry (returns the count, or `nil`) |
 /// | `(aadt-erase id)` | remove an entity |
 fn install_edits(env: &Env, doc: Rc<RefCell<Document>>) {
     let d = doc.clone();
@@ -164,6 +168,107 @@ fn install_edits(env: &Env, doc: Rc<RefCell<Document>>) {
                 .borrow_mut()
                 .transact("MOVE", |doc| doc.translate_entity(target, dx, dy));
             Ok(boolean(ok))
+        }),
+    );
+
+    let d = doc.clone();
+    define(
+        env,
+        "aadt-rotate",
+        Native::new("aadt-rotate", move |a| {
+            want(a, 4, "aadt-rotate")?;
+            let (target, pivot, deg) = (id(a, 0)?, pt(a, 1)?, f(a, 3)?);
+            let ok = d.borrow_mut().transact("ROTATE", |doc| {
+                doc.rotate_entity(target, pivot, deg.to_radians())
+            });
+            Ok(boolean(ok))
+        }),
+    );
+
+    let d = doc.clone();
+    define(
+        env,
+        "aadt-scale",
+        Native::new("aadt-scale", move |a| {
+            want(a, 4, "aadt-scale")?;
+            let (target, pivot, factor) = (id(a, 0)?, pt(a, 1)?, f(a, 3)?);
+            if factor == 0.0 {
+                return Err(LispError::BadArgs(
+                    "aadt-scale: factor must be non-zero".into(),
+                ));
+            }
+            let ok = d
+                .borrow_mut()
+                .transact("SCALE", |doc| doc.scale_entity(target, pivot, factor));
+            Ok(boolean(ok))
+        }),
+    );
+
+    let d = doc.clone();
+    define(
+        env,
+        "aadt-mirror",
+        Native::new("aadt-mirror", move |a| {
+            want(a, 5, "aadt-mirror")?;
+            let (target, p1, p2) = (id(a, 0)?, pt(a, 1)?, pt(a, 3)?);
+            if p1.coincident(p2) {
+                return Err(LispError::BadArgs(
+                    "aadt-mirror: the two axis points must differ".into(),
+                ));
+            }
+            let ok = d
+                .borrow_mut()
+                .transact("MIRROR", |doc| doc.mirror_entity(target, p1, p2));
+            Ok(boolean(ok))
+        }),
+    );
+
+    let d = doc.clone();
+    define(
+        env,
+        "aadt-explode",
+        Native::new("aadt-explode", move |a| {
+            want(a, 1, "aadt-explode")?;
+            let target = id(a, 0)?;
+            // Read the block placement first (one borrow), then mutate — so the
+            // instantiation and the edit never borrow the document at once.
+            let placed: Option<Vec<(String, Geometry)>> = {
+                let doc = d.borrow();
+                match doc.get(target).map(|e| (e.layer.clone(), &e.geometry)) {
+                    Some((layer, Geometry::Insert(ins))) => doc.block(&ins.name).map(|block| {
+                        block
+                            .entities
+                            .iter()
+                            .map(|be| {
+                                let l = if be.layer == "0" {
+                                    layer.clone()
+                                } else {
+                                    be.layer.clone()
+                                };
+                                (
+                                    l,
+                                    be.geometry
+                                        .instanced(block.base, ins.position, ins.rotation),
+                                )
+                            })
+                            .collect()
+                    }),
+                    _ => None,
+                }
+            };
+            match placed {
+                Some(placed) => {
+                    let count = placed.len() as i64;
+                    d.borrow_mut().transact("EXPLODE", |doc| {
+                        doc.remove_entity(target);
+                        for (layer, g) in placed {
+                            doc.add_geometry(layer, g);
+                        }
+                    });
+                    Ok(Value::Int(count))
+                }
+                None => Ok(Value::Nil),
+            }
         }),
     );
 
@@ -442,6 +547,78 @@ mod tests {
         assert!(doc.borrow().get(EntityId(0)).is_none());
         // Erasing a gone entity is nil, not an error.
         assert_eq!(lisp.eval_str("(aadt-erase 0)").unwrap().to_string(), "nil");
+    }
+
+    #[test]
+    fn rotate_scale_mirror_edit_in_place() {
+        let (mut lisp, doc) = interp_and_doc();
+        lisp.eval_str("(aadt-add-line \"0\" 0 0 2 0)").unwrap();
+
+        // Rotate 90° about the origin: endpoint (2,0) -> (0,2).
+        assert_eq!(
+            lisp.eval_str("(aadt-rotate 0 0 0 90)").unwrap().to_string(),
+            "t"
+        );
+        if let Geometry::Line(s) = &doc.borrow().get(EntityId(0)).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(0.0, 2.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+        // Scale and mirror also report success and keep the id.
+        assert_eq!(
+            lisp.eval_str("(aadt-scale 0 0 0 2)").unwrap().to_string(),
+            "t"
+        );
+        assert_eq!(
+            lisp.eval_str("(aadt-mirror 0 0 0 1 0)")
+                .unwrap()
+                .to_string(),
+            "t"
+        );
+        assert!(doc.borrow().get(EntityId(0)).is_some(), "id preserved");
+        // A degenerate mirror axis errors rather than panicking.
+        assert!(lisp.eval_str("(aadt-mirror 0 1 1 1 1)").is_err());
+    }
+
+    #[test]
+    fn explode_bakes_a_block_reference() {
+        use aadt_model::Block;
+
+        let (mut lisp, doc) = interp_and_doc();
+        {
+            let mut b = Block::new("TEE", Point2::new(0.0, 0.0));
+            b.push(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(2.0, 0.0))),
+            );
+            b.push(
+                "STEEL",
+                Geometry::Line(Segment::new(Point2::new(1.0, 0.0), Point2::new(1.0, 2.0))),
+            );
+            doc.borrow_mut().add_block(b);
+        }
+        // Place a reference to the block directly in the shared document.
+        doc.borrow_mut().add_geometry(
+            "A-COL",
+            Geometry::Insert(aadt_model::Insert::new("TEE", Point2::new(10.0, 10.0), 0.0)),
+        );
+        let insert_id = doc.borrow().entities()[0].id;
+
+        // Explode returns the number of baked entities.
+        assert_eq!(
+            lisp.eval_str(&format!("(aadt-explode {})", insert_id.0))
+                .unwrap()
+                .to_string(),
+            "2"
+        );
+        assert!(doc.borrow().get(insert_id).is_none(), "insert removed");
+        assert_eq!(doc.borrow().len(), 2);
+
+        // Exploding a non-insert or missing id yields nil, not an error.
+        assert_eq!(
+            lisp.eval_str("(aadt-explode 999)").unwrap().to_string(),
+            "nil"
+        );
     }
 
     #[test]
