@@ -12,6 +12,8 @@
 //!   suggestion of the notes a drawing's detected elements call for.
 //! - [`qa`] — documentation QA: deterministic completeness checks that gate
 //!   whether a sheet is ready to issue.
+//! - [`compose`] — fit the model drawing into the sheet's drawing area at a
+//!   single scale, so the plan sits correctly inside the border and title block.
 //!
 //! The placement APIs mirror the takeoff schedule table
 //! ([`aadt_takeoff::schedule`]): each draws ordinary geometry through
@@ -19,14 +21,16 @@
 //! notes block is a single undoable, DXF-round-trippable object — not a special
 //! entity type.
 //!
-//! Still ahead in M5: fitting model space into the sheet viewport at scale, and
-//! `AADT-PRESENT` layout composition. Those build on this geometry core.
+//! Still ahead in M5: `AADT-PRESENT` layout composition (multiple views per
+//! sheet). That builds on this geometry core.
 
+pub mod compose;
 pub mod notes;
 pub mod qa;
 pub mod sheet;
 pub mod titleblock;
 
+pub use compose::{place_drawing, Composed, DrawingArea};
 pub use notes::{place_notes, NotesLibrary, NotesStyle};
 pub use qa::{QaFinding, QaSeverity, SheetReview};
 pub use sheet::{Orientation, PaperSize, Sheet};

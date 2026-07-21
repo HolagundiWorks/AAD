@@ -164,16 +164,29 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
     let paper =
         PaperSize::from_name(&size).ok_or_else(|| format!("unknown paper size {size:?}"))?;
 
-    let mut doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
-    println!("Loaded {input} ({} entities)", doc.len());
+    let model = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
+    println!("Loaded {input} ({} entities)", model.len());
 
-    // Suggest notes from the original drawing, before the sheet border and title
-    // block add geometry of their own.
-    let det = detect(&doc, &DetectionConfig::default());
+    // Suggest notes from the drawing itself.
+    let det = detect(&model, &DetectionConfig::default());
     let notes = NotesLibrary::standard().suggest(&det);
 
+    // Compose onto a fresh sheet (paper space), rather than mixing paper
+    // millimetres with the model's own units in one document.
     let sheet = Sheet::new(paper, Orientation::Landscape, 10.0);
+    let mut doc = aadt_model::Document::new();
     sheet.place(&mut doc);
+
+    // The drawing, fit into the area above the title-block strip at one scale.
+    let area = sheet.drawing_area(60.0);
+    let composed = aadt_docs::place_drawing(&mut doc, &model, &area);
+    // Record the fit scale in the title block if the user didn't set one
+    // (assume a model drawn in metres → 1000 mm per unit).
+    if tb.scale.trim().is_empty() {
+        tb.scale = composed.scale_label(1000.0);
+    }
+    println!("Fit scale: {}", composed.scale_label(1000.0));
+
     tb.place_on_sheet(&mut doc, &sheet);
 
     let (min, max) = sheet.inner();
