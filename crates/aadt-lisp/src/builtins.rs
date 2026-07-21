@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::eval::{define, Env};
-use crate::value::{LispError, Native, Value};
+use crate::value::{cons, LispError, Native, Value};
 
 /// Register every standard builtin into `env`. Output from `print`/`princ` is
 /// collected into `out` so a host can capture it (the CLI prints it).
@@ -112,35 +112,28 @@ pub fn install(env: &Env, out: &Rc<RefCell<String>>) {
         "car",
         Native::new("car", |a| {
             want(a, 1, "car")?;
-            Ok(as_list(&a[0]).first().cloned().unwrap_or(Value::Nil))
+            Ok(car(&a[0]))
         }),
     );
     def(
         "cdr",
         Native::new("cdr", |a| {
             want(a, 1, "cdr")?;
-            let items = as_list(&a[0]);
-            Ok(if items.len() > 1 {
-                Value::List(items[1..].to_vec())
-            } else {
-                Value::Nil
-            })
+            Ok(cdr(&a[0]))
         }),
     );
     def(
         "cadr",
         Native::new("cadr", |a| {
             want(a, 1, "cadr")?;
-            Ok(as_list(&a[0]).get(1).cloned().unwrap_or(Value::Nil))
+            Ok(car(&cdr(&a[0])))
         }),
     );
     def(
         "cons",
         Native::new("cons", |a| {
             want(a, 2, "cons")?;
-            let mut items = vec![a[0].clone()];
-            items.extend(as_list(&a[1]));
-            Ok(Value::List(items))
+            Ok(cons(a[0].clone(), a[1].clone()))
         }),
     );
     def(
@@ -313,11 +306,54 @@ fn want(args: &[Value], n: usize, who: &str) -> Result<(), LispError> {
 }
 
 /// A list value's items; `nil` is the empty list, any atom is a one-element view.
+/// A dotted chain is flattened, its final atom becoming the last element, so
+/// `(k . v)` reads as `[k, v]` — enough for `assoc`, `length`, and friends.
 fn as_list(v: &Value) -> Vec<Value> {
     match v {
         Value::List(items) => items.clone(),
         Value::Nil => Vec::new(),
+        Value::Pair(_) => {
+            let mut out = Vec::new();
+            let mut cur = v.clone();
+            loop {
+                match cur {
+                    Value::Pair(p) => {
+                        out.push(p.0.clone());
+                        cur = p.1.clone();
+                    }
+                    Value::List(items) => {
+                        out.extend(items);
+                        break;
+                    }
+                    Value::Nil => break,
+                    other => {
+                        out.push(other);
+                        break;
+                    }
+                }
+            }
+            out
+        }
         other => vec![other.clone()],
+    }
+}
+
+/// `car`: the head of a list or pair; `nil` for anything else.
+fn car(v: &Value) -> Value {
+    match v {
+        Value::List(items) => items.first().cloned().unwrap_or(Value::Nil),
+        Value::Pair(p) => p.0.clone(),
+        _ => Value::Nil,
+    }
+}
+
+/// `cdr`: the tail of a list (as a list) or pair (its raw cdr); `nil` otherwise.
+fn cdr(v: &Value) -> Value {
+    match v {
+        Value::List(items) if items.len() > 1 => Value::List(items[1..].to_vec()),
+        Value::List(_) => Value::Nil,
+        Value::Pair(p) => p.1.clone(),
+        _ => Value::Nil,
     }
 }
 

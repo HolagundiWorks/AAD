@@ -6,7 +6,7 @@
 //! integers, reals, or symbols. Symbols are case-insensitive in AutoLISP; they
 //! are folded to lower case here so `SETQ` and `setq` are the same.
 
-use crate::value::{LispError, Value};
+use crate::value::{cons, LispError, Value};
 
 /// Parse a whole program into its top-level forms.
 pub fn read_all(src: &str) -> Result<Vec<Value>, LispError> {
@@ -115,6 +115,23 @@ impl Parser {
                         Some(Token::Close) => {
                             self.pos += 1;
                             break;
+                        }
+                        // A lone `.` after at least one element opens the dotted
+                        // tail: `(a . b)`, `(a b . c)`.
+                        Some(Token::Atom(a)) if a == "." && !items.is_empty() => {
+                            self.pos += 1;
+                            let tail = self.parse_form()?;
+                            match self.tokens.get(self.pos) {
+                                Some(Token::Close) => self.pos += 1,
+                                _ => {
+                                    return Err(LispError::Parse(
+                                        "expected ')' after dotted tail".into(),
+                                    ))
+                                }
+                            }
+                            // Fold right with cons; a list/nil tail normalises to
+                            // a proper list, so `(a . (b))` reads as `(a b)`.
+                            return Ok(items.into_iter().rev().fold(tail, |acc, x| cons(x, acc)));
                         }
                         Some(_) => items.push(self.parse_form()?),
                     }

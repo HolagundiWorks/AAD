@@ -173,26 +173,54 @@ fn eval_defun(args: &[Value], env: &Env) -> Result<Value, LispError> {
 }
 
 fn eval_lambda(args: &[Value], env: &Env, name: Option<String>) -> Result<Value, LispError> {
-    let params = match args.first() {
-        Some(Value::List(ps)) => ps
-            .iter()
-            .map(|p| match p {
-                Value::Symbol(s) => Ok(s.clone()),
-                other => Err(LispError::BadArgs(format!(
-                    "lambda: parameter is not a symbol: {other}"
-                ))),
-            })
-            .collect::<Result<Vec<_>, _>>()?,
+    let raw = match args.first() {
+        Some(Value::List(ps)) => ps.as_slice(),
         // `(lambda () ...)` reads its empty arg list as nil.
-        Some(Value::Nil) => Vec::new(),
+        Some(Value::Nil) => &[],
         _ => return Err(LispError::BadArgs("lambda: missing parameter list".into())),
     };
+
+    // Parse the parameter list: required names, then optionally `&rest <name>`
+    // for a variadic tail and `/ <locals...>` for AutoLISP locals (bound to nil).
+    let mut params = Vec::new();
+    let mut rest = None;
+    let mut locals = Vec::new();
+    let mut mode = ParamMode::Required;
+    for p in raw {
+        let Value::Symbol(s) = p else {
+            return Err(LispError::BadArgs(format!(
+                "lambda: parameter is not a symbol: {p}"
+            )));
+        };
+        match (s.as_str(), mode) {
+            ("/", _) => mode = ParamMode::Local,
+            ("&rest", _) => mode = ParamMode::Rest,
+            (_, ParamMode::Required) => params.push(s.clone()),
+            (_, ParamMode::Rest) => {
+                if rest.is_some() {
+                    return Err(LispError::BadArgs("lambda: multiple &rest names".into()));
+                }
+                rest = Some(s.clone());
+            }
+            (_, ParamMode::Local) => locals.push(s.clone()),
+        }
+    }
+
     Ok(Value::Lambda(Rc::new(Lambda {
         params,
+        rest,
+        locals,
         body: args[1..].to_vec(),
         env: env.clone(),
         name,
     })))
+}
+
+#[derive(Clone, Copy)]
+enum ParamMode {
+    Required,
+    Rest,
+    Local,
 }
 
 fn eval_cond(args: &[Value], env: &Env) -> Result<Value, LispError> {
@@ -286,17 +314,40 @@ pub fn apply(func: &Value, args: &[Value]) -> Result<Value, LispError> {
     match func {
         Value::Native(n) => (n.func)(args),
         Value::Lambda(l) => {
-            if args.len() != l.params.len() {
+            let who = l.name.as_deref().unwrap_or("lambda");
+            // With `&rest`, arity is a minimum; without, it is exact.
+            if l.rest.is_some() {
+                if args.len() < l.params.len() {
+                    return Err(LispError::BadArgs(format!(
+                        "{who} expects at least {} argument(s), got {}",
+                        l.params.len(),
+                        args.len()
+                    )));
+                }
+            } else if args.len() != l.params.len() {
                 return Err(LispError::BadArgs(format!(
-                    "{} expects {} argument(s), got {}",
-                    l.name.as_deref().unwrap_or("lambda"),
+                    "{who} expects {} argument(s), got {}",
                     l.params.len(),
                     args.len()
                 )));
             }
+
             let scope = child_env(&l.env);
             for (p, a) in l.params.iter().zip(args) {
                 define(&scope, p, a.clone());
+            }
+            if let Some(rest) = &l.rest {
+                let extra = &args[l.params.len()..];
+                let value = if extra.is_empty() {
+                    Value::Nil
+                } else {
+                    Value::List(extra.to_vec())
+                };
+                define(&scope, rest, value);
+            }
+            // AutoLISP locals start as nil.
+            for loc in &l.locals {
+                define(&scope, loc, Value::Nil);
             }
             eval_body(&l.body, &scope)
         }

@@ -20,9 +20,10 @@
 //! assert_eq!(lisp.eval_str("(sq 9)").unwrap().to_string(), "81");
 //! ```
 //!
-//! **Scope:** proper (Vec-backed) lists — dotted pairs and `&rest`/optional
-//! lambda arguments are deferred; association data uses two-element lists, read
-//! with `assoc`/`cadr`.
+//! Lambda parameter lists take AutoLISP locals after `/` (bound to `nil`) and a
+//! `&rest` tail for variadic arguments. Dotted pairs `(a . b)` are supported —
+//! `cons` onto a non-list makes one, and association entries can be `(key . val)`
+//! read with `cdr`.
 
 mod builtins;
 pub mod eval;
@@ -169,6 +170,61 @@ mod tests {
         assert_eq!(
             run("(assoc 8 '((0 \"LINE\") (8 \"A-WALL\")))"),
             "(8 \"A-WALL\")"
+        );
+    }
+
+    #[test]
+    fn dotted_pairs() {
+        // cons onto a non-list makes a dotted pair.
+        assert_eq!(run("(cons 1 2)"), "(1 . 2)");
+        assert_eq!(run("(car (cons 1 2))"), "1");
+        assert_eq!(run("(cdr (cons 1 2))"), "2");
+        // cons onto a list stays a proper list.
+        assert_eq!(run("(cons 1 '(2 3))"), "(1 2 3)");
+        // The reader parses dotted syntax, normalising a list tail.
+        assert_eq!(run("'(1 . 2)"), "(1 . 2)");
+        assert_eq!(run("'(1 2 . 3)"), "(1 2 . 3)");
+        assert_eq!(
+            run("'(1 . (2 3))"),
+            "(1 2 3)",
+            "a list tail is a proper list"
+        );
+    }
+
+    #[test]
+    fn assoc_lists_with_dotted_entries() {
+        // The DXF-style association list AutoLISP routines actually use.
+        let src = "(cdr (assoc 8 '((0 . \"LINE\") (8 . \"A-WALL\"))))";
+        assert_eq!(run(src), "\"A-WALL\"");
+    }
+
+    #[test]
+    fn rest_parameter_captures_extra_arguments() {
+        let src = "(defun f (a &rest r) (list a r)) (f 1 2 3 4)";
+        assert_eq!(run(src), "(1 (2 3 4))");
+        // No extra arguments → the rest is nil.
+        assert_eq!(run("(defun g (a &rest r) r) (g 5)"), "nil");
+    }
+
+    #[test]
+    fn slash_declares_locals_bound_to_nil() {
+        // `tmp` is a local: it holds a value inside the call and does not leak.
+        let src = "(defun f (a / tmp) (setq tmp (* a 2)) tmp) (setq tmp 99) (f 5)";
+        assert_eq!(run(src), "10");
+        // The global `tmp` is untouched by the call's local of the same name.
+        assert_eq!(
+            run("(defun f (a / tmp) (setq tmp (* a 2)) tmp) (setq tmp 99) (f 5) tmp"),
+            "99"
+        );
+    }
+
+    #[test]
+    fn rest_arity_is_a_minimum() {
+        assert!(
+            Interpreter::new()
+                .eval_str("(defun f (a b &rest r) r) (f 1)")
+                .is_err(),
+            "too few required args is still an error"
         );
     }
 

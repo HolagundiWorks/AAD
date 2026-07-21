@@ -7,8 +7,8 @@ use crate::eval::Env;
 
 /// A LISP value. AutoLISP distinguishes integers from reals, uses `nil` for both
 /// false and the empty list, and treats any non-`nil` value as true; `t` is the
-/// canonical truth symbol. Lists are proper (Vec-backed) — dotted pairs are
-/// deferred, with association data represented as two-element lists instead.
+/// canonical truth symbol. Proper lists are Vec-backed for speed; an improper
+/// (dotted) list ends in a [`Pair`](Value::Pair).
 #[derive(Clone)]
 pub enum Value {
     /// `nil` — false and the empty list.
@@ -22,16 +22,40 @@ pub enum Value {
     Symbol(String),
     /// A proper list.
     List(Vec<Value>),
+    /// A dotted pair `(car . cdr)` — the cdr is not a proper list. Built by
+    /// `cons` onto a non-list (e.g. `(cons 0 "LINE")`) and used for association
+    /// entries.
+    Pair(Rc<(Value, Value)>),
     /// A user function created by `defun` / `lambda`, capturing its defining env.
     Lambda(Rc<Lambda>),
     /// A built-in or host-provided function.
     Native(Rc<Native>),
 }
 
-/// A user-defined function: parameters, body forms, and the environment it closed
-/// over when defined (lexical scope).
+/// `cons` semantics, shared by the reader and the `cons` builtin. Consing onto a
+/// list or `nil` yields a proper list; onto anything else, a dotted [`Pair`].
+///
+/// [`Pair`]: Value::Pair
+pub fn cons(head: Value, tail: Value) -> Value {
+    match tail {
+        Value::List(mut v) => {
+            v.insert(0, head);
+            Value::List(v)
+        }
+        Value::Nil => Value::List(vec![head]),
+        other => Value::Pair(Rc::new((head, other))),
+    }
+}
+
+/// A user-defined function. AutoLISP's parameter list allows locals after `/`
+/// (bound to `nil`) and this dialect adds `&rest` for a variadic tail.
 pub struct Lambda {
+    /// Required positional parameters.
     pub params: Vec<String>,
+    /// A trailing `&rest` parameter capturing the extra arguments as a list.
+    pub rest: Option<String>,
+    /// Locals declared after `/`, bound to `nil` in the call scope.
+    pub locals: Vec<String>,
     pub body: Vec<Value>,
     pub env: Env,
     pub name: Option<String>,
@@ -84,6 +108,7 @@ impl Value {
             Value::Str(_) => "string",
             Value::Symbol(_) => "symbol",
             Value::List(_) => "list",
+            Value::Pair(_) => "pair",
             Value::Lambda(_) => "function",
             Value::Native(_) => "subr",
         }
@@ -108,6 +133,32 @@ impl fmt::Display for Value {
                         write!(f, " ")?;
                     }
                     write!(f, "{v}")?;
+                }
+                write!(f, ")")
+            }
+            // Walk the cons chain, merging a `List`/`Nil` tail into a proper
+            // `(a b c)` and closing an atom tail as `(a b . c)`.
+            Value::Pair(p) => {
+                write!(f, "({}", p.0)?;
+                let mut tail = &p.1;
+                loop {
+                    match tail {
+                        Value::Nil => break,
+                        Value::List(items) => {
+                            for v in items {
+                                write!(f, " {v}")?;
+                            }
+                            break;
+                        }
+                        Value::Pair(next) => {
+                            write!(f, " {}", next.0)?;
+                            tail = &next.1;
+                        }
+                        other => {
+                            write!(f, " . {other}")?;
+                            break;
+                        }
+                    }
                 }
                 write!(f, ")")
             }
@@ -137,6 +188,7 @@ impl PartialEq for Value {
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Symbol(a), Value::Symbol(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
+            (Value::Pair(a), Value::Pair(b)) => a.0 == b.0 && a.1 == b.1,
             (Value::Lambda(a), Value::Lambda(b)) => Rc::ptr_eq(a, b),
             (Value::Native(a), Value::Native(b)) => Rc::ptr_eq(a, b),
             // Numeric equality bridges int and real.
