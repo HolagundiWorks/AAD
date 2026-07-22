@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "AI orchestration: structured JSON prompting, wall-type inference, audit log, graceful degradation, local Ollama client."
+description = "AI orchestration: Foundry Local (default) + optional Ollama, structured JSON prompting, audit log, graceful degradation."
 
 [dependencies]
 aadt-detect.workspace = true

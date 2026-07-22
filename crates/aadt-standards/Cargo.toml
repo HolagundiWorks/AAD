@@ -1,0 +1,16 @@
+[package]
+name = "aadt-standards"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "AIA / US NCS layer catalog, WCAG contrast audit, and named layer-set presets."
+
+[dependencies]
+aadt-model.workspace = true
+aadt-geometry.workspace = true
+
+[lints]
+workspace = true

@@ -9,8 +9,10 @@
 use aadt_command::{Command, Context, Interpreter};
 use aadt_detect::{detect, DetectionConfig};
 use aadt_geometry::Point2;
+use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
 use aadt_takeoff::schedule::ScheduleStyle;
 use aadt_takeoff::TakeoffTable;
+use std::path::Path;
 
 /// Register the file-I/O and engine commands onto an interpreter.
 pub fn register(interp: &mut Interpreter) {
@@ -19,6 +21,42 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(TakeoffCmd));
     registry.register(Box::new(ScheduleCmd));
+    registry.register(Box::new(LayerSetCmd));
+    registry.register(Box::new(StandardsCmd));
+    registry.register(Box::new(SectionCmd));
+    registry.register(Box::new(BlockLibCmd));
+    registry.register(Box::new(HatchLibCmd));
+    registry.register(Box::new(RecognizeCmd));
+    registry.register(Box::new(ReviewCmd));
+    registry.register(Box::new(AcceptClassCmd));
+    registry.register(Box::new(RejectClassCmd));
+    registry.register(Box::new(FreezeClassCmd));
+}
+
+fn open_document(path: &str) -> Result<aadt_model::Document, String> {
+    let p = Path::new(path);
+    match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("aadt") => aadt_store::load_path(p).map_err(|e| e.to_string()),
+        _ => aadt_dxf::import_path(p).map_err(|e| e.to_string()),
+    }
+}
+
+fn save_document(doc: &aadt_model::Document, path: &str) -> Result<(), String> {
+    let p = Path::new(path);
+    match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("aadt") => aadt_store::save_path(doc, p).map_err(|e| e.to_string()),
+        _ => aadt_dxf::export_path(doc, p).map_err(|e| e.to_string()),
+    }
 }
 
 struct OpenCmd;
@@ -27,12 +65,16 @@ impl Command for OpenCmd {
         "OPEN"
     }
     fn help(&self) -> &str {
-        "OPEN path.dxf — replace the document with an imported DXF"
+        "OPEN path.dxf|path.aadt — replace the document with an imported drawing"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = args.first().ok_or("OPEN: missing path")?;
-        ctx.doc = aadt_dxf::import_path(path).map_err(|e| e.to_string())?;
-        Ok(format!("opened {path} ({} entities)", ctx.doc.len()))
+        ctx.doc = open_document(path)?;
+        let seeded = apply_standard_layers(&mut ctx.doc);
+        Ok(format!(
+            "opened {path} ({} entities; seeded {seeded} AIA layers)",
+            ctx.doc.len()
+        ))
     }
 }
 
@@ -42,12 +84,164 @@ impl Command for SaveCmd {
         "SAVE"
     }
     fn help(&self) -> &str {
-        "SAVE path.dxf — write the document to a DXF file"
+        "SAVE path.dxf|path.aadt — write the document (DXF or native .aadt)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = args.first().ok_or("SAVE: missing path")?;
-        aadt_dxf::export_path(&ctx.doc, path).map_err(|e| e.to_string())?;
+        save_document(&ctx.doc, path)?;
         Ok(format!("saved {} entities to {path}", ctx.doc.len()))
+    }
+}
+
+struct LayerSetCmd;
+impl Command for LayerSetCmd {
+    fn name(&self) -> &str {
+        "LAYERSET"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["LSET", "AADT-LAYERSET"]
+    }
+    fn help(&self) -> &str {
+        "LAYERSET [name] — apply CONSTRUCTION/SERVICES/ELECTRICAL/PRESENTATION (list if omitted)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        match args.first() {
+            None => {
+                let names: Vec<_> = LayerSet::names().collect();
+                Ok(format!("layer sets: {}", names.join(", ")))
+            }
+            Some(name) => {
+                let msg = ctx
+                    .doc
+                    .transact("LAYERSET", |d| apply_layer_set(d, name))?;
+                Ok(msg)
+            }
+        }
+    }
+}
+
+struct StandardsCmd;
+impl Command for StandardsCmd {
+    fn name(&self) -> &str {
+        "STANDARDS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AIA", "AADT-STANDARDS"]
+    }
+    fn help(&self) -> &str {
+        "STANDARDS — seed missing AIA/NCS layers into the drawing"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let n = ctx
+            .doc
+            .transact("STANDARDS", |d| apply_standard_layers(d));
+        Ok(format!("seeded {n} AIA layers"))
+    }
+}
+
+struct SectionCmd;
+impl Command for SectionCmd {
+    fn name(&self) -> &str {
+        "SECTION"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AADT-SECTION"]
+    }
+    fn help(&self) -> &str {
+        "SECTION x1 y1 x2 y2 [height] — generate a 2D section from the plan cut line"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let x1: f64 = args
+            .first()
+            .ok_or("SECTION: missing x1")?
+            .parse()
+            .map_err(|_| "SECTION: bad x1")?;
+        let y1: f64 = args
+            .get(1)
+            .ok_or("SECTION: missing y1")?
+            .parse()
+            .map_err(|_| "SECTION: bad y1")?;
+        let x2: f64 = args
+            .get(2)
+            .ok_or("SECTION: missing x2")?
+            .parse()
+            .map_err(|_| "SECTION: bad x2")?;
+        let y2: f64 = args
+            .get(3)
+            .ok_or("SECTION: missing y2")?
+            .parse()
+            .map_err(|_| "SECTION: bad y2")?;
+        let height: f64 = args
+            .get(4)
+            .map(|s| s.parse().map_err(|_| format!("SECTION: bad height {s}")))
+            .transpose()?
+            .unwrap_or(3.0);
+        let n = ctx.doc.transact("SECTION", |d| {
+            generate_section(d, Point2::new(x1, y1), Point2::new(x2, y2), height)
+        })?;
+        Ok(format!("SECTION added {n} entities on A-SECT*"))
+    }
+}
+
+struct BlockLibCmd;
+impl Command for BlockLibCmd {
+    fn name(&self) -> &str {
+        "BLOCKLIB"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["BLIB"]
+    }
+    fn help(&self) -> &str {
+        "BLOCKLIB [list|import path [name]] — DXF/SVG block library (PNG rejected)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let root = aadt_library::default_library_root();
+        match args.first().map(|s| s.to_ascii_lowercase()).as_deref() {
+            None | Some("list") => {
+                let blocks = aadt_library::list_blocks(&root).map_err(|e| e.to_string())?;
+                if blocks.is_empty() {
+                    return Ok(format!("no blocks in {}", root.join("blocks").display()));
+                }
+                let lines: Vec<_> = blocks
+                    .iter()
+                    .map(|b| format!("  {} ({})", b.name, b.path.display()))
+                    .collect();
+                Ok(format!("{} block(s):\n{}", blocks.len(), lines.join("\n")))
+            }
+            Some("import") => {
+                let path = args.get(1).ok_or("BLOCKLIB import: missing path")?;
+                let name = args.get(2).map(String::as_str);
+                let imported = ctx.doc.transact("BLOCKLIB", |d| {
+                    aadt_library::import_block(d, Path::new(path), name).map_err(|e| e.to_string())
+                })?;
+                Ok(format!("imported block {imported:?}"))
+            }
+            Some(other) => Err(format!(
+                "BLOCKLIB: unknown subcommand {other:?}; try list or import"
+            )),
+        }
+    }
+}
+
+struct HatchLibCmd;
+impl Command for HatchLibCmd {
+    fn name(&self) -> &str {
+        "HATCHLIB"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["HLIB"]
+    }
+    fn help(&self) -> &str {
+        "HATCHLIB — list hatch patterns from the library"
+    }
+    fn run(&self, _ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let root = aadt_library::default_library_root();
+        let pats = aadt_library::list_hatch_patterns(&root).map_err(|e| e.to_string())?;
+        let lines: Vec<_> = pats
+            .iter()
+            .map(|p| format!("  {} — {}", p.name, p.description))
+            .collect();
+        Ok(format!("{} pattern(s):\n{}", pats.len(), lines.join("\n")))
     }
 }
 
@@ -103,7 +297,8 @@ impl Command for TakeoffCmd {
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let detection = detect(&ctx.doc, &DetectionConfig::default());
-        let table = TakeoffTable::from_detection(&detection);
+        let mut table = TakeoffTable::from_detection(&detection);
+        table.attach_wall_classifications(&ctx.doc, &detection);
         if let Some(path) = args.first() {
             std::fs::write(path, table.to_csv()).map_err(|e| format!("writing {path}: {e}"))?;
         }
@@ -114,5 +309,187 @@ impl Command for TakeoffCmd {
             table.total_wall_length(),
             table.total_room_area(),
         ))
+    }
+}
+
+fn parse_entity_targets(ctx: &Context, args: &[String]) -> Result<Vec<aadt_model::EntityId>, String> {
+    if args.is_empty() {
+        return Ok(ctx.selection.clone());
+    }
+    let token = args[0].as_str();
+    match token.to_ascii_uppercase().as_str() {
+        "SELECTION" => Ok(ctx.selection.clone()),
+        "ALL" => Ok(ctx.doc.entities().into_iter().map(|e| e.id).collect()),
+        _ => {
+            let mut ids = Vec::new();
+            for a in args {
+                let n: u64 = a
+                    .parse()
+                    .map_err(|_| format!("bad entity id {a:?}"))?;
+                ids.push(aadt_model::EntityId(n));
+            }
+            Ok(ids)
+        }
+    }
+}
+
+struct RecognizeCmd;
+impl Command for RecognizeCmd {
+    fn name(&self) -> &str {
+        "RECOGNIZE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["INFER", "AI-RECOGNIZE"]
+    }
+    fn help(&self) -> &str {
+        "RECOGNIZE — AI wall-type propose (skips frozen; does not freeze)"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let det = detect(&ctx.doc, &DetectionConfig::default());
+        let client = aadt_ai::make_client(aadt_ai::AiBackend::FoundryLocal, "");
+        let mut audit = aadt_ai::AuditLog::new();
+        let assignments = match aadt_ai::infer_wall_types_open(client.as_ref(), &mut audit, &det, &ctx.doc)
+        {
+            Ok(a) => a,
+            Err(e) => {
+                return Ok(format!(
+                    "AI recognition skipped: {e}. Drawing unchanged (deterministic path does not need AI)."
+                ));
+            }
+        };
+        let n = aadt_ai::propose_wall_types(
+            &mut ctx.doc,
+            &det,
+            &assignments,
+            aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD,
+        );
+        let counts = aadt_ai::status_counts(&ctx.doc);
+        let review = aadt_ai::list_for_review(&ctx.doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
+        Ok(format!(
+            "proposed {n} wall(s); status proposed={} accepted={} frozen={} rejected={}; {} need review",
+            counts[0].1,
+            counts[1].1,
+            counts[2].1,
+            counts[3].1,
+            review.len()
+        ))
+    }
+}
+
+struct ReviewCmd;
+impl Command for ReviewCmd {
+    fn name(&self) -> &str {
+        "REVIEW"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AI-REVIEW"]
+    }
+    fn help(&self) -> &str {
+        "REVIEW — list proposed / low-confidence classifications"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let items =
+            aadt_ai::list_for_review(&ctx.doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
+        if items.is_empty() {
+            return Ok("review: nothing pending".into());
+        }
+        let mut lines = vec![format!("review: {} object(s)", items.len())];
+        for it in items {
+            lines.push(format!(
+                "  id={} type={} status={} conf={:.2} src={} rev={}",
+                it.entity_id.0,
+                it.wall_type,
+                it.status.as_token(),
+                it.confidence,
+                it.source,
+                it.revision
+            ));
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+struct AcceptClassCmd;
+impl Command for AcceptClassCmd {
+    fn name(&self) -> &str {
+        "ACCEPT"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AI-ACCEPT"]
+    }
+    fn help(&self) -> &str {
+        "ACCEPT [SELECTION|id...] [type] — accept classifications (optional type override)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let (ids, override_ty) = if args.is_empty() {
+            (ctx.selection.clone(), None)
+        } else if args.len() == 1
+            && aadt_ai::WallType::parse(&args[0]).is_some()
+            && !args[0].chars().all(|c| c.is_ascii_digit())
+        {
+            (ctx.selection.clone(), Some(args[0].as_str()))
+        } else {
+            let mut end = args.len();
+            let mut ov = None;
+            if let Some(last) = args.last() {
+                if aadt_ai::WallType::parse(last).is_some() && last.parse::<u64>().is_err() {
+                    ov = Some(last.as_str());
+                    end = args.len() - 1;
+                }
+            }
+            (parse_entity_targets(ctx, &args[..end])?, ov)
+        };
+        if ids.is_empty() {
+            return Err("ACCEPT: no targets (SELECT first or pass ids)".into());
+        }
+        let n = aadt_ai::accept_classifications(&mut ctx.doc, &ids, override_ty);
+        Ok(format!("accepted {n} classification(s)"))
+    }
+}
+
+struct RejectClassCmd;
+impl Command for RejectClassCmd {
+    fn name(&self) -> &str {
+        "REJECT"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AI-REJECT"]
+    }
+    fn help(&self) -> &str {
+        "REJECT [SELECTION|id...] — reject proposed classifications"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let ids = if args.is_empty() {
+            ctx.selection.clone()
+        } else {
+            parse_entity_targets(ctx, args)?
+        };
+        if ids.is_empty() {
+            return Err("REJECT: no targets".into());
+        }
+        let n = aadt_ai::reject_classifications(&mut ctx.doc, &ids);
+        Ok(format!("rejected {n} classification(s)"))
+    }
+}
+
+struct FreezeClassCmd;
+impl Command for FreezeClassCmd {
+    fn name(&self) -> &str {
+        "FREEZE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AI-FREEZE"]
+    }
+    fn help(&self) -> &str {
+        "FREEZE [SELECTION|id...] — freeze accepted (empty = all accepted)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let ids = if args.is_empty() {
+            Vec::new()
+        } else {
+            parse_entity_targets(ctx, args)?
+        };
+        let n = aadt_ai::freeze_classifications(&mut ctx.doc, &ids);
+        Ok(format!("frozen {n} classification(s)"))
     }
 }

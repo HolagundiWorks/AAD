@@ -105,6 +105,20 @@ impl Default for NotesStyle {
     }
 }
 
+/// Split a multiline notes body into non-empty lines (plot / properties editor).
+pub fn notes_from_text(raw: &str) -> Vec<String> {
+    raw.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// Join note lines for the multiline editor.
+pub fn notes_to_text(notes: &[String]) -> String {
+    notes.join("\n")
+}
+
 /// Place a numbered notes list into `doc` under a heading, returning the ids.
 /// One `UNDO` (`NOTES`) removes it. The heading is unnumbered; each note is
 /// prefixed with its 1-based number.
@@ -219,6 +233,13 @@ mod tests {
         let det = detect(&doc, &DetectionConfig::default());
         let lib = NotesLibrary::standard();
         assert_eq!(lib.suggest(&det), lib.suggest(&det));
+    }
+
+    #[test]
+    fn notes_from_text_skips_blank_lines() {
+        let notes = notes_from_text("one\n\n  two  \n\n");
+        assert_eq!(notes, vec!["one".to_string(), "two".to_string()]);
+        assert_eq!(notes_to_text(&notes), "one\ntwo");
     }
 
     #[test]

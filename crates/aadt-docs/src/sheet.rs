@@ -8,7 +8,9 @@ use aadt_geometry::{Point2, Polyline};
 use aadt_model::{Document, EntityId, Geometry};
 
 /// Layer the sheet border is drawn on.
-pub const SHEET_LAYER: &str = "A-SHEET";
+pub const SHEET_LAYER: &str = "BORDER";
+/// Legacy NCS-style alias (same role as [`SHEET_LAYER`]).
+pub const SHEET_LAYER_LEGACY: &str = "A-SHEET";
 
 /// A named paper size. Dimensions are returned in **millimetres, landscape**
 /// (width ≥ height); [`Orientation`] rotates them.

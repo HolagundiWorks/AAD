@@ -512,17 +512,32 @@ fn import_layer(doc: &mut Document, rec: &Record) {
     if let Some(flags) = rec.int(70) {
         layer.frozen = flags & 1 != 0;
     }
+    if let Some(lt) = rec.string(6) {
+        if let Some(parsed) = aadt_model::LineType::parse(&lt) {
+            layer.linetype = parsed;
+        }
+    }
+    // DXF group 370: lineweight in hundredths of a millimetre (≥0).
+    if let Some(w) = rec.int(370) {
+        if w >= 0 {
+            layer.lineweight_mm = w as f32 / 100.0;
+        }
+    }
     doc.add_layer(layer);
 }
 
 /// Write a TABLES section with the LAYER table — but only for layers whose state
-/// differs from the default (colour 7, on, thawed). A drawing that never touched
-/// layer state emits no TABLES section, so existing all-default fixtures are
-/// byte-for-byte unchanged. Layers are written sorted by name for determinism.
+/// differs from the default (colour 7, continuous, 0.25 mm, on, thawed).
 fn write_layer_table(out: &mut String, doc: &Document) {
     let mut layers: Vec<&Layer> = doc
         .layers()
-        .filter(|l| l.color != aadt_model::DEFAULT_LAYER_COLOR || !l.visible || l.frozen)
+        .filter(|l| {
+            l.color != aadt_model::DEFAULT_LAYER_COLOR
+                || !l.visible
+                || l.frozen
+                || l.linetype != aadt_model::LineType::Continuous
+                || (l.lineweight_mm - aadt_model::DEFAULT_LINEWEIGHT_MM).abs() > 1e-4
+        })
         .collect();
     if layers.is_empty() {
         return;
@@ -536,9 +551,14 @@ fn write_layer_table(out: &mut String, doc: &Document) {
             -i32::from(l.color)
         };
         let flags = i32::from(l.frozen);
+        let lw = (l.lineweight_mm * 100.0).round() as i32;
         out.push_str(&format!(
-            "0\nLAYER\n2\n{}\n70\n{}\n62\n{}\n",
-            l.name, flags, color
+            "0\nLAYER\n2\n{}\n70\n{}\n62\n{}\n6\n{}\n370\n{}\n",
+            l.name,
+            flags,
+            color,
+            l.linetype.dxf_name(),
+            lw
         ));
     }
     out.push_str("0\nENDTAB\n0\nENDSEC\n");
@@ -1241,6 +1261,24 @@ EOF
                 DimensionKind::OrdinateY,
             ]
         );
+    }
+
+    #[test]
+    fn round_trip_preserves_linetype_and_lineweight() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        doc.set_layer_linetype("A-WALL", aadt_model::LineType::Dashed);
+        doc.set_layer_lineweight_mm("A-WALL", 0.50);
+        let dxf = export_str(&doc);
+        assert!(dxf.contains("DASHED"));
+        assert!(dxf.contains("370\n50\n"));
+        let back = import_str(&dxf).unwrap();
+        let wall = back.layer("A-WALL").unwrap();
+        assert_eq!(wall.linetype, aadt_model::LineType::Dashed);
+        assert!((wall.lineweight_mm - 0.50).abs() < 1e-4);
     }
 
     #[test]

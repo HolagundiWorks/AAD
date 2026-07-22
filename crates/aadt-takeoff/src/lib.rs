@@ -39,7 +39,7 @@ const DECIMALS: usize = 3;
 /// Version of the machine-readable JSON takeoff schema emitted by
 /// [`TakeoffTable::to_json`]. Bump on any field change so downstream engines can
 /// pin/validate. `aadt --version` reports it.
-pub const TAKEOFF_SCHEMA_VERSION: &str = "1.0";
+pub const TAKEOFF_SCHEMA_VERSION: &str = "1.1";
 
 /// CSI MasterFormat cost codes per element category (ADR-0005). Firm-overridable.
 #[derive(Debug, Clone)]
@@ -101,6 +101,10 @@ pub struct WallTakeoff {
     /// Volume = length × thickness × height (drawing units³).
     pub volume: f64,
     pub cost_code: String,
+    /// From `AADT-WALL-TYPE`, or `unclassified` when absent.
+    pub wall_type: String,
+    /// From `AADT-CLASS-STATUS`, or empty when absent.
+    pub class_status: String,
 }
 
 /// Per-opening computed quantities.
@@ -147,6 +151,24 @@ impl TakeoffTable {
         Self::with_config(det, &TakeoffConfig::default())
     }
 
+    /// Attach AI / user classification attrs from the document (does not change quantities).
+    pub fn attach_wall_classifications(&mut self, doc: &Document, det: &Detection) {
+        const WALL_TYPE: &str = "AADT-WALL-TYPE";
+        const CLASS_STATUS: &str = "AADT-CLASS-STATUS";
+        for w in &mut self.walls {
+            let Some(wall) = det.walls.iter().find(|x| x.id == w.id) else {
+                continue;
+            };
+            if let Some(e) = doc.get(wall.faces.0) {
+                w.wall_type = e
+                    .attribute(WALL_TYPE)
+                    .unwrap_or("unclassified")
+                    .to_string();
+                w.class_status = e.attribute(CLASS_STATUS).unwrap_or("").to_string();
+            }
+        }
+    }
+
     /// Compute quantities from a detection result and an explicit config.
     pub fn with_config(det: &Detection, cfg: &TakeoffConfig) -> Self {
         let walls = det
@@ -161,6 +183,8 @@ impl TakeoffTable {
                 gross_area: w.length * cfg.wall_height,
                 volume: w.length * w.thickness * cfg.wall_height,
                 cost_code: cfg.cost_codes.wall.clone(),
+                wall_type: "unclassified".into(),
+                class_status: String::new(),
             })
             .collect();
 
@@ -255,10 +279,12 @@ impl TakeoffTable {
     /// deterministic.
     pub fn to_csv(&self) -> String {
         let mut out = String::new();
-        out.push_str("category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code\n");
+        out.push_str(
+            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code,wall_type,class_status\n",
+        );
         for w in &self.walls {
             out.push_str(&format!(
-                "WALL,{},,{},{},{},{},{},,{}\n",
+                "WALL,{},,{},{},{},{},{},,{},{},{}\n",
                 w.id,
                 num(w.length),
                 num(w.thickness),
@@ -266,11 +292,13 @@ impl TakeoffTable {
                 num(w.gross_area),
                 num(w.volume),
                 w.cost_code,
+                w.wall_type,
+                w.class_status,
             ));
         }
         for o in &self.openings {
             out.push_str(&format!(
-                "OPENING,{},{},{},,{},{},,,{}\n",
+                "OPENING,{},{},{},,{},{},,,{},,\n",
                 o.number,
                 o.kind,
                 num(o.width),
@@ -281,7 +309,7 @@ impl TakeoffTable {
         }
         for r in &self.rooms {
             out.push_str(&format!(
-                "ROOM,{},,,,,{},,{},{}\n",
+                "ROOM,{},,,,,{},,{},{},,\n",
                 r.id,
                 num(r.area),
                 num(r.perimeter),
@@ -290,26 +318,26 @@ impl TakeoffTable {
         }
         for s in &self.structural {
             out.push_str(&format!(
-                "STRUCTURAL,{},{},,,,,,,{}\n",
+                "STRUCTURAL,{},{},,,,,,,{},,\n",
                 s.number, s.kind, s.cost_code
             ));
         }
         out.push_str(&format!(
-            "TOTAL,walls-gross,,{},,,{},{},,\n",
+            "TOTAL,walls-gross,,{},,,{},{},,,,\n",
             num(self.total_wall_length()),
             num(self.total_wall_gross_area()),
             num(self.total_wall_volume()),
         ));
         out.push_str(&format!(
-            "TOTAL,openings,,,,,{},,,\n",
+            "TOTAL,openings,,,,,{},,,,,\n",
             num(self.total_opening_area())
         ));
         out.push_str(&format!(
-            "TOTAL,walls-net,,,,,{},,,\n",
+            "TOTAL,walls-net,,,,,{},,,,,\n",
             num(self.total_wall_net_area())
         ));
         out.push_str(&format!(
-            "TOTAL,rooms,,,,,{},,,\n",
+            "TOTAL,rooms,,,,,{},,,,,\n",
             num(self.total_room_area())
         ));
         out
@@ -362,8 +390,8 @@ impl TakeoffTable {
                 out.push(',');
             }
             out.push_str(&format!(
-                "{{\"id\":{},\"length\":{},\"thickness\":{},\"height\":{},\"gross_area\":{},\"volume\":{},\"cost_code\":{}}}",
-                w.id, num(w.length), num(w.thickness), num(w.height), num(w.gross_area), num(w.volume), json_str(&w.cost_code)
+                "{{\"id\":{},\"length\":{},\"thickness\":{},\"height\":{},\"gross_area\":{},\"volume\":{},\"cost_code\":{},\"wall_type\":{},\"class_status\":{}}}",
+                w.id, num(w.length), num(w.thickness), num(w.height), num(w.gross_area), num(w.volume), json_str(&w.cost_code), json_str(&w.wall_type), json_str(&w.class_status)
             ));
         }
         out.push_str("],\"openings\":[");
@@ -437,6 +465,8 @@ impl TakeoffTable {
                 "volume",
                 "perimeter",
                 "cost_code",
+                "wall_type",
+                "class_status",
             ]
             .iter()
             .map(|h| Cell::text(*h))
@@ -457,6 +487,8 @@ impl TakeoffTable {
                 n(w.volume),
                 Cell::Empty,
                 Cell::text(&w.cost_code),
+                Cell::text(&w.wall_type),
+                Cell::text(&w.class_status),
             ]);
         }
         for o in &self.openings {
@@ -471,6 +503,8 @@ impl TakeoffTable {
                 Cell::Empty,
                 Cell::Empty,
                 Cell::text(&o.cost_code),
+                Cell::Empty,
+                Cell::Empty,
             ]);
         }
         for r in &self.rooms {
@@ -485,6 +519,8 @@ impl TakeoffTable {
                 Cell::Empty,
                 n(r.perimeter),
                 Cell::text(&r.cost_code),
+                Cell::Empty,
+                Cell::Empty,
             ]);
         }
         for s in &self.structural {
@@ -499,11 +535,13 @@ impl TakeoffTable {
                 Cell::Empty,
                 Cell::Empty,
                 Cell::text(&s.cost_code),
+                Cell::Empty,
+                Cell::Empty,
             ]);
         }
 
         let total = |label: &str, cells: Vec<(usize, Cell)>| {
-            let mut row = vec![Cell::Empty; 10];
+            let mut row = vec![Cell::Empty; 12];
             row[0] = Cell::text("TOTAL");
             row[1] = Cell::text(label);
             for (i, c) in cells {
@@ -564,7 +602,8 @@ impl LiveTakeoff {
     pub fn table(&mut self, doc: &Document) -> &TakeoffTable {
         if !self.is_current(doc) {
             let detection = detect(doc, &self.detect_cfg);
-            let table = TakeoffTable::with_config(&detection, &self.takeoff_cfg);
+            let mut table = TakeoffTable::with_config(&detection, &self.takeoff_cfg);
+            table.attach_wall_classifications(doc, &detection);
             self.cache = Some((doc.revision(), table));
         }
         &self.cache.as_ref().expect("cache populated above").1
@@ -753,11 +792,30 @@ mod tests {
         let csv = table.to_csv();
 
         assert!(csv.starts_with(
-            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code\n"
+            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code,wall_type,class_status\n"
         ));
-        assert!(csv.contains("WALL,0,,10.000,0.200,3.000,30.000,6.000,,09 21 00\n"));
-        assert!(csv.contains("OPENING,1,Door,0.900,,2.100,1.890,,,08 10 00\n"));
-        assert!(csv.contains("ROOM,0,,,,,12.000,,14.000,09 60 00\n"));
+        assert!(csv.contains(
+            "WALL,0,,10.000,0.200,3.000,30.000,6.000,,09 21 00,unclassified,\n"
+        ));
+        assert!(csv.contains("OPENING,1,Door,0.900,,2.100,1.890,,,08 10 00,,\n"));
+        assert!(csv.contains("ROOM,0,,,,,12.000,,14.000,09 60 00,,\n"));
         assert_eq!(csv, table.to_csv());
+    }
+
+    #[test]
+    fn attach_wall_classifications_marks_type_without_dropping_qty() {
+        let mut doc = sample_doc();
+        let det = detect(&doc, &DetectionConfig::default());
+        let face = det.walls[0].faces.0;
+        doc.transact("classify", |d| {
+            d.set_attribute(face, "AADT-WALL-TYPE", "exterior");
+            d.set_attribute(face, "AADT-CLASS-STATUS", "accepted");
+        });
+        let mut table = TakeoffTable::from_detection(&det);
+        assert!((table.walls[0].gross_area - 30.0).abs() < 1e-9);
+        table.attach_wall_classifications(&doc, &det);
+        assert_eq!(table.walls[0].wall_type, "exterior");
+        assert_eq!(table.walls[0].class_status, "accepted");
+        assert!((table.walls[0].gross_area - 30.0).abs() < 1e-9);
     }
 }

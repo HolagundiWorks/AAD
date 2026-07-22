@@ -14,6 +14,10 @@ members = [
     "crates/aadt-pdf",
     "crates/aadt-collab",
     "crates/aadt-app",
+    "crates/aadt-ffi",
+    "crates/aadt-store",
+    "crates/aadt-standards",
+    "crates/aadt-library",
     "crates/aadt-cli",
 ]
 
@@ -42,6 +46,10 @@ aadt-docs = { path = "crates/aadt-docs" }
 aadt-pdf = { path = "crates/aadt-pdf" }
 aadt-collab = { path = "crates/aadt-collab" }
 aadt-app = { path = "crates/aadt-app" }
+aadt-ffi = { path = "crates/aadt-ffi" }
+aadt-store = { path = "crates/aadt-store" }
+aadt-standards = { path = "crates/aadt-standards" }
+aadt-library = { path = "crates/aadt-library" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

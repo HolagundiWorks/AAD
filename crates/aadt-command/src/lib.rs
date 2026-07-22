@@ -17,6 +17,9 @@ use std::collections::{HashMap, HashSet};
 use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment};
 use aadt_model::{Dimension, DimensionKind, Document, EntityId, Geometry, Hatch, Insert, Text};
 
+mod annotation;
+mod essentials;
+
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.
 ///
 /// `str::trim` does not consider the BOM whitespace, so scripts and lines saved
@@ -52,8 +55,16 @@ pub struct Context {
     pub history: Vec<String>,
     /// The most recent `SELECT` result — editable in bulk as `SELECTION`.
     pub selection: Vec<EntityId>,
+    /// Selection before the last SELECT / erase (for `PSELECT`).
+    pub prev_selection: Vec<EntityId>,
     /// Named, persistent selection sets built with `GROUP`.
     pub groups: HashMap<String, Vec<EntityId>>,
+    /// Layer visibility/frozen snapshot for `LAYUNISO`.
+    pub layer_iso_snapshot: Option<Vec<(String, bool, bool)>>,
+    /// In-memory clipboard for COPYCLIP / PASTECLIP / CUTCLIP.
+    pub clipboard: Vec<aadt_model::Entity>,
+    /// GUI navigation hint set by ZOOM / PAN (extents, window, …).
+    pub nav_hint: Option<String>,
 }
 
 impl Context {
@@ -129,10 +140,12 @@ pub fn builtins() -> Registry {
     r.register(Box::new(CircleCmd));
     r.register(Box::new(ArcCmd));
     r.register(Box::new(TextCmd));
+    r.register(Box::new(MleaderCmd));
     r.register(Box::new(InsertCmd));
     // Modify.
     r.register(Box::new(MoveCmd));
     r.register(Box::new(CopyCmd));
+    r.register(Box::new(StretchCmd));
     r.register(Box::new(RotateCmd));
     r.register(Box::new(ScaleCmd));
     r.register(Box::new(MirrorCmd));
@@ -166,6 +179,8 @@ pub fn builtins() -> Registry {
     r.register(Box::new(ListCmd));
     r.register(Box::new(DistCmd));
     r.register(Box::new(AreaCmd));
+    essentials::register_essentials(&mut r);
+    annotation::register_annotation(&mut r);
     r
 }
 
@@ -236,14 +251,14 @@ impl Interpreter {
 
 // --- Built-in drawing commands (model-only) ----------------------------------
 
-fn parse_f64(args: &[String], i: usize, flag: &str) -> Result<f64, String> {
+pub(crate) fn parse_f64(args: &[String], i: usize, flag: &str) -> Result<f64, String> {
     args.get(i)
         .ok_or_else(|| format!("{flag}: missing argument {}", i + 1))?
         .parse::<f64>()
         .map_err(|_| format!("{flag}: argument {} is not a number", i + 1))
 }
 
-fn parse_entity_id(raw: &str, flag: &str) -> Result<EntityId, String> {
+pub(crate) fn parse_entity_id(raw: &str, flag: &str) -> Result<EntityId, String> {
     raw.parse::<u64>()
         .map(EntityId)
         .map_err(|_| format!("{flag}: {raw:?} is not an entity id"))
@@ -309,7 +324,7 @@ fn entity_extent(g: &Geometry) -> Option<Bbox> {
 /// Resolve an edit command's target token to a set of entity ids: `ALL`,
 /// `SELECTION` (the last `SELECT`), a group name, or a single numeric id. Ids
 /// that no longer exist are dropped, so a group survives erasing a member.
-fn resolve_targets(ctx: &Context, token: &str, cmd: &str) -> Result<Vec<EntityId>, String> {
+pub(crate) fn resolve_targets(ctx: &Context, token: &str, cmd: &str) -> Result<Vec<EntityId>, String> {
     let exists = |id: &EntityId| ctx.doc.get(*id).is_some();
     let ids: Vec<EntityId> = match token.to_ascii_uppercase().as_str() {
         "ALL" => {
@@ -341,7 +356,7 @@ fn resolve_targets(ctx: &Context, token: &str, cmd: &str) -> Result<Vec<EntityId
 }
 
 /// English count suffix: "1 entity" vs "3 entities".
-fn entities_word(n: usize) -> &'static str {
+pub(crate) fn entities_word(n: usize) -> &'static str {
     if n == 1 {
         "entity"
     } else {
@@ -463,7 +478,7 @@ impl Command for TextCmd {
         &["DTEXT", "T"]
     }
     fn help(&self) -> &str {
-        "TEXT x y height value... — add single-line text (value is the rest of the line)"
+        "TEXT x y height [layer] value... — add single-line text (default layer A-ANNO-TEXT)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let x = parse_f64(args, 0, "TEXT")?;
@@ -472,19 +487,73 @@ impl Command for TextCmd {
         if height <= 0.0 {
             return Err("TEXT: height must be positive".to_string());
         }
-        // The value is everything after the height, joined — so labels may
-        // contain spaces without quoting.
-        let value = args.get(3..).unwrap_or(&[]).join(" ");
+        // Optional layer when the 4th token looks like a layer name (contains '-' or "0").
+        let (layer, value_start) = if args
+            .get(3)
+            .is_some_and(|t| t == "0" || t.contains('-') || t.contains('_'))
+        {
+            (args[3].clone(), 4)
+        } else {
+            ("A-ANNO-TEXT".to_string(), 3)
+        };
+        let value = args.get(value_start..).unwrap_or(&[]).join(" ");
         if value.is_empty() {
             return Err("TEXT: missing text value".to_string());
         }
         let id = ctx.doc.transact("TEXT", |d| {
             d.add_geometry(
-                "0",
+                layer,
                 Geometry::Text(Text::new(value, Point2::new(x, y), height, 0.0)),
             )
         });
         Ok(format!("TEXT added as entity {}", id.0))
+    }
+}
+
+struct MleaderCmd;
+impl Command for MleaderCmd {
+    fn name(&self) -> &str {
+        "MLEADER"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["LEADER", "MLD", "LE"]
+    }
+    fn help(&self) -> &str {
+        "MLEADER ax ay lx ly tx ty height value... — leader arrow→landing→text (v0: line+text)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let ax = parse_f64(args, 0, "MLEADER")?;
+        let ay = parse_f64(args, 1, "MLEADER")?;
+        let lx = parse_f64(args, 2, "MLEADER")?;
+        let ly = parse_f64(args, 3, "MLEADER")?;
+        let tx = parse_f64(args, 4, "MLEADER")?;
+        let ty = parse_f64(args, 5, "MLEADER")?;
+        let height = parse_f64(args, 6, "MLEADER")?;
+        if height <= 0.0 {
+            return Err("MLEADER: height must be positive".to_string());
+        }
+        let value = args.get(7..).unwrap_or(&[]).join(" ");
+        if value.is_empty() {
+            return Err("MLEADER: missing text value".to_string());
+        }
+        let arrow = Point2::new(ax, ay);
+        let land = Point2::new(lx, ly);
+        let text_pt = Point2::new(tx, ty);
+        let (lid, tid) = ctx.doc.transact("MLEADER", |d| {
+            let leader = d.add_geometry(
+                "A-ANNO-NOTE",
+                Geometry::Polyline(Polyline::new(vec![arrow, land, text_pt], false)),
+            );
+            let text = d.add_geometry(
+                "A-ANNO-NOTE",
+                Geometry::Text(Text::new(value, text_pt, height, 0.0)),
+            );
+            (leader, text)
+        });
+        Ok(format!(
+            "MLEADER added (leader entity {}, text entity {})",
+            lid.0, tid.0
+        ))
     }
 }
 
@@ -578,6 +647,39 @@ impl Command for MoveCmd {
             }
         });
         Ok(format!("moved {n} {}", entities_word(n)))
+    }
+}
+
+struct StretchCmd;
+impl Command for StretchCmd {
+    fn name(&self) -> &str {
+        "STRETCH"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["S"]
+    }
+    fn help(&self) -> &str {
+        "STRETCH xmin ymin xmax ymax dx dy [target] — move endpoints inside the window (SELECTION default)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let xmin = parse_f64(args, 0, "STRETCH")?;
+        let ymin = parse_f64(args, 1, "STRETCH")?;
+        let xmax = parse_f64(args, 2, "STRETCH")?;
+        let ymax = parse_f64(args, 3, "STRETCH")?;
+        let dx = parse_f64(args, 4, "STRETCH")?;
+        let dy = parse_f64(args, 5, "STRETCH")?;
+        let token = args.get(6).map(String::as_str).unwrap_or("SELECTION");
+        let targets = resolve_targets(ctx, token, "STRETCH")?;
+        let window = Bbox::from_corners(Point2::new(xmin, ymin), Point2::new(xmax, ymax));
+        let mut n = 0usize;
+        ctx.doc.transact("STRETCH", |d| {
+            for id in &targets {
+                if d.stretch_entity(*id, window, dx, dy) {
+                    n += 1;
+                }
+            }
+        });
+        Ok(format!("stretched {n} {}", entities_word(n)))
     }
 }
 
@@ -1463,7 +1565,7 @@ impl Command for LayerCmd {
         &["LA"]
     }
     fn help(&self) -> &str {
-        "LAYER name [COLOR n] [ON|OFF] [FREEZE|THAW] — create or restyle a layer"
+        "LAYER name [COLOR n] [LTYPE name] [LWEIGHT mm] [ON|OFF] [FREEZE|THAW] — create or restyle a layer"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let name = args.first().ok_or("LAYER: missing name")?.clone();
@@ -1472,6 +1574,8 @@ impl Command for LayerCmd {
         let mut color: Option<u8> = None;
         let mut visible: Option<bool> = None;
         let mut frozen: Option<bool> = None;
+        let mut linetype: Option<aadt_model::LineType> = None;
+        let mut lineweight: Option<f32> = None;
         let mut it = args[1..].iter();
         while let Some(tok) = it.next() {
             match tok.to_ascii_uppercase().as_str() {
@@ -1483,6 +1587,23 @@ impl Command for LayerCmd {
                             .filter(|c| *c >= 1)
                             .ok_or_else(|| format!("LAYER: invalid color {v:?} (1-255)"))?,
                     );
+                }
+                "LTYPE" | "LINETYPE" => {
+                    let v = it.next().ok_or("LAYER: LTYPE needs a name")?;
+                    linetype = Some(
+                        aadt_model::LineType::parse(v)
+                            .ok_or_else(|| format!("LAYER: unknown linetype {v:?}"))?,
+                    );
+                }
+                "LWEIGHT" | "LW" | "LINEWEIGHT" => {
+                    let v = it.next().ok_or("LAYER: LWEIGHT needs millimetres")?;
+                    let mm: f32 = v
+                        .parse()
+                        .map_err(|_| format!("LAYER: invalid lineweight {v:?}"))?;
+                    if mm < 0.0 {
+                        return Err("LAYER: lineweight must be non-negative".into());
+                    }
+                    lineweight = Some(mm);
                 }
                 "ON" => visible = Some(true),
                 "OFF" => visible = Some(false),
@@ -1497,6 +1618,12 @@ impl Command for LayerCmd {
             if let Some(c) = color {
                 d.set_layer_color(&name, c);
             }
+            if let Some(lt) = linetype {
+                d.set_layer_linetype(&name, lt);
+            }
+            if let Some(mm) = lineweight {
+                d.set_layer_lineweight_mm(&name, mm);
+            }
             if let Some(v) = visible {
                 d.set_layer_visible(&name, v);
             }
@@ -1508,8 +1635,10 @@ impl Command for LayerCmd {
         // Report the resulting state.
         let l = ctx.doc.layer(&name).expect("layer exists after LAYER");
         let state = format!(
-            "color {}, {}{}",
+            "color {}, {}, {:.2} mm, {}{}",
             l.color,
+            l.linetype.dxf_name(),
+            l.lineweight_mm,
             if l.visible { "on" } else { "off" },
             if l.frozen { ", frozen" } else { "" },
         );
@@ -1941,6 +2070,7 @@ impl Command for SelectCmd {
                     .collect::<Result<Vec<_>, _>>()?
             }
         };
+        ctx.prev_selection = std::mem::take(&mut ctx.selection);
         ctx.selection = ids;
         let n = ctx.selection.len();
         Ok(format!("selected {n} {}", entities_word(n)))
@@ -2062,6 +2192,9 @@ struct ListCmd;
 impl Command for ListCmd {
     fn name(&self) -> &str {
         "LIST"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["LI"]
     }
     fn help(&self) -> &str {
         "LIST — summarize entities in the document"
@@ -3002,6 +3135,38 @@ mod tests {
         assert!(interp.eval_line(&mut ctx, "MOVE 999 1 1").is_err());
         assert!(interp.eval_line(&mut ctx, "POLYLINE 0 0").is_err());
         assert_eq!(ctx.doc.len(), 0, "failed commands leave no entities");
+    }
+
+    #[test]
+    fn mleader_and_stretch_are_undoable() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL")
+            .unwrap();
+        interp
+            .eval_line(&mut ctx, "MLEADER 0 0 2 1 3 1 0.25 NOTE A")
+            .unwrap();
+        assert!(ctx.doc.len() >= 3);
+        interp.eval_line(&mut ctx, "SELECT 0").unwrap();
+        interp
+            .eval_line(&mut ctx, "STRETCH 0 -1 5 1 2 0 SELECTION")
+            .unwrap();
+        if let Geometry::Line(s) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!(
+                (s.a.x - 2.0).abs() < 1e-9,
+                "endpoint inside window stretched, got {:?}",
+                s.a
+            );
+            assert!(
+                (s.b.x - 10.0).abs() < 1e-9,
+                "endpoint outside window stays, got {:?}",
+                s.b
+            );
+        } else {
+            panic!("expected line");
+        }
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
     }
 
     #[test]

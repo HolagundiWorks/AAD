@@ -27,14 +27,31 @@ impl PageSize {
         width: 842.0,
         height: 595.0,
     };
+    pub const A4_PORTRAIT: PageSize = PageSize {
+        width: 595.0,
+        height: 842.0,
+    };
     pub const A3_LANDSCAPE: PageSize = PageSize {
         width: 1191.0,
         height: 842.0,
+    };
+    pub const A3_PORTRAIT: PageSize = PageSize {
+        width: 842.0,
+        height: 1191.0,
     };
     pub const LETTER_LANDSCAPE: PageSize = PageSize {
         width: 792.0,
         height: 612.0,
     };
+
+    /// Convert a sheet extent in millimetres to PDF points (1 pt = 1/72 in).
+    pub fn from_mm(width_mm: f64, height_mm: f64) -> Self {
+        const MM_TO_PT: f64 = 72.0 / 25.4;
+        Self {
+            width: width_mm * MM_TO_PT,
+            height: height_mm * MM_TO_PT,
+        }
+    }
 }
 
 /// Plot `doc` to a single-page PDF, fitting its extents into the page with a
@@ -94,11 +111,47 @@ fn stroke_entity(s: &mut String, geom: &Geometry, fit: &Fit) {
             stroke_polyline_pts(s, &circle_pts(c.center, c.radius), true, mv, ln)
         }
         Geometry::Arc(a) => stroke_polyline_pts(s, &arc_pts(a), false, mv, ln),
-        // Text and inserts plot as a small tick at their anchor (glyph layout /
-        // block instancing on a plot is a later refinement).
-        Geometry::Text(t) => tick(s, t.position, fit),
+        Geometry::Text(t) => emit_text(s, t, fit),
         Geometry::Insert(i) => tick(s, i.position, fit),
     }
+}
+
+fn emit_text(s: &mut String, t: &aadt_model::Text, fit: &Fit) {
+    let (x, y) = fit.map(t.position);
+    let size = (t.height * fit.scale).clamp(4.0, 72.0);
+    let escaped = pdf_escape(&t.value);
+    s.push_str("BT\n");
+    s.push_str(&format!("/F1 {size:.2} Tf\n"));
+    if t.rotation.abs() > 0.01 {
+        // PDF user space: rotate about the insertion point (degrees → radians).
+        let rad = t.rotation.to_radians();
+        let (sn, cs) = (rad.sin(), rad.cos());
+        s.push_str(&format!(
+            "{cs:.6} {sn:.6} {:.6} {:.6} {x:.2} {y:.2} Tm\n",
+            -sn, cs
+        ));
+    } else {
+        s.push_str(&format!("{x:.2} {y:.2} Td\n"));
+    }
+    s.push_str(&format!("({escaped}) Tj\n"));
+    s.push_str("ET\n");
+}
+
+fn pdf_escape(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        match c {
+            '(' => out.push_str("\\("),
+            ')' => out.push_str("\\)"),
+            '\\' => out.push_str("\\\\"),
+            '\r' | '\n' => out.push(' '),
+            c if c.is_ascii() && !c.is_control() => out.push(c),
+            _ => {
+                // Helvetica Latin-1-ish: drop unsupported glyphs.
+            }
+        }
+    }
+    out
 }
 
 fn stroke_polyline_pts(

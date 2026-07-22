@@ -28,15 +28,24 @@
 
 pub mod compose;
 pub mod notes;
+pub mod plot;
 pub mod qa;
 pub mod sheet;
 pub mod titleblock;
 
 pub use compose::{grid_areas, place_drawing, present, Composed, DrawingArea, View};
-pub use notes::{place_notes, NotesLibrary, NotesStyle};
+pub use notes::{notes_from_text, notes_to_text, place_notes, NotesLibrary, NotesStyle};
+pub use plot::{
+    compose_plot_sheet, compose_plot_sheet_for_selection, compose_plot_sheet_oriented,
+    drawing_area_for_preset, drawing_area_for_sheet, orientation_from_bbox, orientation_from_extents,
+    orientation_from_points, orientation_from_selection,
+};
 pub use qa::{QaFinding, QaSeverity, SheetReview};
 pub use sheet::{Orientation, PaperSize, Sheet};
-pub use titleblock::{TitleBlock, TitleBlockStyle};
+pub use titleblock::{
+    NameplatePreset, RevisionRow, TitleBlock, TitleBlockLayout, TitleBlockStyle, HT_LABEL,
+    HT_SHEET_NO, HT_TITLE, HT_VALUE, STRIP_GAP_MM, STRIP_WIDTH_FRAC,
+};
 
 /// Milestone in which sheet production is implemented.
 pub const MILESTONE: &str = "M5";

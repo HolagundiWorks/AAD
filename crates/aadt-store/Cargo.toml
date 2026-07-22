@@ -1,0 +1,17 @@
+[package]
+name = "aadt-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Native .aadt SQLite document persistence (ADR-0004)."
+
+[dependencies]
+aadt-geometry.workspace = true
+aadt-model.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+[lints]
+workspace = true

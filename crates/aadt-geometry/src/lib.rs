@@ -481,6 +481,19 @@ impl Bbox {
     pub fn height(self) -> f64 {
         self.max.y - self.min.y
     }
+
+    /// Axis-aligned containment (inclusive edges).
+    pub fn contains_point(self, p: Point2) -> bool {
+        p.x >= self.min.x && p.x <= self.max.x && p.y >= self.min.y && p.y <= self.max.y
+    }
+
+    /// Build from opposite corners (order-independent).
+    pub fn from_corners(a: Point2, b: Point2) -> Self {
+        Self {
+            min: Point2::new(a.x.min(b.x), a.y.min(b.y)),
+            max: Point2::new(a.x.max(b.x), a.y.max(b.y)),
+        }
+    }
 }
 
 /// An open or closed polyline (sequence of vertices).

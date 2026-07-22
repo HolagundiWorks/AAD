@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 
-use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment, Vec2};
+use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment, Vec2};
 
 /// Stable identifier for an entity within a [`Document`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -24,17 +24,61 @@ pub struct EntityId(pub u64);
 /// The default AutoCAD Color Index (ACI) — 7, white/black — a fresh layer takes.
 pub const DEFAULT_LAYER_COLOR: u8 = 7;
 
+/// Default plot lineweight in millimetres (ISO 0.25 mm).
+pub const DEFAULT_LINEWEIGHT_MM: f32 = 0.25;
+
+/// DXF / plot linetype for a layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LineType {
+    #[default]
+    Continuous,
+    Dashed,
+    Center,
+    Hidden,
+    Phantom,
+    Dot,
+}
+
+impl LineType {
+    /// DXF linetype name (uppercase).
+    pub fn dxf_name(self) -> &'static str {
+        match self {
+            LineType::Continuous => "CONTINUOUS",
+            LineType::Dashed => "DASHED",
+            LineType::Center => "CENTER",
+            LineType::Hidden => "HIDDEN",
+            LineType::Phantom => "PHANTOM",
+            LineType::Dot => "DOT",
+        }
+    }
+
+    /// Parse a DXF or user token (case-insensitive).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_uppercase().as_str() {
+            "CONTINUOUS" | "CONT" => Some(LineType::Continuous),
+            "DASHED" | "DASH" | "HIDDEN2" => Some(LineType::Dashed),
+            "CENTER" | "CENTRE" => Some(LineType::Center),
+            "HIDDEN" => Some(LineType::Hidden),
+            "PHANTOM" => Some(LineType::Phantom),
+            "DOT" | "DOTTED" => Some(LineType::Dot),
+            _ => None,
+        }
+    }
+}
+
 /// A drawing layer. Layer names carry the convention hints AADT detection uses
 /// (e.g. `A-WALL`), so they are preserved verbatim from the source file. A layer
-/// also carries display state — an [ACI](https://en.wikipedia.org/wiki/AutoCAD_DXF)
-/// `color`, whether it is `visible` (DXF encodes "off" as a negative colour), and
-/// whether it is `frozen` (DXF flag 70 bit 1) — so `LAYER … OFF/FREEZE/COLOR`
-/// round-trips and the renderer can hide a whole layer at once.
+/// also carries display/plot state — ACI `color`, `linetype`, `lineweight_mm`,
+/// visibility, and freeze — so standards templates and DXF round-trip.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     pub name: String,
     /// AutoCAD Color Index (1–255); [`DEFAULT_LAYER_COLOR`] by default.
     pub color: u8,
+    /// Plot / screen linetype.
+    pub linetype: LineType,
+    /// Plot lineweight in millimetres (ISO pen sizes).
+    pub lineweight_mm: f32,
     /// A layer that is off is not drawn.
     pub visible: bool,
     /// A frozen layer is neither drawn nor regenerated.
@@ -46,6 +90,8 @@ impl Layer {
         Self {
             name: name.into(),
             color: DEFAULT_LAYER_COLOR,
+            linetype: LineType::Continuous,
+            lineweight_mm: DEFAULT_LINEWEIGHT_MM,
             visible: true,
             frozen: false,
         }
@@ -54,6 +100,18 @@ impl Layer {
     /// Builder: set the ACI colour.
     pub fn with_color(mut self, color: u8) -> Self {
         self.color = color;
+        self
+    }
+
+    /// Builder: set linetype.
+    pub fn with_linetype(mut self, linetype: LineType) -> Self {
+        self.linetype = linetype;
+        self
+    }
+
+    /// Builder: set lineweight in mm.
+    pub fn with_lineweight_mm(mut self, mm: f32) -> Self {
+        self.lineweight_mm = mm;
         self
     }
 
@@ -390,6 +448,42 @@ impl Geometry {
         }
     }
 
+    /// Stretch endpoints (and centers / text positions) that fall inside `window`
+    /// by `(dx, dy)`. Points outside the window stay put — classic CAD STRETCH
+    /// behaviour for lines and polylines.
+    pub fn stretched(&self, window: Bbox, dx: f64, dy: f64) -> Geometry {
+        let mv = |p: Point2| {
+            if window.contains_point(p) {
+                Point2::new(p.x + dx, p.y + dy)
+            } else {
+                p
+            }
+        };
+        match self {
+            Geometry::Line(s) => Geometry::Line(Segment::new(mv(s.a), mv(s.b))),
+            Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
+                p.vertices.iter().copied().map(mv).collect(),
+                p.closed,
+            )),
+            Geometry::Circle(c) => Geometry::Circle(Circle::new(mv(c.center), c.radius)),
+            Geometry::Arc(a) => Geometry::Arc(Arc::new(
+                mv(a.center),
+                a.radius,
+                a.start_angle,
+                a.end_angle,
+            )),
+            Geometry::Text(t) => Geometry::Text(Text::new(
+                t.value.clone(),
+                mv(t.position),
+                t.height,
+                t.rotation,
+            )),
+            Geometry::Insert(i) => {
+                Geometry::Insert(Insert::new(i.name.clone(), mv(i.position), i.rotation))
+            }
+        }
+    }
+
     /// This (block-space) geometry placed by an insert: shift the block's `base`
     /// to the origin, rotate by `rotation_deg` (CCW), then translate to
     /// `position`. This is the rigid placement `position + Rot(θ)·(p − base)` the
@@ -533,6 +627,12 @@ enum Op {
         before: Geometry,
         after: Geometry,
     },
+    /// An entity's layer was changed (undo restores `before`).
+    SetEntityLayer {
+        id: EntityId,
+        before: String,
+        after: String,
+    },
     /// An entity attribute was set or cleared (undo restores `before`, redo
     /// reapplies `after`); `None` means the key was absent.
     SetAttribute {
@@ -558,6 +658,80 @@ struct Transaction {
     ops: Vec<Op>,
 }
 
+/// Drawing-level metadata (AutoCAD-style Summary + title-plate fields).
+///
+/// Edited via the Drawing Property Manager; not undoable (like DWGPROPS). Used
+/// to auto-fill the title block when plotting to PDF.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DrawingProperties {
+    // --- Summary (file properties) ---
+    /// Drawing / sheet title (asked again at plot time).
+    pub title: String,
+    pub subject: String,
+    pub author: String,
+    pub keywords: String,
+    pub comments: String,
+    pub hyperlink_base: String,
+    // --- Title plate ---
+    pub project: String,
+    pub client: String,
+    pub address: String,
+    /// Responsible architect (name and registration).
+    pub architect: String,
+    pub date: String,
+    pub area: String,
+    pub scale: String,
+    /// Sheet index, e.g. `1/2`.
+    pub sheet_number: String,
+    pub firm_name: String,
+    pub firm_tagline: String,
+    pub phone: String,
+    pub email: String,
+    pub office_address: String,
+    /// Absolute or relative path to a logo image (PNG/JPEG/SVG).
+    pub logo_path: String,
+    /// Project / job number (e.g. `2024-34-43`).
+    pub project_number: String,
+    /// Discipline label (`Architecture`, `Structural`, …).
+    pub discipline: String,
+    /// Drawing number in the set (e.g. `A-101`) — large sheet ID.
+    pub drawing_number: String,
+    /// Total sheets in the set (for `Sheet N of M`).
+    pub total_sheets: String,
+    /// Drafter initials.
+    pub drawn_by: String,
+    /// Checker initials.
+    pub checked_by: String,
+    /// Approver initials.
+    pub approved_by: String,
+    /// Current revision (e.g. `00`, `Rev 02`).
+    pub revision: String,
+    /// Issue status (`IFC`, `Issued for Construction`, …).
+    pub drawing_status: String,
+    /// Firm website / URL shown in the branding cell.
+    pub website: String,
+    /// Revision table rows: one per line `Rev|Date|Description|By|Checked`.
+    pub revision_history: String,
+    /// Linear drawing units label (`mm`, `m`, `ft`, …) from UNITS.
+    pub units: String,
+    /// Active dimension style name (DIMSTYLE).
+    pub dimstyle: String,
+    /// Dimension text height in drawing units.
+    pub dim_text_height: String,
+    /// Dimension scale factor (string for property round-trip).
+    pub dim_scale: String,
+    /// Auto-number prefix (e.g. `D-` for doors).
+    pub autonum_prefix: String,
+    /// Next auto-number value (decimal string).
+    pub autonum_next: String,
+    /// Standard notes body for plot (one note per line).
+    pub standard_notes: String,
+    /// `"1"` / `"0"` — include notes when plotting to PDF.
+    pub plot_include_notes: String,
+    /// Nameplate layout preset: `professional` | `compact` | `minimal`.
+    pub nameplate_preset: String,
+}
+
 /// The drawing database. Deterministic iteration order (by id) so downstream
 /// detection and takeoff are reproducible regardless of insertion order — a hard
 /// requirement from spec §8.
@@ -572,6 +746,8 @@ pub struct Document {
     hatches: Vec<Hatch>,
     /// Dimensions. Annotation, held apart from `entities` (see [`Dimension`]).
     dimensions: Vec<Dimension>,
+    /// Drawing Property Manager fields (title plate / Summary).
+    properties: DrawingProperties,
     next_id: u64,
     /// The transaction currently being recorded, if any (set only inside `transact`).
     open: Option<Transaction>,
@@ -591,6 +767,19 @@ impl Document {
     /// derived data (detection, takeoff) can compare this to know when to recompute.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Drawing Property Manager fields (title, project, firm, logo path, …).
+    pub fn properties(&self) -> &DrawingProperties {
+        &self.properties
+    }
+
+    /// Replace drawing properties. Not undoable; bumps [`revision`](Self::revision).
+    pub fn set_properties(&mut self, properties: DrawingProperties) {
+        if self.properties != properties {
+            self.properties = properties;
+            self.revision += 1;
+        }
     }
 
     // --- Transactions (spec §4.1) --------------------------------------------
@@ -683,6 +872,11 @@ impl Document {
                     e.geometry = after.clone();
                 }
             }
+            Op::SetEntityLayer { id, after, .. } => {
+                if let Some(e) = self.entities.get_mut(id) {
+                    e.layer = after.clone();
+                }
+            }
             Op::SetAttribute { id, key, after, .. } => {
                 Self::write_attribute(&mut self.entities, id, key, after.clone());
             }
@@ -715,6 +909,11 @@ impl Document {
             Op::ReplaceGeometry { id, before, .. } => {
                 if let Some(e) = self.entities.get_mut(id) {
                     e.geometry = before.clone();
+                }
+            }
+            Op::SetEntityLayer { id, before, .. } => {
+                if let Some(e) = self.entities.get_mut(id) {
+                    e.layer = before.clone();
                 }
             }
             Op::SetAttribute {
@@ -787,6 +986,13 @@ impl Document {
         }
     }
 
+    /// Replace a layer record during native-file load (untracked). Creates or
+    /// overwrites by name so colour / visibility / freeze survive OPEN.
+    pub fn restore_layer(&mut self, layer: Layer) {
+        self.layers.insert(layer.name.clone(), layer);
+        self.revision += 1;
+    }
+
     /// Modify a layer's display state through `f`, creating it first if it does
     /// not exist. Recorded as one reversible [`Op::SetLayer`] (a fresh layer's
     /// `before` is `None`, so undo removes it). Returns `false` — recording
@@ -822,6 +1028,16 @@ impl Document {
     /// Freeze or thaw a layer (a frozen layer is not drawn). Undoable.
     pub fn set_layer_frozen(&mut self, name: &str, frozen: bool) -> bool {
         self.update_layer(name, |l| l.frozen = frozen)
+    }
+
+    /// Set a layer's linetype. Undoable.
+    pub fn set_layer_linetype(&mut self, name: &str, linetype: LineType) -> bool {
+        self.update_layer(name, |l| l.linetype = linetype)
+    }
+
+    /// Set a layer's plot lineweight in millimetres. Undoable.
+    pub fn set_layer_lineweight_mm(&mut self, name: &str, mm: f32) -> bool {
+        self.update_layer(name, |l| l.lineweight_mm = mm)
     }
 
     /// Whether entities on `layer` should be drawn: a layer unknown to the
@@ -877,6 +1093,16 @@ impl Document {
         id
     }
 
+    /// Insert an entity with a predetermined id during native-file load.
+    /// Untracked (no undo). Advances `next_id` past this id so later adds do not
+    /// collide. Overwrites any existing entity with the same id.
+    pub fn restore_entity(&mut self, entity: Entity) {
+        self.add_layer(Layer::new(entity.layer.clone()));
+        self.next_id = self.next_id.max(entity.id.0.saturating_add(1));
+        self.entities.insert(entity.id, entity);
+        self.revision += 1;
+    }
+
     /// Remove an entity by id, returning it if present. Recorded for undo.
     pub fn remove_entity(&mut self, id: EntityId) -> Option<Entity> {
         let entity = self.entities.remove(&id)?;
@@ -906,6 +1132,27 @@ impl Document {
         true
     }
 
+    /// Change an entity's layer in place (id preserved). Returns `false` if missing.
+    pub fn set_entity_layer(&mut self, id: EntityId, layer: impl Into<String>) -> bool {
+        let layer = layer.into();
+        self.add_layer(Layer::new(layer.clone()));
+        let Some(entity) = self.entities.get_mut(&id) else {
+            return false;
+        };
+        if entity.layer == layer {
+            return true;
+        }
+        let before = entity.layer.clone();
+        entity.layer = layer.clone();
+        self.record(Op::SetEntityLayer {
+            id,
+            before,
+            after: layer,
+        });
+        self.revision += 1;
+        true
+    }
+
     /// Translate an entity by `(dx, dy)`, keeping its id. Returns `false` if no
     /// entity has that id. A convenience over [`replace_geometry`](Self::replace_geometry)
     /// with a rigid [`Geometry::translated`].
@@ -915,6 +1162,19 @@ impl Document {
         };
         let moved = entity.geometry.translated(dx, dy);
         self.replace_geometry(id, moved)
+    }
+
+    /// Stretch an entity: move geometry points inside `window` by `(dx, dy)`.
+    /// Returns `false` if no entity has that id, or the geometry is unchanged.
+    pub fn stretch_entity(&mut self, id: EntityId, window: Bbox, dx: f64, dy: f64) -> bool {
+        let Some(entity) = self.entities.get(&id) else {
+            return false;
+        };
+        let after = entity.geometry.stretched(window, dx, dy);
+        if after == entity.geometry {
+            return false;
+        }
+        self.replace_geometry(id, after)
     }
 
     /// Rotate an entity `radians` (CCW) about `pivot`, keeping its id. Returns

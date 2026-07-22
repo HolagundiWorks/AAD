@@ -1,0 +1,17 @@
+[package]
+name = "aadt-library"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "On-disk block (DXF/SVG) and hatch pattern libraries; PNG rejected."
+
+[dependencies]
+aadt-geometry.workspace = true
+aadt-model.workspace = true
+aadt-dxf.workspace = true
+
+[lints]
+workspace = true

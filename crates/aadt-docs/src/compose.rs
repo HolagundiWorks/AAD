@@ -34,8 +34,18 @@ impl DrawingArea {
 
 impl Sheet {
     /// The area a drawing occupies on this sheet: the border interior with a
-    /// strip reserved at the bottom for the title block.
-    pub fn drawing_area(&self, reserve_bottom: f64) -> DrawingArea {
+    /// vertical strip reserved on the **right** for the title block
+    /// (`reserve_right` in millimetres).
+    pub fn drawing_area(&self, reserve_right: f64) -> DrawingArea {
+        let (min, max) = self.inner();
+        DrawingArea {
+            min,
+            max: Point2::new((max.x - reserve_right).max(min.x), max.y),
+        }
+    }
+
+    /// Legacy helper: reserve a bottom strip (older horizontal title plates).
+    pub fn drawing_area_bottom(&self, reserve_bottom: f64) -> DrawingArea {
         let (min, max) = self.inner();
         DrawingArea {
             min: Point2::new(min.x, (min.y + reserve_bottom).min(max.y)),

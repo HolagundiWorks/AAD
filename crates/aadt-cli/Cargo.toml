@@ -24,7 +24,10 @@ aadt-docs.workspace = true
 aadt-lisp.workspace = true
 aadt-pdf.workspace = true
 aadt-collab.workspace = true
+aadt-store.workspace = true
 aadt-geometry.workspace = true
+aadt-standards.workspace = true
+aadt-library.workspace = true
 aadt-render = { workspace = true, optional = true }
 
 [features]

@@ -22,7 +22,7 @@ mod shell;
 
 use std::process::ExitCode;
 
-use aadt_command::{Context, Interpreter};
+use aadt_command::Interpreter;
 use aadt_detect::anomaly::{AnomalyConfig, Severity};
 use aadt_detect::{detect, DetectionConfig};
 use aadt_docs::{
@@ -160,7 +160,11 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
             "--size" => size = expect_value(&mut it, "--size")?,
             "--project" => tb.project = expect_value(&mut it, "--project")?,
             "--title" => tb.sheet_title = expect_value(&mut it, "--title")?,
-            "--number" => tb.sheet_number = expect_value(&mut it, "--number")?,
+            "--number" => {
+                let n = expect_value(&mut it, "--number")?;
+                tb.drawing_number = n.clone();
+                tb.sheet_number = n;
+            }
             "--scale" => tb.scale = expect_value(&mut it, "--scale")?,
             "--date" => tb.date = expect_value(&mut it, "--date")?,
             "--by" => tb.drawn_by = expect_value(&mut it, "--by")?,
@@ -183,12 +187,16 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
 
     // Compose onto a fresh sheet (paper space), rather than mixing paper
     // millimetres with the model's own units in one document.
-    let sheet = Sheet::new(paper, Orientation::Landscape, 10.0);
+    // The drawing, fit into the area left of (landscape) or above (portrait) the title block.
+    let sheet = Sheet::new(
+        paper,
+        aadt_docs::orientation_from_extents(&model),
+        10.0,
+    );
     let mut doc = aadt_model::Document::new();
     sheet.place(&mut doc);
 
-    // The drawing, fit into the area above the title-block strip at one scale.
-    let area = sheet.drawing_area(60.0);
+    let area = aadt_docs::drawing_area_for_sheet(&sheet);
     let composed = aadt_docs::place_drawing(&mut doc, &model, &area);
     // Record the fit scale in the title block if the user didn't set one
     // (assume a model drawn in metres → 1000 mm per unit).
@@ -359,13 +367,20 @@ fn cmd_lisp(args: &[String]) -> Result<(), String> {
 fn cmd_infer(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
     let mut save: Option<String> = None;
-    let mut model = "llama3".to_string();
+    let mut model = String::new(); // empty → backend default
+    let mut backend = aadt_ai::AiBackend::FoundryLocal;
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--save" => save = Some(expect_value(&mut it, "--save")?),
             "--model" => model = expect_value(&mut it, "--model")?,
+            "--backend" => {
+                let v = expect_value(&mut it, "--backend")?;
+                backend = aadt_ai::AiBackend::parse(&v).ok_or_else(|| {
+                    format!("unknown --backend {v:?}; use foundry-local or ollama")
+                })?;
+            }
             other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
             other => input = Some(other.to_string()),
         }
@@ -374,16 +389,46 @@ fn cmd_infer(args: &[String]) -> Result<(), String> {
 
     let mut doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
     let det = detect(&doc, &DetectionConfig::default());
-    println!("Loaded {input}: {} wall(s) to classify", det.walls.len());
+    let model_label = if model.is_empty() {
+        match backend {
+            aadt_ai::AiBackend::FoundryLocal => aadt_ai::DEFAULT_FOUNDRY_MODEL,
+            aadt_ai::AiBackend::Ollama => "llama3",
+        }
+    } else {
+        model.as_str()
+    };
+    println!(
+        "Loaded {input}: {} wall(s) to classify via {} / {model_label}",
+        det.walls.len(),
+        backend.as_str()
+    );
+    if backend == aadt_ai::AiBackend::FoundryLocal {
+        println!(
+            "Foundry Local endpoint: {} (set AADT_FOUNDRY_ENDPOINT to override)",
+            aadt_ai::resolved_endpoint()
+        );
+    }
 
-    let client = aadt_ai::OllamaClient::new(model);
+    let client = aadt_ai::make_client(backend, &model);
     let mut audit = aadt_ai::AuditLog::new();
-    match aadt_ai::infer_wall_types(&client, &mut audit, &det) {
+    match aadt_ai::infer_wall_types_open(client.as_ref(), &mut audit, &det, &doc) {
         Ok(assignments) => {
-            let n = aadt_ai::apply_wall_types(&mut doc, &det, &assignments);
+            let n = aadt_ai::propose_wall_types(
+                &mut doc,
+                &det,
+                &assignments,
+                aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD,
+            );
+            let counts = aadt_ai::status_counts(&doc);
+            let review =
+                aadt_ai::list_for_review(&doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
             println!(
-                "Applied {n} wall type(s) as '{}' attributes.",
-                aadt_ai::WALL_TYPE_ATTR
+                "Proposed {n} wall type(s) as attributes (auto-accept ≥ {:.0}%).",
+                aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD * 100.0
+            );
+            println!(
+                "Status: proposed={} accepted={} frozen={} rejected={}; {} need review.",
+                counts[0].1, counts[1].1, counts[2].1, counts[3].1, review.len()
             );
             if let Some(path) = &save {
                 aadt_dxf::export_path(&doc, path).map_err(|e| e.to_string())?;
@@ -396,6 +441,11 @@ fn cmd_infer(args: &[String]) -> Result<(), String> {
         Err(e) => {
             println!("AI inference skipped: {e}.");
             println!("The drawing is unchanged — the deterministic pipeline does not need AI.");
+            if backend == aadt_ai::AiBackend::FoundryLocal {
+                println!(
+                    "Tip: start Foundry Local, load {model_label}, and expose the OpenAI-compatible API."
+                );
+            }
         }
     }
     println!("(audit: {} model call(s) logged)", audit.entries().len());
@@ -553,11 +603,27 @@ fn cmd_collab_net() -> Result<(), String> {
 /// Launch the egui desktop shell (ADR-0001). Built only with `--features app`.
 #[cfg(feature = "app")]
 fn cmd_app(args: &[String]) -> Result<(), String> {
-    let doc = match args.iter().find(|a| !a.starts_with('-')) {
-        Some(path) => aadt_dxf::import_path(path).map_err(|e| e.to_string())?,
+    let mut doc = match args.iter().find(|a| !a.starts_with('-')) {
+        Some(path) => {
+            let p = std::path::Path::new(path);
+            match p
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+                .as_deref()
+            {
+                Some("aadt") => aadt_store::load_path(p).map_err(|e| e.to_string())?,
+                _ => aadt_dxf::import_path(p).map_err(|e| e.to_string())?,
+            }
+        }
         None => aadt_model::Document::new(),
     };
-    aadt_app::gui::run(doc).map_err(|e| e.to_string())
+    aadt_standards::apply_standard_layers(&mut doc);
+    let mut interp = Interpreter::with_builtins();
+    commands::register(&mut interp);
+    let mut session = aadt_app::Session::from_interpreter(interp);
+    session.set_document(doc);
+    aadt_app::gui::run(session).map_err(|e| e.to_string())
 }
 
 #[cfg(not(feature = "app"))]
@@ -582,7 +648,8 @@ Usage:
                                           Run a LISP script; aadt-* can query and draw into the drawing
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
-  aadt infer <input.dxf> [--save <out>]   Infer wall types with the local model and apply them
+  aadt infer <input.dxf> [--save <out>] [--model <name>] [--backend foundry-local|ollama]
+                                  Infer wall types (default: Foundry Local / phi-3.5-mini)
   aadt collab [--net]                     Demonstrate convergent multi-user markup sync
                                           (--net runs it over a real loopback TCP relay)
   aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
@@ -598,7 +665,7 @@ Takeoff options:
   -V, --version            Print the engine and takeoff-schema version
 
 Script commands: LINE, POLYLINE, CIRCLE, ARC, TEXT, INSERT, MOVE, COPY, ERASE,
-LAYER, LAYERS, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF, SCHEDULE (and aliases).
+LAYER, LAYERS, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF, SCHEDULE, LISP / (…), LISPLOAD (and aliases).
 Lines starting with # or ; are comments. In `shell`, :help / :complete / :quit
 are meta-commands.";
 
@@ -610,11 +677,16 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
 
     let mut interp = Interpreter::with_builtins();
     commands::register(&mut interp);
-    let mut ctx = Context::new();
+    let mut session = aadt_app::Session::from_interpreter(interp);
 
-    let output = interp.run_script(&mut ctx, &script)?;
-    for line in output {
-        println!("{line}");
+    for (n, line) in script.lines().enumerate() {
+        match session.feed(line) {
+            aadt_app::Feedback::Ok(msg) => println!("{msg}"),
+            aadt_app::Feedback::Err(e) => {
+                return Err(format!("line {}: {e}", n + 1));
+            }
+            aadt_app::Feedback::Silent => {}
+        }
     }
     Ok(())
 }

@@ -1,0 +1,4 @@
+Fluent System Icons (SVG)
+Copyright (c) Microsoft Corporation
+License: MIT
+https://github.com/microsoft/fluentui-system-icons

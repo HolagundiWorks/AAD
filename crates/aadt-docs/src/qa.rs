@@ -129,7 +129,7 @@ mod tests {
             drawn_by: "VH".into(),
             checked_by: "JS".into(),
             revision: "A".into(),
-            extra: vec![],
+            ..Default::default()
         }
     }
 
