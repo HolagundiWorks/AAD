@@ -70,10 +70,82 @@ impl TakeoffTable {
     /// Entities are emitted in a fixed order — grid lines, then cell text row by
     /// row, left to right — so repeated insertion into equivalent documents
     /// produces identical output (spec §8).
+    ///
+    /// The first entity is tagged `AADT-SCHEDULE=1` plus origin / run attrs so
+    /// [`refresh_schedules`](TakeoffTable::refresh_schedules) can rebuild it.
     pub fn insert_schedule(&self, doc: &mut Document, style: &ScheduleStyle) -> Vec<EntityId> {
+        self.insert_schedule_with_run(doc, style, "")
+    }
+
+    /// Like [`insert_schedule`](Self::insert_schedule) but records `run_id` on the marker.
+    pub fn insert_schedule_with_run(
+        &self,
+        doc: &mut Document,
+        style: &ScheduleStyle,
+        run_id: &str,
+    ) -> Vec<EntityId> {
         let sheet = self.sheet();
         let grid = ScheduleGrid::new(&sheet.rows, style);
-        doc.transact("SCHEDULE", |d| grid.emit(d, &sheet.rows, style))
+        let origin = style.origin;
+        let run = run_id.to_string();
+        doc.transact("SCHEDULE", |d| {
+            let ids = grid.emit(d, &sheet.rows, style);
+            for (i, &id) in ids.iter().enumerate() {
+                if i == 0 {
+                    d.set_attribute(id, "AADT-SCHEDULE", "1");
+                    d.set_attribute(id, "AADT-SCHEDULE-X", format!("{}", origin.x));
+                    d.set_attribute(id, "AADT-SCHEDULE-Y", format!("{}", origin.y));
+                    if !run.is_empty() {
+                        d.set_attribute(id, "AADT-TAKEOFF-RUN", run.clone());
+                    }
+                } else {
+                    d.set_attribute(id, "AADT-SCHEDULE-PART", "1");
+                }
+            }
+            ids
+        })
+    }
+
+    /// Erase linked schedules and re-insert from this table (same origins).
+    pub fn refresh_schedules(&self, doc: &mut Document, run_id: &str) -> Result<usize, String> {
+        let markers: Vec<(EntityId, Point2)> = doc
+            .entities()
+            .into_iter()
+            .filter_map(|e| {
+                if e.attribute("AADT-SCHEDULE") != Some("1") {
+                    return None;
+                }
+                let x: f64 = e.attribute("AADT-SCHEDULE-X")?.parse().ok()?;
+                let y: f64 = e.attribute("AADT-SCHEDULE-Y")?.parse().ok()?;
+                Some((e.id, Point2::new(x, y)))
+            })
+            .collect();
+        if markers.is_empty() {
+            return Err("SCHEDULE REFRESH: no linked schedule in the drawing".into());
+        }
+        let mut erase: Vec<EntityId> = Vec::new();
+        for e in doc.entities() {
+            if e.attribute("AADT-SCHEDULE").is_some()
+                || e.attribute("AADT-SCHEDULE-PART").is_some()
+            {
+                erase.push(e.id);
+            }
+        }
+        let origins: Vec<Point2> = markers.into_iter().map(|(_, p)| p).collect();
+        doc.transact("SCHEDULE REFRESH", |d| {
+            for id in erase {
+                d.remove_entity(id);
+            }
+        });
+        let mut n = 0usize;
+        for origin in origins {
+            let style = ScheduleStyle {
+                origin,
+                ..Default::default()
+            };
+            n += self.insert_schedule_with_run(doc, &style, run_id).len();
+        }
+        Ok(n)
     }
 }
 

@@ -1,20 +1,31 @@
-//! AutoCAD-like chrome: quick-access bar, Layer Properties Manager, Blocks Manager,
-//! and status toggles. Icons are Microsoft Fluent System Icons (MIT).
+//! AutoCAD-like chrome with Windows 11 / Fluent design principles:
+//! calm surfaces, clear peer navigation, familiar commanding patterns.
+//! See [`super::theme`].
 
 use aadt_standards::{aci_to_srgb, LayerSet};
 use eframe::egui;
 
-use super::icons::{icon_btn, Icon};
+use super::icons::{icon_btn, icon_btn_compact, icon_btn_nav, Icon};
+use super::theme::{self, color, manager_title, nav_tabs, space};
 use super::{layer_stroke, tool_for, AadtApp, Tool};
 
+#[allow(dead_code)]
 pub fn status_toggle(ui: &mut egui::Ui, label: &str, on: bool, tip: &str) -> egui::Response {
     let fill = if on {
-        egui::Color32::from_rgb(180, 200, 230)
+        color::ACCENT_SOFT
     } else {
-        egui::Color32::from_rgb(220, 220, 220)
+        color::CONTROL
     };
-    ui.add(egui::Button::new(label).fill(fill))
-        .on_hover_text(tip)
+    ui.add(
+        egui::Button::new(egui::RichText::new(label).color(color::TEXT))
+            .fill(fill)
+            .stroke(egui::Stroke::new(
+                1.0_f32,
+                if on { color::ACCENT } else { color::STROKE },
+            ))
+            .rounding(0.0),
+    )
+    .on_hover_text(tip)
 }
 
 impl AadtApp {
@@ -29,11 +40,11 @@ impl AadtApp {
         ui.horizontal(|ui| {
             if icon_btn(ui, Icon::Add, "New layer").clicked() {
                 let name = format!("LAYER{}", self.session.document().layers().count() + 1);
-                self.session.feed(&format!("LAYER {name}"));
+                self.app_feed(&format!("LAYER {name}"));
                 self.current_layer = name;
             }
             if icon_btn(ui, Icon::Delete, "Delete unused (PURGE)").clicked() {
-                self.session.feed("PURGE LAYERS");
+                self.app_feed("PURGE LAYERS");
             }
             if icon_btn(ui, Icon::Select, "Set current").clicked() {
                 self.note = format!("Current layer: {}", self.current_layer);
@@ -49,7 +60,7 @@ impl AadtApp {
                             .clicked()
                         {
                             self.layer_set = name.to_string();
-                            let fb = self.session.feed(&format!("LAYERSET {name}"));
+                            let fb = self.app_feed(&format!("LAYERSET {name}"));
                             if let Some(m) = fb.message() {
                                 self.note = m.to_string();
                             }
@@ -59,79 +70,69 @@ impl AadtApp {
         });
         ui.separator();
 
-        // Column headers
+        // Column headers (icons: On / Freeze / Lock / Remove)
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Status").small().strong());
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("On").small().strong());
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("Freeze").small().strong());
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Color").small().strong());
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Name").small().strong());
+            ui.add_space(14.0); // current marker
+            ui.label(egui::RichText::new("On").small().strong().color(color::TEXT_SECONDARY));
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Frz").small().strong().color(color::TEXT_SECONDARY));
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Lck").small().strong().color(color::TEXT_SECONDARY));
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Clr").small().strong().color(color::TEXT_SECONDARY));
+            ui.add_space(6.0);
+            ui.label(egui::RichText::new("Name").small().strong().color(color::TEXT_SECONDARY));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("LW").small().strong());
+                ui.label(egui::RichText::new("LW").small().strong().color(color::TEXT_SECONDARY));
             });
         });
         ui.separator();
 
-        let filter = self.layer_filter.to_ascii_uppercase();
-        let mut rows: Vec<(String, u8, bool, bool, f32, String)> = self
-            .session
-            .document()
-            .layers()
-            .filter(|l| filter.is_empty() || l.name.to_ascii_uppercase().contains(&filter))
-            .map(|l| {
-                (
-                    l.name.clone(),
-                    l.color,
-                    l.visible,
-                    l.frozen,
-                    l.lineweight_mm,
-                    l.linetype.dxf_name().to_string(),
-                )
-            })
-            .collect();
-        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        let rows = self.layer_rows_snapshot();
         let total = rows.len();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for (name, color, visible, frozen, lw, _lt) in rows {
+            for (name, color_aci, visible, frozen, locked, lw, _lt) in rows {
                 let is_current = self.current_layer == name;
                 ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
                     // Current marker
                     if is_current {
-                        ui.colored_label(egui::Color32::from_rgb(40, 140, 40), "●");
+                        ui.colored_label(color::ACCENT, "●");
                     } else {
-                        ui.label(" ");
+                        ui.label(egui::RichText::new("·").color(color::STROKE));
                     }
-                    // On
-                    let on_label = if visible { "On" } else { "Off" };
-                    if ui
-                        .add(egui::Button::new(on_label).min_size(egui::vec2(28.0, 18.0)))
-                        .on_hover_text("On / Off")
-                        .clicked()
-                    {
+                    // On / Off
+                    let eye = if visible { Icon::Eye } else { Icon::EyeOff };
+                    if icon_btn_compact(ui, eye, "On / Off", !visible).clicked() {
                         let cmd = if visible { "OFF" } else { "ON" };
-                        self.session.feed(&format!("LAYER {name} {cmd}"));
+                        self.app_feed(&format!("LAYER {name} {cmd}"));
                     }
                     // Freeze
-                    let fr_label = if frozen { "Frz" } else { "Thw" };
-                    if ui
-                        .add(egui::Button::new(fr_label).min_size(egui::vec2(28.0, 18.0)))
-                        .on_hover_text("Freeze / Thaw")
-                        .clicked()
-                    {
+                    if icon_btn_compact(ui, Icon::Freeze, "Freeze / Thaw", frozen).clicked() {
                         let cmd = if frozen { "THAW" } else { "FREEZE" };
-                        self.session.feed(&format!("LAYER {name} {cmd}"));
+                        self.app_feed(&format!("LAYER {name} {cmd}"));
                     }
-                    // Color swatch
-                    let (r, g, b) = aci_to_srgb(color);
+                    // Lock
+                    let lock_icon = if locked { Icon::Lock } else { Icon::Unlock };
+                    if icon_btn_compact(ui, lock_icon, "Lock / Unlock", locked).clicked() {
+                        let cmd = if locked { "UNLOCK" } else { "LOCK" };
+                        self.app_feed(&format!("LAYER {name} {cmd}"));
+                    }
+                    // Color swatch (flat)
+                    let (r, g, b) = aci_to_srgb(color_aci);
                     let (sw, _) =
                         ui.allocate_painter(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                    ui.painter()
-                        .rect_filled(sw.rect, 2.0, egui::Color32::from_rgb(r, g, b));
+                    ui.painter().rect_filled(
+                        sw.rect,
+                        0.0,
+                        egui::Color32::from_rgb(r, g, b),
+                    );
+                    ui.painter().rect_stroke(
+                        sw.rect,
+                        0.0,
+                        egui::Stroke::new(1.0_f32, color::STROKE),
+                    );
                     // Name — click sets current
                     let name_resp = ui.selectable_label(is_current, &name);
                     if name_resp.clicked() {
@@ -142,6 +143,18 @@ impl AadtApp {
                         self.note = format!("Current layer set to {name}");
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if name != "0"
+                            && icon_btn_compact(ui, Icon::Delete, "Remove unused layer", false)
+                                .clicked()
+                        {
+                            let fb = self.app_feed(&format!("LAYER {name} REMOVE"));
+                            if let Some(m) = fb.message() {
+                                self.note = m.to_string();
+                            }
+                            if self.current_layer == name {
+                                self.current_layer = "0".into();
+                            }
+                        }
                         ui.small(format!("{lw:.2}"));
                     });
                 });
@@ -152,19 +165,41 @@ impl AadtApp {
     }
 
     pub(super) fn ui_blocks_manager(&mut self, ui: &mut egui::Ui) {
+        self.ensure_blocks_cache();
         ui.label(egui::RichText::new("Drawing blocks").strong());
-        let blocks: Vec<(String, usize)> = self
-            .session
-            .document()
-            .blocks()
-            .into_iter()
-            .map(|b| (b.name.clone(), b.entities.len()))
-            .collect();
+        if ui.button("Create from selection (BLOCK)").clicked() {
+            let collect = self.selection.is_empty();
+            self.tool = Tool::MakeBlock {
+                erase: false,
+                collecting: collect,
+                name: None,
+            };
+            self.note = if collect {
+                "BLOCK — select objects (Space when done)".into()
+            } else {
+                "BLOCK — type block name and Space".into()
+            };
+        }
+        if ui.button("Create & erase sources (WBLOCK)").clicked() {
+            let collect = self.selection.is_empty();
+            self.tool = Tool::MakeBlock {
+                erase: true,
+                collecting: collect,
+                name: None,
+            };
+            self.note = if collect {
+                "WBLOCK — select objects (Space when done)".into()
+            } else {
+                "WBLOCK — type block name and Space".into()
+            };
+        }
+        ui.separator();
+        let blocks = self.blocks_cache.clone();
         if blocks.is_empty() {
             ui.small("(no block definitions in drawing)");
         } else {
             egui::ScrollArea::vertical()
-                .max_height(180.0)
+                .max_height(220.0)
                 .show(ui, |ui| {
                     for (name, n) in &blocks {
                         ui.horizontal(|ui| {
@@ -178,8 +213,126 @@ impl AadtApp {
                             }
                             ui.small(format!("{n} ents"));
                         });
+                        if let Some(block) = self.session.document().block(name) {
+                            if !block.params.is_empty() {
+                                ui.small(format!(
+                                    "  params: {}",
+                                    block
+                                        .params
+                                        .iter()
+                                        .map(|p| p.name.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                ));
+                            }
+                            let vis: Vec<_> =
+                                block.visibilities.iter().map(|v| v.name.as_str()).collect();
+                            if vis.len() > 1 {
+                                ui.small(format!("  vis: {}", vis.join(", ")));
+                            }
+                        }
+                        ui.horizontal(|ui| {
+                            ui.small("Add param:");
+                            let key_id = egui::Id::new(("bparam_key", name.as_str()));
+                            let def_id = egui::Id::new(("bparam_def", name.as_str()));
+                            let mut key = ui.ctx().data_mut(|d| {
+                                d.get_temp::<String>(key_id).unwrap_or_default()
+                            });
+                            let mut def = ui.ctx().data_mut(|d| {
+                                d.get_temp::<String>(def_id).unwrap_or_default()
+                            });
+                            ui.add(
+                                egui::TextEdit::singleline(&mut key)
+                                    .desired_width(60.0)
+                                    .hint_text("WNAME"),
+                            );
+                            ui.add(
+                                egui::TextEdit::singleline(&mut def)
+                                    .desired_width(40.0)
+                                    .hint_text("def"),
+                            );
+                            if ui.small_button("+").clicked() && !key.is_empty() {
+                                let fb = self
+                                    .session
+                                    .feed(&format!("BPARAM {name} {key} {def}"));
+                                if let Some(m) = fb.message() {
+                                    self.note = m.to_string();
+                                }
+                                key.clear();
+                                def.clear();
+                                self.blocks_cache.clear();
+                                self.blocks_cache_rev = None;
+                            }
+                            ui.ctx().data_mut(|d| {
+                                d.insert_temp(key_id, key);
+                                d.insert_temp(def_id, def);
+                            });
+                        });
                     }
                 });
+        }
+        // Selected INSERT attribute editor
+        if let Some(id) = self.selection.first().copied() {
+            let insert_info = self.session.document().get(id).and_then(|e| {
+                match &e.geometry {
+                    aadt_model::Geometry::Insert(ins) => {
+                        let attrs: Vec<(String, String)> = e
+                            .attributes
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        let states = self
+                            .session
+                            .document()
+                            .block(&ins.name)
+                            .map(|b| {
+                                b.visibilities
+                                    .iter()
+                                    .map(|v| v.name.clone())
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
+                        Some((ins.name.clone(), attrs, states))
+                    }
+                    _ => None,
+                }
+            });
+            if let Some((ins_name, attrs, states)) = insert_info {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!("INSERT {ins_name} (#{})", id.0)).strong(),
+                );
+                for (k, v) in &attrs {
+                    ui.horizontal(|ui| {
+                        ui.small(k);
+                        let mut edit = v.clone();
+                        if ui
+                            .add(egui::TextEdit::singleline(&mut edit).desired_width(80.0))
+                            .changed()
+                        {
+                            let fb = self
+                                .session
+                                .feed(&format!("EATTEDIT {} {} {}", id.0, k, edit));
+                            if let Some(m) = fb.message() {
+                                self.note = m.to_string();
+                            }
+                        }
+                    });
+                }
+                if states.len() > 1 {
+                    ui.horizontal(|ui| {
+                        ui.small("Visibility:");
+                        for st in &states {
+                            if ui.small_button(st).clicked() {
+                                let fb = self.session.feed(&format!("BSETVIS {} {}", id.0, st));
+                                if let Some(m) = fb.message() {
+                                    self.note = m.to_string();
+                                }
+                            }
+                        }
+                    });
+                }
+            }
         }
         ui.separator();
         ui.label(egui::RichText::new("Block library (DXF/SVG)").strong());
@@ -218,6 +371,22 @@ impl AadtApp {
     }
 
     pub(super) fn ui_takeoff_panel(&mut self, ui: &mut egui::Ui) {
+        let live = {
+            let v = self.session.document().properties().takeoff_live.trim();
+            v.is_empty() || v == "1" || v.eq_ignore_ascii_case("on")
+        };
+        ui.horizontal(|ui| {
+            if live {
+                ui.colored_label(color::ACCENT, "Live");
+            } else {
+                ui.label("Manual");
+            }
+            ui.label(
+                egui::RichText::new(format!("rev {}", self.session.document().revision()))
+                    .small()
+                    .weak(),
+            );
+        });
         let t = self.session.takeoff();
         ui.label(format!("Walls: {}", t.walls.len()));
         ui.label(format!("Rooms: {}", t.rooms.len()));
@@ -226,56 +395,192 @@ impl AadtApp {
         ui.label(format!("Room area: {:.3}", t.total_room_area()));
         ui.separator();
         if ui.button("Run TAKEOFF").clicked() {
-            self.session.feed("TAKEOFF");
+            self.app_feed("TAKEOFF");
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
+                }
+            }
+        }
+        if ui.button("Publish takeoff").clicked() {
+            let sink = self.takeoff_sink_spec.clone();
+            if sink.is_empty() || sink == "none" {
+                self.app_feed("TAKEOFF PUBLISH");
+            } else {
+                self.app_feed(&format!("TAKEOFF PUBLISH {sink}"));
+            }
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
+                }
+            }
         }
         if ui.button("Place SCHEDULE").clicked() {
-            self.session.feed("SCHEDULE 0 0");
+            self.app_feed("SCHEDULE 0 0");
+        }
+        if ui.button("Refresh SCHEDULE").clicked() {
+            self.app_feed("SCHEDULE REFRESH");
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
+                }
+            }
+        }
+        ui.separator();
+        ui.label(egui::RichText::new("Publish sink").small().strong());
+        ui.add(
+            egui::TextEdit::singleline(&mut self.takeoff_sink_spec)
+                .desired_width(f32::INFINITY)
+                .hint_text("none | csv:C:\\out | json:… | postgres:out.sql"),
+        );
+        if ui.small_button("Save sink preference").clicked() {
+            self.persist_prefs();
+            self.note = "Takeoff sink preference saved".into();
         }
     }
 
-    /// Top quick-access bar + layer dropdown.
-    pub(super) fn draw_top_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("qat").exact_height(36.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                if icon_btn(ui, Icon::New, "New drawing").clicked() {
-                    let mut d = aadt_model::Document::new();
-                    aadt_standards::apply_standard_layers(&mut d);
-                    self.session.set_document(d);
-                    self.selection.clear();
-                    self.fitted = false;
-                    self.note = "New drawing".into();
+    pub(super) fn ui_history_panel(&mut self, ui: &mut egui::Ui) {
+        ui.label(
+            egui::RichText::new("One file, many versions — no RevA / RevB copies.")
+                .small()
+                .weak(),
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Save version…").clicked() {
+                self.history_label = if self.history_label.trim().is_empty() {
+                    "Named version".into()
+                } else {
+                    self.history_label.clone()
+                };
+                self.app_feed(&format!("HISTORY SAVE {}", self.history_label.replace(' ', "_")));
+                if let Some(fb) = self.session.transcript().last() {
+                    if let Some(msg) = fb.message() {
+                        self.note = msg.to_string();
+                    }
                 }
-                if icon_btn(ui, Icon::Open, "Open…").clicked() {
+            }
+            if ui.button("Refresh list").clicked() {
+                self.app_feed("HISTORY LIST");
+                if let Some(fb) = self.session.transcript().last() {
+                    if let Some(msg) = fb.message() {
+                        self.note = msg.to_string();
+                    }
+                }
+            }
+            if ui.small_button("Purge autos").clicked() {
+                self.app_feed("HISTORY PURGE");
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Label");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.history_label)
+                    .desired_width(160.0)
+                    .hint_text("Issued for construction"),
+            );
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            // Prefer store list when path is .aadt
+            if let Some(path) = &self.file_path {
+                if path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .map(|e| e.eq_ignore_ascii_case("aadt"))
+                    .unwrap_or(false)
+                {
+                    match aadt_store::list_checkpoints(path) {
+                        Ok(list) => {
+                            if list.is_empty() {
+                                ui.label("No checkpoints yet — SAVE the drawing.");
+                            }
+                            for c in list.iter().take(40) {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!(
+                                        "#{} [{}] {}",
+                                        c.id, c.kind, c.label
+                                    ));
+                                    if ui.small_button("Restore").clicked() {
+                                        self.app_feed(&format!("HISTORY RESTORE {}", c.id));
+                                        self.fitted = false;
+                                        if let Some(fb) = self.session.transcript().last() {
+                                            if let Some(msg) = fb.message() {
+                                                self.note = msg.to_string();
+                                            }
+                                        }
+                                    }
+                                });
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "  {} · rev {}",
+                                        c.change_summary, c.doc_revision
+                                    ))
+                                    .small()
+                                    .weak(),
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(160, 60, 60),
+                                format!("History: {e}"),
+                            );
+                        }
+                    }
+                } else {
+                    ui.label("Save as .aadt to enable the time machine.");
+                }
+            } else {
+                ui.label("OPEN or SAVE a .aadt drawing to use History.");
+            }
+        });
+    }
+
+    /// Top quick-access bar — familiar File / Edit / Layer / Plot commanding.
+    pub(super) fn draw_top_bar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("qat")
+            .exact_height(44.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::LAYER_BASE)
+                    .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
+                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+            )
+            .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = space::XS;
+                // File
+                if icon_btn(ui, Icon::New, "New drawing (Ctrl+N)").clicked() {
+                    self.new_drawing();
+                }
+                if icon_btn(ui, Icon::Open, "Open… (Ctrl+O)").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("AADT / DXF", &["aadt", "dxf"])
                         .pick_file()
                     {
                         let p = path.display().to_string();
-                        self.session.feed(&format!("OPEN {p}"));
+                        self.app_feed(&format!("OPEN {p}"));
                         self.fitted = false;
                         self.selection.clear();
                     }
                 }
-                if icon_btn(ui, Icon::Save, "Save…").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("AADT", &["aadt"])
-                        .add_filter("DXF", &["dxf"])
-                        .set_file_name("drawing.aadt")
-                        .save_file()
-                    {
-                        let p = path.display().to_string();
-                        self.session.feed(&format!("SAVE {p}"));
-                    }
+                if icon_btn(ui, Icon::Save, "Save (Ctrl+S)").clicked() {
+                    self.quick_save();
                 }
+                ui.add_space(space::SM);
                 ui.separator();
-                if icon_btn(ui, Icon::Undo, "Undo").clicked() {
-                    self.session.feed("UNDO");
+                ui.add_space(space::SM);
+                // Edit
+                if icon_btn(ui, Icon::Undo, "Undo (Ctrl+Z)").clicked() {
+                    self.app_feed("UNDO");
                 }
-                if icon_btn(ui, Icon::Redo, "Redo").clicked() {
-                    self.session.feed("REDO");
+                if icon_btn(ui, Icon::Redo, "Redo (Ctrl+Y)").clicked() {
+                    self.app_feed("REDO");
                 }
+                ui.add_space(space::SM);
                 ui.separator();
+                ui.add_space(space::SM);
+                // Layer (context for drafting)
                 let (sw, _) = layer_stroke(
                     self.session.document(),
                     &self.current_layer,
@@ -283,8 +588,9 @@ impl AadtApp {
                     true,
                 );
                 let (r, painter) =
-                    ui.allocate_painter(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                painter.rect_filled(r.rect, 2.0, sw);
+                    ui.allocate_painter(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                painter.rect_filled(r.rect, 0.0, sw);
+                painter.rect_stroke(r.rect, 0.0, egui::Stroke::new(1.0_f32, color::STROKE));
                 egui::ComboBox::from_id_salt("cur_layer")
                     .selected_text(&self.current_layer)
                     .width(160.0)
@@ -303,31 +609,113 @@ impl AadtApp {
                             }
                         }
                     });
-                ui.label(egui::RichText::new("ByLayer").small().weak());
+                ui.label(
+                    egui::RichText::new("ByLayer")
+                        .small()
+                        .color(color::TEXT_SECONDARY),
+                );
+                ui.add_space(space::SM);
                 ui.separator();
-                // Panel tabs (Layers / Blocks / …) live on the right strip when collapsed.
-                if icon_btn(ui, Icon::Plot, "Plot to PDF…").clicked() {
+                ui.add_space(space::SM);
+                if icon_btn(ui, Icon::Plot, "Plot to PDF… (Ctrl+P)").clicked() {
                     self.seed_plot_dialog();
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new("AADT").strong());
+                    ui.label(
+                        egui::RichText::new("AADT")
+                            .strong()
+                            .color(color::TEXT),
+                    );
                 });
             });
         });
     }
 
-    pub(super) fn draw_bottom_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("status")
-            .exact_height(58.0)
+    pub(super) fn open_drawing_properties(&mut self) {
+        self.show_drawing_props = true;
+        self.props_edit = self.session.document().properties().clone();
+        self.note = "Drawing Property Manager".into();
+    }
+
+    pub(super) fn draw_drawing_props_panel(&mut self, ctx: &egui::Context) {
+        if !self.show_drawing_props {
+            return;
+        }
+        egui::TopBottomPanel::bottom("drawing_props")
+            .default_height(280.0)
+            .min_height(160.0)
+            .resizable(true)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::LAYER_CARD)
+                    .inner_margin(egui::Margin::same(space::MD))
+                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+            )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let _ = ui.add(egui::Button::new("Model").selected(true));
+                    ui.label(
+                        egui::RichText::new("Drawing properties")
+                            .heading()
+                            .color(color::TEXT),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if icon_btn(ui, Icon::Dismiss, "Close drawing properties").clicked() {
+                            self.show_drawing_props = false;
+                        }
+                    });
+                });
+                ui.add_space(space::XS);
+                ui.separator();
+                ui.add_space(space::SM);
+                self.ui_drawing_properties(ui);
+            });
+    }
+
+    pub(super) fn draw_bottom_bar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::bottom("status")
+            .exact_height(40.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::LAYER_BASE)
+                    .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
+                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    // Active drawing units (left of command line).
+                    let units = aadt_model::primary_from_props(
+                        &self.session.document().properties().units,
+                    );
+                    let units_chip = ui.add(
+                        egui::Button::new(
+                            egui::RichText::new(units.as_token())
+                                .strong()
+                                .color(color::ACCENT),
+                        )
+                        .fill(color::ACCENT_SOFT)
+                        .stroke(egui::Stroke::new(1.0_f32, color::ACCENT))
+                        .rounding(0.0),
+                    );
+                    let _ = units_chip.on_hover_text(units.label());
+                    if icon_btn_nav(
+                        ui,
+                        Icon::Props,
+                        "Drawing properties (PR)",
+                        self.show_drawing_props,
+                    )
+                    .clicked()
+                    {
+                        if self.show_drawing_props {
+                            self.show_drawing_props = false;
+                        } else {
+                            self.open_drawing_properties();
+                        }
+                    }
                     ui.separator();
-                    ui.label(egui::RichText::new("Type a command").small().weak());
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.command)
-                            .desired_width((ui.available_width() - 260.0).max(120.0))
-                            .hint_text("LINE, OFFSET, LAYERSET, LISP…"),
+                            .desired_width((ui.available_width() - 420.0).max(100.0))
+                            .hint_text("Type a command — Space runs · F1 help"),
                     );
                     if self.refocus {
                         resp.request_focus();
@@ -349,267 +737,302 @@ impl AadtApp {
                     if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         self.submit_command_line();
                     }
-                });
-                ui.horizontal(|ui| {
-                    if let Some(prompt) = self.tool_prompt() {
-                        ui.colored_label(egui::Color32::from_rgb(30, 90, 160), prompt);
-                    } else if !self.note.is_empty() {
-                        ui.colored_label(egui::Color32::from_rgb(140, 100, 20), &self.note);
-                    } else if let Some(fb) = self.session.transcript().last() {
-                        if let Some(msg) = fb.message() {
-                            if fb.is_err() {
-                                ui.colored_label(egui::Color32::from_rgb(180, 40, 40), msg);
-                            } else {
-                                ui.monospace(msg);
-                            }
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(c) = self.cursor {
-                            ui.monospace(format!("{:.2}, {:.2}", c.x, c.y));
-                        }
-                        ui.separator();
-                        if status_toggle(ui, "POLAR", self.polar, "Polar tracking (F10)").clicked()
-                        {
-                            self.polar = !self.polar;
-                        }
-                        if status_toggle(ui, "LW", self.show_lweights, "Show lineweights").clicked()
-                        {
-                            self.show_lweights = !self.show_lweights;
-                        }
-                        if status_toggle(ui, "OSNAP", self.osnap, "Object snap (F3)").clicked() {
-                            self.osnap = !self.osnap;
-                            self.snap_hit = None;
-                        }
-                        if status_toggle(ui, "ORTHO", self.ortho, "Ortho (F8)").clicked() {
-                            self.ortho = !self.ortho;
-                        }
-                        ui.small("1:100");
-                    });
-                });
-                let token = self.command.trim().to_string();
-                if !token.is_empty() && !token.contains(' ') {
-                    let matches = self.session.complete(&token);
-                    if !matches.is_empty() {
-                        ui.horizontal_wrapped(|ui| {
-                            for m in matches.iter().take(12) {
-                                if ui.small_button(m).clicked() {
-                                    let up = m.to_ascii_uppercase();
-                                    if matches!(up.as_str(), "E" | "ERASE")
-                                        || tool_for(m, !self.selection.is_empty()).is_some()
-                                    {
-                                        self.command.clear();
-                                        self.last_line = Some(m.clone());
-                                        self.dispatch(m);
-                                    } else {
-                                        self.command = format!("{m} ");
-                                        self.refocus = true;
-                                    }
+
+                    // Completions only while typing a token (max 6).
+                    let token = self.command.trim().to_string();
+                    if !token.is_empty() && !token.contains(' ') {
+                        let matches = self.session.complete(&token);
+                        for m in matches.iter().take(6) {
+                            if ui.small_button(m).clicked() {
+                                let up = m.to_ascii_uppercase();
+                                if matches!(up.as_str(), "E" | "ERASE")
+                                    || tool_for(m, !self.selection.is_empty()).is_some()
+                                {
+                                    self.command.clear();
+                                    self.last_line = Some(m.clone());
+                                    self.dispatch(m);
+                                } else {
+                                    self.command = format!("{m} ");
+                                    self.refocus = true;
                                 }
                             }
-                        });
+                        }
                     }
-                }
+
+                    if let Some(prompt) = self.tool_prompt() {
+                        ui.colored_label(color::ACCENT, prompt);
+                    } else if !self.note.is_empty() {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(140, 100, 20),
+                            &self.note,
+                        );
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let n = self.session.document().len();
+                        ui.label(
+                            egui::RichText::new(format!("{n} ents"))
+                                .small()
+                                .color(color::TEXT_SECONDARY),
+                        );
+                        if self.dirty {
+                            ui.colored_label(egui::Color32::from_rgb(160, 80, 20), "MOD");
+                        }
+                        if let Some(p) = &self.file_path {
+                            let name = p
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("drawing");
+                            let short = if name.len() > 18 {
+                                format!("…{}", &name[name.len() - 16..])
+                            } else {
+                                name.to_string()
+                            };
+                            ui.label(
+                                egui::RichText::new(short)
+                                    .small()
+                                    .color(color::TEXT_SECONDARY),
+                            );
+                        }
+                        for (on, label) in [
+                            (self.polar, "POLAR"),
+                            (self.osnap, "OSNAP"),
+                            (self.ortho, "ORTHO"),
+                        ] {
+                            if on {
+                                ui.label(
+                                    egui::RichText::new(label)
+                                        .small()
+                                        .strong()
+                                        .color(color::ACCENT),
+                                );
+                            }
+                        }
+                        if let Some(c) = self.cursor {
+                            ui.monospace(format!("{:.2},{:.2}", c.x, c.y));
+                        }
+                        egui::ComboBox::from_id_salt("opts_menu")
+                            .selected_text("Options")
+                            .width(80.0)
+                            .show_ui(ui, |ui| {
+                                if ui.checkbox(&mut self.ortho, "Ortho (F8)").changed() {
+                                    self.persist_prefs();
+                                }
+                                if ui.checkbox(&mut self.osnap, "Osnap (F3)").changed() {
+                                    self.snap_hit = None;
+                                    self.persist_prefs();
+                                }
+                                if ui.checkbox(&mut self.polar, "Polar (F10)").changed() {
+                                    self.persist_prefs();
+                                }
+                                if ui.checkbox(&mut self.show_lweights, "Lineweights").changed()
+                                {
+                                    self.persist_prefs();
+                                }
+                                if ui.button("Keyboard help (F1)").clicked() {
+                                    self.show_shortcuts = true;
+                                }
+                            });
+                    });
+                });
             });
     }
 
     pub(super) fn draw_right_panel(&mut self, ctx: &egui::Context) {
         if !self.show_layer_mgr {
-            // Collapsed: thin strip so the manager can be re-opened.
+            // Collapsed nav rail — left-nav pattern for peer destinations.
             egui::SidePanel::right("layer_mgr_collapsed")
-                .exact_width(28.0)
+                .exact_width(48.0)
                 .resizable(false)
+                .frame(
+                    egui::Frame::none()
+                        .fill(color::LAYER_BASE)
+                        .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                )
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.add_space(8.0);
-                        if icon_btn(ui, Icon::ExpandPanel, "Expand Layer Manager").clicked() {
+                        ui.add_space(space::SM);
+                        if icon_btn_nav(ui, Icon::ExpandPanel, "Expand manager", false).clicked()
+                        {
                             self.show_layer_mgr = true;
+                            self.persist_prefs();
                         }
-                        ui.add_space(6.0);
-                        if icon_btn(ui, Icon::Layers, "Layers").clicked() {
-                            self.show_layer_mgr = true;
-                            self.right_tab = 0;
-                        }
-                        if icon_btn(ui, Icon::Blocks, "Blocks").clicked() {
-                            self.show_layer_mgr = true;
-                            self.right_tab = 1;
-                        }
-                        if icon_btn(ui, Icon::Hatch, "Hatches").clicked() {
-                            self.show_layer_mgr = true;
-                            self.right_tab = 4;
-                        }
-                        if icon_btn(ui, Icon::Annotate, "Annotate").clicked() {
-                            self.show_layer_mgr = true;
-                            self.right_tab = 5;
-                        }
-                        if icon_btn(ui, Icon::Ai, "AI Recognize").clicked() {
-                            self.show_layer_mgr = true;
-                            self.right_tab = 6;
-                        }
-                        if icon_btn(ui, Icon::Props, "Properties").clicked() {
-                            self.show_layer_mgr = true;
-                            self.right_tab = 3;
-                            self.props_edit = self.session.document().properties().clone();
+                        ui.add_space(space::SM);
+                        ui.separator();
+                        ui.add_space(space::XS);
+                        for dest in theme::manager_nav() {
+                            if icon_btn_nav(
+                                ui,
+                                dest.icon,
+                                dest.tip,
+                                self.right_tab == dest.tab,
+                            )
+                            .clicked()
+                            {
+                                self.show_layer_mgr = true;
+                                self.right_tab = dest.tab;
+                                if matches!(dest.tab, 6 | 7) {
+                                    self.props_edit =
+                                        self.session.document().properties().clone();
+                                }
+                                self.persist_prefs();
+                            }
                         }
                     });
                 });
             return;
         }
         egui::SidePanel::right("layer_mgr")
-            .default_width(340.0)
+            .default_width(self.right_panel_width)
             .min_width(280.0)
             .resizable(true)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::LAYER_CARD)
+                    .inner_margin(egui::Margin::same(space::MD))
+                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+            )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.heading(match self.right_tab {
-                        3 => "DRAWING PROPERTY MANAGER",
-                        1 => "BLOCKS MANAGER",
-                        2 => "TAKEOFF",
-                        4 => "HATCH MANAGER",
-                        5 => "ANNOTATE",
-                        6 => "AI RECOGNIZE",
-                        _ => "LAYER PROPERTIES MANAGER",
-                    });
+                    ui.label(
+                        egui::RichText::new(manager_title(self.right_tab))
+                            .heading()
+                            .color(color::TEXT),
+                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_btn(ui, Icon::Dismiss, "Close panel").clicked() {
                             self.show_layer_mgr = false;
+                            self.persist_prefs();
                         }
-                        if icon_btn(ui, Icon::CollapsePanel, "Collapse panel").clicked() {
+                        if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
                             self.show_layer_mgr = false;
+                            self.persist_prefs();
                         }
                     });
                 });
-                ui.horizontal_wrapped(|ui| {
-                    if ui.selectable_label(self.right_tab == 0, "Layers").clicked() {
-                        self.right_tab = 0;
-                    }
-                    if ui.selectable_label(self.right_tab == 1, "Blocks").clicked() {
-                        self.right_tab = 1;
-                    }
-                    if ui.selectable_label(self.right_tab == 2, "Takeoff").clicked() {
-                        self.right_tab = 2;
-                    }
-                    if ui.selectable_label(self.right_tab == 3, "Properties").clicked() {
-                        self.right_tab = 3;
-                        self.props_edit = self.session.document().properties().clone();
-                    }
-                    if ui.selectable_label(self.right_tab == 4, "Hatches").clicked() {
-                        self.right_tab = 4;
-                    }
-                    if ui.selectable_label(self.right_tab == 5, "Annotate").clicked() {
-                        self.right_tab = 5;
-                    }
-                    if ui.selectable_label(self.right_tab == 6, "AI").clicked() {
-                        self.right_tab = 6;
-                    }
-                });
+                ui.add_space(space::XS);
+                if nav_tabs(ui, &mut self.right_tab) && matches!(self.right_tab, 6 | 7) {
+                    self.props_edit = self.session.document().properties().clone();
+                }
+                ui.add_space(space::SM);
                 ui.separator();
+                ui.add_space(space::SM);
                 match self.right_tab {
                     0 => self.ui_layer_manager(ui),
                     1 => self.ui_blocks_manager(ui),
                     2 => self.ui_takeoff_panel(ui),
-                    3 => self.ui_drawing_properties(ui),
-                    4 => self.ui_hatch_manager(ui),
-                    5 => self.ui_annotate_panel(ui),
-                    _ => self.ui_ai_recognize_panel(ui),
+                    3 => self.ui_hatch_manager(ui),
+                    4 => self.ui_annotate_panel(ui),
+                    5 => self.ui_templates_panel(ui),
+                    6 => self.ui_units_manager(ui),
+                    7 => self.ui_dimension_manager(ui),
+                    _ => self.ui_history_panel(ui),
+                }
+                let w = ui.max_rect().width();
+                if (w - self.right_panel_width).abs() > 2.0 {
+                    self.right_panel_width = w;
+                    self.persist_prefs();
                 }
             });
     }
 
-    pub(super) fn ui_ai_recognize_panel(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn ui_templates_panel(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(egui::RichText::new("AI Recognize (walls)").strong());
+            ui.label(egui::RichText::new("Nameplate template").strong());
             ui.label(
                 egui::RichText::new(
-                    "Proposes classifications only — geometry is never rewritten. Freeze locks approved types.",
+                    "Draw on TMPL_BORDER / TMPL_VIEW / TMPL_TEXT, make a block, convert it, then INSERT. Text with {title} etc. fills from Drawing Properties.",
                 )
                 .small()
                 .weak(),
             );
             ui.separator();
-            if ui.button("Recognize Drawing").clicked() {
-                let fb = self.session.feed("RECOGNIZE");
+            if ui.button("Ensure template layers").clicked() {
+                let fb = self.app_feed("TEMPLATE LAYERS");
                 if let Some(m) = fb.message() {
                     self.note = m.to_string();
                 }
             }
-            ui.horizontal(|ui| {
-                if ui.button("Review list").clicked() {
-                    let fb = self.session.feed("REVIEW");
-                    if let Some(m) = fb.message() {
-                        self.note = m.to_string();
-                    }
-                }
-                if ui.button("Freeze all accepted").clicked() {
-                    let fb = self.session.feed("FREEZE");
-                    if let Some(m) = fb.message() {
-                        self.note = m.to_string();
-                    }
-                }
-            });
+            ui.label(
+                egui::RichText::new("TMPL_BORDER — border · TMPL_VIEW — drawing area · TMPL_TEXT — nameplate")
+                    .small()
+                    .weak(),
+            );
             ui.separator();
-            let counts = aadt_ai::status_counts(self.session.document());
+            let nameplate = self
+                .session
+                .document()
+                .properties()
+                .nameplate_block
+                .clone();
             ui.label(format!(
-                "Proposed: {}  Accepted: {}  Frozen: {}  Rejected: {}",
-                counts[0].1, counts[1].1, counts[2].1, counts[3].1
+                "Nameplate block: {}",
+                if nameplate.is_empty() {
+                    "(none)"
+                } else {
+                    nameplate.as_str()
+                }
             ));
-            let review =
-                aadt_ai::list_for_review(self.session.document(), aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
-            ui.label(format!("Needs review: {}", review.len()));
-            ui.separator();
-            ui.label(egui::RichText::new("Exceptions (low confidence / proposed)").strong());
-            for it in review.iter().take(40) {
-                ui.horizontal(|ui| {
-                    let selected = self.selection.contains(&it.entity_id);
-                    if ui
-                        .selectable_label(
-                            selected,
-                            format!(
-                                "#{} {} {:.0}% {}",
-                                it.entity_id.0,
-                                it.wall_type,
-                                it.confidence * 100.0,
-                                it.status.as_token()
-                            ),
-                        )
-                        .clicked()
-                    {
-                        self.selection = vec![it.entity_id];
-                        self.sync_selection();
-                    }
-                    if ui.small_button("Accept").clicked() {
-                        self.selection = vec![it.entity_id];
-                        self.sync_selection();
-                        let fb = self.session.feed("ACCEPT SELECTION");
-                        if let Some(m) = fb.message() {
-                            self.note = m.to_string();
-                        }
-                    }
-                    if ui.small_button("Freeze").clicked() {
-                        let fb = self
-                            .session
-                            .feed(&format!("FREEZE {}", it.entity_id.0));
-                        if let Some(m) = fb.message() {
-                            self.note = m.to_string();
-                        }
-                    }
-                });
-            }
-            if review.len() > 40 {
-                ui.label(format!("…and {} more (run REVIEW)", review.len() - 40));
-            }
-            ui.separator();
-            ui.label(egui::RichText::new("Override type on selection").small());
             ui.horizontal(|ui| {
-                for ty in ["exterior", "partition", "shaft", "fire-rated"] {
-                    if ui.small_button(ty).clicked() {
-                        let fb = self.session.feed(&format!("ACCEPT SELECTION {ty}"));
+                ui.label("Block:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.insert_block).desired_width(120.0),
+                );
+                if ui.button("Convert to template").clicked() {
+                    let name = self.insert_block.trim().to_string();
+                    if name.is_empty() {
+                        self.note = "Enter a block name first".into();
+                    } else {
+                        let fb = self.app_feed(&format!("TEMPLATE FROMBLOCK {name}"));
                         if let Some(m) = fb.message() {
                             self.note = m.to_string();
                         }
                     }
                 }
             });
+            if !nameplate.is_empty() && ui.button(format!("INSERT {nameplate}")).clicked() {
+                self.insert_block = nameplate.clone();
+                self.tool = Tool::Insert {
+                    name: nameplate.clone(),
+                };
+                self.note = format!("INSERT {nameplate} — click to place");
+            }
+            ui.separator();
+            ui.label(egui::RichText::new("Property fields (place as TEXT)").strong());
+            ui.label(
+                egui::RichText::new("Sets layer TMPL_TEXT, then click insertion point and Space.")
+                    .small()
+                    .weak(),
+            );
+            ui.horizontal_wrapped(|ui| {
+                for token in [
+                    "title",
+                    "project",
+                    "client",
+                    "drawing_number",
+                    "sheet_number",
+                    "scale",
+                    "date",
+                    "revision",
+                    "firm_name",
+                    "drawn_by",
+                    "checked_by",
+                    "units",
+                ] {
+                    if ui.small_button(format!("{{{token}}}")).clicked() {
+                        self.current_layer = "TMPL_TEXT".into();
+                        self.dyn_input = format!("{{{token}}}");
+                        self.tool = Tool::Text { origin: None };
+                        self.note = format!(
+                            "TEXT {{{token}}} — click point, then Space (layer TMPL_TEXT)"
+                        );
+                    }
+                }
+            });
+            ui.separator();
+            if ui.link("Open Drawing Properties").clicked() {
+                self.open_drawing_properties();
+            }
         });
     }
 
@@ -690,9 +1113,74 @@ impl AadtApp {
                 self.tool = Tool::RevCloud { first: None };
             }
             ui.separator();
+            ui.label(egui::RichText::new("Dimensions").strong());
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Aligned (DIM)").clicked() {
+                    self.tool = Tool::Dim {
+                        first: None,
+                        second: None,
+                    };
+                    self.note = "DIM — click first point".into();
+                }
+                if ui.button("Continue (DIMCONTINUE)").clicked() {
+                    self.tool = Tool::DimContinue;
+                    self.note = "DIMCONTINUE — next definition point (Space finishes)".into();
+                }
+                if ui.button("Quick Dim (QDIM)").clicked() {
+                    if self.selection.is_empty() {
+                        self.note = "QDIM — select objects first, then pick dim-line side".into();
+                    }
+                    self.tool = Tool::QDim;
+                    if !self.selection.is_empty() {
+                        self.note = "QDIM — click dim-line side".into();
+                    }
+                }
+                if ui.button("Auto Dim").clicked() {
+                    if self.selection.is_empty() {
+                        self.app_feed("AUTODIM ALL");
+                        self.note = "AUTODIM ALL — structure layers isolated".into();
+                    } else {
+                        self.sync_selection();
+                        self.app_feed("AUTODIM SELECTION");
+                        self.note = "AUTODIM — structure layers isolated".into();
+                    }
+                    if let Some(fb) = self.session.transcript().last() {
+                        if let Some(msg) = fb.message() {
+                            self.note = msg.to_string();
+                        }
+                    }
+                }
+                if ui.button("Radius").clicked() {
+                    self.tool = Tool::DimRadius;
+                    self.note = "DIMRADIUS — click a circle or arc".into();
+                }
+                if ui.button("Diameter").clicked() {
+                    self.tool = Tool::DimDiameter;
+                    self.note = "DIMDIAMETER — click a circle or arc".into();
+                }
+                if ui.button("Angular").clicked() {
+                    self.tool = Tool::DimAngular {
+                        vertex: None,
+                        p1: None,
+                    };
+                    self.note = "DIMANGULAR — click vertex".into();
+                }
+            });
+            if ui.small_button("Restore layers (after Auto Dim)").clicked() {
+                self.app_feed("AUTODIMRESTORE");
+                if let Some(fb) = self.session.transcript().last() {
+                    if let Some(msg) = fb.message() {
+                        self.note = msg.to_string();
+                    }
+                }
+            }
+            if ui.small_button("Open Dimension manager…").clicked() {
+                self.right_tab = 7;
+            }
+            ui.separator();
             ui.label(egui::RichText::new("Object count").strong());
             if ui.button("Count all objects").clicked() {
-                self.session.feed("COUNT ALL");
+                self.app_feed("COUNT ALL");
                 if let Some(fb) = self.session.transcript().last() {
                     if let Some(msg) = fb.message() {
                         self.note = msg.to_string();
@@ -701,7 +1189,7 @@ impl AadtApp {
             }
             if ui.button("Count selection types").clicked() {
                 self.sync_selection();
-                self.session.feed("COUNT ALL");
+                self.app_feed("COUNT ALL");
             }
             ui.separator();
             ui.label(egui::RichText::new("Auto-number").strong());
@@ -725,7 +1213,7 @@ impl AadtApp {
                     self.note = "Select objects to number first".into();
                 } else {
                     self.sync_selection();
-                    self.session.feed(&format!(
+                    self.app_feed(&format!(
                         "AUTONUM SELECTION {} {}",
                         self.autonum_prefix, self.autonum_start
                     ));
@@ -763,6 +1251,13 @@ impl AadtApp {
             prop_field(ui, "Hyperlink base", &mut self.props_edit.hyperlink_base);
             ui.separator();
             ui.label(egui::RichText::new("Title block (fixed layout / per-sheet attributes)").strong());
+            ui.label(
+                egui::RichText::new(
+                    "These fields also fill {title}, {project}, … text in nameplate templates (Templates tab).",
+                )
+                .small()
+                .weak(),
+            );
             prop_field(ui, "Company name", &mut self.props_edit.firm_name);
             prop_field(ui, "Tagline", &mut self.props_edit.firm_tagline);
             prop_field(ui, "Office address", &mut self.props_edit.office_address);
@@ -865,6 +1360,7 @@ impl AadtApp {
                 if ui.button("Apply").clicked() {
                     self.session
                         .set_drawing_properties(self.props_edit.clone());
+                    self.dirty = true;
                     self.note = "Drawing properties applied".into();
                 }
                 if ui.button("Reload").clicked() {
@@ -873,7 +1369,270 @@ impl AadtApp {
                 if ui.button("Plot PDF…").clicked() {
                     self.session
                         .set_drawing_properties(self.props_edit.clone());
+                    self.dirty = true;
                     self.seed_plot_dialog();
+                }
+            });
+        });
+    }
+
+    pub(super) fn ui_units_manager(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Primary units control model coordinates and dimension label style.",
+                )
+                .small()
+                .weak(),
+            );
+            ui.add_space(6.0);
+
+            let primary = aadt_model::primary_from_props(&self.props_edit.units);
+            ui.label(egui::RichText::new("Primary units").strong());
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(
+                        primary == aadt_model::UnitSystem::FeetInches,
+                        "Feet & inches",
+                    )
+                    .on_hover_text("World = inches. Bare typed values are inches; use ' and \" for feet/inches.")
+                    .clicked()
+                {
+                    self.props_edit.units = aadt_model::UnitSystem::FeetInches
+                        .as_token()
+                        .to_string();
+                    self.props_edit.dimstyle = aadt_model::UnitSystem::FeetInches
+                        .dimstyle_name()
+                        .to_string();
+                }
+                if ui
+                    .selectable_label(primary == aadt_model::UnitSystem::Meters, "Decimal meters")
+                    .on_hover_text("World = metres. Bare typed values are metres.")
+                    .clicked()
+                {
+                    self.props_edit.units =
+                        aadt_model::UnitSystem::Meters.as_token().to_string();
+                    self.props_edit.dimstyle =
+                        aadt_model::UnitSystem::Meters.dimstyle_name().to_string();
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("Entry tips").strong());
+            match primary {
+                aadt_model::UnitSystem::FeetInches => {
+                    ui.label("• `6` or `6.5` → inches (default)");
+                    ui.label("• `6\"` → 6 inches");
+                    ui.label("• `12'` → 12 feet");
+                    ui.label("• `12'-6\"` → 12 ft 6 in");
+                }
+                aadt_model::UnitSystem::Meters => {
+                    ui.label("• `3.5` → 3.5 metres");
+                    ui.label("• `12'-6\"` still parses (converted to metres)");
+                }
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("Secondary unit display").strong());
+            let mut secondary = aadt_model::secondary_enabled(&self.props_edit.dim_secondary);
+            let sec_label = match primary {
+                aadt_model::UnitSystem::FeetInches => {
+                    "Show meters in brackets on dimensions"
+                }
+                aadt_model::UnitSystem::Meters => {
+                    "Show feet & inches in brackets on dimensions"
+                }
+            };
+            if ui.checkbox(&mut secondary, sec_label).changed() {
+                self.props_edit.dim_secondary = if secondary {
+                    "1".into()
+                } else {
+                    "0".into()
+                };
+            }
+            let sample = aadt_model::format_length_pair(
+                match primary {
+                    aadt_model::UnitSystem::FeetInches => 150.0,
+                    aadt_model::UnitSystem::Meters => 3.81,
+                },
+                primary,
+                secondary,
+            );
+            ui.label(format!("Sample label: {sample}"));
+
+            ui.separator();
+            ui.label(format!(
+                "Dim style (from units): {}",
+                if self.props_edit.dimstyle.is_empty() {
+                    primary.dimstyle_name()
+                } else {
+                    &self.props_edit.dimstyle
+                }
+            ));
+            if ui.small_button("Open Dimension manager…").clicked() {
+                self.right_tab = 7;
+            }
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Apply").clicked() {
+                    let sys = aadt_model::primary_from_props(&self.props_edit.units);
+                    if self.props_edit.dimstyle.is_empty()
+                        || self.props_edit.dimstyle.eq_ignore_ascii_case("STANDARD")
+                        || self
+                            .props_edit
+                            .dimstyle
+                            .eq_ignore_ascii_case("ARCHITECTURAL")
+                        || self.props_edit.dimstyle.eq_ignore_ascii_case("METRIC")
+                    {
+                        self.props_edit.dimstyle = sys.dimstyle_name().to_string();
+                    }
+                    self.session
+                        .set_drawing_properties(self.props_edit.clone());
+                    self.dirty = true;
+                    self.note = format!(
+                        "Units → {} (secondary {})",
+                        sys.label(),
+                        if aadt_model::secondary_enabled(&self.props_edit.dim_secondary) {
+                            "on"
+                        } else {
+                            "off"
+                        }
+                    );
+                }
+                if ui.button("Reload").clicked() {
+                    self.props_edit = self.session.document().properties().clone();
+                }
+            });
+        });
+    }
+
+    pub(super) fn ui_dimension_manager(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let props = &self.props_edit;
+            let primary = aadt_model::primary_from_props(&props.units);
+            let n_dims = self.session.document().dimensions().len();
+            ui.label(format!("Dimensions in drawing: {n_dims}"));
+            ui.label(format!(
+                "Active units: {} → style {}",
+                primary.label(),
+                if props.dimstyle.is_empty() {
+                    primary.dimstyle_name()
+                } else {
+                    &props.dimstyle
+                }
+            ));
+            ui.separator();
+
+            ui.label(egui::RichText::new("Place").strong());
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Aligned (DIM)").clicked() {
+                    self.tool = Tool::Dim {
+                        first: None,
+                        second: None,
+                    };
+                    self.note = "DIM — click first point".into();
+                }
+                if ui.button("Continue (DIMCONTINUE)").clicked() {
+                    self.tool = Tool::DimContinue;
+                    self.note = "DIMCONTINUE — next definition point (Space finishes)".into();
+                }
+                if ui.button("Quick Dim (QDIM)").clicked() {
+                    if self.selection.is_empty() {
+                        self.note = "QDIM — select objects first, then pick dim-line side".into();
+                    }
+                    self.tool = Tool::QDim;
+                    if !self.selection.is_empty() {
+                        self.note = "QDIM — click dim-line side".into();
+                    }
+                }
+                if ui.button("Auto Dim").clicked() {
+                    if self.selection.is_empty() {
+                        self.app_feed("AUTODIM ALL");
+                    } else {
+                        self.sync_selection();
+                        self.app_feed("AUTODIM SELECTION");
+                    }
+                    if let Some(fb) = self.session.transcript().last() {
+                        if let Some(msg) = fb.message() {
+                            self.note = msg.to_string();
+                        }
+                    }
+                }
+                if ui.button("Radius").clicked() {
+                    self.tool = Tool::DimRadius;
+                    self.note = "DIMRADIUS — click a circle or arc".into();
+                }
+                if ui.button("Diameter").clicked() {
+                    self.tool = Tool::DimDiameter;
+                    self.note = "DIMDIAMETER — click a circle or arc".into();
+                }
+                if ui.button("Angular").clicked() {
+                    self.tool = Tool::DimAngular {
+                        vertex: None,
+                        p1: None,
+                    };
+                    self.note = "DIMANGULAR — click vertex".into();
+                }
+            });
+            if ui.small_button("Restore layers (AUTODIMRESTORE)").clicked() {
+                self.app_feed("AUTODIMRESTORE");
+                if let Some(fb) = self.session.transcript().last() {
+                    if let Some(msg) = fb.message() {
+                        self.note = msg.to_string();
+                    }
+                }
+            }
+
+            ui.separator();
+            ui.label(egui::RichText::new("Dimension style").strong());
+            prop_field(ui, "Style name", &mut self.props_edit.dimstyle);
+            prop_field(ui, "Text height", &mut self.props_edit.dim_text_height);
+            prop_field(ui, "Overall scale", &mut self.props_edit.dim_scale);
+
+            let mut secondary = aadt_model::secondary_enabled(&self.props_edit.dim_secondary);
+            let sec_hint = match aadt_model::primary_from_props(&self.props_edit.units) {
+                aadt_model::UnitSystem::FeetInches => "Secondary: meters",
+                aadt_model::UnitSystem::Meters => "Secondary: feet & inches",
+            };
+            if ui.checkbox(&mut secondary, sec_hint).changed() {
+                self.props_edit.dim_secondary = if secondary {
+                    "1".into()
+                } else {
+                    "0".into()
+                };
+            }
+
+            let preview = aadt_model::format_dimension_label(
+                aadt_model::DimensionKind::Aligned,
+                match aadt_model::primary_from_props(&self.props_edit.units) {
+                    aadt_model::UnitSystem::FeetInches => 150.0,
+                    aadt_model::UnitSystem::Meters => 3.81,
+                },
+                "",
+                &self.props_edit.units,
+                &self.props_edit.dim_secondary,
+            );
+            ui.label(format!("Label preview: {preview}"));
+
+            ui.separator();
+            if ui.small_button("Open Units manager…").clicked() {
+                self.right_tab = 6;
+            }
+
+            ui.horizontal(|ui| {
+                if ui.button("Apply style").clicked() {
+                    let sys = aadt_model::primary_from_props(&self.props_edit.units);
+                    if self.props_edit.dimstyle.is_empty() {
+                        self.props_edit.dimstyle = sys.dimstyle_name().to_string();
+                    }
+                    self.session
+                        .set_drawing_properties(self.props_edit.clone());
+                    self.dirty = true;
+                    self.note = "Dimension style applied".into();
+                }
+                if ui.button("Reload").clicked() {
+                    self.props_edit = self.session.document().properties().clone();
                 }
             });
         });
@@ -890,6 +1649,12 @@ impl AadtApp {
             .resizable(true)
             .default_width(420.0)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(color::LAYER_CARD)
+                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER))
+                    .rounding(0.0),
+            )
             .show(ctx, |ui| {
                 ui.label("Always exports a vector PDF (no direct print).");
                 ui.label(

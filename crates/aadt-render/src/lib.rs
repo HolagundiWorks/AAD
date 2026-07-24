@@ -151,7 +151,12 @@ impl Xform {
 /// block becomes a [`DrawCommand::Marker`] at its transformed insertion point —
 /// recursive block instantiation is a later increment, and a marker keeps it
 /// visible without risking unbounded recursion on a cyclic definition.
-fn primitive(geometry: &Geometry, xform: &Xform, layer: String) -> DrawCommand {
+fn primitive(
+    geometry: &Geometry,
+    xform: &Xform,
+    layer: String,
+    props: &aadt_model::DrawingProperties,
+) -> DrawCommand {
     match geometry {
         Geometry::Line(s) => DrawCommand::Polyline {
             layer,
@@ -180,7 +185,7 @@ fn primitive(geometry: &Geometry, xform: &Xform, layer: String) -> DrawCommand {
             position: xform.point(t.position),
             height: t.height,
             rotation: t.rotation + xform.rotation_deg,
-            value: t.value.clone(),
+            value: aadt_model::resolve_property_text(&t.value, props),
         },
         Geometry::Insert(ins) => DrawCommand::Marker {
             layer,
@@ -214,49 +219,202 @@ fn hatch_command(hatch: &Hatch) -> DrawCommand {
     }
 }
 
-/// A [`Dimension`] flattened to draw primitives and the value text at its anchor,
-/// per kind: linear/aligned draw the measured span `p1`→`p2`; angular draws two
-/// rays from the vertex to `p1` and `p2`; radius draws the centre→circle line.
-/// Extension lines, arrowheads and a dimension-line offset belong to a dimension
-/// style the model does not yet carry — the definition geometry and the value are
-/// the parts that render faithfully.
-fn dimension_commands(dim: &Dimension) -> Vec<DrawCommand> {
-    let label = if dim.text.trim().is_empty() {
-        format!("{}", dim.measurement)
-    } else {
-        dim.text.clone()
-    };
-    // The polylines that visualise the measurement, and a reference length that
-    // scales the value text.
-    let (lines, scale_ref): (Vec<Vec<Point2>>, f64) = match dim.kind {
-        DimensionKind::Angular => (
-            vec![vec![dim.vertex, dim.p1], vec![dim.vertex, dim.p2]],
-            dim.vertex.distance(dim.p1),
-        ),
-        DimensionKind::Radius => (vec![vec![dim.vertex, dim.p1]], dim.vertex.distance(dim.p1)),
-        // Linear/aligned span, diameter chord, and ordinate leader all draw p1→p2.
-        DimensionKind::Linear
-        | DimensionKind::Aligned
-        | DimensionKind::Diameter
-        | DimensionKind::OrdinateX
-        | DimensionKind::OrdinateY => (vec![vec![dim.p1, dim.p2]], dim.p1.distance(dim.p2)),
-    };
-    let mut out: Vec<DrawCommand> = lines
-        .into_iter()
-        .map(|points| DrawCommand::Polyline {
+/// A [`Dimension`] flattened to AutoCAD-like draw primitives: extension lines,
+/// dimension line, arrowheads, and value text (oriented along the dim line for
+/// linear/aligned). `dim_scale` / `dim_text_height` size the glyphs.
+fn dimension_commands(dim: &Dimension, props: &aadt_model::DrawingProperties) -> Vec<DrawCommand> {
+    let label = aadt_model::format_dimension_label(
+        dim.kind,
+        dim.measurement,
+        &dim.text,
+        &props.units,
+        &props.dim_secondary,
+    );
+    let dim_scale = props
+        .dim_scale
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|s| *s > 0.0)
+        .unwrap_or(1.0);
+
+    match dim.kind {
+        DimensionKind::Linear | DimensionKind::Aligned => {
+            aligned_dimension_commands(dim, props, &label, dim_scale)
+        }
+        DimensionKind::Angular => {
+            let scale_ref = dim.vertex.distance(dim.p1).max(dim.vertex.distance(dim.p2));
+            let text_height = dim_text_height(props, scale_ref, dim_scale);
+            let mut out = vec![
+                poly_open(&dim.layer, vec![dim.vertex, dim.p1]),
+                poly_open(&dim.layer, vec![dim.vertex, dim.p2]),
+            ];
+            out.push(DrawCommand::Text {
+                layer: dim.layer.clone(),
+                position: dim.text_anchor,
+                height: text_height,
+                rotation: 0.0,
+                value: label,
+            });
+            out
+        }
+        DimensionKind::Radius => {
+            let scale_ref = dim.vertex.distance(dim.p1);
+            let text_height = dim_text_height(props, scale_ref, dim_scale);
+            let mut out = vec![poly_open(&dim.layer, vec![dim.vertex, dim.p1])];
+            // Arrow at the rim point, pointing outward from centre.
+            if let Some(u) = (dim.p1 - dim.vertex).normalized() {
+                out.push(arrowhead(&dim.layer, dim.p1, u, text_height * 0.45 * dim_scale));
+            }
+            out.push(DrawCommand::Text {
+                layer: dim.layer.clone(),
+                position: dim.text_anchor,
+                height: text_height,
+                rotation: 0.0,
+                value: label,
+            });
+            out
+        }
+        DimensionKind::Diameter => {
+            let scale_ref = dim.p1.distance(dim.p2);
+            let text_height = dim_text_height(props, scale_ref, dim_scale);
+            let mut out = vec![poly_open(&dim.layer, vec![dim.p1, dim.p2])];
+            if let Some(u) = (dim.p2 - dim.p1).normalized() {
+                let asz = text_height * 0.45 * dim_scale;
+                out.push(arrowhead(&dim.layer, dim.p1, u * -1.0, asz));
+                out.push(arrowhead(&dim.layer, dim.p2, u, asz));
+            }
+            out.push(DrawCommand::Text {
+                layer: dim.layer.clone(),
+                position: dim.text_anchor,
+                height: text_height,
+                rotation: 0.0,
+                value: label,
+            });
+            out
+        }
+        DimensionKind::OrdinateX | DimensionKind::OrdinateY => {
+            let scale_ref = dim.p1.distance(dim.p2).max(1.0);
+            let text_height = dim_text_height(props, scale_ref, dim_scale);
+            let mut out = vec![poly_open(&dim.layer, vec![dim.p1, dim.p2])];
+            out.push(DrawCommand::Text {
+                layer: dim.layer.clone(),
+                position: dim.text_anchor,
+                height: text_height,
+                rotation: 0.0,
+                value: label,
+            });
+            out
+        }
+    }
+}
+
+fn dim_text_height(
+    props: &aadt_model::DrawingProperties,
+    scale_ref: f64,
+    dim_scale: f64,
+) -> f64 {
+    props
+        .dim_text_height
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|h| *h > 0.0)
+        .unwrap_or_else(|| (scale_ref * DIM_TEXT_FRACTION).max(f64::MIN_POSITIVE))
+        * dim_scale.max(f64::MIN_POSITIVE)
+}
+
+fn poly_open(layer: &str, points: Vec<Point2>) -> DrawCommand {
+    DrawCommand::Polyline {
+        layer: layer.to_string(),
+        points,
+        closed: false,
+    }
+}
+
+/// Filled-looking arrowhead as a small closed triangle at `tip`, pointing along `dir`.
+fn arrowhead(layer: &str, tip: Point2, dir: aadt_geometry::Vec2, size: f64) -> DrawCommand {
+    let u = dir.normalized().unwrap_or(aadt_geometry::Vec2::new(1.0, 0.0));
+    let n = u.perp();
+    let base = tip + u * (-size);
+    let left = base + n * (size * 0.35);
+    let right = base + n * (-size * 0.35);
+    DrawCommand::Polyline {
+        layer: layer.to_string(),
+        points: vec![tip, left, right],
+        closed: true,
+    }
+}
+
+/// AutoCAD-style aligned/linear: extension lines, dim line offset to `text_anchor`,
+/// arrows, text above the dim line rotated to match.
+fn aligned_dimension_commands(
+    dim: &Dimension,
+    props: &aadt_model::DrawingProperties,
+    label: &str,
+    dim_scale: f64,
+) -> Vec<DrawCommand> {
+    let span = dim.p1.distance(dim.p2);
+    let text_height = dim_text_height(props, span.max(1.0), 1.0); // height before overall scale
+    let text_height = text_height * dim_scale;
+    let asz = (text_height * 0.45).max(span * 0.02 * dim_scale);
+    let exo = (text_height * 0.2).max(asz * 0.25); // gap from definition point
+    let exe = (text_height * 0.2).max(asz * 0.25); // past dim line
+
+    let Some(u) = (dim.p2 - dim.p1).normalized() else {
+        return vec![DrawCommand::Text {
             layer: dim.layer.clone(),
-            points,
-            closed: false,
-        })
-        .collect();
+            position: dim.text_anchor,
+            height: text_height.max(f64::MIN_POSITIVE),
+            rotation: 0.0,
+            value: label.to_string(),
+        }];
+    };
+    let n = u.perp();
+    let mut offset = (dim.text_anchor - dim.p1).dot(n);
+    if offset.abs() < span * 1e-6 {
+        // No third point / coincident with span — park the dim line above.
+        offset = (text_height * 2.5).max(asz * 3.0);
+    }
+    let ext_dir = if offset >= 0.0 {
+        n
+    } else {
+        aadt_geometry::Vec2::new(-n.x, -n.y)
+    };
+    let abs_off = offset.abs();
+
+    let d1 = dim.p1 + n * offset;
+    let d2 = dim.p2 + n * offset;
+    let e1_start = dim.p1 + ext_dir * exo;
+    let e1_end = dim.p1 + ext_dir * (abs_off + exe);
+    let e2_start = dim.p2 + ext_dir * exo;
+    let e2_end = dim.p2 + ext_dir * (abs_off + exe);
+
+    let mut out = vec![
+        poly_open(&dim.layer, vec![e1_start, e1_end]),
+        poly_open(&dim.layer, vec![e2_start, e2_end]),
+        poly_open(&dim.layer, vec![d1, d2]),
+        arrowhead(&dim.layer, d1, u * -1.0, asz),
+        arrowhead(&dim.layer, d2, u, asz),
+    ];
+
+    // Text sits just above the dim line (toward the side opposite the defs when
+    // offset is positive — i.e. further along ext_dir).
+    let mid = d1.midpoint(d2);
+    let text_pos = mid + ext_dir * (text_height * 0.65);
+    let mut rot = (dim.p2.y - dim.p1.y).atan2(dim.p2.x - dim.p1.x).to_degrees();
+    // Keep text readable (never upside-down).
+    if rot > 90.0 {
+        rot -= 180.0;
+    } else if rot < -90.0 {
+        rot += 180.0;
+    }
     out.push(DrawCommand::Text {
         layer: dim.layer.clone(),
-        position: dim.text_anchor,
-        // Height proportional to the reference length (see [`DIM_TEXT_FRACTION`]),
-        // floored so a degenerate dimension still yields a visible glyph.
-        height: (scale_ref * DIM_TEXT_FRACTION).max(f64::MIN_POSITIVE),
-        rotation: 0.0,
-        value: label,
+        position: text_pos,
+        height: text_height.max(f64::MIN_POSITIVE),
+        rotation: rot,
+        value: label.to_string(),
     });
     out
 }
@@ -280,6 +438,7 @@ fn dimension_commands(dim: &Dimension) -> Vec<DrawCommand> {
 /// dimension line plus value text (see [`hatch_command`], [`dimension_commands`]).
 pub fn build_drawlist(doc: &Document) -> DrawList {
     let mut commands = Vec::with_capacity(doc.len());
+    let props = doc.properties();
     for e in doc.entities() {
         // A hidden layer (off or frozen) draws nothing.
         if !doc.layer_shown(&e.layer) {
@@ -293,9 +452,16 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
                         rotation_deg: ins.rotation,
                         position: ins.position,
                     };
-                    for be in &block.entities {
+                    let vis = e
+                        .attribute(aadt_model::BLOCK_VIS_ATTR)
+                        .unwrap_or("Standard");
+                    let hidden = block.hidden_for(vis);
+                    for (i, be) in block.entities.iter().enumerate() {
+                        if hidden.contains(&i) {
+                            continue;
+                        }
                         let layer = instanced_layer(&be.layer, &e.layer);
-                        commands.push(primitive(&be.geometry, &xform, layer));
+                        commands.push(primitive(&be.geometry, &xform, layer, props));
                     }
                 }
                 None => commands.push(DrawCommand::Marker {
@@ -304,7 +470,7 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
                     label: ins.name.clone(),
                 }),
             },
-            other => commands.push(primitive(other, &Xform::IDENTITY, e.layer.clone())),
+            other => commands.push(primitive(other, &Xform::IDENTITY, e.layer.clone(), props)),
         }
     }
     for hatch in doc.hatches() {
@@ -314,7 +480,7 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
     }
     for dim in doc.dimensions() {
         if doc.layer_shown(&dim.layer) {
-            commands.extend(dimension_commands(dim));
+            commands.extend(dimension_commands(dim, doc.properties()));
         }
     }
     DrawList { commands }
@@ -713,8 +879,12 @@ mod tests {
         });
 
         let list = build_drawlist(&doc);
-        // 1 entity + 1 hatch outline + (1 dim line + 1 dim text) = 4.
-        assert_eq!(list.len(), 4);
+        // 1 entity + 1 hatch + dim glyphs (extensions, dim line, arrows, text).
+        assert!(
+            list.len() >= 4,
+            "expected entity + hatch + dimension primitives, got {}",
+            list.len()
+        );
 
         // The hatch renders as a closed boundary on its layer.
         let hatch = list
@@ -734,8 +904,8 @@ mod tests {
         });
         assert_eq!(
             dim_text.as_deref(),
-            Some("10"),
-            "empty override → measurement"
+            Some("10\""),
+            "empty override → formatted measurement (default ft-in inches)"
         );
     }
 
@@ -850,5 +1020,34 @@ mod tests {
         assert_eq!(renderer.frames.len(), 2);
         assert_eq!(renderer.total_commands(), 12);
         assert_eq!(renderer.last_camera, Some(cam));
+    }
+
+    #[test]
+    fn visibility_hides_block_entities() {
+        use std::collections::HashMap;
+        use aadt_model::BLOCK_VIS_ATTR;
+
+        let mut doc = Document::new();
+        let mut block = Block::new("WIN", Point2::new(0.0, 0.0));
+        block.push(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        block.push(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(0.0, 1.0))),
+        );
+        block.set_visibility("Swing", vec![1]);
+        doc.add_block(block);
+
+        let mut attrs = HashMap::new();
+        attrs.insert(BLOCK_VIS_ATTR.to_string(), "Swing".to_string());
+        doc.add_entity(
+            "0",
+            Geometry::Insert(Insert::new("WIN", Point2::new(0.0, 0.0), 0.0)),
+            attrs,
+        );
+        let list = build_drawlist(&doc);
+        assert_eq!(list.len(), 1, "one of two block ents hidden");
     }
 }

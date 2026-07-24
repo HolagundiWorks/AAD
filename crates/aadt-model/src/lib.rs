@@ -17,6 +17,12 @@ use std::collections::HashMap;
 
 use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment, Vec2};
 
+pub mod units;
+pub use units::{
+    format_dimension_label, format_length, format_length_pair, parse_length, primary_from_props,
+    secondary_enabled, UnitSystem, INCHES_PER_METER, METERS_PER_INCH,
+};
+
 /// Stable identifier for an entity within a [`Document`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct EntityId(pub u64);
@@ -56,10 +62,10 @@ impl LineType {
     pub fn parse(s: &str) -> Option<Self> {
         match s.trim().to_ascii_uppercase().as_str() {
             "CONTINUOUS" | "CONT" => Some(LineType::Continuous),
-            "DASHED" | "DASH" | "HIDDEN2" => Some(LineType::Dashed),
-            "CENTER" | "CENTRE" => Some(LineType::Center),
+            "DASHED" | "DASH" | "HIDDEN2" | "DASHED2" => Some(LineType::Dashed),
+            "CENTER" | "CENTRE" | "CENTER2" => Some(LineType::Center),
             "HIDDEN" => Some(LineType::Hidden),
-            "PHANTOM" => Some(LineType::Phantom),
+            "PHANTOM" | "PHANTOM2" => Some(LineType::Phantom),
             "DOT" | "DOTTED" => Some(LineType::Dot),
             _ => None,
         }
@@ -69,7 +75,7 @@ impl LineType {
 /// A drawing layer. Layer names carry the convention hints AADT detection uses
 /// (e.g. `A-WALL`), so they are preserved verbatim from the source file. A layer
 /// also carries display/plot state — ACI `color`, `linetype`, `lineweight_mm`,
-/// visibility, and freeze — so standards templates and DXF round-trip.
+/// visibility, freeze, and lock — so standards templates and DXF round-trip.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layer {
     pub name: String,
@@ -83,6 +89,8 @@ pub struct Layer {
     pub visible: bool,
     /// A frozen layer is neither drawn nor regenerated.
     pub frozen: bool,
+    /// A locked layer cannot be selected or edited (drawn if on).
+    pub locked: bool,
 }
 
 impl Layer {
@@ -94,6 +102,7 @@ impl Layer {
             lineweight_mm: DEFAULT_LINEWEIGHT_MM,
             visible: true,
             frozen: false,
+            locked: false,
         }
     }
 
@@ -166,6 +175,49 @@ impl Text {
     }
 }
 
+/// Kind of a parametric block parameter (string tag or numeric value).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockParamKind {
+    String,
+    Number,
+}
+
+impl BlockParamKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::String => "string",
+            Self::Number => "number",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        if s.eq_ignore_ascii_case("number") || s.eq_ignore_ascii_case("num") {
+            Self::Number
+        } else {
+            Self::String
+        }
+    }
+}
+
+/// Named parameter on a block definition (parametric lite — not AutoCAD dyn-block).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BlockParam {
+    pub name: String,
+    pub default: String,
+    pub kind: BlockParamKind,
+}
+
+/// Visibility state: which definition-entity indices are hidden when active.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VisibilityState {
+    pub name: String,
+    /// Indices into [`Block::entities`] that are not drawn for this state.
+    pub hidden: Vec<usize>,
+}
+
+/// Attribute key on an INSERT for the active visibility state name.
+pub const BLOCK_VIS_ATTR: &str = "VISIBILITY";
+
 /// One piece of geometry inside a [`Block`] definition.
 ///
 /// Deliberately not an [`Entity`]: entity ids are document-scoped and identify
@@ -181,11 +233,15 @@ pub struct BlockEntity {
 /// A named block *definition*: the geometry an [`Insert`] refers to.
 ///
 /// Coordinates are relative to `base`, the block's insertion point.
+/// Optional `params` / `visibilities` support parametric-lite tagging (e.g. `WNAME`)
+/// and show/hide states without geometry morphing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Block {
     pub name: String,
     pub base: Point2,
     pub entities: Vec<BlockEntity>,
+    pub params: Vec<BlockParam>,
+    pub visibilities: Vec<VisibilityState>,
 }
 
 impl Block {
@@ -194,6 +250,11 @@ impl Block {
             name: name.into(),
             base,
             entities: Vec::new(),
+            params: Vec::new(),
+            visibilities: vec![VisibilityState {
+                name: "Standard".into(),
+                hidden: Vec::new(),
+            }],
         }
     }
 
@@ -202,6 +263,52 @@ impl Block {
             layer: layer.into(),
             geometry,
         });
+    }
+
+    /// Upsert a parameter definition by name (case-sensitive key as stored).
+    pub fn set_param(&mut self, name: impl Into<String>, default: impl Into<String>, kind: BlockParamKind) {
+        let name = name.into();
+        let default = default.into();
+        if let Some(p) = self.params.iter_mut().find(|p| p.name == name) {
+            p.default = default;
+            p.kind = kind;
+        } else {
+            self.params.push(BlockParam { name, default, kind });
+        }
+    }
+
+    /// Upsert a visibility state.
+    pub fn set_visibility(&mut self, name: impl Into<String>, hidden: Vec<usize>) {
+        let name = name.into();
+        if let Some(v) = self.visibilities.iter_mut().find(|v| v.name == name) {
+            v.hidden = hidden;
+        } else {
+            self.visibilities.push(VisibilityState { name, hidden });
+        }
+    }
+
+    /// Hidden entity indices for `state`, or empty if unknown / Standard.
+    pub fn hidden_for(&self, state: &str) -> &[usize] {
+        self.visibilities
+            .iter()
+            .find(|v| v.name.eq_ignore_ascii_case(state))
+            .map(|v| v.hidden.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Default attribute map for a new INSERT (params + VISIBILITY=Standard).
+    pub fn default_insert_attributes(&self) -> HashMap<String, String> {
+        let mut m = HashMap::new();
+        for p in &self.params {
+            m.insert(p.name.clone(), p.default.clone());
+        }
+        let vis = self
+            .visibilities
+            .first()
+            .map(|v| v.name.as_str())
+            .unwrap_or("Standard");
+        m.insert(BLOCK_VIS_ATTR.to_string(), vis.to_string());
+        m
     }
 }
 
@@ -646,6 +753,12 @@ enum Op {
     AddHatch(Hatch),
     /// A dimension was appended (undo pops it, redo re-appends).
     AddDimension(Dimension),
+    /// Drawing properties were replaced (undo restores `before`). Used for
+    /// UNITS / DIMSTYLE / BPLTSTART so one UNDO reverses the whole command.
+    SetProperties {
+        before: DrawingProperties,
+        after: DrawingProperties,
+    },
     /// A block definition was removed (undo re-inserts it, redo removes it) — the
     /// undoable half of `PURGE`.
     RemoveBlock(Block),
@@ -660,8 +773,9 @@ struct Transaction {
 
 /// Drawing-level metadata (AutoCAD-style Summary + title-plate fields).
 ///
-/// Edited via the Drawing Property Manager; not undoable (like DWGPROPS). Used
-/// to auto-fill the title block when plotting to PDF.
+/// Edited via the Drawing Property Manager; untracked outside a transaction
+/// (like DWGPROPS). Commands such as UNITS / DIMSTYLE wrap changes in `transact`
+/// so they become undoable. Used to auto-fill the title block when plotting to PDF.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DrawingProperties {
     // --- Summary (file properties) ---
@@ -712,14 +826,16 @@ pub struct DrawingProperties {
     pub website: String,
     /// Revision table rows: one per line `Rev|Date|Description|By|Checked`.
     pub revision_history: String,
-    /// Linear drawing units label (`mm`, `m`, `ft`, …) from UNITS.
+    /// Linear drawing units token: `ft-in` (inches model) or `m` (metres model).
     pub units: String,
-    /// Active dimension style name (DIMSTYLE).
+    /// Active dimension style name (DIMSTYLE) — follows units by default.
     pub dimstyle: String,
     /// Dimension text height in drawing units.
     pub dim_text_height: String,
     /// Dimension scale factor (string for property round-trip).
     pub dim_scale: String,
+    /// `"1"` / `"0"` — show secondary units on dimension labels.
+    pub dim_secondary: String,
     /// Auto-number prefix (e.g. `D-` for doors).
     pub autonum_prefix: String,
     /// Next auto-number value (decimal string).
@@ -730,6 +846,55 @@ pub struct DrawingProperties {
     pub plot_include_notes: String,
     /// Nameplate layout preset: `professional` | `compact` | `minimal`.
     pub nameplate_preset: String,
+    /// Block name used as the in-drawing nameplate template (`TEMPLATE FROMBLOCK`).
+    pub nameplate_block: String,
+    /// `"1"` / `"0"` — live takeoff recomputes when the drawing revision changes (default on).
+    pub takeoff_live: String,
+}
+
+/// Expand `{field}` tokens in text from drawing properties (unknown tokens left as-is).
+pub fn resolve_property_text(s: &str, p: &DrawingProperties) -> String {
+    if !s.contains('{') {
+        return s.to_string();
+    }
+    let mut out = s.to_string();
+    let pairs: &[(&str, &str)] = &[
+        ("{title}", p.title.as_str()),
+        ("{subject}", p.subject.as_str()),
+        ("{author}", p.author.as_str()),
+        ("{project}", p.project.as_str()),
+        ("{client}", p.client.as_str()),
+        ("{address}", p.address.as_str()),
+        ("{architect}", p.architect.as_str()),
+        ("{date}", p.date.as_str()),
+        ("{area}", p.area.as_str()),
+        ("{scale}", p.scale.as_str()),
+        ("{sheet_number}", p.sheet_number.as_str()),
+        ("{firm_name}", p.firm_name.as_str()),
+        ("{firm_tagline}", p.firm_tagline.as_str()),
+        ("{phone}", p.phone.as_str()),
+        ("{email}", p.email.as_str()),
+        ("{office_address}", p.office_address.as_str()),
+        ("{project_number}", p.project_number.as_str()),
+        ("{discipline}", p.discipline.as_str()),
+        ("{drawing_number}", p.drawing_number.as_str()),
+        ("{total_sheets}", p.total_sheets.as_str()),
+        ("{drawn_by}", p.drawn_by.as_str()),
+        ("{checked_by}", p.checked_by.as_str()),
+        ("{approved_by}", p.approved_by.as_str()),
+        ("{revision}", p.revision.as_str()),
+        ("{drawing_status}", p.drawing_status.as_str()),
+        ("{website}", p.website.as_str()),
+        ("{units}", p.units.as_str()),
+        ("{dimstyle}", p.dimstyle.as_str()),
+        ("{nameplate_block}", p.nameplate_block.as_str()),
+    ];
+    for (token, value) in pairs {
+        if out.contains(token) {
+            out = out.replace(token, value);
+        }
+    }
+    out
 }
 
 /// The drawing database. Deterministic iteration order (by id) so downstream
@@ -774,12 +939,27 @@ impl Document {
         &self.properties
     }
 
-    /// Replace drawing properties. Not undoable; bumps [`revision`](Self::revision).
+    /// Replace drawing properties.
+    ///
+    /// When called **inside** [`transact`](Self::transact), the change is recorded
+    /// as [`Op::SetProperties`] and is undoable (UNITS / DIMSTYLE / BPLTSTART).
+    /// Outside a transaction it remains untracked (Drawing Property Manager /
+    /// DWGPROPS-style edits).
     pub fn set_properties(&mut self, properties: DrawingProperties) {
-        if self.properties != properties {
-            self.properties = properties;
-            self.revision += 1;
+        if self.properties == properties {
+            return;
         }
+        if self.open.is_some() {
+            let before = self.properties.clone();
+            self.properties = properties.clone();
+            self.record(Op::SetProperties {
+                before,
+                after: properties,
+            });
+        } else {
+            self.properties = properties;
+        }
+        self.revision += 1;
     }
 
     // --- Transactions (spec §4.1) --------------------------------------------
@@ -886,6 +1066,9 @@ impl Document {
             Op::AddDimension(d) => {
                 self.dimensions.push(d.clone());
             }
+            Op::SetProperties { after, .. } => {
+                self.properties = after.clone();
+            }
             Op::RemoveBlock(b) => {
                 self.blocks.remove(&b.name);
             }
@@ -927,6 +1110,9 @@ impl Document {
             }
             Op::AddDimension(_) => {
                 self.dimensions.pop();
+            }
+            Op::SetProperties { before, .. } => {
+                self.properties = before.clone();
             }
             Op::RemoveBlock(b) => {
                 self.blocks.insert(b.name.clone(), b.clone());
@@ -1028,6 +1214,11 @@ impl Document {
     /// Freeze or thaw a layer (a frozen layer is not drawn). Undoable.
     pub fn set_layer_frozen(&mut self, name: &str, frozen: bool) -> bool {
         self.update_layer(name, |l| l.frozen = frozen)
+    }
+
+    /// Lock or unlock a layer (locked layers are drawn but not editable). Undoable.
+    pub fn set_layer_locked(&mut self, name: &str, locked: bool) -> bool {
+        self.update_layer(name, |l| l.locked = locked)
     }
 
     /// Set a layer's linetype. Undoable.
@@ -1645,6 +1836,28 @@ mod tests {
     }
 
     #[test]
+    fn set_properties_is_undoable_inside_transact() {
+        let mut doc = Document::new();
+        let before = doc.properties().clone();
+        let mut after = before.clone();
+        after.units = "m".into();
+        after.dimstyle = "METRIC".into();
+        doc.transact("UNITS", |d| d.set_properties(after.clone()));
+        assert_eq!(doc.properties().units, "m");
+        doc.undo();
+        assert_eq!(doc.properties(), &before);
+        doc.redo();
+        assert_eq!(doc.properties().dimstyle, "METRIC");
+
+        // Outside a transaction remains untracked (property-manager style).
+        let mut doc2 = Document::new();
+        let mut p = doc2.properties().clone();
+        p.title = "t".into();
+        doc2.set_properties(p);
+        assert!(!doc2.can_undo());
+    }
+
+    #[test]
     fn remove_layer_and_block_are_undoable() {
         let mut doc = Document::new();
         // A layer with non-default state, and a block definition.
@@ -1979,5 +2192,22 @@ mod tests {
         let mut doc = Document::new();
         doc.transact("noop", |_d| {});
         assert!(!doc.can_undo());
+    }
+
+    #[test]
+    fn resolve_property_text_expands_known_tokens() {
+        let mut p = DrawingProperties::default();
+        p.title = "Floor Plan".into();
+        p.project = "Tower".into();
+        assert_eq!(
+            resolve_property_text("{title} — {project}", &p),
+            "Floor Plan — Tower"
+        );
+        assert_eq!(resolve_property_text("static", &p), "static");
+        assert_eq!(
+            resolve_property_text("{unknown}", &p),
+            "{unknown}",
+            "unknown tokens left intact"
+        );
     }
 }

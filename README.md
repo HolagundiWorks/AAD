@@ -11,6 +11,7 @@ sheet production, and optional on-demand local AI — all running locally.
 See [`docs/`](docs/) for engineering docs:
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestones, curated command band, product locks.
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — layers and data flow.
+- [`docs/ux/`](docs/ux/README.md) — AutoCAD-like command interaction research + workflows.
 - [`docs/adr/`](docs/adr/) — Architecture Decision Records.
 
 ## Status

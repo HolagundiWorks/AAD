@@ -17,7 +17,6 @@ pub enum Icon {
     Props,
     Hatch,
     Annotate,
-    Ai,
     Plot,
     Add,
     Delete,
@@ -27,6 +26,16 @@ pub enum Icon {
     CollapsePanel,
     /// Expand the right manager panel (thin strip).
     ExpandPanel,
+    /// Layer on (visible).
+    Eye,
+    /// Layer off.
+    EyeOff,
+    /// Layer frozen.
+    Freeze,
+    /// Layer locked.
+    Lock,
+    /// Layer unlocked.
+    Unlock,
 }
 
 impl Icon {
@@ -42,7 +51,6 @@ impl Icon {
             Icon::Props => egui::include_image!("../assets/fluent/document_text_24_regular.svg"),
             Icon::Hatch => egui::include_image!("../assets/fluent/grid_24_regular.svg"),
             Icon::Annotate => egui::include_image!("../assets/fluent/text_font_24_regular.svg"),
-            Icon::Ai => egui::include_image!("../assets/fluent/sparkle_24_regular.svg"),
             Icon::Plot => egui::include_image!("../assets/fluent/print_24_regular.svg"),
             Icon::Add => egui::include_image!("../assets/fluent/add_24_regular.svg"),
             Icon::Delete => egui::include_image!("../assets/fluent/delete_24_regular.svg"),
@@ -54,6 +62,13 @@ impl Icon {
             Icon::ExpandPanel => {
                 egui::include_image!("../assets/fluent/chevron_left_24_regular.svg")
             }
+            Icon::Eye => egui::include_image!("../assets/fluent/eye_24_regular.svg"),
+            Icon::EyeOff => egui::include_image!("../assets/fluent/eye_off_24_regular.svg"),
+            Icon::Freeze => {
+                egui::include_image!("../assets/fluent/weather_snowflake_24_regular.svg")
+            }
+            Icon::Lock => egui::include_image!("../assets/fluent/lock_closed_24_regular.svg"),
+            Icon::Unlock => egui::include_image!("../assets/fluent/lock_open_24_regular.svg"),
         }
     }
 }
@@ -63,9 +78,25 @@ pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
 }
 
-/// Clickable Fluent icon button (28×28 chrome).
+/// Clickable Fluent icon button (32×32 touch-friendly chrome) — flat (no rounding).
 pub fn icon_btn(ui: &mut egui::Ui, icon: Icon, tip: &str) -> egui::Response {
-    icon_btn_sized(ui, icon, tip, egui::vec2(28.0, 28.0), 16.0)
+    icon_btn_sized(ui, icon, tip, egui::vec2(32.0, 32.0), 16.0)
+}
+
+/// Compact icon for dense lists (layer rows).
+pub fn icon_btn_compact(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool) -> egui::Response {
+    icon_btn_sized_tinted(
+        ui,
+        icon,
+        tip,
+        egui::vec2(22.0, 22.0),
+        14.0,
+        if active {
+            super::theme::color::ACCENT
+        } else {
+            super::theme::color::TEXT_SECONDARY
+        },
+    )
 }
 
 pub fn icon_btn_sized(
@@ -75,24 +106,81 @@ pub fn icon_btn_sized(
     size: egui::Vec2,
     glyph: f32,
 ) -> egui::Response {
+    icon_btn_sized_tinted(ui, icon, tip, size, glyph, super::theme::color::TEXT)
+}
+
+fn icon_btn_sized_tinted(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    tip: &str,
+    size: egui::Vec2,
+    glyph: f32,
+    tint: egui::Color32,
+) -> egui::Response {
+    use super::theme::{color, radius};
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let resp = resp.on_hover_text(tip);
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let bg = if resp.is_pointer_button_down_on() {
-            egui::Color32::from_rgb(170, 190, 220)
+            color::CONTROL_PRESSED
         } else if resp.hovered() {
-            egui::Color32::from_rgb(200, 210, 230)
+            color::CONTROL_HOVER
         } else {
-            egui::Color32::from_rgb(230, 230, 230)
+            egui::Color32::TRANSPARENT
         };
-        painter.rect_filled(rect, 3.0, bg);
+        if bg.a() > 0 {
+            painter.rect_filled(rect, radius::CONTROL, bg);
+            painter.rect_stroke(rect, radius::CONTROL, egui::Stroke::new(1.0_f32, color::STROKE));
+        }
         let img = egui::Image::new(icon.svg())
             .fit_to_exact_size(egui::vec2(glyph, glyph))
-            .tint(egui::Color32::from_rgb(40, 40, 40));
+            .tint(tint);
         let img_size = egui::vec2(glyph, glyph);
         let img_rect = egui::Rect::from_center_size(rect.center(), img_size);
         img.paint_at(ui, img_rect);
+    }
+    resp
+}
+
+/// Selected nav-rail icon (accent soft fill) — flat.
+pub fn icon_btn_nav(
+    ui: &mut egui::Ui,
+    icon: Icon,
+    tip: &str,
+    selected: bool,
+) -> egui::Response {
+    use super::theme::{color, radius};
+    let size = egui::vec2(40.0, 40.0);
+    let glyph = 18.0;
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let resp = resp.on_hover_text(tip);
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let bg = if selected {
+            color::ACCENT_SOFT
+        } else if resp.is_pointer_button_down_on() {
+            color::CONTROL_PRESSED
+        } else if resp.hovered() {
+            color::CONTROL_HOVER
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        if bg.a() > 0 || selected {
+            painter.rect_filled(rect, radius::CONTROL, bg);
+        }
+        if selected {
+            painter.rect_stroke(
+                rect,
+                radius::CONTROL,
+                egui::Stroke::new(1.0_f32, color::ACCENT),
+            );
+        }
+        let tint = if selected { color::ACCENT } else { color::TEXT };
+        let img = egui::Image::new(icon.svg())
+            .fit_to_exact_size(egui::vec2(glyph, glyph))
+            .tint(tint);
+        img.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::vec2(glyph, glyph)));
     }
     resp
 }

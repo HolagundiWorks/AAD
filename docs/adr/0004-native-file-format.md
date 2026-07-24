@@ -17,15 +17,19 @@ Use a **SQLite-backed native format** (via `rusqlite` bundled) in crate
 - The hot in-memory [`Document`](../../crates/aadt-model) stays the working
   representation; SQLite is persistence. OPEN/SAVE choose `.aadt` vs `.dxf` by
   file extension.
-- Schema version is stored in a `meta` table (`schema_version = 1`).
+- Schema version is stored in a `meta` table (`schema_version = 5` as of
+  ADR-0008; older files migrate on open).
+- **Drawing history** (time machine) and **takeoff runs** are stored in the same
+  `.aadt` file — see [ADR-0008](0008-drawing-history-takeoff-db.md).
 
 ## Consequences
 
 - Dependency on SQLite (bundled) in `aadt-store` / CLI only — engine crates stay
   free of it.
-- Undo history is not persisted (file load is untracked, same as DXF).
+- Session undo/redo is not persisted across OPEN (same as DXF); long-term rollback
+  uses `HISTORY` checkpoints.
 - Entity ids are preserved across `.aadt` round-trips (`Document::restore_entity`).
-
+- External takeoff DBs are optional publish sinks, not the system of record.
 ## Alternatives considered
 
 - **Custom binary format:** potentially the fastest raw I/O, but we would

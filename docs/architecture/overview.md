@@ -71,10 +71,18 @@ Key properties:
   notes persist on `DrawingProperties` and are applied at PDF export (see title
   block / notes modules).
 
-## GUI interaction (Spacebar-primary)
+## GUI interaction (Spacebar-primary, AutoCAD-like)
 
 Mouse = **position**, keyboard = **intent**, Space = **execute**
-([`command_engine`](../../crates/aadt-app/src/command_engine.rs)):
+([`command_engine`](../../crates/aadt-app/src/command_engine.rs)).
+
+AiADT follows classic AutoCAD command-loop rules (Enter≈Space, keyword options,
+noun-verb **and** verb-noun selection, dyn prompts) without chasing AutoCAD’s
+full command count. Deep dive + step tables:
+
+- [UX index](../ux/README.md)
+- [AutoCAD research notes](../ux/autocad-research.md)
+- [Command workflows & parity matrix](../ux/command-workflows.md)
 
 | Key | Action |
 |-----|--------|
@@ -85,10 +93,40 @@ Mouse = **position**, keyboard = **intent**, Space = **execute**
 | Esc | Cancel to idle |
 | Tab | Cycle X ↔ Y while drafting a point |
 | Shift+Space | Clear current typed input |
+| F1 | Shortcuts sheet |
+| F3 / F8 / F10 / F11 | Osnap / Ortho / Polar / Osnap tracking |
 
-Aliases (examples): `L` line, `PL` polyline, `C` circle, `CO` copy, `O` offset,
-`W` wall, `D` door, `WA` fuzzy→wall. Typed digits + Space still commit distance /
-thickness / coordinates.
+Aliases (examples): `L` line, `PL` polyline, `C` circle, `M` move, `CO` copy,
+`SC` scale, `TR` trim, `DIM` aligned dimension, `O` offset, `W` wall.
+Typed digits + Space still commit distance / thickness / coordinates / scale
+factors / rotate angles.
+
+**Selection:** click or window/crossing; selected entities (including expanded
+block inserts) highlight in blue with grips.
+
+**Units / dims:** `UNITS ft-in|m` and optional secondary labels; `DIM` is
+three-point aligned with AutoCAD-like glyphs (see workflows doc).
+
+## GUI performance & workflow polish
+
+- **Drawlist cache.** `Session::drawlist` rebuilds only when `Document::revision`
+  changes (same pattern as live takeoff).
+- **Repaint gating.** The viewport requests a repaint on meaningful pointer motion,
+  active drafting, or Space-hold — not continuous idle hover.
+- **Autosave / recovery.** Dirty drawings with a known path autosave to a
+  `*.autosave.aadt` sibling on a timer; on open, a newer autosave prompts
+  Restore / Discard. Prefs (`ortho` / `osnap` / panel width / …) live in
+  `%APPDATA%/AADT/prefs.json` (or XDG config).
+
+## GUI chrome (Windows 11 / Fluent)
+
+The egui shell follows Microsoft’s
+[design principles](https://learn.microsoft.com/en-us/windows/apps/design/design-principles)
+(Effortless, Calm, Familiar) and
+[navigation basics](https://learn.microsoft.com/en-us/windows/apps/design/basics/navigation-basics):
+calm layered surfaces, accent only for selection/status, flat peer destinations
+in the right manager (tab + collapsed nav rail), and familiar File/Edit commanding
+in the top bar. Tokens live in `crates/aadt-app/src/gui_theme.rs`.
 
 ## AI lifecycle discipline (spec §6.1)
 

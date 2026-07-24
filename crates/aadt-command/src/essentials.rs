@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::f64::consts::{PI, TAU};
 
 use aadt_geometry::{Circle, Point2, Polyline, Segment};
-use aadt_model::{Block, Entity, EntityId, Geometry, Insert, Text};
+use aadt_model::{Block, Entity, EntityId, Geometry, Insert, Layer, Text};
 
 use crate::{
     entities_word, parse_entity_id, parse_f64, resolve_targets, Command, Context, Registry,
@@ -55,6 +55,7 @@ pub fn register_essentials(r: &mut Registry) {
     r.register(Box::new(ChangeCmd));
     // Utility.
     r.register(Box::new(UnitsCmd));
+    r.register(Box::new(TemplateCmd));
     r.register(Box::new(AuditCmd));
     r.register(Box::new(OverkillCmd));
     // Deferred stubs (aliases exist; clear errors).
@@ -617,13 +618,13 @@ impl Command for DimStyleCmd {
         &["D"]
     }
     fn help(&self) -> &str {
-        "DIMSTYLE [name] [text_height] [scale] — set or report the dimension style"
+        "DIMSTYLE [name] [text_height] [scale] [secondary] — set or report the dimension style"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let mut props = ctx.doc.properties().clone();
         if args.is_empty() {
             return Ok(format!(
-                "dimstyle={} text_height={} scale={}",
+                "dimstyle={} text_height={} scale={} secondary={}",
                 if props.dimstyle.is_empty() {
                     "STANDARD"
                 } else {
@@ -638,6 +639,11 @@ impl Command for DimStyleCmd {
                     "1"
                 } else {
                     &props.dim_scale
+                },
+                if aadt_model::secondary_enabled(&props.dim_secondary) {
+                    "on"
+                } else {
+                    "off"
                 }
             ));
         }
@@ -648,9 +654,18 @@ impl Command for DimStyleCmd {
         if let Some(s) = args.get(2) {
             props.dim_scale = s.clone();
         }
-        ctx.doc.set_properties(props.clone());
+        if let Some(alt) = args.get(3) {
+            let on = matches!(
+                alt.to_ascii_lowercase().as_str(),
+                "1" | "on" | "true" | "yes" | "secondary"
+            );
+            props.dim_secondary = if on { "1".into() } else { "0".into() };
+        }
+        ctx.doc.transact("DIMSTYLE", |d| {
+            d.set_properties(props.clone());
+        });
         Ok(format!(
-            "dimstyle set to {} (text_height={}, scale={})",
+            "dimstyle set to {} (text_height={}, scale={}, secondary={})",
             props.dimstyle,
             if props.dim_text_height.is_empty() {
                 "2.5"
@@ -661,6 +676,11 @@ impl Command for DimStyleCmd {
                 "1"
             } else {
                 &props.dim_scale
+            },
+            if aadt_model::secondary_enabled(&props.dim_secondary) {
+                "on"
+            } else {
+                "off"
             }
         ))
     }
@@ -710,17 +730,8 @@ impl Command for LayUnisoCmd {
         "LAYUNISO — restore layer visibility after LAYISO"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let snap = ctx
-            .layer_iso_snapshot
-            .take()
-            .ok_or("LAYUNISO: no layer isolate snapshot")?;
-        let n = snap.len();
-        ctx.doc.transact("LAYUNISO", |d| {
-            for (name, vis, frz) in &snap {
-                d.set_layer_visible(name, *vis);
-                d.set_layer_frozen(name, *frz);
-            }
-        });
+        let n = crate::autodim::restore_layer_iso(ctx)
+            .map_err(|e| format!("LAYUNISO: {e}"))?;
         Ok(format!("restored visibility for {n} layer(s)"))
     }
 }
@@ -1328,20 +1339,128 @@ impl Command for UnitsCmd {
         &["UN"]
     }
     fn help(&self) -> &str {
-        "UNITS [mm|m|ft|in|…] — set or report linear drawing units"
+        "UNITS [ft-in|m] [SECONDARY on|off] — set or report linear units (ft-in default inches; m = metres)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        if let Some(u) = args.first() {
-            let mut props = ctx.doc.properties().clone();
-            props.units = u.clone();
-            ctx.doc.set_properties(props);
-            Ok(format!("units set to {u}"))
-        } else {
-            let u = &ctx.doc.properties().units;
-            Ok(format!(
-                "units = {}",
-                if u.is_empty() { "(unset)" } else { u }
-            ))
+        let mut props = ctx.doc.properties().clone();
+        if args.is_empty() {
+            let primary = aadt_model::primary_from_props(&props.units);
+            let sec = aadt_model::secondary_enabled(&props.dim_secondary);
+            return Ok(format!(
+                "units={} ({}) secondary={} dimstyle={}",
+                primary.as_token(),
+                primary.label(),
+                if sec { "on" } else { "off" },
+                if props.dimstyle.is_empty() {
+                    primary.dimstyle_name()
+                } else {
+                    &props.dimstyle
+                }
+            ));
+        }
+        let mut i = 0;
+        while i < args.len() {
+            let tok = args[i].to_ascii_lowercase();
+            if tok == "secondary" || tok == "alt" || tok == "dimalt" {
+                let on = args
+                    .get(i + 1)
+                    .map(|s| {
+                        matches!(
+                            s.to_ascii_lowercase().as_str(),
+                            "1" | "on" | "true" | "yes"
+                        )
+                    })
+                    .unwrap_or(true);
+                props.dim_secondary = if on { "1".into() } else { "0".into() };
+                i += 2;
+                continue;
+            }
+            let sys = aadt_model::UnitSystem::parse(&args[i])
+                .ok_or_else(|| format!("UNITS: unknown unit {:?} (use ft-in or m)", args[i]))?;
+            props.units = sys.as_token().to_string();
+            // Units dictate dimension style name when unset or previously auto.
+            if props.dimstyle.is_empty()
+                || props.dimstyle.eq_ignore_ascii_case("STANDARD")
+                || props.dimstyle.eq_ignore_ascii_case("ARCHITECTURAL")
+                || props.dimstyle.eq_ignore_ascii_case("METRIC")
+            {
+                props.dimstyle = sys.dimstyle_name().to_string();
+            }
+            i += 1;
+        }
+        ctx.doc.transact("UNITS", |d| {
+            d.set_properties(props.clone());
+        });
+        let primary = aadt_model::primary_from_props(&props.units);
+        Ok(format!(
+            "units set to {} · dimstyle={} · secondary={}",
+            primary.as_token(),
+            props.dimstyle,
+            if aadt_model::secondary_enabled(&props.dim_secondary) {
+                "on"
+            } else {
+                "off"
+            }
+        ))
+    }
+}
+
+struct TemplateCmd;
+impl Command for TemplateCmd {
+    fn name(&self) -> &str {
+        "TEMPLATE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["TMPL"]
+    }
+    fn help(&self) -> &str {
+        "TEMPLATE LAYERS | FROMBLOCK <name> — nameplate template layers / register block"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "LAYERS" | "LAYER" => {
+                const LAYERS: &[(&str, u8, f32)] = &[
+                    ("TMPL_BORDER", 250, 0.70),
+                    ("TMPL_VIEW", 8, 0.35),
+                    ("TMPL_TEXT", 7, 0.25),
+                ];
+                let mut added = 0usize;
+                ctx.doc.transact("TEMPLATE LAYERS", |d| {
+                    for &(name, color, lw) in LAYERS {
+                        if d.layer(name).is_none() {
+                            d.add_layer(
+                                Layer::new(name)
+                                    .with_color(color)
+                                    .with_lineweight_mm(lw),
+                            );
+                            added += 1;
+                        }
+                    }
+                });
+                Ok(format!(
+                    "template layers ready (added {added}: TMPL_BORDER, TMPL_VIEW, TMPL_TEXT)"
+                ))
+            }
+            "FROMBLOCK" | "BLOCK" => {
+                let name = args
+                    .get(1)
+                    .cloned()
+                    .ok_or("TEMPLATE FROMBLOCK: missing block name")?;
+                if ctx.doc.block(&name).is_none() {
+                    return Err(format!("TEMPLATE FROMBLOCK: no block named {name:?}"));
+                }
+                let mut props = ctx.doc.properties().clone();
+                props.nameplate_block = name.clone();
+                ctx.doc.set_properties(props);
+                Ok(format!("nameplate template block set to {name}"))
+            }
+            _ => Err(
+                "TEMPLATE: use LAYERS or FROMBLOCK <name>".into(),
+            ),
         }
     }
 }
@@ -1537,6 +1656,20 @@ mod tests {
         let mut ctx = Context::new();
         let err = i.eval_line(&mut ctx, "XREF").unwrap_err();
         assert!(err.contains("not implemented"));
+    }
+
+    #[test]
+    fn template_layers_and_fromblock() {
+        let i = interp();
+        let mut ctx = Context::new();
+        i.eval_line(&mut ctx, "TEMPLATE LAYERS").unwrap();
+        assert!(ctx.doc.layer("TMPL_BORDER").is_some());
+        assert!(ctx.doc.layer("TMPL_VIEW").is_some());
+        assert!(ctx.doc.layer("TMPL_TEXT").is_some());
+        i.eval_line(&mut ctx, "LINE 0 0 1 0 TMPL_BORDER").unwrap();
+        i.eval_line(&mut ctx, "BLOCK NAMEPLATE 0 0 0").unwrap();
+        i.eval_line(&mut ctx, "TEMPLATE FROMBLOCK NAMEPLATE").unwrap();
+        assert_eq!(ctx.doc.properties().nameplate_block, "NAMEPLATE");
     }
 
     #[test]

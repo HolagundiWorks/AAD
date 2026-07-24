@@ -38,8 +38,7 @@ pub enum StepKind {
     NextPoint { prompt: &'static str },
     Distance { prompt: &'static str },
     Thickness { prompt: &'static str },
-    /// Reserved for multi-select noun-verb flows (MOVE when empty selection).
-    #[allow(dead_code)]
+    /// Multi-select phase (verb-noun MOVE/COPY/… when selection is empty).
     Selection { prompt: &'static str },
     Side { prompt: &'static str },
     Text { prompt: &'static str },
@@ -445,37 +444,55 @@ pub fn can_finish(def: &CommandDef, point_count: usize) -> bool {
 
 const LINE_STEPS: &[StepKind] = &[
     StepKind::Point {
-        prompt: "LINE — pick first point (Space accepts typed X/Y)",
+        prompt: "LINE — first point",
     },
     StepKind::NextPoint {
-        prompt: "LINE — pick next point (Space finish · Double-Space finish+repeat)",
+        prompt: "LINE — next point or [U]ndo/[C]lose (Space finish)",
     },
 ];
 
 const PL_STEPS: &[StepKind] = &[
     StepKind::Point {
-        prompt: "POLYLINE — pick first point",
+        prompt: "POLYLINE — first point",
     },
     StepKind::NextPoint {
-        prompt: "POLYLINE — pick next point (Space finishes)",
+        prompt: "POLYLINE — next point or [U]ndo/[C]lose (Space finishes)",
     },
 ];
 
 const REC_STEPS: &[StepKind] = &[
     StepKind::Point {
-        prompt: "RECTANGLE — first corner",
+        prompt: "RECTANGLE — first corner or [D]imensions",
     },
     StepKind::Point {
-        prompt: "RECTANGLE — opposite corner",
+        prompt: "RECTANGLE — opposite corner (or @W,H)",
+    },
+];
+
+const XLINE_STEPS: &[StepKind] = &[
+    StepKind::Point {
+        prompt: "XLINE — point or [H]or/[V]er/[A]ng",
+    },
+    StepKind::NextPoint {
+        prompt: "XLINE — through point (Space finishes)",
+    },
+];
+
+const TRIM_STEPS: &[StepKind] = &[
+    StepKind::Entity {
+        prompt: "TRIM — select cutting edges (Space when done)",
+    },
+    StepKind::Entity {
+        prompt: "TRIM — select object to trim (Space finishes)",
     },
 ];
 
 const CIRCLE_STEPS: &[StepKind] = &[
     StepKind::Point {
-        prompt: "CIRCLE — center",
+        prompt: "CIRCLE — center or [2P]/3P]/D]iameter",
     },
     StepKind::Point {
-        prompt: "CIRCLE — radius point",
+        prompt: "CIRCLE — radius or [D]iameter (type + Space)",
     },
 ];
 
@@ -487,25 +504,31 @@ const OFFSET_STEPS: &[StepKind] = &[
         prompt: "OFFSET — select object",
     },
     StepKind::Side {
-        prompt: "OFFSET — pick side",
+        prompt: "OFFSET — pick side (Space finishes)",
     },
 ];
 
 const MOVE_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "MOVE — select objects (Space when done)",
+    },
     StepKind::Point {
         prompt: "MOVE — base point",
     },
     StepKind::Point {
-        prompt: "MOVE — target point",
+        prompt: "MOVE — destination",
     },
 ];
 
 const COPY_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "COPY — select objects (Space when done)",
+    },
     StepKind::Point {
         prompt: "COPY — base point",
     },
     StepKind::Point {
-        prompt: "COPY — target point",
+        prompt: "COPY — destination (Space finishes)",
     },
 ];
 
@@ -522,24 +545,33 @@ const WALL_STEPS: &[StepKind] = &[
 ];
 
 const ROTATE_STEPS: &[StepKind] = &[
-    StepKind::Point {
-        prompt: "ROTATE — pivot",
+    StepKind::Selection {
+        prompt: "ROTATE — select objects (Space when done)",
     },
     StepKind::Point {
-        prompt: "ROTATE — angle point",
+        prompt: "ROTATE — base point",
+    },
+    StepKind::Point {
+        prompt: "ROTATE — angle (type degrees or pick point)",
     },
 ];
 
 const SCALE_STEPS: &[StepKind] = &[
-    StepKind::Point {
-        prompt: "SCALE — base",
+    StepKind::Selection {
+        prompt: "SCALE — select objects (Space when done)",
     },
     StepKind::Point {
-        prompt: "SCALE — reference",
+        prompt: "SCALE — base point",
+    },
+    StepKind::Point {
+        prompt: "SCALE — factor (type) or [R]eference",
     },
 ];
 
 const MIRROR_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "MIRROR — select objects (Space when done)",
+    },
     StepKind::Point {
         prompt: "MIRROR — first axis point",
     },
@@ -548,21 +580,48 @@ const MIRROR_STEPS: &[StepKind] = &[
     },
 ];
 
-const TRIM_STEPS: &[StepKind] = &[
-    StepKind::Entity {
-        prompt: "TRIM — select cutting edge",
+const ERASE_STEPS: &[StepKind] = &[StepKind::Selection {
+    prompt: "ERASE — select objects (Space erases)",
+}];
+
+const DIM_STEPS: &[StepKind] = &[
+    StepKind::Point {
+        prompt: "DIM — first definition point",
+    },
+    StepKind::Point {
+        prompt: "DIM — second definition point",
+    },
+    StepKind::Point {
+        prompt: "DIM — dimension line location",
+    },
+];
+
+const QDIM_STEPS: &[StepKind] = &[StepKind::Point {
+    prompt: "QDIM — click dim-line side (select objects first)",
+}];
+
+const DIMCONT_STEPS: &[StepKind] = &[StepKind::Point {
+    prompt: "DIMCONTINUE — next definition point (Space finishes)",
+}];
+
+const FILLET_STEPS: &[StepKind] = &[
+    StepKind::Distance {
+        prompt: "FILLET — radius (type + Space, 0 = sharp)",
     },
     StepKind::Entity {
-        prompt: "TRIM — select object to trim",
+        prompt: "FILLET — select first line",
+    },
+    StepKind::Entity {
+        prompt: "FILLET — select second line",
     },
 ];
 
 const EXTEND_STEPS: &[StepKind] = &[
     StepKind::Entity {
-        prompt: "EXTEND — select boundary",
+        prompt: "EXTEND — select boundary edge",
     },
     StepKind::Entity {
-        prompt: "EXTEND — select object to extend",
+        prompt: "EXTEND — select object to extend (Space finishes)",
     },
 ];
 
@@ -621,6 +680,14 @@ static CATALOG: &[CommandDef] = &[
         tool_token: "RECTANGLE",
     },
     CommandDef {
+        id: "xline",
+        aliases: &["XL", "XLINE"],
+        steps: XLINE_STEPS,
+        repeatable: true,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "XLINE",
+    },
+    CommandDef {
         id: "circle",
         aliases: &["C", "CIRCLE"],
         steps: CIRCLE_STEPS,
@@ -641,7 +708,7 @@ static CATALOG: &[CommandDef] = &[
         aliases: &["O", "OFF", "OFFSET"],
         steps: OFFSET_STEPS,
         repeatable: true,
-        finish: FinishRule::AutoOnLastStep,
+        finish: FinishRule::ExplicitSpace,
         tool_token: "OFFSET",
     },
     CommandDef {
@@ -657,7 +724,7 @@ static CATALOG: &[CommandDef] = &[
         aliases: &["CO", "CP", "COPY"],
         steps: COPY_STEPS,
         repeatable: true,
-        finish: FinishRule::AutoOnLastStep,
+        finish: FinishRule::ExplicitSpace,
         tool_token: "COPY",
     },
     CommandDef {
@@ -685,11 +752,51 @@ static CATALOG: &[CommandDef] = &[
         tool_token: "MIRROR",
     },
     CommandDef {
+        id: "erase",
+        aliases: &["E", "ERASE"],
+        steps: ERASE_STEPS,
+        repeatable: true,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "ERASE",
+    },
+    CommandDef {
+        id: "dim",
+        aliases: &["DIM", "DIMLINEAR"],
+        steps: DIM_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DIM",
+    },
+    CommandDef {
+        id: "qdim",
+        aliases: &["QDIM", "QUICKDIM"],
+        steps: QDIM_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "QDIM",
+    },
+    CommandDef {
+        id: "dimcontinue",
+        aliases: &["DIMCONTINUE", "DIMCONT", "DCO"],
+        steps: DIMCONT_STEPS,
+        repeatable: true,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "DIMCONTINUE",
+    },
+    CommandDef {
+        id: "fillet",
+        aliases: &["F", "FILLET"],
+        steps: FILLET_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "FILLET",
+    },
+    CommandDef {
         id: "trim",
         aliases: &["TR", "TRIM"],
         steps: TRIM_STEPS,
         repeatable: true,
-        finish: FinishRule::AutoOnLastStep,
+        finish: FinishRule::ExplicitSpace,
         tool_token: "TRIM",
     },
     CommandDef {
@@ -697,7 +804,7 @@ static CATALOG: &[CommandDef] = &[
         aliases: &["EX", "EXTEND"],
         steps: EXTEND_STEPS,
         repeatable: true,
-        finish: FinishRule::AutoOnLastStep,
+        finish: FinishRule::ExplicitSpace,
         tool_token: "EXTEND",
     },
     CommandDef {

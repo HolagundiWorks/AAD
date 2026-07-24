@@ -16,6 +16,7 @@
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod osnap;
+pub mod prefs;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -88,6 +89,8 @@ pub struct Session {
     live: LiveTakeoff,
     /// Lazily created on first `LISP` / `(…)` / `LISPLOAD`.
     lisp: Option<LispHost>,
+    /// Cached drawlist keyed by document revision (same pattern as [`LiveTakeoff`]).
+    draw_cache: Option<(u64, DrawList)>,
 }
 
 impl Default for Session {
@@ -115,6 +118,7 @@ impl Session {
             transcript: Vec::new(),
             live: LiveTakeoff::new(),
             lisp: None,
+            draw_cache: None,
         }
     }
 
@@ -242,18 +246,37 @@ impl Session {
     /// [`feed`](Session::feed).
     pub fn set_document(&mut self, doc: Document) {
         self.ctx.doc = doc;
+        self.draw_cache = None;
     }
 
     /// Replace Drawing Property Manager fields (not undoable).
     pub fn set_drawing_properties(&mut self, props: aadt_model::DrawingProperties) {
         self.ctx.doc.set_properties(props);
+        self.draw_cache = None;
     }
 
-    /// A fresh rendering snapshot of the current document. A canvas driver calls
-    /// this after any `feed` that changed the document (compare
-    /// [`Document::revision`](aadt_model::Document::revision)).
-    pub fn drawlist(&self) -> DrawList {
-        build_drawlist(&self.ctx.doc)
+    /// Rendering snapshot of the current document. Rebuilt only when
+    /// [`Document::revision`](aadt_model::Document::revision) changes — safe to
+    /// call every frame.
+    pub fn drawlist(&mut self) -> &DrawList {
+        let rev = self.ctx.doc.revision();
+        let stale = match &self.draw_cache {
+            Some((cached, _)) => *cached != rev,
+            None => true,
+        };
+        if stale {
+            self.draw_cache = Some((rev, build_drawlist(&self.ctx.doc)));
+        }
+        &self.draw_cache.as_ref().expect("cache populated").1
+    }
+
+    /// True when the drawlist cache matches the current document revision.
+    #[cfg(test)]
+    pub fn drawlist_cache_hit(&self) -> bool {
+        self.draw_cache
+            .as_ref()
+            .map(|(r, _)| *r == self.ctx.doc.revision())
+            .unwrap_or(false)
     }
 
     /// The current takeoff table for the live panel. Backed by [`LiveTakeoff`],
@@ -346,6 +369,17 @@ mod tests {
     }
 
     #[test]
+    fn mutating_feed_bumps_revision_for_dirty_tracking() {
+        let mut s = Session::with_builtins();
+        let r0 = s.document().revision();
+        s.feed("LINE 0 0 10 0 A-WALL");
+        assert!(
+            s.document().revision() > r0,
+            "GUI dirty flag keys off revision change after feed"
+        );
+    }
+
+    #[test]
     fn drawlist_reflects_the_document() {
         let mut s = Session::with_builtins();
         assert!(s.drawlist().is_empty());
@@ -353,6 +387,23 @@ mod tests {
         s.feed("CIRCLE 5 5 2 A-COL");
         let list = s.drawlist();
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn drawlist_is_revision_cached() {
+        let mut s = Session::with_builtins();
+        s.feed("LINE 0 0 10 0 A-WALL");
+        let _ = s.drawlist();
+        assert!(s.drawlist_cache_hit());
+        let len1 = s.drawlist().len();
+        let _ = s.drawlist(); // second call must hit cache
+        assert!(s.drawlist_cache_hit());
+        assert_eq!(s.drawlist().len(), len1);
+        s.feed("CIRCLE 1 1 0.5");
+        assert!(!s.drawlist_cache_hit());
+        let _ = s.drawlist();
+        assert!(s.drawlist_cache_hit());
+        assert_eq!(s.drawlist().len(), 2);
     }
 
     #[test]

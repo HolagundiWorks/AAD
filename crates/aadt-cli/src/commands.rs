@@ -10,8 +10,11 @@ use aadt_command::{Command, Context, Interpreter};
 use aadt_detect::{detect, DetectionConfig};
 use aadt_geometry::Point2;
 use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
+use aadt_takeoff::delta::takeoff_delta_summary;
 use aadt_takeoff::schedule::ScheduleStyle;
+use aadt_takeoff::sink::{sink_from_spec, TakeoffPushMeta};
 use aadt_takeoff::TakeoffTable;
+use aadt_takeoff::TAKEOFF_SCHEMA_VERSION;
 use std::path::Path;
 
 /// Register the file-I/O and engine commands onto an interpreter.
@@ -21,6 +24,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(TakeoffCmd));
     registry.register(Box::new(ScheduleCmd));
+    registry.register(Box::new(HistoryCmd));
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(SectionCmd));
@@ -31,6 +35,181 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(AcceptClassCmd));
     registry.register(Box::new(RejectClassCmd));
     registry.register(Box::new(FreezeClassCmd));
+}
+
+fn is_aadt_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("aadt"))
+        .unwrap_or(false)
+}
+
+fn resolve_drawing_path(ctx: &Context, args_path: Option<&str>) -> Result<String, String> {
+    if let Some(p) = args_path {
+        return Ok(p.to_string());
+    }
+    ctx.drawing_path
+        .clone()
+        .ok_or_else(|| "no drawing path — OPEN/SAVE a .aadt file first".into())
+}
+
+fn table_to_run_data(
+    table: &TakeoffTable,
+    doc_revision: u64,
+    published: bool,
+) -> aadt_store::TakeoffRunData {
+    aadt_store::TakeoffRunData {
+        doc_revision,
+        checkpoint_id: None,
+        schema_ver: TAKEOFF_SCHEMA_VERSION.to_string(),
+        totals_json: format!(
+            "{{\"wall_length\":{:.6},\"wall_net_area\":{:.6},\"room_area\":{:.6}}}",
+            table.total_wall_length(),
+            table.total_wall_net_area(),
+            table.total_room_area()
+        ),
+        published,
+        walls: table
+            .walls
+            .iter()
+            .map(|w| aadt_store::TakeoffWallRow {
+                wall_id: w.id as i64,
+                layer: w.layer.clone(),
+                length: w.length,
+                thickness: w.thickness,
+                height: w.height,
+                gross_area: w.gross_area,
+                volume: w.volume,
+                cost_code: w.cost_code.clone(),
+                wall_type: w.wall_type.clone(),
+                class_status: w.class_status.clone(),
+            })
+            .collect(),
+        rooms: table
+            .rooms
+            .iter()
+            .map(|r| aadt_store::TakeoffRoomRow {
+                room_id: r.id as i64,
+                layer: r.layer.clone(),
+                area: r.area,
+                perimeter: r.perimeter,
+                cost_code: r.cost_code.clone(),
+            })
+            .collect(),
+        openings: table
+            .openings
+            .iter()
+            .map(|o| aadt_store::TakeoffOpeningRow {
+                number: o.number as i64,
+                kind: o.kind.clone(),
+                width: o.width,
+                height: o.height,
+                area: o.area,
+                cost_code: o.cost_code.clone(),
+            })
+            .collect(),
+        structural: table
+            .structural
+            .iter()
+            .map(|s| aadt_store::TakeoffStructuralRow {
+                number: s.number as i64,
+                kind: s.kind.clone(),
+                cost_code: s.cost_code.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn persist_takeoff_run(
+    path: &str,
+    table: &TakeoffTable,
+    doc_revision: u64,
+    published: bool,
+) -> Result<(i64, Option<String>), String> {
+    if !is_aadt_path(path) {
+        return Err("takeoff persistence requires a .aadt drawing path".into());
+    }
+    let prev_id = aadt_store::latest_takeoff_run_id(path).map_err(|e| e.to_string())?;
+    let data = table_to_run_data(table, doc_revision, published);
+    let run_id = aadt_store::append_takeoff_run(path, &data).map_err(|e| e.to_string())?;
+    let mut delta = None;
+    if let Some(from) = prev_id {
+        if let Ok(Some(prev)) = aadt_store::load_takeoff_run(path, from) {
+            // Rebuild a minimal previous table for delta from stored totals only if needed —
+            // compare via current vs previous run using store rows → temporary tables.
+            let prev_table = run_data_to_table(&prev);
+            let summary = takeoff_delta_summary(&prev_table, table);
+            let _ = aadt_store::append_takeoff_delta(path, from, run_id, &summary);
+            delta = Some(summary);
+        }
+    }
+    Ok((run_id, delta))
+}
+
+fn run_data_to_table(data: &aadt_store::TakeoffRunData) -> TakeoffTable {
+    TakeoffTable {
+        walls: data
+            .walls
+            .iter()
+            .map(|w| aadt_takeoff::WallTakeoff {
+                id: w.wall_id as usize,
+                layer: w.layer.clone(),
+                length: w.length,
+                thickness: w.thickness,
+                height: w.height,
+                gross_area: w.gross_area,
+                volume: w.volume,
+                cost_code: w.cost_code.clone(),
+                wall_type: w.wall_type.clone(),
+                class_status: w.class_status.clone(),
+            })
+            .collect(),
+        openings: data
+            .openings
+            .iter()
+            .map(|o| aadt_takeoff::OpeningTakeoff {
+                number: o.number as u32,
+                kind: o.kind.clone(),
+                width: o.width,
+                height: o.height,
+                area: o.area,
+                cost_code: o.cost_code.clone(),
+            })
+            .collect(),
+        rooms: data
+            .rooms
+            .iter()
+            .map(|r| aadt_takeoff::RoomTakeoff {
+                id: r.room_id as usize,
+                layer: r.layer.clone(),
+                area: r.area,
+                perimeter: r.perimeter,
+                cost_code: r.cost_code.clone(),
+            })
+            .collect(),
+        structural: data
+            .structural
+            .iter()
+            .map(|s| aadt_takeoff::StructuralTakeoff {
+                number: s.number as u32,
+                kind: s.kind.clone(),
+                cost_code: s.cost_code.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn compute_takeoff(ctx: &aadt_command::Context) -> TakeoffTable {
+    let detection = detect(&ctx.doc, &DetectionConfig::default());
+    let mut table = TakeoffTable::from_detection(&detection);
+    table.attach_wall_classifications(&ctx.doc, &detection);
+    table
+}
+
+fn takeoff_live_enabled(ctx: &Context) -> bool {
+    let v = ctx.doc.properties().takeoff_live.trim();
+    v.is_empty() || v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
 }
 
 fn open_document(path: &str) -> Result<aadt_model::Document, String> {
@@ -70,6 +249,7 @@ impl Command for OpenCmd {
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = args.first().ok_or("OPEN: missing path")?;
         ctx.doc = open_document(path)?;
+        ctx.drawing_path = Some(path.clone());
         let seeded = apply_standard_layers(&mut ctx.doc);
         Ok(format!(
             "opened {path} ({} entities; seeded {seeded} AIA layers)",
@@ -89,7 +269,21 @@ impl Command for SaveCmd {
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = args.first().ok_or("SAVE: missing path")?;
         save_document(&ctx.doc, path)?;
-        Ok(format!("saved {} entities to {path}", ctx.doc.len()))
+        ctx.drawing_path = Some(path.clone());
+        let mut msg = format!("saved {} entities to {path}", ctx.doc.len());
+        if is_aadt_path(path) && takeoff_live_enabled(ctx) {
+            let table = compute_takeoff(ctx);
+            match persist_takeoff_run(path, &table, ctx.doc.revision(), false) {
+                Ok((run_id, delta)) => {
+                    msg.push_str(&format!("; takeoff run {run_id}"));
+                    if let Some(d) = delta {
+                        msg.push_str(&format!("; Δ {d}"));
+                    }
+                }
+                Err(e) => msg.push_str(&format!("; takeoff persist skipped ({e})")),
+            }
+        }
+        Ok(msg)
     }
 }
 
@@ -254,9 +448,25 @@ impl Command for ScheduleCmd {
         &["AADT-SCHEDULE"]
     }
     fn help(&self) -> &str {
-        "SCHEDULE [x y] — place the takeoff into the drawing as a table"
+        "SCHEDULE [x y]|REFRESH — place takeoff table, or refresh linked schedules"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        if args
+            .first()
+            .map(|a| a.eq_ignore_ascii_case("REFRESH"))
+            .unwrap_or(false)
+        {
+            let table = compute_takeoff(ctx);
+            let run = ctx
+                .drawing_path
+                .as_deref()
+                .filter(|p| is_aadt_path(p))
+                .and_then(|p| aadt_store::latest_takeoff_run_id(p).ok().flatten())
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            let n = table.refresh_schedules(&mut ctx.doc, &run)?;
+            return Ok(format!("refreshed linked schedule ({n} entities)"));
+        }
         let origin = match args {
             [] => Point2::new(0.0, 0.0),
             [x, y] => Point2::new(
@@ -265,16 +475,22 @@ impl Command for ScheduleCmd {
                 y.parse::<f64>()
                     .map_err(|_| format!("SCHEDULE: bad y {y}"))?,
             ),
-            _ => return Err("SCHEDULE: expected no arguments or 'x y'".to_string()),
+            _ => return Err("SCHEDULE: expected no arguments, 'x y', or REFRESH".to_string()),
         };
 
-        let detection = detect(&ctx.doc, &DetectionConfig::default());
-        let table = TakeoffTable::from_detection(&detection);
+        let table = compute_takeoff(ctx);
+        let run = ctx
+            .drawing_path
+            .as_deref()
+            .filter(|p| is_aadt_path(p))
+            .and_then(|p| aadt_store::latest_takeoff_run_id(p).ok().flatten())
+            .map(|id| id.to_string())
+            .unwrap_or_default();
         let style = ScheduleStyle {
             origin,
             ..Default::default()
         };
-        let ids = table.insert_schedule(&mut ctx.doc, &style);
+        let ids = table.insert_schedule_with_run(&mut ctx.doc, &style, &run);
         Ok(format!(
             "placed schedule at {},{} ({} entities; UNDO removes it)",
             origin.x,
@@ -293,22 +509,170 @@ impl Command for TakeoffCmd {
         &["AADT-TAKEOFF"]
     }
     fn help(&self) -> &str {
-        "TAKEOFF [out.csv] — detect elements and compute quantities"
+        "TAKEOFF [out.csv]|PUBLISH [sink] — detect/compute quantities; PUBLISH pins + sink"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let detection = detect(&ctx.doc, &DetectionConfig::default());
-        let mut table = TakeoffTable::from_detection(&detection);
-        table.attach_wall_classifications(&ctx.doc, &detection);
-        if let Some(path) = args.first() {
-            std::fs::write(path, table.to_csv()).map_err(|e| format!("writing {path}: {e}"))?;
+        if args
+            .first()
+            .map(|a| a.eq_ignore_ascii_case("PUBLISH"))
+            .unwrap_or(false)
+        {
+            return takeoff_publish(ctx, args.get(1).map(|s| s.as_str()));
         }
-        Ok(format!(
+        let table = compute_takeoff(ctx);
+        if let Some(path) = args.first() {
+            if !path.eq_ignore_ascii_case("PUBLISH") {
+                std::fs::write(path, table.to_csv())
+                    .map_err(|e| format!("writing {path}: {e}"))?;
+            }
+        }
+        let mut msg = format!(
             "{} walls, {} rooms; wall length {:.3}, room area {:.3}",
             table.walls.len(),
             table.rooms.len(),
             table.total_wall_length(),
             table.total_room_area(),
-        ))
+        );
+        if let Some(path) = ctx.drawing_path.clone() {
+            if is_aadt_path(&path) && takeoff_live_enabled(ctx) {
+                match persist_takeoff_run(&path, &table, ctx.doc.revision(), false) {
+                    Ok((run_id, delta)) => {
+                        msg.push_str(&format!("; run {run_id}"));
+                        if let Some(d) = delta {
+                            msg.push_str(&format!("; Δ {d}"));
+                        }
+                    }
+                    Err(e) => msg.push_str(&format!("; persist skipped ({e})")),
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+fn takeoff_publish(ctx: &mut Context, sink_spec: Option<&str>) -> Result<String, String> {
+    let path = resolve_drawing_path(ctx, None)?;
+    if !is_aadt_path(&path) {
+        return Err("TAKEOFF PUBLISH requires a .aadt drawing".into());
+    }
+    let table = compute_takeoff(ctx);
+    let (run_id, delta) = persist_takeoff_run(&path, &table, ctx.doc.revision(), true)?;
+    aadt_store::mark_takeoff_published(&path, run_id).map_err(|e| e.to_string())?;
+    let mut msg = format!("published takeoff run {run_id}");
+    if let Some(d) = delta {
+        msg.push_str(&format!("; Δ {d}"));
+    }
+    let spec = sink_spec
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("AADT_TAKEOFF_SINK").ok())
+        .unwrap_or_else(|| "none".into());
+    let mut sink = sink_from_spec(&spec)?;
+    let props = ctx.doc.properties();
+    let drawing_id = if props.drawing_number.is_empty() {
+        path.clone()
+    } else {
+        props.drawing_number.clone()
+    };
+    let meta = TakeoffPushMeta {
+        project_id: props.project_number.clone(),
+        drawing_id,
+        run_id: run_id.to_string(),
+        doc_revision: ctx.doc.revision(),
+        title_block_revision: props.revision.clone(),
+        checkpoint_label: String::new(),
+    };
+    sink.push(&table, &meta)?;
+    if spec != "none" {
+        msg.push_str(&format!("; sink {spec}"));
+    }
+    Ok(msg)
+}
+
+struct HistoryCmd;
+impl Command for HistoryCmd {
+    fn name(&self) -> &str {
+        "HISTORY"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["HIST", "VERSIONS"]
+    }
+    fn help(&self) -> &str {
+        "HISTORY [LIST]|SAVE [label]|RESTORE id|PURGE — drawing time machine (.aadt)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_else(|| "LIST".into());
+        match sub.as_str() {
+            "LIST" | "" => {
+                let path = resolve_drawing_path(ctx, args.get(1).map(|s| s.as_str()))?;
+                if !is_aadt_path(&path) {
+                    return Err("HISTORY: .aadt file required".into());
+                }
+                let list = aadt_store::list_checkpoints(&path).map_err(|e| e.to_string())?;
+                if list.is_empty() {
+                    return Ok("no checkpoints yet (SAVE the drawing)".into());
+                }
+                let lines: Vec<_> = list
+                    .iter()
+                    .take(30)
+                    .map(|c| {
+                        format!(
+                            "  #{} [{}] {} — {} (rev {}, {})",
+                            c.id, c.kind, c.label, c.change_summary, c.doc_revision, c.created_at
+                        )
+                    })
+                    .collect();
+                Ok(format!("{} checkpoint(s):\n{}", list.len(), lines.join("\n")))
+            }
+            "SAVE" => {
+                let path = resolve_drawing_path(ctx, None)?;
+                if !is_aadt_path(&path) {
+                    return Err("HISTORY SAVE: .aadt file required".into());
+                }
+                let label = args
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "Named version".into());
+                let note = args.get(2).cloned().unwrap_or_default();
+                let id = aadt_store::save_named_checkpoint(&path, &ctx.doc, &label, &note, "")
+                    .map_err(|e| e.to_string())?;
+                Ok(format!("saved named checkpoint #{id} ({label})"))
+            }
+            "RESTORE" => {
+                let id: i64 = args
+                    .get(1)
+                    .ok_or("HISTORY RESTORE: missing checkpoint id")?
+                    .parse()
+                    .map_err(|_| "HISTORY RESTORE: id must be an integer")?;
+                let path = resolve_drawing_path(ctx, None)?;
+                if !is_aadt_path(&path) {
+                    return Err("HISTORY RESTORE: .aadt file required".into());
+                }
+                let restored =
+                    aadt_store::restore_checkpoint(&path, id).map_err(|e| e.to_string())?;
+                let n = restored.len();
+                ctx.doc = restored;
+                // Write restore point back into the file.
+                let _ = aadt_store::save_path_with_checkpoint(
+                    &ctx.doc,
+                    &path,
+                    Some((&format!("Restored from #{id}"), "", "")),
+                );
+                Ok(format!(
+                    "restored checkpoint #{id} ({n} entities); saved restore point"
+                ))
+            }
+            "PURGE" => {
+                let path = resolve_drawing_path(ctx, None)?;
+                let n = aadt_store::purge_auto_checkpoints(&path).map_err(|e| e.to_string())?;
+                Ok(format!("purged {n} auto checkpoint(s)"))
+            }
+            other => Err(format!(
+                "HISTORY: unknown subcommand {other:?} (LIST|SAVE|RESTORE|PURGE)"
+            )),
+        }
     }
 }
 

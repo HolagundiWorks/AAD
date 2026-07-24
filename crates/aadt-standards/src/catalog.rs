@@ -118,6 +118,10 @@ pub const AIA_LAYERS: &[StandardLayer] = &[
     L!("TITLEBLOCK", 250, Continuous, 0.35, Annotation),
     L!("TB_TEXT", 250, Continuous, 0.25, Annotation),
     L!("TB_ATTR", 7, Continuous, 0.25, Annotation),
+    // In-drawing nameplate template layers (model space only).
+    L!("TMPL_BORDER", 250, Continuous, 0.70, Annotation),
+    L!("TMPL_VIEW", 8, Continuous, 0.35, Annotation),
+    L!("TMPL_TEXT", 7, Continuous, 0.25, Annotation),
     L!("REVISION", 1, Continuous, 0.25, Annotation),
     L!("LOGO", 250, Continuous, 0.25, Annotation),
     L!("A-SECT", 1, Continuous, 0.50, Architectural),

@@ -15,10 +15,21 @@
 use std::collections::{HashMap, HashSet};
 
 use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment};
-use aadt_model::{Dimension, DimensionKind, Document, EntityId, Geometry, Hatch, Insert, Text};
+use aadt_model::{
+    Dimension, DimensionKind, Document, EntityId, Geometry, Hatch, Insert, LineType, Text,
+};
 
 mod annotation;
+mod autodim;
+mod blocks;
+mod bplt;
 mod essentials;
+mod hcw;
+mod room;
+mod texttools;
+
+pub use room::{room_type_for_command, RoomSettings, ROOM_TYPES};
+pub use autodim::DEFAULT_DIM_LAYER;
 
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.
 ///
@@ -65,6 +76,10 @@ pub struct Context {
     pub clipboard: Vec<aadt_model::Entity>,
     /// GUI navigation hint set by ZOOM / PAN (extents, window, …).
     pub nav_hint: Option<String>,
+    /// Room dimension tool session settings (IBR / IROOM / …).
+    pub room: room::RoomSettings,
+    /// Last OPEN/SAVE path (used by HISTORY / TAKEOFF PUBLISH).
+    pub drawing_path: Option<String>,
 }
 
 impl Context {
@@ -135,6 +150,7 @@ pub fn builtins() -> Registry {
     let mut r = Registry::new();
     // Draw.
     r.register(Box::new(LineCmd));
+    r.register(Box::new(XlineCmd));
     r.register(Box::new(PolylineCmd));
     r.register(Box::new(RectangleCmd));
     r.register(Box::new(CircleCmd));
@@ -157,12 +173,14 @@ pub fn builtins() -> Registry {
     r.register(Box::new(ArrayCmd));
     r.register(Box::new(ExplodeCmd));
     r.register(Box::new(EraseCmd));
+    r.register(Box::new(GripEditCmd));
     // Organize.
     r.register(Box::new(LayerCmd));
     r.register(Box::new(LayersCmd));
     r.register(Box::new(PurgeCmd));
     // Annotate.
     r.register(Box::new(DimCmd));
+    r.register(Box::new(DimContinueCmd));
     r.register(Box::new(DimRadiusCmd));
     r.register(Box::new(DimAngularCmd));
     r.register(Box::new(DimDiameterCmd));
@@ -181,6 +199,12 @@ pub fn builtins() -> Registry {
     r.register(Box::new(AreaCmd));
     essentials::register_essentials(&mut r);
     annotation::register_annotation(&mut r);
+    autodim::register_autodim(&mut r);
+    blocks::register_blocks(&mut r);
+    room::register_room(&mut r);
+    hcw::register_hcw(&mut r);
+    bplt::register_bplt(&mut r);
+    texttools::register_texttools(&mut r);
     r
 }
 
@@ -256,6 +280,11 @@ pub(crate) fn parse_f64(args: &[String], i: usize, flag: &str) -> Result<f64, St
         .ok_or_else(|| format!("{flag}: missing argument {}", i + 1))?
         .parse::<f64>()
         .map_err(|_| format!("{flag}: argument {} is not a number", i + 1))
+}
+
+/// Parse a DXF-style linetype name; unknown tokens become Continuous.
+pub(crate) fn parse_linetype(token: &str) -> LineType {
+    LineType::parse(token).unwrap_or(LineType::Continuous)
 }
 
 pub(crate) fn parse_entity_id(raw: &str, flag: &str) -> Result<EntityId, String> {
@@ -579,10 +608,16 @@ impl Command for InsertCmd {
             None => 0.0,
         };
         let layer = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
+        let attrs = ctx
+            .doc
+            .block(&name)
+            .map(|b| b.default_insert_attributes())
+            .unwrap_or_default();
         let id = ctx.doc.transact("INSERT", |d| {
-            d.add_geometry(
+            d.add_entity(
                 layer,
                 Geometry::Insert(Insert::new(name, Point2::new(x, y), rotation)),
+                attrs,
             )
         });
         Ok(format!("INSERT added as entity {}", id.0))
@@ -783,7 +818,7 @@ impl Command for MirrorCmd {
         &["MI"]
     }
     fn help(&self) -> &str {
-        "MIRROR target x1 y1 x2 y2 — reflect an id, group, ALL, or SELECTION across the line (x1,y1)-(x2,y2)"
+        "MIRROR target x1 y1 x2 y2 [Y|N] — mirror across (x1,y1)-(x2,y2); Y=erase source, N=keep (default)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let token = args.first().ok_or("MIRROR: missing target")?;
@@ -793,13 +828,51 @@ impl Command for MirrorCmd {
         if a.coincident(b) {
             return Err("MIRROR: the two axis points must differ".to_string());
         }
+        let erase = args
+            .get(5)
+            .map(|s| {
+                matches!(
+                    s.to_ascii_lowercase().as_str(),
+                    "y" | "yes" | "erase" | "1"
+                )
+            })
+            .unwrap_or(false);
         let n = targets.len();
-        ctx.doc.transact("MIRROR", |d| {
-            for id in &targets {
-                d.mirror_entity(*id, a, b);
-            }
-        });
-        Ok(format!("mirrored {n} {}", entities_word(n)))
+        if erase {
+            ctx.doc.transact("MIRROR", |d| {
+                for id in &targets {
+                    d.mirror_entity(*id, a, b);
+                }
+            });
+            Ok(format!(
+                "mirrored {n} {} (source erased)",
+                entities_word(n)
+            ))
+        } else {
+            // Keep source: add mirrored clones (AutoCAD default).
+            let clones: Vec<(String, Geometry, std::collections::HashMap<String, String>)> =
+                targets
+                    .iter()
+                    .filter_map(|id| ctx.doc.get(*id))
+                    .map(|e| {
+                        (
+                            e.layer.clone(),
+                            e.geometry.mirrored(a, b),
+                            e.attributes.clone(),
+                        )
+                    })
+                    .collect();
+            let n = clones.len();
+            ctx.doc.transact("MIRROR", |d| {
+                for (layer, g, attrs) in clones {
+                    d.add_entity(layer, g, attrs);
+                }
+            });
+            Ok(format!(
+                "mirrored {n} {} (source kept)",
+                entities_word(n)
+            ))
+        }
     }
 }
 
@@ -1525,6 +1598,9 @@ impl Command for LayersCmd {
             if l.frozen {
                 flags.push_str(", frozen");
             }
+            if l.locked {
+                flags.push_str(", locked");
+            }
             lines.push(format!("  {} [{flags}]", l.name));
         }
         Ok(lines.join("\n"))
@@ -1556,6 +1632,61 @@ impl Command for LineCmd {
     }
 }
 
+/// Construction line length each side of the origin (world units).
+const XLINE_EXTENT: f64 = 1_000_000.0;
+
+struct XlineCmd;
+impl Command for XlineCmd {
+    fn name(&self) -> &str {
+        "XLINE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["XL"]
+    }
+    fn help(&self) -> &str {
+        "XLINE x y dx dy [layer] — infinite construction line through (x,y) in direction (dx,dy)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let x = parse_f64(args, 0, "XLINE")?;
+        let y = parse_f64(args, 1, "XLINE")?;
+        let dx = parse_f64(args, 2, "XLINE")?;
+        let dy = parse_f64(args, 3, "XLINE")?;
+        let dir = aadt_geometry::Vec2::new(dx, dy)
+            .normalized()
+            .ok_or("XLINE: direction must be non-zero")?;
+        let origin = Point2::new(x, y);
+        let ext = aadt_geometry::Vec2::new(dir.x * XLINE_EXTENT, dir.y * XLINE_EXTENT);
+        let layer = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
+        let seg = Segment::new(origin + aadt_geometry::Vec2::new(-ext.x, -ext.y), origin + ext);
+        let id = ctx
+            .doc
+            .transact("XLINE", |d| d.add_geometry(layer, Geometry::Line(seg)));
+        Ok(format!("XLINE added as entity {}", id.0))
+    }
+}
+
+#[cfg(test)]
+mod xline_tests {
+    use super::*;
+    use aadt_geometry::Point2;
+    use aadt_model::Geometry;
+
+    #[test]
+    fn xline_creates_long_segment_through_origin() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "XLINE 0 0 1 0 A-ANNO")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 1);
+        let Geometry::Line(s) = &ctx.doc.entities()[0].geometry else {
+            panic!("expected line");
+        };
+        assert!(s.a.distance(Point2::new(-XLINE_EXTENT, 0.0)) < 1e-6);
+        assert!(s.b.distance(Point2::new(XLINE_EXTENT, 0.0)) < 1e-6);
+    }
+}
+
 struct LayerCmd;
 impl Command for LayerCmd {
     fn name(&self) -> &str {
@@ -1565,7 +1696,7 @@ impl Command for LayerCmd {
         &["LA"]
     }
     fn help(&self) -> &str {
-        "LAYER name [COLOR n] [LTYPE name] [LWEIGHT mm] [ON|OFF] [FREEZE|THAW] — create or restyle a layer"
+        "LAYER name [COLOR n] [LTYPE name] [LWEIGHT mm] [ON|OFF] [FREEZE|THAW] [LOCK|UNLOCK] [REMOVE] — create or restyle a layer"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let name = args.first().ok_or("LAYER: missing name")?.clone();
@@ -1574,6 +1705,8 @@ impl Command for LayerCmd {
         let mut color: Option<u8> = None;
         let mut visible: Option<bool> = None;
         let mut frozen: Option<bool> = None;
+        let mut locked: Option<bool> = None;
+        let mut remove = false;
         let mut linetype: Option<aadt_model::LineType> = None;
         let mut lineweight: Option<f32> = None;
         let mut it = args[1..].iter();
@@ -1609,8 +1742,31 @@ impl Command for LayerCmd {
                 "OFF" => visible = Some(false),
                 "FREEZE" => frozen = Some(true),
                 "THAW" => frozen = Some(false),
+                "LOCK" => locked = Some(true),
+                "UNLOCK" => locked = Some(false),
+                "REMOVE" | "DELETE" => remove = true,
                 other => return Err(format!("LAYER: unknown option {other:?}")),
             }
+        }
+
+        if remove {
+            if name == "0" {
+                return Err("LAYER: cannot remove layer 0".into());
+            }
+            let in_use = ctx.doc.entities().iter().any(|e| e.layer == name)
+                || ctx.doc.hatches().iter().any(|h| h.layer == name)
+                || ctx.doc.dimensions().iter().any(|d| d.layer == name);
+            if in_use {
+                return Err(format!(
+                    "LAYER: {name:?} is in use — erase objects or PURGE first"
+                ));
+            }
+            let removed = ctx.doc.transact("LAYER", |d| d.remove_layer(&name));
+            return if removed {
+                Ok(format!("layer {name:?} removed"))
+            } else {
+                Err(format!("LAYER: no layer {name:?}"))
+            };
         }
 
         ctx.doc.transact("LAYER", |d| {
@@ -1630,17 +1786,21 @@ impl Command for LayerCmd {
             if let Some(fr) = frozen {
                 d.set_layer_frozen(&name, fr);
             }
+            if let Some(lk) = locked {
+                d.set_layer_locked(&name, lk);
+            }
         });
 
         // Report the resulting state.
         let l = ctx.doc.layer(&name).expect("layer exists after LAYER");
         let state = format!(
-            "color {}, {}, {:.2} mm, {}{}",
+            "color {}, {}, {:.2} mm, {}{}{}",
             l.color,
             l.linetype.dxf_name(),
             l.lineweight_mm,
             if l.visible { "on" } else { "off" },
             if l.frozen { ", frozen" } else { "" },
+            if l.locked { ", locked" } else { "" },
         );
         Ok(format!("layer {name:?} ready ({state})"))
     }
@@ -1667,6 +1827,118 @@ impl Command for EraseCmd {
             }
         });
         Ok(format!("erased {n} {}", entities_word(n)))
+    }
+}
+
+struct GripEditCmd;
+impl Command for GripEditCmd {
+    fn name(&self) -> &str {
+        "GRIPEDIT"
+    }
+    fn help(&self) -> &str {
+        "GRIPEDIT id grip_idx nx ny — move a grip of an entity to (nx,ny) (undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_entity_id(args.first().ok_or("GRIPEDIT: missing id")?, "GRIPEDIT")?;
+        let grip_idx = args
+            .get(1)
+            .ok_or("GRIPEDIT: missing grip index")?
+            .parse::<usize>()
+            .map_err(|_| "GRIPEDIT: grip index must be an integer".to_string())?;
+        let nx = parse_f64(args, 2, "GRIPEDIT")?;
+        let ny = parse_f64(args, 3, "GRIPEDIT")?;
+        let entity = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("GRIPEDIT: no entity {}", id.0))?;
+        let after = geometry_with_grip_moved(&entity.geometry, grip_idx, Point2::new(nx, ny))
+            .ok_or_else(|| "GRIPEDIT: invalid grip index or geometry".to_string())?;
+        ctx.doc.transact("GRIPEDIT", |d| {
+            d.replace_geometry(id, after);
+        });
+        Ok(format!("moved grip {grip_idx} on entity {}", id.0))
+    }
+}
+
+/// Stretch one grip of geometry to `new_pt` (AutoCAD-like hot grip).
+fn geometry_with_grip_moved(g: &Geometry, grip_idx: usize, new_pt: Point2) -> Option<Geometry> {
+    match g {
+        Geometry::Line(s) => match grip_idx {
+            0 => Some(Geometry::Line(Segment::new(new_pt, s.b))),
+            1 => {
+                let mid = s.midpoint();
+                let dx = new_pt.x - mid.x;
+                let dy = new_pt.y - mid.y;
+                Some(Geometry::Line(Segment::new(
+                    Point2::new(s.a.x + dx, s.a.y + dy),
+                    Point2::new(s.b.x + dx, s.b.y + dy),
+                )))
+            }
+            2 => Some(Geometry::Line(Segment::new(s.a, new_pt))),
+            _ => None,
+        },
+        Geometry::Polyline(p) => {
+            if grip_idx >= p.vertices.len() {
+                return None;
+            }
+            let mut verts = p.vertices.clone();
+            verts[grip_idx] = new_pt;
+            Some(Geometry::Polyline(Polyline::new(verts, p.closed)))
+        }
+        Geometry::Circle(c) => match grip_idx {
+            0 => Some(Geometry::Circle(Circle::new(new_pt, c.radius))),
+            1..=4 => {
+                let r = c.center.distance(new_pt);
+                if r <= f64::EPSILON {
+                    None
+                } else {
+                    Some(Geometry::Circle(Circle::new(c.center, r)))
+                }
+            }
+            _ => None,
+        },
+        Geometry::Arc(a) => match grip_idx {
+            0 => {
+                let dx = new_pt.x - a.center.x;
+                let dy = new_pt.y - a.center.y;
+                Some(Geometry::Arc(Arc::new(
+                    Point2::new(a.center.x + dx, a.center.y + dy),
+                    a.radius,
+                    a.start_angle,
+                    a.end_angle,
+                )))
+            }
+            1 => {
+                let ang = a.angle_of(new_pt);
+                Some(Geometry::Arc(Arc::new(
+                    a.center,
+                    a.radius,
+                    ang,
+                    a.end_angle,
+                )))
+            }
+            2 => {
+                let ang = a.angle_of(new_pt);
+                Some(Geometry::Arc(Arc::new(
+                    a.center,
+                    a.radius,
+                    a.start_angle,
+                    ang,
+                )))
+            }
+            _ => None,
+        },
+        Geometry::Text(t) => Some(Geometry::Text(Text::new(
+            t.value.clone(),
+            new_pt,
+            t.height,
+            t.rotation,
+        ))),
+        Geometry::Insert(i) => Some(Geometry::Insert(Insert::new(
+            i.name.clone(),
+            new_pt,
+            i.rotation,
+        ))),
     }
 }
 
@@ -1746,7 +2018,7 @@ impl Command for DimCmd {
         &["DIMLINEAR"]
     }
     fn help(&self) -> &str {
-        "DIM x1 y1 x2 y2 [layer] — add an aligned dimension between two points (undoable)"
+        "DIM x1 y1 x2 y2 [tx ty] [layer] — aligned dimension; optional text/dim-line point (undoable)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let p1 = Point2::new(parse_f64(args, 0, "DIM")?, parse_f64(args, 1, "DIM")?);
@@ -1754,7 +2026,26 @@ impl Command for DimCmd {
         if p1.coincident(p2) {
             return Err("DIM: the two points must differ".to_string());
         }
-        let layer = args.get(4).cloned().unwrap_or_else(|| "A-DIMS".to_string());
+        // Optional text/dim-line location (AutoCAD 3rd pick). If the 5th token is
+        // not a number, treat it as the layer name (legacy 5-arg form).
+        let (text_anchor, layer) = if args.len() >= 6 {
+            if let (Ok(tx), Ok(ty)) = (args[4].parse::<f64>(), args[5].parse::<f64>()) {
+                (
+                    Point2::new(tx, ty),
+                    args.get(6).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
+                )
+            } else {
+                (
+                    p1.midpoint(p2),
+                    args.get(4).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
+                )
+            }
+        } else {
+            (
+                p1.midpoint(p2),
+                args.get(4).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
+            )
+        };
         let measurement = p1.distance(p2);
         let dim = Dimension {
             layer,
@@ -1762,12 +2053,124 @@ impl Command for DimCmd {
             p1,
             p2,
             vertex: p1,
-            text_anchor: p1.midpoint(p2),
+            text_anchor,
             text: String::new(),
             measurement,
         };
         ctx.doc.transact("DIM", |d| d.add_dimension(dim));
         Ok(format!("added dimension measuring {measurement}"))
+    }
+}
+
+/// Last linear/aligned dimension in the document (continue/baseline base).
+fn last_continue_base(doc: &Document) -> Option<&Dimension> {
+    doc.dimensions().iter().rev().find(|d| {
+        matches!(
+            d.kind,
+            DimensionKind::Aligned | DimensionKind::Linear
+        )
+    })
+}
+
+/// Signed offset of the dim line from the definition segment (along left normal).
+fn dim_line_offset(dim: &Dimension) -> f64 {
+    let v = dim.p2 - dim.p1;
+    let Some(u) = v.normalized() else {
+        return 0.0;
+    };
+    let n = u.perp();
+    (dim.text_anchor - dim.p1).dot(n)
+}
+
+fn continue_text_anchor(p1: Point2, p2: Point2, offset: f64) -> Point2 {
+    let mid = p1.midpoint(p2);
+    let v = p2 - p1;
+    let Some(u) = v.normalized() else {
+        return mid;
+    };
+    mid + u.perp() * offset
+}
+
+struct DimContinueCmd;
+impl Command for DimContinueCmd {
+    fn name(&self) -> &str {
+        "DIMCONTINUE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIMCONT", "DCO"]
+    }
+    fn help(&self) -> &str {
+        "DIMCONTINUE x y [x2 y2 …] [layer] — continue from last aligned/linear dim (undoable)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        if args.is_empty() {
+            return Err(
+                "DIMCONTINUE: missing next point (x y); place a DIM first".into(),
+            );
+        }
+        // Optional trailing layer if the last token is non-numeric and count is odd.
+        let (coord_args, layer_override) = if args.len() >= 3 && args.len() % 2 == 1 {
+            let last = args.last().unwrap();
+            if last.parse::<f64>().is_err() {
+                (&args[..args.len() - 1], Some(last.clone()))
+            } else {
+                (args, None)
+            }
+        } else {
+            (args, None)
+        };
+        if coord_args.len() < 2 || coord_args.len() % 2 != 0 {
+            return Err("DIMCONTINUE: need x y pairs for each next point".into());
+        }
+
+        let mut pending = Vec::new();
+        let mut base = last_continue_base(&ctx.doc)
+            .cloned()
+            .ok_or("DIMCONTINUE: no aligned/linear dimension to continue from")?;
+        for pair in coord_args.chunks(2) {
+            let nx = pair[0]
+                .parse::<f64>()
+                .map_err(|_| "DIMCONTINUE: x is not a number".to_string())?;
+            let ny = pair[1]
+                .parse::<f64>()
+                .map_err(|_| "DIMCONTINUE: y is not a number".to_string())?;
+            let next = Point2::new(nx, ny);
+
+            let p1 = base.p2;
+            if p1.coincident(next) {
+                return Err("DIMCONTINUE: next point coincides with previous end".into());
+            }
+            let offset = dim_line_offset(&base);
+            let text_anchor = continue_text_anchor(p1, next, offset);
+            let layer = layer_override
+                .clone()
+                .unwrap_or_else(|| base.layer.clone());
+            let measurement = p1.distance(next);
+            let dim = Dimension {
+                layer,
+                kind: DimensionKind::Aligned,
+                p1,
+                p2: next,
+                vertex: p1,
+                text_anchor,
+                text: String::new(),
+                measurement,
+            };
+            base = dim.clone();
+            pending.push(dim);
+        }
+        let added = pending.len();
+        let last_meas = pending.last().map(|d| d.measurement).unwrap_or(0.0);
+        ctx.doc.transact("DIMCONTINUE", |d| {
+            for dim in pending {
+                d.add_dimension(dim);
+            }
+        });
+        Ok(if added == 1 {
+            format!("continued dimension measuring {last_meas}")
+        } else {
+            format!("continued {added} dimensions (last {last_meas})")
+        })
     }
 }
 
@@ -1853,7 +2256,7 @@ impl Command for DimAngularCmd {
         );
         // Interior angle between the rays, in degrees.
         let degrees = d1.dot(d2).clamp(-1.0, 1.0).acos().to_degrees();
-        let layer = args.get(6).cloned().unwrap_or_else(|| "A-DIMS".to_string());
+        let layer = args.get(6).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string());
         let dim = Dimension {
             layer,
             kind: DimensionKind::Angular,
@@ -1945,7 +2348,7 @@ impl Command for DimOrdinateCmd {
             "Y" => (DimensionKind::OrdinateY, feature.y),
             _ => return Err(format!("DIMORDINATE: axis must be X or Y, got {axis:?}")),
         };
-        let layer = args.get(5).cloned().unwrap_or_else(|| "A-DIMS".to_string());
+        let layer = args.get(5).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string());
         let dim = Dimension {
             layer,
             kind,
@@ -2408,10 +2811,26 @@ mod tests {
             assert!(s.b.distance(Point2::new(4.0, 0.0)) < 1e-9);
         }
 
-        // MIRROR across the x-axis: y flips.
-        interp.eval_line(&mut ctx, "MIRROR 0 0 0 1 0").unwrap();
+        // MIRROR across the x-axis with erase (Y): y flips in place.
+        interp.eval_line(&mut ctx, "MIRROR 0 0 0 1 0 Y").unwrap();
         if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
             assert!(s.a.y <= 0.0 && s.b.y <= 0.0, "mirrored below the axis");
+        }
+    }
+
+    #[test]
+    fn mirror_keeps_source_by_default() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 1 2 1").unwrap();
+        assert_eq!(ctx.doc.len(), 1);
+        interp
+            .eval_line(&mut ctx, "MIRROR 0 0 0 1 0")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 2, "default N keeps source + adds mirror");
+        // Original still above the axis.
+        if let Geometry::Line(s) = &ctx.doc.entities()[0].geometry {
+            assert!(s.a.y > 0.0 && s.b.y > 0.0);
         }
     }
 
@@ -2946,6 +3365,56 @@ mod tests {
 
         // Coincident points are rejected.
         assert!(interp.eval_line(&mut ctx, "DIM 1 1 1 1").is_err());
+    }
+
+    #[test]
+    fn dimcontinue_chains_from_last_aligned() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Horizontal dim 0→10 with text above at y=2.
+        interp
+            .eval_line(&mut ctx, "DIM 0 0 10 0 5 2 A-ANNO-DIMS")
+            .unwrap();
+        assert_eq!(ctx.doc.dimensions().len(), 1);
+
+        let msg = interp
+            .eval_line(&mut ctx, "DIMCONTINUE 16 0")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("continued"), "{msg:?}");
+        assert_eq!(ctx.doc.dimensions().len(), 2);
+        let d = &ctx.doc.dimensions()[1];
+        assert!((d.p1.x - 10.0).abs() < 1e-9 && (d.p1.y).abs() < 1e-9);
+        assert!((d.p2.x - 16.0).abs() < 1e-9);
+        assert!((d.measurement - 6.0).abs() < 1e-9);
+        // Offset preserved (~2 units above).
+        assert!((d.text_anchor.y - 2.0).abs() < 1e-6, "anchor y={:?}", d.text_anchor);
+        assert_eq!(d.layer, "A-ANNO-DIMS");
+
+        // Chain again from the continued end.
+        interp.eval_line(&mut ctx, "DIMCONTINUE 20 0").unwrap();
+        assert_eq!(ctx.doc.dimensions().len(), 3);
+        assert!((ctx.doc.dimensions()[2].p1.x - 16.0).abs() < 1e-9);
+
+        assert!(interp.eval_line(&mut ctx, "DIMCONTINUE").is_err());
+    }
+
+    #[test]
+    fn dimcontinue_multi_point_one_undo() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "DIM 0 0 10 0").unwrap();
+        assert_eq!(ctx.doc.dimensions().len(), 1);
+        interp
+            .eval_line(&mut ctx, "DIMCONTINUE 16 0 22 0 28 0")
+            .unwrap();
+        assert_eq!(ctx.doc.dimensions().len(), 4);
+        interp.eval_line(&mut ctx, "UNDO").unwrap();
+        assert_eq!(
+            ctx.doc.dimensions().len(),
+            1,
+            "one UNDO must remove all continued dims"
+        );
     }
 
     #[test]

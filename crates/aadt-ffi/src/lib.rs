@@ -116,7 +116,7 @@ pub unsafe extern "C" fn aadt_selection_count(session: *const AadtSession) -> u6
 /// # Safety
 /// `session` must be valid.
 #[no_mangle]
-pub unsafe extern "C" fn aadt_drawlist_len(session: *const AadtSession) -> u64 {
+pub unsafe extern "C" fn aadt_drawlist_len(session: *mut AadtSession) -> u64 {
     if session.is_null() {
         return 0;
     }

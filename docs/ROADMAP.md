@@ -44,23 +44,25 @@ Each milestone is a shippable, verifiable increment.
 ## Curated command band
 
 AADT is a **powerful 2D drafting tool free of bloat**. Depth goes into LISP, not
-more command names.
+more command names. Interaction is **AutoCAD-like** (prompts, keywords,
+noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 
 **Daily (interactive + prominent autocomplete):**
 
 | Kind | Commands |
 |---|---|
-| Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `TEXT` `INSERT` |
+| Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ERASE` |
-| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) |
-| Annotate | `TEXT` `MLEADER` `DIM*` (de-emphasized) |
+| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
+| Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` |
 | AADT | `TAKEOFF` `SCHEDULE` `SECTION` `STANDARDS` `BLOCKLIB` |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
 
-**Click-tools in the egui viewport:** `L` `C` `REC` `A` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
-`M` `CO` `RO` `SC` · `E` · pick/box select · Ortho (Shift / F8) · Osnap endpoint/midpoint (F3).
+**Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
+`M` `CO` `RO` `SC` `MI` · `E` · `DIM*` · pick/box select · Ortho (Shift / F8) ·
+Osnap endpoint/midpoint (F3) · Polar (F10).
 
-**Keep but de-emphasize** (scripts / DXF fidelity, not GUI chrome): `DIM*`
+**Keep but de-emphasize** (scripts / DXF fidelity, not GUI chrome): other `DIM*`
 variants, `HATCH`, `CHAMFER`, `ARRAY`, `EXPLODE`, `PURGE`, `GROUP*`/`UNGROUP`,
 `AREA`.
 
@@ -92,15 +94,18 @@ state, DXF round-trip, drawlist/camera seam.
 
 **Interactive surface — ✅ (egui):**
 - Command-first shell with live takeoff panel, pick/box select, click-to-draw
-  (`L`/`C`/`REC`/`A`), noun-verb `M`/`CO`/`RO`/`SC`/`E`, dynamic input, Ortho
-  (F8), native file dialogs (`rfd`).
+  (`L`/`C`/`REC`/`A`/`XL`), noun-verb **and** verb-noun `M`/`CO`/`RO`/`SC`/`MI`/`E`,
+  AutoCAD-like keywords (`[U]`/`[C]`/`[D]`/`[R]`), dynamic input, Ortho (F8),
+  native file dialogs (`rfd`), Units/Dims managers, 3-point `DIM`.
 - `OPEN`/`SAVE`/`TAKEOFF`/`SCHEDULE`/`LISP`/`LISPLOAD` on the same `Session` the
   CLI shell uses; bare `(…)` evaluates AutoLISP against the live document.
 - Thin `aadt-ffi` cdylib for future chrome (e.g. WinUI) without engine rewrite.
+- Interaction docs: [`docs/ux/`](ux/README.md).
 
 **Remaining (display-bound, not command sprawl):**
 - Viewport text glyph quality.
 - True `wgpu` 2D canvas when the egui painter is actually too slow (100k+).
+- Transparent mid-command `'ZOOM` / grip-edit (see UX parity matrix).
 
 **Native format — ✅ v0:** SQLite `.aadt` via `aadt-store` (layers, entities with
 stable ids, blocks, hatches, dimensions). `OPEN`/`SAVE` select by extension.

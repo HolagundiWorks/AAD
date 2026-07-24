@@ -1,50 +1,133 @@
 //! # aadt-store — Native `.aadt` SQLite persistence (ADR-0004)
 //!
 //! The working-file format for AADT drawings. SQLite (bundled) holds layers,
-//! entities (stable ids), blocks, hatches, and dimensions. Undo history is not
-//! persisted — OPEN is a bulk load, same as DXF.
+//! entities (stable ids), blocks, hatches, dimensions, **drawing history**
+//! (time machine), and **takeoff runs**. Session undo is still RAM-only.
 //!
 //! Geometry is stored as a compact text payload (no serde). Schema version is in
-//! the `meta` table so future migrations can branch.
+//! the `meta` table; v4→v5 migrates in place on open.
 
 mod codec;
+mod history;
+mod takeoff_db;
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use aadt_geometry::Point2;
 use aadt_model::{
-    Block, Dimension, DimensionKind, Document, Entity, EntityId, Geometry, Hatch, Layer, LineType,
+    Block, BlockParam, BlockParamKind, Dimension, DimensionKind, Document, Entity, EntityId,
+    Geometry, Hatch, Layer, LineType, VisibilityState,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::codec::{decode_geometry, encode_geometry};
 
+pub use history::{
+    list_checkpoints, purge_auto_checkpoints, restore_checkpoint, save_named_checkpoint,
+    CheckpointMeta, MAX_AUTO_CHECKPOINTS,
+};
+pub use takeoff_db::{
+    append_takeoff_delta, append_takeoff_run, latest_delta_summary, latest_published_run_id,
+    latest_takeoff_run_id, load_takeoff_run, mark_takeoff_published, TakeoffOpeningRow,
+    TakeoffRoomRow, TakeoffRunData, TakeoffStructuralRow, TakeoffWallRow,
+};
+
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
 
-/// Save `doc` to `path` as a fresh `.aadt` SQLite database (overwrites).
+/// Save `doc` to `path` as `.aadt` (preserves history/takeoff; appends auto checkpoint).
 pub fn save_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), StoreError> {
+    save_path_with_checkpoint(doc, path, None).map(|_| ())
+}
+
+/// Save with an optional named checkpoint `(label, note, author)` instead of auto.
+pub fn save_path_with_checkpoint(
+    doc: &Document,
+    path: impl AsRef<Path>,
+    named: Option<(&str, &str, &str)>,
+) -> Result<i64, StoreError> {
     if let Some(parent) = path.as_ref().parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
     }
-    if path.as_ref().exists() {
-        std::fs::remove_file(path.as_ref())?;
+    let path = path.as_ref();
+    // Copy-then-migrate so a failed upgrade never leaves the live `.aadt` half-written.
+    let mut prior: Option<Connection> = None;
+    let mut migrate_scratch: Option<std::path::PathBuf> = None;
+    if path.exists() {
+        let scratch = path.with_extension("aadt.migrate.tmp");
+        if scratch.exists() {
+            std::fs::remove_file(&scratch)?;
+        }
+        std::fs::copy(path, &scratch)?;
+        let old = Connection::open(&scratch)?;
+        let ver: Option<i64> = old
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_version'",
+                [],
+                |r| {
+                    let s: String = r.get(0)?;
+                    Ok(s.parse::<i64>().unwrap_or(0))
+                },
+            )
+            .optional()?;
+        if let Some(v) = ver {
+            if v < SCHEMA_VERSION {
+                migrate_to_v5(&old, v)?;
+            }
+            if v <= SCHEMA_VERSION {
+                prior = Some(old);
+                migrate_scratch = Some(scratch);
+            } else {
+                drop(old);
+                let _ = std::fs::remove_file(&scratch);
+            }
+        } else {
+            drop(old);
+            let _ = std::fs::remove_file(&scratch);
+        }
     }
-    let conn = Connection::open(path.as_ref())?;
-    init_schema(&conn)?;
+
+    let tmp = path.with_extension("aadt.tmp");
+    if tmp.exists() {
+        std::fs::remove_file(&tmp)?;
+    }
+    let conn = Connection::open(&tmp)?;
+    init_schema_tables(&conn)?;
+    conn.execute(
+        "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)",
+        params![SCHEMA_VERSION.to_string()],
+    )?;
     write_document(&conn, doc)?;
-    Ok(())
+    if let Some(old) = prior.as_ref() {
+        history::copy_extended_tables(old, &conn)?;
+    }
+    let chk_id = if let Some((label, note, author)) = named {
+        history::insert_checkpoint_pub(&conn, doc, label, "named", note, author)?
+    } else {
+        history::append_auto_checkpoint(&conn, doc)?
+    };
+    drop(conn);
+    drop(prior);
+    if let Some(scratch) = migrate_scratch {
+        let _ = std::fs::remove_file(scratch);
+    }
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    std::fs::rename(&tmp, path)?;
+    Ok(chk_id)
 }
 
 /// Load a `.aadt` file into a fresh [`Document`] (empty undo history).
 pub fn load_path(path: impl AsRef<Path>) -> Result<Document, StoreError> {
-    let conn = Connection::open(path.as_ref())?;
+    let path = path.as_ref();
+    let conn = Connection::open(path)?;
     let ver: i64 = conn
         .query_row(
             "SELECT value FROM meta WHERE key = 'schema_version'",
@@ -62,15 +145,46 @@ pub fn load_path(path: impl AsRef<Path>) -> Result<Document, StoreError> {
         )
         .optional()?
         .ok_or_else(|| StoreError::Format("missing schema_version".into()))?;
-    if ver != SCHEMA_VERSION {
+    if ver > SCHEMA_VERSION {
         return Err(StoreError::Format(format!(
             "unsupported schema_version {ver} (want {SCHEMA_VERSION})"
         )));
     }
+    if ver < SCHEMA_VERSION {
+        // Migrate a copy, then atomically replace — never leave the live file mid-upgrade.
+        drop(conn);
+        let scratch = path.with_extension("aadt.migrate.tmp");
+        if scratch.exists() {
+            std::fs::remove_file(&scratch)?;
+        }
+        std::fs::copy(path, &scratch)?;
+        {
+            let mig = Connection::open(&scratch)?;
+            migrate_to_v5(&mig, ver)?;
+        }
+        let bak = path.with_extension("aadt.bak");
+        if bak.exists() {
+            std::fs::remove_file(&bak)?;
+        }
+        std::fs::rename(path, &bak)?;
+        match std::fs::rename(&scratch, path) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(&bak);
+            }
+            Err(e) => {
+                let _ = std::fs::rename(&bak, path);
+                let _ = std::fs::remove_file(&scratch);
+                return Err(e.into());
+            }
+        }
+        let conn = Connection::open(path)?;
+        return read_document(&conn);
+    }
     read_document(&conn)
 }
 
-fn init_schema(conn: &Connection) -> Result<(), StoreError> {
+/// Create all tables (model + history + takeoff). Does not set schema_version.
+pub(crate) fn init_schema_tables(conn: &Connection) -> Result<(), StoreError> {
     conn.execute_batch(
         "
         CREATE TABLE meta (
@@ -83,7 +197,8 @@ fn init_schema(conn: &Connection) -> Result<(), StoreError> {
             linetype TEXT NOT NULL,
             lineweight_mm REAL NOT NULL,
             visible INTEGER NOT NULL,
-            frozen INTEGER NOT NULL
+            frozen INTEGER NOT NULL,
+            locked INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE blocks (
             name TEXT PRIMARY KEY NOT NULL,
@@ -96,6 +211,19 @@ fn init_schema(conn: &Connection) -> Result<(), StoreError> {
             layer TEXT NOT NULL,
             geom TEXT NOT NULL,
             PRIMARY KEY (block, seq)
+        );
+        CREATE TABLE block_params (
+            block TEXT NOT NULL REFERENCES blocks(name) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            default_value TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            PRIMARY KEY (block, name)
+        );
+        CREATE TABLE block_vis (
+            block TEXT NOT NULL REFERENCES blocks(name) ON DELETE CASCADE,
+            state TEXT NOT NULL,
+            hidden TEXT NOT NULL,
+            PRIMARY KEY (block, state)
         );
         CREATE TABLE entities (
             id INTEGER PRIMARY KEY NOT NULL,
@@ -128,19 +256,109 @@ fn init_schema(conn: &Connection) -> Result<(), StoreError> {
         );
         ",
     )?;
+    ensure_extended_tables(conn)?;
+    Ok(())
+}
+
+pub(crate) fn ensure_extended_tables(conn: &Connection) -> Result<(), StoreError> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS history_checkpoint (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            label TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            doc_revision INTEGER NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            author TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS history_blob (
+            checkpoint_id INTEGER PRIMARY KEY NOT NULL
+                REFERENCES history_checkpoint(id) ON DELETE CASCADE,
+            blob BLOB NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS history_change (
+            checkpoint_id INTEGER PRIMARY KEY NOT NULL
+                REFERENCES history_checkpoint(id) ON DELETE CASCADE,
+            op_summary TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS takeoff_run (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            at TEXT NOT NULL,
+            doc_revision INTEGER NOT NULL,
+            checkpoint_id INTEGER,
+            schema_ver TEXT NOT NULL,
+            totals_json TEXT NOT NULL,
+            published INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS takeoff_wall (
+            run_id INTEGER NOT NULL REFERENCES takeoff_run(id) ON DELETE CASCADE,
+            wall_id INTEGER NOT NULL,
+            layer TEXT NOT NULL,
+            length REAL NOT NULL,
+            thickness REAL NOT NULL,
+            height REAL NOT NULL,
+            gross_area REAL NOT NULL,
+            volume REAL NOT NULL,
+            cost_code TEXT NOT NULL,
+            wall_type TEXT NOT NULL,
+            class_status TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS takeoff_room (
+            run_id INTEGER NOT NULL REFERENCES takeoff_run(id) ON DELETE CASCADE,
+            room_id INTEGER NOT NULL,
+            layer TEXT NOT NULL,
+            area REAL NOT NULL,
+            perimeter REAL NOT NULL,
+            cost_code TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS takeoff_opening (
+            run_id INTEGER NOT NULL REFERENCES takeoff_run(id) ON DELETE CASCADE,
+            number INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            width REAL NOT NULL,
+            height REAL NOT NULL,
+            area REAL NOT NULL,
+            cost_code TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS takeoff_structural (
+            run_id INTEGER NOT NULL REFERENCES takeoff_run(id) ON DELETE CASCADE,
+            number INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            cost_code TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS takeoff_delta (
+            from_run INTEGER NOT NULL,
+            to_run INTEGER NOT NULL,
+            summary TEXT NOT NULL
+        );
+        ",
+    )?;
+    Ok(())
+}
+
+pub(crate) fn migrate_to_v5(conn: &Connection, from: i64) -> Result<(), StoreError> {
+    if from > SCHEMA_VERSION {
+        return Err(StoreError::Format(format!(
+            "cannot migrate from future schema {from}"
+        )));
+    }
+    ensure_extended_tables(conn)?;
     conn.execute(
-        "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)",
+        "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![SCHEMA_VERSION.to_string()],
     )?;
     Ok(())
 }
 
-fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
+
+pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
     let tx = conn.unchecked_transaction()?;
 
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO layers (name, color, linetype, lineweight_mm, visible, frozen) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO layers (name, color, linetype, lineweight_mm, visible, frozen, locked) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
         for layer in doc.layers() {
             stmt.execute(params![
@@ -150,6 +368,7 @@ fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
                 layer.lineweight_mm as f64,
                 i64::from(layer.visible),
                 i64::from(layer.frozen),
+                i64::from(layer.locked),
             ])?;
         }
     }
@@ -160,6 +379,11 @@ fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
         let mut estmt = tx.prepare(
             "INSERT INTO block_entities (block, seq, layer, geom) VALUES (?1, ?2, ?3, ?4)",
         )?;
+        let mut pstmt = tx.prepare(
+            "INSERT INTO block_params (block, name, default_value, kind) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        let mut vstmt =
+            tx.prepare("INSERT INTO block_vis (block, state, hidden) VALUES (?1, ?2, ?3)")?;
         for block in doc.blocks() {
             bstmt.execute(params![block.name, block.base.x, block.base.y])?;
             for (i, be) in block.entities.iter().enumerate() {
@@ -169,6 +393,23 @@ fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
                     be.layer,
                     encode_geometry(&be.geometry)?
                 ])?;
+            }
+            for p in &block.params {
+                pstmt.execute(params![
+                    block.name,
+                    p.name,
+                    p.default,
+                    p.kind.as_str()
+                ])?;
+            }
+            for v in &block.visibilities {
+                let hidden = v
+                    .hidden
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                vstmt.execute(params![block.name, v.name, hidden])?;
             }
         }
     }
@@ -233,13 +474,18 @@ fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
         }
     }
 
+    // Keep properties in the same SQLite transaction as geometry (atomic save).
+    write_properties(&*tx, doc.properties())?;
+
     tx.commit()?;
 
-    write_properties(conn, doc.properties())?;
     Ok(())
 }
 
-fn write_properties(conn: &Connection, p: &aadt_model::DrawingProperties) -> Result<(), StoreError> {
+fn write_properties(
+    conn: &rusqlite::Connection,
+    p: &aadt_model::DrawingProperties,
+) -> Result<(), StoreError> {
     let pairs = [
         ("prop.title", p.title.as_str()),
         ("prop.subject", p.subject.as_str()),
@@ -276,11 +522,14 @@ fn write_properties(conn: &Connection, p: &aadt_model::DrawingProperties) -> Res
         ("prop.dimstyle", p.dimstyle.as_str()),
         ("prop.dim_text_height", p.dim_text_height.as_str()),
         ("prop.dim_scale", p.dim_scale.as_str()),
+        ("prop.dim_secondary", p.dim_secondary.as_str()),
         ("prop.autonum_prefix", p.autonum_prefix.as_str()),
         ("prop.autonum_next", p.autonum_next.as_str()),
         ("prop.standard_notes", p.standard_notes.as_str()),
         ("prop.plot_include_notes", p.plot_include_notes.as_str()),
         ("prop.nameplate_preset", p.nameplate_preset.as_str()),
+        ("prop.nameplate_block", p.nameplate_block.as_str()),
+        ("prop.takeoff_live", p.takeoff_live.as_str()),
     ];
     let mut stmt = conn.prepare(
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
@@ -336,37 +585,54 @@ fn read_properties(conn: &Connection) -> Result<aadt_model::DrawingProperties, S
             "prop.dimstyle" => p.dimstyle = v,
             "prop.dim_text_height" => p.dim_text_height = v,
             "prop.dim_scale" => p.dim_scale = v,
+            "prop.dim_secondary" => p.dim_secondary = v,
             "prop.autonum_prefix" => p.autonum_prefix = v,
             "prop.autonum_next" => p.autonum_next = v,
             "prop.standard_notes" => p.standard_notes = v,
             "prop.plot_include_notes" => p.plot_include_notes = v,
             "prop.nameplate_preset" => p.nameplate_preset = v,
+            "prop.nameplate_block" => p.nameplate_block = v,
+            "prop.takeoff_live" => p.takeoff_live = v,
             _ => {}
         }
     }
     Ok(p)
 }
 
-fn read_document(conn: &Connection) -> Result<Document, StoreError> {
+pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
     let mut doc = Document::new();
 
     {
-        let mut stmt = conn.prepare(
-            "SELECT name, color, linetype, lineweight_mm, visible, frozen FROM layers ORDER BY name",
-        )?;
-        let rows = stmt.query_map([], |r| {
-            let lt_name: String = r.get(2)?;
-            Ok(Layer {
-                name: r.get(0)?,
-                color: r.get::<_, i64>(1)? as u8,
-                linetype: LineType::parse(&lt_name).unwrap_or(LineType::Continuous),
-                lineweight_mm: r.get::<_, f64>(3)? as f32,
-                visible: r.get::<_, i64>(4)? != 0,
-                frozen: r.get::<_, i64>(5)? != 0,
-            })
-        })?;
-        for layer in rows {
-            doc.restore_layer(layer?);
+        // Prefer schema v4 (locked); fall back for older files without the column.
+        let load = |with_locked: bool| -> Result<Vec<Layer>, StoreError> {
+            let sql = if with_locked {
+                "SELECT name, color, linetype, lineweight_mm, visible, frozen, locked FROM layers ORDER BY name"
+            } else {
+                "SELECT name, color, linetype, lineweight_mm, visible, frozen FROM layers ORDER BY name"
+            };
+            let mut stmt = conn.prepare(sql)?;
+            let rows = stmt.query_map([], move |r| {
+                let lt_name: String = r.get(2)?;
+                Ok(Layer {
+                    name: r.get(0)?,
+                    color: r.get::<_, i64>(1)? as u8,
+                    linetype: LineType::parse(&lt_name).unwrap_or(LineType::Continuous),
+                    lineweight_mm: r.get::<_, f64>(3)? as f32,
+                    visible: r.get::<_, i64>(4)? != 0,
+                    frozen: r.get::<_, i64>(5)? != 0,
+                    locked: if with_locked {
+                        r.get::<_, i64>(6)? != 0
+                    } else {
+                        false
+                    },
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::from)
+        };
+        let layers = load(true).or_else(|_| load(false))?;
+        for layer in layers {
+            doc.restore_layer(layer);
         }
     }
 
@@ -388,6 +654,57 @@ fn read_document(conn: &Connection) -> Result<Document, StoreError> {
             for row in ents {
                 let (layer, geom) = row?;
                 block.push(layer, decode_geometry(&geom)?);
+            }
+            // Schema v3+: params / visibility (ignore if tables absent on older files).
+            if let Ok(mut pstmt) = conn.prepare(
+                "SELECT name, default_value, kind FROM block_params WHERE block = ?1 ORDER BY name",
+            ) {
+                let params_ok = pstmt.query_map(params![name], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                });
+                if let Ok(prows) = params_ok {
+                    block.params.clear();
+                    for row in prows {
+                        let (pname, def, kind) = row?;
+                        block.params.push(BlockParam {
+                            name: pname,
+                            default: def,
+                            kind: BlockParamKind::parse(&kind),
+                        });
+                    }
+                }
+            }
+            if let Ok(mut vstmt) =
+                conn.prepare("SELECT state, hidden FROM block_vis WHERE block = ?1 ORDER BY state")
+            {
+                let vis_ok = vstmt.query_map(params![name], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                });
+                if let Ok(vrows) = vis_ok {
+                    let mut loaded = Vec::new();
+                    for row in vrows {
+                        let (state, hidden_s) = row?;
+                        let hidden: Vec<usize> = if hidden_s.trim().is_empty() {
+                            Vec::new()
+                        } else {
+                            hidden_s
+                                .split(',')
+                                .filter_map(|s| s.trim().parse().ok())
+                                .collect()
+                        };
+                        loaded.push(VisibilityState {
+                            name: state,
+                            hidden,
+                        });
+                    }
+                    if !loaded.is_empty() {
+                        block.visibilities = loaded;
+                    }
+                }
             }
             doc.add_block(block);
         }
@@ -558,6 +875,32 @@ mod tests {
         assert!(nid.0 >= 6, "got {}", nid.0);
         let layer = loaded.layer("A-WALL").unwrap();
         assert_eq!(layer.color, 7);
+    }
+
+    #[test]
+    fn history_checkpoint_survives_resave() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+        );
+        let dir = std::env::temp_dir().join("aadt-store-hist");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("hist.aadt");
+        let _ = std::fs::remove_file(&path);
+        save_path(&doc, &path).unwrap();
+        let list = list_checkpoints(&path).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].kind, "auto");
+
+        save_named_checkpoint(&path, &doc, "Issued for construction", "", "me").unwrap();
+        let list = list_checkpoints(&path).unwrap();
+        assert!(list.iter().any(|c| c.kind == "named"));
+        assert!(list.len() >= 2);
+
+        let id = list.iter().find(|c| c.kind == "named").unwrap().id;
+        let restored = restore_checkpoint(&path, id).unwrap();
+        assert_eq!(restored.len(), 1);
     }
 
     #[test]
