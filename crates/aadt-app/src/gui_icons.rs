@@ -36,6 +36,16 @@ pub enum Icon {
     Lock,
     /// Layer unlocked.
     Unlock,
+    /// Takeoff / quantities.
+    Takeoff,
+    /// Dimension manager.
+    Dims,
+    /// Drawing history / versions.
+    History,
+    /// Nameplate templates.
+    Templates,
+    /// Object / selection properties.
+    ObjectProps,
 }
 
 impl Icon {
@@ -69,6 +79,11 @@ impl Icon {
             }
             Icon::Lock => egui::include_image!("../assets/fluent/lock_closed_24_regular.svg"),
             Icon::Unlock => egui::include_image!("../assets/fluent/lock_open_24_regular.svg"),
+            Icon::Takeoff => egui::include_image!("../assets/fluent/calculator_24_regular.svg"),
+            Icon::Dims => egui::include_image!("../assets/fluent/ruler_24_regular.svg"),
+            Icon::History => egui::include_image!("../assets/fluent/history_24_regular.svg"),
+            Icon::Templates => egui::include_image!("../assets/fluent/slide_text_24_regular.svg"),
+            Icon::ObjectProps => egui::include_image!("../assets/fluent/options_24_regular.svg"),
         }
     }
 }
@@ -78,9 +93,24 @@ pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
 }
 
-/// Clickable Fluent icon button (32×32 touch-friendly chrome) — flat (no rounding).
+/// Bold monoline brand mark (soft-apex open A on orange). See `docs/branding/`.
+pub fn brand_mark() -> egui::ImageSource<'static> {
+    egui::include_image!("../assets/branding/aadt_mark.svg")
+}
+
+/// Paint the solid orange monogram at `size`.
+pub fn brand_mark_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
+    ui.add(
+        egui::Image::new(brand_mark())
+            .fit_to_exact_size(egui::vec2(size, size))
+            .sense(egui::Sense::hover()),
+    )
+    .on_hover_text("AADT — AI-Aided Architecture Design and Takeoff")
+}
+
+/// Clickable Fluent icon button — compact toolbar (Cursor-like).
 pub fn icon_btn(ui: &mut egui::Ui, icon: Icon, tip: &str) -> egui::Response {
-    icon_btn_sized(ui, icon, tip, egui::vec2(32.0, 32.0), 16.0)
+    icon_btn_sized(ui, icon, tip, egui::vec2(24.0, 24.0), 14.0)
 }
 
 /// Compact icon for dense lists (layer rows).
@@ -89,8 +119,8 @@ pub fn icon_btn_compact(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool) 
         ui,
         icon,
         tip,
-        egui::vec2(22.0, 22.0),
-        14.0,
+        egui::vec2(18.0, 18.0),
+        12.0,
         if active {
             super::theme::color::ACCENT
         } else {
@@ -131,7 +161,11 @@ fn icon_btn_sized_tinted(
         };
         if bg.a() > 0 {
             painter.rect_filled(rect, radius::CONTROL, bg);
-            painter.rect_stroke(rect, radius::CONTROL, egui::Stroke::new(1.0_f32, color::STROKE));
+            painter.rect_stroke(
+                rect,
+                radius::CONTROL,
+                egui::Stroke::new(1.0_f32, color::STROKE),
+            );
         }
         let img = egui::Image::new(icon.svg())
             .fit_to_exact_size(egui::vec2(glyph, glyph))
@@ -143,16 +177,11 @@ fn icon_btn_sized_tinted(
     resp
 }
 
-/// Selected nav-rail icon (accent soft fill) — flat.
-pub fn icon_btn_nav(
-    ui: &mut egui::Ui,
-    icon: Icon,
-    tip: &str,
-    selected: bool,
-) -> egui::Response {
+/// Selected nav-rail icon (accent soft fill) — flat, compact.
+pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) -> egui::Response {
     use super::theme::{color, radius};
-    let size = egui::vec2(40.0, 40.0);
-    let glyph = 18.0;
+    let size = egui::vec2(28.0, 28.0);
+    let glyph = 14.0;
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let resp = resp.on_hover_text(tip);
     if ui.is_rect_visible(rect) {
@@ -180,7 +209,10 @@ pub fn icon_btn_nav(
         let img = egui::Image::new(icon.svg())
             .fit_to_exact_size(egui::vec2(glyph, glyph))
             .tint(tint);
-        img.paint_at(ui, egui::Rect::from_center_size(rect.center(), egui::vec2(glyph, glyph)));
+        img.paint_at(
+            ui,
+            egui::Rect::from_center_size(rect.center(), egui::vec2(glyph, glyph)),
+        );
     }
     resp
 }

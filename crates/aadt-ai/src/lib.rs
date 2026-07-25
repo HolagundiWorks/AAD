@@ -24,9 +24,14 @@
 
 pub mod foundry;
 pub mod lifecycle;
+pub mod nl;
 
 pub use foundry::{
-    resolved_endpoint, DEFAULT_FOUNDRY_MODEL, FOUNDRY_LOCAL_ENDPOINT, FoundryLocalClient,
+    resolved_endpoint, FoundryLocalClient, DEFAULT_FOUNDRY_MODEL, FOUNDRY_LOCAL_ENDPOINT,
+};
+pub use nl::{
+    build_nl_prompt, extract_pair_size, extract_single_size, interpret_nl, parse_nl_response,
+    try_parse_nl_local, NlContext, NlPlan, NlSelectionFact, NlSource,
 };
 
 use std::fmt;
@@ -474,7 +479,11 @@ fn write_face_attrs(
     if bump_rev {
         let rev = d.get(id).map(read_rev).unwrap_or(0) + 1;
         changed |= d.set_attribute(id, CLASS_REV_ATTR, rev.to_string());
-    } else if d.get(id).and_then(|e| e.attribute(CLASS_REV_ATTR)).is_none() {
+    } else if d
+        .get(id)
+        .and_then(|e| e.attribute(CLASS_REV_ATTR))
+        .is_none()
+    {
         changed |= d.set_attribute(id, CLASS_REV_ATTR, "0");
     }
     changed
@@ -570,7 +579,11 @@ pub fn accept_classifications(
                 .attribute(CLASS_CONF_ATTR)
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(1.0);
-            let source = if type_override.is_some() { "user" } else { "ai" };
+            let source = if type_override.is_some() {
+                "user"
+            } else {
+                "ai"
+            };
             if write_face_attrs(
                 d,
                 id,
@@ -622,7 +635,9 @@ pub fn freeze_classifications(doc: &mut Document, entity_ids: &[aadt_model::Enti
     let targets: Vec<aadt_model::EntityId> = if entity_ids.is_empty() {
         doc.entities()
             .into_iter()
-            .filter(|e| e.attribute(CLASS_STATUS_ATTR) == Some(ClassificationStatus::Accepted.as_token()))
+            .filter(|e| {
+                e.attribute(CLASS_STATUS_ATTR) == Some(ClassificationStatus::Accepted.as_token())
+            })
             .map(|e| e.id)
             .collect()
     } else {
@@ -632,7 +647,9 @@ pub fn freeze_classifications(doc: &mut Document, entity_ids: &[aadt_model::Enti
         let mut n = 0;
         for id in targets {
             let Some(e) = d.get(id) else { continue };
-            let status = e.attribute(CLASS_STATUS_ATTR).and_then(ClassificationStatus::parse);
+            let status = e
+                .attribute(CLASS_STATUS_ATTR)
+                .and_then(ClassificationStatus::parse);
             if !matches!(
                 status,
                 Some(ClassificationStatus::Accepted | ClassificationStatus::Proposed)
@@ -941,7 +958,9 @@ fn float_field(object: &str, key: &str) -> Option<f64> {
     let digits: String = after_key[colon + 1..]
         .trim_start()
         .chars()
-        .take_while(|c| c.is_ascii_digit() || *c == '-' || *c == '.' || *c == 'e' || *c == 'E' || *c == '+')
+        .take_while(|c| {
+            c.is_ascii_digit() || *c == '-' || *c == '.' || *c == 'e' || *c == 'E' || *c == '+'
+        })
         .collect();
     digits.parse().ok()
 }
@@ -1196,7 +1215,10 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].id, 0);
         assert_eq!(got[0].wall_type, WallType::Exterior);
-        assert!(got[0].confidence > 0.0, "heuristic fills missing confidence");
+        assert!(
+            got[0].confidence > 0.0,
+            "heuristic fills missing confidence"
+        );
         assert_eq!(audit.entries().len(), 1);
         assert_eq!(audit.entries()[0].action, "wall-type-inference");
         assert!(audit.entries()[0].payload.contains("\"layer\":\"A-WALL\""));

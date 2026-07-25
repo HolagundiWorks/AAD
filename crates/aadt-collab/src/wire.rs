@@ -1,4 +1,5 @@
-//! The wire format — a dependency-free, line-oriented encoding of an [`Op`].
+//! The wire format — a dependency-free, line-oriented encoding of an [`Op`]
+//! plus ephemeral presence lines (`J` / `L` / `P`).
 //!
 //! A transport ships operations as bytes, so each [`Op`] serialises to exactly
 //! one line: tab-separated fields, with tab / newline / backslash escaped inside
@@ -6,11 +7,24 @@
 //! `f64` formatting, which is the shortest string that round-trips, so an encoded
 //! op decodes back to an equal op — the property [`roundtrips`](self) rests on.
 //! No JSON, no serde: the format is small enough to read on the wire.
+//!
+//! Presence lines are **not** stored in the relay backlog:
+//! - `J\tsite` — join
+//! - `L\tsite` — leave
+//! - `P\tsite\tx\ty` — cursor pulse
 
 use aadt_geometry::Point2;
 use aadt_pdf::{Markup, MarkupKind};
 
 use crate::op::{Action, Op, OpId};
+
+/// Ephemeral presence message (not an [`Op`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum PresenceMsg {
+    Join { site: String },
+    Leave { site: String },
+    Cursor { site: String, at: Point2 },
+}
 
 /// Encode one operation as a single line (no trailing newline). Add lines start
 /// with `A`, remove lines with `R`.
@@ -35,6 +49,17 @@ pub fn encode_op(op: &Op) -> String {
             esc(&target.site),
             target.seq,
         ),
+    }
+}
+
+/// Encode a presence message as one line.
+pub fn encode_presence(msg: &PresenceMsg) -> String {
+    match msg {
+        PresenceMsg::Join { site } => format!("J\t{}", esc(site)),
+        PresenceMsg::Leave { site } => format!("L\t{}", esc(site)),
+        PresenceMsg::Cursor { site, at } => {
+            format!("P\t{}\t{}\t{}", esc(site), at.x, at.y)
+        }
     }
 }
 
@@ -65,6 +90,24 @@ pub fn decode_op(line: &str) -> Option<Op> {
                 action: Action::Remove(target),
             })
         }
+        _ => None,
+    }
+}
+
+/// Decode a presence line (`J` / `L` / `P`). Returns `None` if not a presence line.
+pub fn decode_presence(line: &str) -> Option<PresenceMsg> {
+    let f: Vec<&str> = line.split('\t').collect();
+    match *f.first()? {
+        "J" if f.len() == 2 => Some(PresenceMsg::Join {
+            site: unesc(f[1]),
+        }),
+        "L" if f.len() == 2 => Some(PresenceMsg::Leave {
+            site: unesc(f[1]),
+        }),
+        "P" if f.len() == 4 => Some(PresenceMsg::Cursor {
+            site: unesc(f[1]),
+            at: Point2::new(f[2].parse().ok()?, f[3].parse().ok()?),
+        }),
         _ => None,
     }
 }

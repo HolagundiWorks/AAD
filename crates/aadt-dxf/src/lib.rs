@@ -14,14 +14,16 @@
 //! attributes are written in sorted key order, so an import → export → import cycle
 //! reproduces the document exactly.
 //!
-//! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): hatches read as a
-//! single polygonal boundary (multi-path/edge geometry is not modeled),
-//! dimensions cover the linear/aligned subset (radial/angular/ordinate are not),
-//! and block content is limited to single-record geometry — a nested `INSERT`
-//! inside a block is skipped rather than mis-parsed. Binary
-//! **DWG** is a later milestone via the ODA SDK or a LibreDWG FFI binding. The
-//! public entry points are stable so a fuller backend (e.g. the `dxf` crate) can
-//! replace the internal parser without touching callers.
+//! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): dimensions cover
+//! the linear/aligned subset on DXF (model supports more kinds), and block
+//! content is limited to single-record geometry — a nested `INSERT` inside a
+//! block is skipped (with a warning on the document) rather than mis-parsed.
+//! **DWG** read/write uses the open-source [`acadrust`] crate for a best-effort
+//! 2D entity subset (hatches/dims skipped on DWG export).
+
+mod dwg;
+
+pub use dwg::{export_dwg_path, import_dwg_path};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -58,18 +60,71 @@ impl From<std::io::Error> for DxfError {
 
 // --- Import ------------------------------------------------------------------
 
-/// Read a DXF file from disk into a fresh [`Document`].
+/// Read a DXF or DWG file from disk into a fresh [`Document`].
+///
+/// Extension `.dwg` uses the open-source DWG reader; everything else is treated
+/// as ASCII DXF text.
 pub fn import_path(path: impl AsRef<Path>) -> Result<Document, DxfError> {
+    Ok(import_path_report(path)?.document)
+}
+
+/// Read a DXF or DWG file and return fidelity warnings (nested inserts, etc.).
+pub fn import_path_report(path: impl AsRef<Path>) -> Result<ImportReport, DxfError> {
+    let path = path.as_ref();
+    let is_dwg = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("dwg"))
+        .unwrap_or(false);
+    if is_dwg {
+        let document = import_dwg_path(path)?;
+        let warnings = warnings_from_comments(&document.properties().comments);
+        return Ok(ImportReport { document, warnings });
+    }
     let text = std::fs::read_to_string(path)?;
-    import_str(&text)
+    import_str_report(&text)
+}
+
+/// Pull `[DXF: …]` / `[DWG …]` diagnostic tags out of drawing comments.
+fn warnings_from_comments(comments: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = comments;
+    while let Some(start) = rest.find('[') {
+        rest = &rest[start + 1..];
+        let Some(end) = rest.find(']') else {
+            break;
+        };
+        let tag = rest[..end].trim();
+        rest = &rest[end + 1..];
+        if let Some(msg) = tag.strip_prefix("DXF: ") {
+            out.push(msg.to_string());
+        } else if tag.starts_with("DWG") {
+            out.push(tag.to_string());
+        }
+    }
+    out
+}
+
+/// Result of a DXF import: the document plus soft warnings (fidelity limits).
+#[derive(Debug, Clone)]
+pub struct ImportReport {
+    pub document: Document,
+    /// Human-readable fidelity notes (also mirrored into `properties.comments`).
+    pub warnings: Vec<String>,
 }
 
 /// Parse DXF text into a fresh [`Document`].
 pub fn import_str(text: &str) -> Result<Document, DxfError> {
+    Ok(import_str_report(text)?.document)
+}
+
+/// Parse DXF text and return the document with any fidelity warnings.
+pub fn import_str_report(text: &str) -> Result<ImportReport, DxfError> {
     let pairs = parse_pairs(text)?;
     let records = split_records(&pairs);
 
     let mut doc = Document::new();
+    let mut warnings: Vec<String> = Vec::new();
     let mut section = Section::None;
 
     let mut i = 0;
@@ -91,7 +146,7 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
             "LAYER" if section == Section::Tables => import_layer(&mut doc, rec),
             // A BLOCK definition consumes its content up to ENDBLK.
             "BLOCK" if section == Section::Blocks => {
-                i = import_block(&mut doc, &records, i);
+                i = import_block(&mut doc, &records, i, &mut warnings);
                 continue;
             }
             "POLYLINE" if section == Section::Entities => {
@@ -115,7 +170,26 @@ pub fn import_str(text: &str) -> Result<Document, DxfError> {
         }
         i += 1;
     }
-    Ok(doc)
+    append_import_notes(&mut doc, &warnings);
+    Ok(ImportReport {
+        document: doc,
+        warnings,
+    })
+}
+
+/// Mirror import warnings into drawing properties (same pattern as DWG skips).
+fn append_import_notes(doc: &mut Document, warnings: &[String]) {
+    if warnings.is_empty() {
+        return;
+    }
+    let mut props = doc.properties().clone();
+    for w in warnings {
+        if !props.comments.is_empty() {
+            props.comments.push(' ');
+        }
+        props.comments.push_str(&format!("[DXF: {w}]"));
+    }
+    doc.set_properties(props);
 }
 
 /// A single DXF group-code / value pair.
@@ -231,15 +305,30 @@ fn simple_geometry(rec: &Record) -> Option<(String, Geometry)> {
         }
         "LWPOLYLINE" => {
             let mut vertices = Vec::new();
+            let mut bulges = Vec::new();
             let mut pending_x: Option<f64> = None;
+            let mut pending_bulge = 0.0_f64;
             for field in &rec.fields {
                 match field.code {
-                    10 => pending_x = field.value.trim().parse::<f64>().ok(),
+                    10 => {
+                        pending_x = field.value.trim().parse::<f64>().ok();
+                        pending_bulge = 0.0;
+                    }
                     20 => {
                         if let (Some(x), Ok(y)) =
                             (pending_x.take(), field.value.trim().parse::<f64>())
                         {
                             vertices.push(Point2::new(x, y));
+                            bulges.push(pending_bulge);
+                            pending_bulge = 0.0;
+                        }
+                    }
+                    42 => {
+                        if let Ok(b) = field.value.trim().parse::<f64>() {
+                            pending_bulge = b;
+                            if let Some(last) = bulges.last_mut() {
+                                *last = b;
+                            }
                         }
                     }
                     _ => {}
@@ -249,7 +338,15 @@ fn simple_geometry(rec: &Record) -> Option<(String, Geometry)> {
                 return None;
             }
             let closed = rec.int(70).map(|f| f & 1 == 1).unwrap_or(false);
-            Geometry::Polyline(Polyline::new(vertices, closed))
+            // Group 42 applies to the vertex it follows; if we set pending after
+            // push, fix by reading again: DXF order is 10,20,42 — so 42 arrives
+            // after the vertex was pushed with bulge 0. Correct above: set last.
+            let has_bulge = bulges.iter().any(|b| b.abs() > 1e-12);
+            if has_bulge {
+                Geometry::Polyline(Polyline::densify_bulges(&vertices, &bulges, closed))
+            } else {
+                Geometry::Polyline(Polyline::new(vertices, closed))
+            }
         }
         "CIRCLE" => {
             let (cx, cy, r) = (rec.float(10)?, rec.float(20)?, rec.float(40)?);
@@ -279,14 +376,21 @@ fn simple_geometry(rec: &Record) -> Option<(String, Geometry)> {
 /// Block content is limited to single-record geometry: nested `INSERT`s and
 /// legacy `POLYLINE`s inside a block are skipped rather than mis-parsed, so an
 /// unusual block loses detail but never corrupts the surrounding drawing.
-fn import_block(doc: &mut Document, records: &[Record], start: usize) -> usize {
+/// Nested `INSERT` skips are recorded in `warnings`.
+fn import_block(
+    doc: &mut Document,
+    records: &[Record],
+    start: usize,
+    warnings: &mut Vec<String>,
+) -> usize {
     let header = &records[start];
     let name = header.string(2).unwrap_or("").to_string();
     let base = Point2::new(
         header.float(10).unwrap_or(0.0),
         header.float(20).unwrap_or(0.0),
     );
-    let mut block = Block::new(name, base);
+    let mut block = Block::new(name.clone(), base);
+    let mut nested_inserts = 0usize;
 
     let mut j = start + 1;
     while j < records.len() {
@@ -294,6 +398,12 @@ fn import_block(doc: &mut Document, records: &[Record], start: usize) -> usize {
             "ENDBLK" => {
                 j += 1;
                 break;
+            }
+            // Nested block refs are not modeled — skip the INSERT (+ ATTRIB/SEQEND)
+            // and warn so the user knows geometry was dropped.
+            "INSERT" => {
+                nested_inserts += 1;
+                j = skip_insert_trail(records, j);
             }
             _ => {
                 if let Some((layer, geom)) = simple_geometry(&records[j]) {
@@ -303,9 +413,31 @@ fn import_block(doc: &mut Document, records: &[Record], start: usize) -> usize {
             }
         }
     }
+    if nested_inserts > 0 && !name.is_empty() {
+        warnings.push(format!(
+            "skipped {nested_inserts} nested INSERT(s) in block '{name}' (not modeled)"
+        ));
+    }
     // A block with no name is malformed; keep only named definitions.
     if !block.name.is_empty() {
         doc.add_block(block);
+    }
+    j
+}
+
+/// Advance past an `INSERT` at `start` and any following `ATTRIB`/`SEQEND` trail
+/// (same span as [`import_insert`], but without placing an entity).
+fn skip_insert_trail(records: &[Record], start: usize) -> usize {
+    let mut j = start + 1;
+    while j < records.len() {
+        match records[j].kind.as_str() {
+            "ATTRIB" => j += 1,
+            "SEQEND" => {
+                j += 1;
+                break;
+            }
+            _ => break,
+        }
     }
     j
 }
@@ -347,31 +479,76 @@ fn add_polyline(doc: &mut Document, layer: String, vertices: Vec<Point2>, closed
     doc.add_entity(layer, Geometry::Polyline(poly), attributes);
 }
 
-/// Import a `HATCH`: pattern name (2), solid flag (70), and the boundary as the
-/// record's `10`/`20` vertex pairs. Real hatches encode multiple boundary paths
-/// with edge-type data; AADT reads the vertices as a single closed boundary,
-/// which covers the common polygonal case and preserves the region for
-/// round-trip. A hatch with fewer than three vertices is skipped.
+/// Import a `HATCH`: pattern name (2), solid flag (70), and one or more closed
+/// polyline boundary paths. Path count comes from group `91` when present; each
+/// path's vertex count from `93`. Falls back to a single path of all `10`/`20`
+/// pairs when path metadata is missing (legacy / simplified files).
 fn import_hatch(doc: &mut Document, rec: &Record) {
-    let mut vertices = Vec::new();
+    let pattern = rec.string(2).unwrap_or("SOLID").to_string();
+    let path_count = rec.int(91).unwrap_or(0).max(0) as usize;
+
+    // Walk fields in order, splitting on 93 vertex-count markers.
+    let mut paths: Vec<Vec<Point2>> = Vec::new();
+    let mut current: Vec<Point2> = Vec::new();
+    let mut expect_verts: Option<usize> = None;
     let mut pending_x: Option<f64> = None;
+    let mut all_verts: Vec<Point2> = Vec::new();
+
     for field in &rec.fields {
         match field.code {
+            93 => {
+                if !current.is_empty() {
+                    paths.push(std::mem::take(&mut current));
+                }
+                expect_verts = field.value.trim().parse::<usize>().ok();
+            }
             10 => pending_x = field.value.trim().parse::<f64>().ok(),
             20 => {
                 if let (Some(x), Ok(y)) = (pending_x.take(), field.value.trim().parse::<f64>()) {
-                    vertices.push(Point2::new(x, y));
+                    let p = Point2::new(x, y);
+                    all_verts.push(p);
+                    current.push(p);
+                    if let Some(n) = expect_verts {
+                        if current.len() >= n {
+                            paths.push(std::mem::take(&mut current));
+                            expect_verts = None;
+                        }
+                    }
                 }
             }
             _ => {}
         }
     }
-    if vertices.len() < 3 {
+    if !current.is_empty() {
+        paths.push(current);
+    }
+
+    // Prefer structured paths; else one path from all vertices.
+    let boundaries: Vec<Polyline> = if path_count > 0 && paths.len() == path_count {
+        paths
+            .into_iter()
+            .filter(|v| v.len() >= 3)
+            .map(|v| Polyline::new(v, true))
+            .collect()
+    } else if !paths.is_empty() && paths.iter().all(|v| v.len() >= 3) {
+        paths
+            .into_iter()
+            .filter(|v| v.len() >= 3)
+            .map(|v| Polyline::new(v, true))
+            .collect()
+    } else if all_verts.len() >= 3 {
+        vec![Polyline::new(all_verts, true)]
+    } else {
+        return;
+    };
+    if boundaries.is_empty() {
         return;
     }
-    let pattern = rec.string(2).unwrap_or("SOLID").to_string();
-    let mut hatch = Hatch::new(rec.layer(), Polyline::new(vertices, true), pattern);
-    // An explicit 70 flag overrides the name-derived solid guess.
+
+    let mut hatch = Hatch::new(rec.layer(), boundaries[0].clone(), pattern);
+    for island in boundaries.into_iter().skip(1) {
+        hatch.push_island(island);
+    }
     if let Some(flag) = rec.int(70) {
         hatch.solid = flag != 0;
     }
@@ -408,6 +585,7 @@ fn import_dimension(doc: &mut Document, rec: &Record) {
         _ => p1,
     };
     doc.add_dimension(Dimension {
+        space: Default::default(),
         layer: rec.layer(),
         kind,
         p1,
@@ -430,6 +608,8 @@ fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize 
         header.float(20).unwrap_or(0.0),
     );
     let rotation = header.float(50).unwrap_or(0.0);
+    let scale_x = header.float(41).unwrap_or(1.0);
+    let scale_y = header.float(42).unwrap_or(scale_x);
 
     let mut attributes: HashMap<String, String> = HashMap::new();
     let mut j = start + 1;
@@ -449,7 +629,7 @@ fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize 
         }
     }
 
-    let insert = Insert::new(name, position, rotation);
+    let insert = Insert::new(name, position, rotation).with_scale(scale_x, scale_y);
     doc.add_entity(header.layer(), Geometry::Insert(insert), attributes);
     j
 }
@@ -513,7 +693,7 @@ fn import_layer(doc: &mut Document, rec: &Record) {
         layer.frozen = flags & 1 != 0;
     }
     if let Some(lt) = rec.string(6) {
-        if let Some(parsed) = aadt_model::LineType::parse(&lt) {
+        if let Some(parsed) = aadt_model::LineType::parse(lt) {
             layer.linetype = parsed;
         }
     }
@@ -566,14 +746,21 @@ fn write_layer_table(out: &mut String, doc: &Document) {
 
 fn write_hatch(out: &mut String, h: &aadt_model::Hatch) {
     out.push_str(&format!(
-        "0\nHATCH\n8\n{}\n2\n{}\n70\n{}\n91\n1\n93\n{}\n",
+        "0\nHATCH\n8\n{}\n2\n{}\n70\n{}\n91\n{}\n",
         h.layer,
         h.pattern,
         i32::from(h.solid),
-        h.boundary.vertices.len(),
+        h.boundaries.len(),
     ));
-    for v in &h.boundary.vertices {
-        out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
+    for path in &h.boundaries {
+        // 92 = polyline path; 93 = vertex count; 72 = closed.
+        out.push_str(&format!(
+            "92\n1\n93\n{}\n72\n1\n",
+            path.vertices.len()
+        ));
+        for v in &path.vertices {
+            out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
+        }
     }
 }
 
@@ -655,11 +842,13 @@ fn write_geometry(
             // deterministic and round-trips exactly.
             let attrs = attributes.filter(|a| !a.is_empty());
             out.push_str(&format!(
-                "0\nINSERT\n8\n{}\n2\n{}\n10\n{}\n20\n{}\n50\n{}\n66\n{}\n",
+                "0\nINSERT\n8\n{}\n2\n{}\n10\n{}\n20\n{}\n41\n{}\n42\n{}\n50\n{}\n66\n{}\n",
                 layer,
                 ins.name,
                 ins.position.x,
                 ins.position.y,
+                ins.scale_x,
+                ins.scale_y,
                 ins.rotation,
                 i32::from(attrs.is_some()),
             ));
@@ -675,10 +864,21 @@ fn write_geometry(
     }
 }
 
-/// Write a document to a DXF file on disk.
+/// Write a document to disk. Paths ending in `.dwg` use best-effort DWG export;
+/// all other extensions write ASCII DXF.
 pub fn export_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), DxfError> {
-    std::fs::write(path, export_str(doc))?;
-    Ok(())
+    let path = path.as_ref();
+    let is_dwg = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("dwg"))
+        .unwrap_or(false);
+    if is_dwg {
+        dwg::export_dwg_path(doc, path)
+    } else {
+        std::fs::write(path, export_str(doc))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1069,6 +1269,95 @@ EOF
     }
 
     #[test]
+    fn nested_insert_inside_block_is_skipped_with_warning() {
+        const NESTED: &str = "\
+0
+SECTION
+2
+BLOCKS
+0
+BLOCK
+2
+PARENT
+10
+0.0
+20
+0.0
+0
+LINE
+8
+0
+10
+0.0
+20
+0.0
+11
+1.0
+21
+0.0
+0
+INSERT
+8
+0
+2
+CHILD
+10
+0.5
+20
+0.5
+50
+0.0
+66
+1
+0
+ATTRIB
+2
+TAG
+1
+val
+0
+SEQEND
+0
+ENDBLK
+0
+ENDSEC
+0
+SECTION
+2
+ENTITIES
+0
+ENDSEC
+0
+EOF
+";
+        let report = import_str_report(NESTED).unwrap();
+        assert_eq!(
+            report.warnings.len(),
+            1,
+            "expected one nested-insert warning: {:?}",
+            report.warnings
+        );
+        assert!(
+            report.warnings[0].contains("PARENT") && report.warnings[0].contains("INSERT"),
+            "warning should name the block: {}",
+            report.warnings[0]
+        );
+        let block = report.document.block("PARENT").expect("parent defined");
+        assert_eq!(
+            block.entities.len(),
+            1,
+            "only the LINE is kept; nested INSERT dropped"
+        );
+        assert!(
+            report.document.properties().comments.contains("[DXF:"),
+            "warning mirrored into comments: {}",
+            report.document.properties().comments
+        );
+        // ATTRIB/SEQEND after nested INSERT must not leak as entities.
+        assert_eq!(report.document.len(), 0);
+    }
+
+    #[test]
     fn round_trip_preserves_block_definitions() {
         let doc1 = import_str(WITH_BLOCK).unwrap();
         let doc2 = import_str(&export_str(&doc1)).unwrap();
@@ -1162,8 +1451,8 @@ EOF
         assert_eq!(h.layer, "A-FLOR");
         assert_eq!(h.pattern, "ANSI31");
         assert!(!h.solid);
-        assert_eq!(h.boundary.vertices.len(), 3);
-        assert!(h.boundary.closed);
+        assert_eq!(h.outer().vertices.len(), 3);
+        assert!(h.outer().closed);
 
         assert_eq!(doc.dimensions().len(), 1);
         let d = &doc.dimensions()[0];
@@ -1192,9 +1481,41 @@ EOF
     }
 
     #[test]
+    fn multi_path_hatch_round_trips() {
+        let mut doc = Document::new();
+        let outer = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 10.0),
+                Point2::new(0.0, 10.0),
+            ],
+            true,
+        );
+        let hole = Polyline::new(
+            vec![
+                Point2::new(3.0, 3.0),
+                Point2::new(7.0, 3.0),
+                Point2::new(7.0, 7.0),
+                Point2::new(3.0, 7.0),
+            ],
+            true,
+        );
+        let mut h = Hatch::new("A-FLOR", outer, "SOLID");
+        h.push_island(hole);
+        doc.add_hatch(h);
+        let back = import_str(&export_str(&doc)).unwrap();
+        assert_eq!(back.hatches().len(), 1);
+        assert_eq!(back.hatches()[0].boundaries.len(), 2);
+        assert_eq!(back.hatches()[0].outer().vertices.len(), 4);
+        assert_eq!(back.hatches()[0].boundaries[1].vertices.len(), 4);
+    }
+
+    #[test]
     fn round_trip_preserves_angular_and_radius_dimensions() {
         let mut doc = Document::new();
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".to_string(),
             kind: DimensionKind::Radius,
             p1: Point2::new(5.0, 0.0),
@@ -1205,6 +1526,7 @@ EOF
             measurement: 5.0,
         });
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".to_string(),
             kind: DimensionKind::Angular,
             p1: Point2::new(1.0, 0.0),
@@ -1215,6 +1537,7 @@ EOF
             measurement: 90.0,
         });
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".to_string(),
             kind: DimensionKind::Diameter,
             p1: Point2::new(5.0, 0.0),
@@ -1225,6 +1548,7 @@ EOF
             measurement: 10.0,
         });
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".to_string(),
             kind: DimensionKind::OrdinateX,
             p1: Point2::new(7.0, 3.0),
@@ -1235,6 +1559,7 @@ EOF
             measurement: 7.0,
         });
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".to_string(),
             kind: DimensionKind::OrdinateY,
             p1: Point2::new(7.0, 3.0),

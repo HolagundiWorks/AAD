@@ -50,6 +50,7 @@ aadt-ffi = { path = "crates/aadt-ffi" }
 aadt-store = { path = "crates/aadt-store" }
 aadt-standards = { path = "crates/aadt-standards" }
 aadt-library = { path = "crates/aadt-library" }
+acadrust = "0.4.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

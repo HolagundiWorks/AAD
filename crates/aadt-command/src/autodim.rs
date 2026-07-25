@@ -6,9 +6,7 @@
 use aadt_geometry::{Bbox, Point2};
 use aadt_model::{Dimension, DimensionKind, Document, EntityId, Geometry, Layer};
 
-use crate::{
-    entities_word, parse_f64, resolve_targets, Command, Context, Registry,
-};
+use crate::{entities_word, parse_f64, resolve_targets, Command, Context, Registry};
 
 /// Canonical dimension layer (HCW `AN-DIMS`). Aliases remain accepted via [`is_dim_layer`].
 pub const DEFAULT_DIM_LAYER: &str = "AN-DIMS";
@@ -28,8 +26,8 @@ pub fn register_autodim(r: &mut Registry) {
 pub fn is_structure_layer(name: &str) -> bool {
     let u = name.to_ascii_uppercase();
     const PREFIXES: &[&str] = &[
-        "A-WALL", "A-GLAZ", "A-WIND", "A-DOOR", "A-COLS", "A-COL", "S-COLS", "S-COL",
-        "S-BEAM", "S-JOIST", "S-WALL", "S-FNDN", "S-SLAB", "S-BRAC", "S-GRID",
+        "A-WALL", "A-GLAZ", "A-WIND", "A-DOOR", "A-COLS", "A-COL", "S-COLS", "S-COL", "S-BEAM",
+        "S-JOIST", "S-WALL", "S-FNDN", "S-SLAB", "S-BRAC", "S-GRID",
     ];
     PREFIXES.iter().any(|p| u.starts_with(p))
 }
@@ -157,6 +155,7 @@ fn make_aligned(layer: &str, p1: Point2, p2: Point2, text_anchor: Point2) -> Opt
         return None;
     }
     Some(Dimension {
+        space: Default::default(),
         layer: layer.to_string(),
         kind: DimensionKind::Aligned,
         p1,
@@ -168,7 +167,13 @@ fn make_aligned(layer: &str, p1: Point2, p2: Point2, text_anchor: Point2) -> Opt
     })
 }
 
-fn chain_dims(side: Side, bbox: Bbox, stations: &[f64], offset: f64, layer: &str) -> Vec<Dimension> {
+fn chain_dims(
+    side: Side,
+    bbox: Bbox,
+    stations: &[f64],
+    offset: f64,
+    layer: &str,
+) -> Vec<Dimension> {
     let mut dims = Vec::new();
     if stations.len() < 2 {
         return dims;
@@ -312,8 +317,8 @@ fn build_complete_set(
     layer: &str,
 ) -> Result<Vec<Dimension>, String> {
     let pts = collect_def_points(ctx, ids);
-    let bbox = Bbox::of_points(pts.iter().copied())
-        .ok_or("AUTODIM: no geometry points in target set")?;
+    let bbox =
+        Bbox::of_points(pts.iter().copied()).ok_or("AUTODIM: no geometry points in target set")?;
     if bbox.width() < STATION_EPS && bbox.height() < STATION_EPS {
         return Err("AUTODIM: selection has no extent".into());
     }
@@ -342,8 +347,8 @@ fn place_qdim_chain(
     layer: &str,
 ) -> Result<usize, String> {
     let pts = collect_def_points(ctx, ids);
-    let bbox = Bbox::of_points(pts.iter().copied())
-        .ok_or("QDIM: no geometry points in target set")?;
+    let bbox =
+        Bbox::of_points(pts.iter().copied()).ok_or("QDIM: no geometry points in target set")?;
     let side = side_from_pick(bbox, side_pt);
     let offset = {
         // Prefer distance from pick to the chosen edge when outside.
@@ -387,10 +392,7 @@ impl Command for QDimCmd {
         "QDIM SELECTION|ALL sx sy [layer] — chain dims along the side nearest (sx,sy)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let token = args
-            .first()
-            .map(|s| s.as_str())
-            .unwrap_or("SELECTION");
+        let token = args.first().map(|s| s.as_str()).unwrap_or("SELECTION");
         let ids = resolve_targets(ctx, token, "QDIM")?;
         let sx = parse_f64(args, 1, "QDIM")?;
         let sy = parse_f64(args, 2, "QDIM")?;
@@ -509,9 +511,9 @@ impl Command for AutoDimRestoreCmd {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Interpreter;
     use aadt_geometry::{Polyline, Segment};
     use aadt_model::Geometry;
-    use crate::Interpreter;
 
     fn interp() -> Interpreter {
         Interpreter::with_builtins()
@@ -588,8 +590,14 @@ mod tests {
         });
         i.eval_line(&mut ctx, "SELECT ALL").unwrap();
         // Pick above the line → top chain with stations 0,4,10 → 2 dims.
-        let msg = i.eval_line(&mut ctx, "QDIM SELECTION 5 2").unwrap().unwrap();
-        assert!(msg.contains("2 dimension") || msg.contains("dimension"), "{msg}");
+        let msg = i
+            .eval_line(&mut ctx, "QDIM SELECTION 5 2")
+            .unwrap()
+            .unwrap();
+        assert!(
+            msg.contains("2 dimension") || msg.contains("dimension"),
+            "{msg}"
+        );
         assert_eq!(ctx.doc.dimensions().len(), 2);
     }
 

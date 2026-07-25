@@ -53,6 +53,13 @@ pub const PRESETS: &[LayerSet] = &[
         primary: &[Presentation, Architectural],
         underlay: &[],
     },
+    // CAD import layers retagged as `ORG-DWG_LAYER-*` (see
+    // `aadt_model::Document::retag_imported_layers`).
+    LayerSet {
+        name: "IMPORT",
+        primary: &[],
+        underlay: &[],
+    },
 ];
 
 /// Seed standard layers (if missing) then apply visibility for `set_name`.
@@ -60,9 +67,31 @@ pub const PRESETS: &[LayerSet] = &[
 /// Presentation hides annotation clutter (dims/grids) even when Architectural is on.
 /// Returns an error if the set name is unknown.
 pub fn apply_layer_set(doc: &mut Document, set_name: &str) -> Result<String, String> {
-    let set = LayerSet::find(set_name)
-        .ok_or_else(|| format!("unknown layer set {set_name:?}; try CONSTRUCTION, SERVICES, ELECTRICAL, PRESENTATION"))?;
+    let set = LayerSet::find(set_name).ok_or_else(|| {
+        format!(
+            "unknown layer set {set_name:?}; try CONSTRUCTION, SERVICES, ELECTRICAL, PRESENTATION, IMPORT"
+        )
+    })?;
     apply_standard_layers(doc);
+
+    if set.name == "IMPORT" {
+        let mut on = 0usize;
+        let mut off = 0usize;
+        for std in AIA_LAYERS {
+            doc.set_layer_visible(std.name, false);
+            off += 1;
+        }
+        let names: Vec<String> = doc.layers().map(|l| l.name.clone()).collect();
+        for name in names {
+            if name.starts_with(aadt_model::IMPORTED_LAYER_PREFIX) {
+                doc.set_layer_visible(&name, true);
+                on += 1;
+            }
+        }
+        return Ok(format!(
+            "layer set IMPORT applied ({on} import layers on, {off} AIA off)"
+        ));
+    }
 
     let mut on = 0usize;
     let mut off = 0usize;
@@ -77,20 +106,33 @@ pub fn apply_layer_set(doc: &mut Document, set_name: &str) -> Result<String, Str
                 visible = false;
             }
             // Keep presentation + walls/doors/glazing/floors; drop MEP noise.
-            if matches!(std.discipline, Mechanical | Electrical | Plumbing | Structural) {
+            if matches!(
+                std.discipline,
+                Mechanical | Electrical | Plumbing | Structural
+            ) {
                 visible = false;
             }
         }
-        if set.name == "CONSTRUCTION" {
-            if matches!(std.discipline, Presentation | Mechanical | Electrical | Plumbing) {
-                visible = false;
-            }
+        if set.name == "CONSTRUCTION"
+            && matches!(
+                std.discipline,
+                Presentation | Mechanical | Electrical | Plumbing
+            )
+        {
+            visible = false;
         }
         doc.set_layer_visible(std.name, visible);
         if visible {
             on += 1;
         } else {
             off += 1;
+        }
+    }
+    // Keep imported ORG-DWG_LAYER-* layers visible as underlay for non-IMPORT sets.
+    let names: Vec<String> = doc.layers().map(|l| l.name.clone()).collect();
+    for name in names {
+        if name.starts_with(aadt_model::IMPORTED_LAYER_PREFIX) {
+            doc.set_layer_visible(&name, true);
         }
     }
     Ok(format!(
@@ -129,5 +171,15 @@ mod tests {
         assert!(doc.layer("A-WALL").unwrap().visible);
         assert!(!doc.layer("A-DIMS").unwrap().visible);
         assert!(!doc.layer("E-POWR").unwrap().visible);
+    }
+
+    #[test]
+    fn import_set_shows_org_layers_hides_aia() {
+        let mut doc = Document::new();
+        doc.add_layer(aadt_model::Layer::new("ORG-DWG_LAYER-WALLS"));
+        apply_layer_set(&mut doc, "IMPORT").unwrap();
+        assert!(doc.layer("ORG-DWG_LAYER-WALLS").unwrap().visible);
+        assert!(!doc.layer("A-WALL").unwrap().visible);
+        assert!(LayerSet::names().any(|n| n == "IMPORT"));
     }
 }

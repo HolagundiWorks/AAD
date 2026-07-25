@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <!-- Monogram: soft-apex open A (LUVI bend language) on brand orange -->
+  <rect width="64" height="64" rx="0" fill="#E85D04"/>
+  <g
+    stroke="#FFFFFF"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    fill="none"
+  >
+    <path d="M14 48 L30 20 Q32 14 34 20 L50 48"/>
+    <path d="M22 36 H42"/>
+  </g>
+</svg>

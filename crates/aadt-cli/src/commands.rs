@@ -35,6 +35,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(AcceptClassCmd));
     registry.register(Box::new(RejectClassCmd));
     registry.register(Box::new(FreezeClassCmd));
+    registry.register(Box::new(AskCmd));
 }
 
 fn is_aadt_path(path: &str) -> bool {
@@ -212,7 +213,25 @@ fn takeoff_live_enabled(ctx: &Context) -> bool {
     v.is_empty() || v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("on")
 }
 
-fn open_document(path: &str) -> Result<aadt_model::Document, String> {
+/// Join command args into a single filesystem path (paths often contain spaces).
+fn path_from_args(args: &[String], cmd: &str) -> Result<String, String> {
+    let raw = args.join(" ");
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(format!("{cmd}: missing path"));
+    }
+    let path = if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+    {
+        &trimmed[1..trimmed.len() - 1]
+    } else {
+        trimmed
+    };
+    Ok(path.to_string())
+}
+
+fn open_document(path: &str) -> Result<(aadt_model::Document, Vec<String>), String> {
     let p = Path::new(path);
     match p
         .extension()
@@ -220,8 +239,15 @@ fn open_document(path: &str) -> Result<aadt_model::Document, String> {
         .map(|e| e.to_ascii_lowercase())
         .as_deref()
     {
-        Some("aadt") => aadt_store::load_path(p).map_err(|e| e.to_string()),
-        _ => aadt_dxf::import_path(p).map_err(|e| e.to_string()),
+        Some("aadt") => aadt_store::load_path(p)
+            .map(|doc| (doc, Vec::new()))
+            .map_err(|e| e.to_string()),
+        Some("dwg") => aadt_dxf::import_path_report(p)
+            .map(|r| (r.document, r.warnings))
+            .map_err(|e| e.to_string()),
+        _ => aadt_dxf::import_path_report(p)
+            .map(|r| (r.document, r.warnings))
+            .map_err(|e| e.to_string()),
     }
 }
 
@@ -234,6 +260,7 @@ fn save_document(doc: &aadt_model::Document, path: &str) -> Result<(), String> {
         .as_deref()
     {
         Some("aadt") => aadt_store::save_path(doc, p).map_err(|e| e.to_string()),
+        Some("dwg") => aadt_dxf::export_dwg_path(doc, p).map_err(|e| e.to_string()),
         _ => aadt_dxf::export_path(doc, p).map_err(|e| e.to_string()),
     }
 }
@@ -244,17 +271,27 @@ impl Command for OpenCmd {
         "OPEN"
     }
     fn help(&self) -> &str {
-        "OPEN path.dxf|path.aadt — replace the document with an imported drawing"
+        "OPEN path.dxf|path.dwg|path.aadt — replace the document with an imported drawing"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let path = args.first().ok_or("OPEN: missing path")?;
-        ctx.doc = open_document(path)?;
+        let path = path_from_args(args, "OPEN")?;
+        let (mut doc, warnings) = open_document(&path)?;
+        // Preserve CAD layers under ORG-DWG_LAYER-* before seeding AIA standards.
+        doc.retag_imported_layers();
+        ctx.doc = doc;
         ctx.drawing_path = Some(path.clone());
         let seeded = apply_standard_layers(&mut ctx.doc);
-        Ok(format!(
-            "opened {path} ({} entities; seeded {seeded} AIA layers)",
+        let _ = apply_layer_set(&mut ctx.doc, "IMPORT");
+        ctx.doc.assign_imported_by_layer();
+        let mut msg = format!(
+            "opened {path} ({} entities; seeded {seeded} AIA layers; floors=Ground; import layers ORG-DWG_LAYER-* / IMPORT)",
             ctx.doc.len()
-        ))
+        );
+        if !warnings.is_empty() {
+            msg.push_str("; warning: ");
+            msg.push_str(&warnings.join("; "));
+        }
+        Ok(msg)
     }
 }
 
@@ -264,16 +301,16 @@ impl Command for SaveCmd {
         "SAVE"
     }
     fn help(&self) -> &str {
-        "SAVE path.dxf|path.aadt — write the document (DXF or native .aadt)"
+        "SAVE path.dxf|path.dwg|path.aadt — write the document (DXF, DWG subset, or native .aadt)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let path = args.first().ok_or("SAVE: missing path")?;
-        save_document(&ctx.doc, path)?;
+        let path = path_from_args(args, "SAVE")?;
+        save_document(&ctx.doc, &path)?;
         ctx.drawing_path = Some(path.clone());
         let mut msg = format!("saved {} entities to {path}", ctx.doc.len());
-        if is_aadt_path(path) && takeoff_live_enabled(ctx) {
+        if is_aadt_path(&path) && takeoff_live_enabled(ctx) {
             let table = compute_takeoff(ctx);
-            match persist_takeoff_run(path, &table, ctx.doc.revision(), false) {
+            match persist_takeoff_run(&path, &table, ctx.doc.revision(), false) {
                 Ok((run_id, delta)) => {
                     msg.push_str(&format!("; takeoff run {run_id}"));
                     if let Some(d) = delta {
@@ -305,9 +342,7 @@ impl Command for LayerSetCmd {
                 Ok(format!("layer sets: {}", names.join(", ")))
             }
             Some(name) => {
-                let msg = ctx
-                    .doc
-                    .transact("LAYERSET", |d| apply_layer_set(d, name))?;
+                let msg = ctx.doc.transact("LAYERSET", |d| apply_layer_set(d, name))?;
                 Ok(msg)
             }
         }
@@ -326,9 +361,7 @@ impl Command for StandardsCmd {
         "STANDARDS — seed missing AIA/NCS layers into the drawing"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let n = ctx
-            .doc
-            .transact("STANDARDS", |d| apply_standard_layers(d));
+        let n = ctx.doc.transact("STANDARDS", apply_standard_layers);
         Ok(format!("seeded {n} AIA layers"))
     }
 }
@@ -386,7 +419,7 @@ impl Command for BlockLibCmd {
         &["BLIB"]
     }
     fn help(&self) -> &str {
-        "BLOCKLIB [list|import path [name]] — DXF/SVG block library (PNG rejected)"
+        "BLOCKLIB [list|import path [name]|load-all] — DXF/SVG library (opensource inches→m)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let root = aadt_library::default_library_root();
@@ -410,8 +443,17 @@ impl Command for BlockLibCmd {
                 })?;
                 Ok(format!("imported block {imported:?}"))
             }
+            Some("load-all") | Some("loadall") | Some("import-all") => {
+                let names = ctx.doc.transact("BLOCKLIB", |d| {
+                    aadt_library::import_all_blocks(d, &root).map_err(|e| e.to_string())
+                })?;
+                Ok(format!(
+                    "loaded {} library block(s) (opensource scaled inches→metres)",
+                    names.len()
+                ))
+            }
             Some(other) => Err(format!(
-                "BLOCKLIB: unknown subcommand {other:?}; try list or import"
+                "BLOCKLIB: unknown subcommand {other:?}; try list, import, or load-all"
             )),
         }
     }
@@ -522,8 +564,7 @@ impl Command for TakeoffCmd {
         let table = compute_takeoff(ctx);
         if let Some(path) = args.first() {
             if !path.eq_ignore_ascii_case("PUBLISH") {
-                std::fs::write(path, table.to_csv())
-                    .map_err(|e| format!("writing {path}: {e}"))?;
+                std::fs::write(path, table.to_csv()).map_err(|e| format!("writing {path}: {e}"))?;
             }
         }
         let mut msg = format!(
@@ -624,7 +665,11 @@ impl Command for HistoryCmd {
                         )
                     })
                     .collect();
-                Ok(format!("{} checkpoint(s):\n{}", list.len(), lines.join("\n")))
+                Ok(format!(
+                    "{} checkpoint(s):\n{}",
+                    list.len(),
+                    lines.join("\n")
+                ))
             }
             "SAVE" => {
                 let path = resolve_drawing_path(ctx, None)?;
@@ -676,7 +721,10 @@ impl Command for HistoryCmd {
     }
 }
 
-fn parse_entity_targets(ctx: &Context, args: &[String]) -> Result<Vec<aadt_model::EntityId>, String> {
+fn parse_entity_targets(
+    ctx: &Context,
+    args: &[String],
+) -> Result<Vec<aadt_model::EntityId>, String> {
     if args.is_empty() {
         return Ok(ctx.selection.clone());
     }
@@ -687,9 +735,7 @@ fn parse_entity_targets(ctx: &Context, args: &[String]) -> Result<Vec<aadt_model
         _ => {
             let mut ids = Vec::new();
             for a in args {
-                let n: u64 = a
-                    .parse()
-                    .map_err(|_| format!("bad entity id {a:?}"))?;
+                let n: u64 = a.parse().map_err(|_| format!("bad entity id {a:?}"))?;
                 ids.push(aadt_model::EntityId(n));
             }
             Ok(ids)
@@ -712,8 +758,12 @@ impl Command for RecognizeCmd {
         let det = detect(&ctx.doc, &DetectionConfig::default());
         let client = aadt_ai::make_client(aadt_ai::AiBackend::FoundryLocal, "");
         let mut audit = aadt_ai::AuditLog::new();
-        let assignments = match aadt_ai::infer_wall_types_open(client.as_ref(), &mut audit, &det, &ctx.doc)
-        {
+        let assignments = match aadt_ai::infer_wall_types_open(
+            client.as_ref(),
+            &mut audit,
+            &det,
+            &ctx.doc,
+        ) {
             Ok(a) => a,
             Err(e) => {
                 return Ok(format!(
@@ -752,8 +802,7 @@ impl Command for ReviewCmd {
         "REVIEW — list proposed / low-confidence classifications"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let items =
-            aadt_ai::list_for_review(&ctx.doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
+        let items = aadt_ai::list_for_review(&ctx.doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
         if items.is_empty() {
             return Ok("review: nothing pending".into());
         }
@@ -855,5 +904,94 @@ impl Command for FreezeClassCmd {
         };
         let n = aadt_ai::freeze_classifications(&mut ctx.doc, &ids);
         Ok(format!("frozen {n} classification(s)"))
+    }
+}
+
+/// Natural-language drafting via Foundry Local (or local rule parser for simple phrases).
+struct AskCmd;
+impl Command for AskCmd {
+    fn name(&self) -> &str {
+        "ASK"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["NL", "SAY", "AI"]
+    }
+    fn help(&self) -> &str {
+        "ASK <plain English> — e.g. create a room of 12' x 16' · add a window of 5' to the selected wall"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        if args.is_empty() {
+            return Err(
+                "ASK needs a phrase — try: ASK create a room of 12' x 16'".into(),
+            );
+        }
+        let utterance = args.join(" ");
+        let nl_ctx = nl_context_from(ctx);
+        let client = aadt_ai::make_client(aadt_ai::AiBackend::FoundryLocal, "");
+        let mut audit = aadt_ai::AuditLog::new();
+        let plan = match aadt_ai::interpret_nl(client.as_ref(), &mut audit, &utterance, &nl_ctx) {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(format!(
+                    "ASK skipped: {e}. Tip: start Foundry Local (phi-3.5-mini), or use a known phrase like \"create a room of 12' x 16'\"."
+                ));
+            }
+        };
+        // Seed door/window blocks before INSERT from NL.
+        aadt_command::ensure_place_blocks(&mut ctx.doc);
+        let interp = Interpreter::with_builtins();
+        let mut lines = vec![format!(
+            "ASK ({:?}) — {}",
+            match plan.source {
+                aadt_ai::NlSource::Local => "local",
+                aadt_ai::NlSource::Model => "foundry",
+            },
+            plan.note
+        )];
+        for cmd in &plan.commands {
+            match interp.eval_line(ctx, cmd) {
+                Ok(Some(m)) => lines.push(format!("→ {cmd}  ·  {m}")),
+                Ok(None) => lines.push(format!("→ {cmd}")),
+                Err(e) => lines.push(format!("→ {cmd}  ·  error: {e}")),
+            }
+        }
+        Ok(lines.join("\n"))
+    }
+}
+
+fn nl_context_from(ctx: &Context) -> aadt_ai::NlContext {
+    use aadt_model::Geometry;
+    let units = ctx.doc.properties().units.clone();
+    let o = ctx.doc.reference_origin();
+    let mut selection = Vec::new();
+    for id in &ctx.selection {
+        let Some(e) = ctx.doc.get(*id) else {
+            continue;
+        };
+        let (kind, a, b) = match &e.geometry {
+            Geometry::Line(s) => (
+                "LINE".into(),
+                Some((s.a.x, s.a.y)),
+                Some((s.b.x, s.b.y)),
+            ),
+            Geometry::Polyline(_) => ("POLYLINE".into(), None, None),
+            Geometry::Circle(_) => ("CIRCLE".into(), None, None),
+            Geometry::Arc(_) => ("ARC".into(), None, None),
+            Geometry::Text(_) => ("TEXT".into(), None, None),
+            Geometry::Insert(_) => ("INSERT".into(), None, None),
+        };
+        selection.push(aadt_ai::NlSelectionFact {
+            id: id.0,
+            kind,
+            layer: e.layer.clone(),
+            a,
+            b,
+        });
+    }
+    aadt_ai::NlContext {
+        units,
+        origin_x: o.x,
+        origin_y: o.y,
+        selection,
     }
 }

@@ -67,6 +67,43 @@ impl Default for CostCodeMap {
     }
 }
 
+/// First two digits of a CSI MasterFormat section (`"08 10 00"` → `"08"`).
+pub fn csi_division(cost_code: &str) -> String {
+    let digits: String = cost_code.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() >= 2 {
+        digits[..2].to_string()
+    } else if digits.is_empty() {
+        "00".into()
+    } else {
+        format!("{digits:0>2}")
+    }
+}
+
+/// Optional unit costs (firm) keyed like [`CostCodeMap`] fields.
+#[derive(Debug, Clone, Default)]
+pub struct UnitCostMap {
+    pub wall: f64,
+    pub door: f64,
+    pub window: f64,
+    pub column: f64,
+    pub beam: f64,
+    pub room_floor: f64,
+}
+
+impl UnitCostMap {
+    pub fn for_kind(&self, category: &str, kind: &str) -> f64 {
+        match category {
+            "wall" => self.wall,
+            "opening" if kind.eq_ignore_ascii_case("Door") => self.door,
+            "opening" => self.window,
+            "room" => self.room_floor,
+            "structural" if kind.eq_ignore_ascii_case("Beam") => self.beam,
+            "structural" => self.column,
+            _ => 0.0,
+        }
+    }
+}
+
 /// Assumed heights and cost mapping used to turn 2D geometry into quantities.
 #[derive(Debug, Clone)]
 pub struct TakeoffConfig {
@@ -76,6 +113,8 @@ pub struct TakeoffConfig {
     /// Width assumed for an opening whose block carries no width attribute.
     pub default_opening_width: f64,
     pub cost_codes: CostCodeMap,
+    /// Optional firm unit prices (0 = omit extended cost in export).
+    pub unit_costs: UnitCostMap,
 }
 
 impl Default for TakeoffConfig {
@@ -86,6 +125,7 @@ impl Default for TakeoffConfig {
             window_height: 1.5,
             default_opening_width: 0.9,
             cost_codes: CostCodeMap::default(),
+            unit_costs: UnitCostMap::default(),
         }
     }
 }
@@ -162,10 +202,7 @@ impl TakeoffTable {
                 continue;
             };
             if let Some(e) = doc.get(wall.faces.0) {
-                w.wall_type = e
-                    .attribute(WALL_TYPE)
-                    .unwrap_or("unclassified")
-                    .to_string();
+                w.wall_type = e.attribute(WALL_TYPE).unwrap_or("unclassified").to_string();
                 w.class_status = e.attribute(CLASS_STATUS).unwrap_or("").to_string();
             }
         }
@@ -276,73 +313,44 @@ impl TakeoffTable {
         self.rooms.iter().map(|r| r.area).sum()
     }
 
-    /// Render an estimator-friendly CSV. One flat table with a `category` column so
-    /// every element type and the totals share a single file. Output is
-    /// deterministic.
+    /// Render an estimator-friendly CSV. Columns match [`to_xlsx`](Self::to_xlsx)
+    /// exactly (including `csi_division`).
     pub fn to_csv(&self) -> String {
+        let sheet = self.sheet();
         let mut out = String::new();
-        out.push_str(
-            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code,wall_type,class_status\n",
-        );
+        for row in &sheet.rows {
+            for (j, cell) in row.iter().enumerate() {
+                if j > 0 {
+                    out.push(',');
+                }
+                match cell {
+                    xlsx::Cell::Empty => {}
+                    xlsx::Cell::Text(t) => out.push_str(t),
+                    xlsx::Cell::Number(n) => out.push_str(n),
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Roll up row counts by CSI division (Bluebeam-style Markups List grouping).
+    pub fn csi_division_rollups(&self) -> Vec<(String, usize)> {
+        use std::collections::BTreeMap;
+        let mut map = BTreeMap::new();
         for w in &self.walls {
-            out.push_str(&format!(
-                "WALL,{},,{},{},{},{},{},,{},{},{}\n",
-                w.id,
-                num(w.length),
-                num(w.thickness),
-                num(w.height),
-                num(w.gross_area),
-                num(w.volume),
-                w.cost_code,
-                w.wall_type,
-                w.class_status,
-            ));
+            *map.entry(csi_division(&w.cost_code)).or_insert(0usize) += 1;
         }
         for o in &self.openings {
-            out.push_str(&format!(
-                "OPENING,{},{},{},,{},{},,,{},,\n",
-                o.number,
-                o.kind,
-                num(o.width),
-                num(o.height),
-                num(o.area),
-                o.cost_code,
-            ));
+            *map.entry(csi_division(&o.cost_code)).or_insert(0usize) += 1;
         }
         for r in &self.rooms {
-            out.push_str(&format!(
-                "ROOM,{},,,,,{},,{},{},,\n",
-                r.id,
-                num(r.area),
-                num(r.perimeter),
-                r.cost_code,
-            ));
+            *map.entry(csi_division(&r.cost_code)).or_insert(0usize) += 1;
         }
         for s in &self.structural {
-            out.push_str(&format!(
-                "STRUCTURAL,{},{},,,,,,,{},,\n",
-                s.number, s.kind, s.cost_code
-            ));
+            *map.entry(csi_division(&s.cost_code)).or_insert(0usize) += 1;
         }
-        out.push_str(&format!(
-            "TOTAL,walls-gross,,{},,,{},{},,,,\n",
-            num(self.total_wall_length()),
-            num(self.total_wall_gross_area()),
-            num(self.total_wall_volume()),
-        ));
-        out.push_str(&format!(
-            "TOTAL,openings,,,,,{},,,,,\n",
-            num(self.total_opening_area())
-        ));
-        out.push_str(&format!(
-            "TOTAL,walls-net,,,,,{},,,,,\n",
-            num(self.total_wall_net_area())
-        ));
-        out.push_str(&format!(
-            "TOTAL,rooms,,,,,{},,,,,\n",
-            num(self.total_room_area())
-        ));
-        out
+        map.into_iter().collect()
     }
 
     /// Render the takeoff as machine-readable JSON (schema
@@ -467,6 +475,7 @@ impl TakeoffTable {
                 "volume",
                 "perimeter",
                 "cost_code",
+                "csi_division",
                 "wall_type",
                 "class_status",
             ]
@@ -489,6 +498,7 @@ impl TakeoffTable {
                 n(w.volume),
                 Cell::Empty,
                 Cell::text(&w.cost_code),
+                Cell::text(csi_division(&w.cost_code)),
                 Cell::text(&w.wall_type),
                 Cell::text(&w.class_status),
             ]);
@@ -505,6 +515,7 @@ impl TakeoffTable {
                 Cell::Empty,
                 Cell::Empty,
                 Cell::text(&o.cost_code),
+                Cell::text(csi_division(&o.cost_code)),
                 Cell::Empty,
                 Cell::Empty,
             ]);
@@ -521,6 +532,7 @@ impl TakeoffTable {
                 Cell::Empty,
                 n(r.perimeter),
                 Cell::text(&r.cost_code),
+                Cell::text(csi_division(&r.cost_code)),
                 Cell::Empty,
                 Cell::Empty,
             ]);
@@ -537,13 +549,14 @@ impl TakeoffTable {
                 Cell::Empty,
                 Cell::Empty,
                 Cell::text(&s.cost_code),
+                Cell::text(csi_division(&s.cost_code)),
                 Cell::Empty,
                 Cell::Empty,
             ]);
         }
 
         let total = |label: &str, cells: Vec<(usize, Cell)>| {
-            let mut row = vec![Cell::Empty; 12];
+            let mut row = vec![Cell::Empty; 13];
             row[0] = Cell::text("TOTAL");
             row[1] = Cell::text(label);
             for (i, c) in cells {
@@ -794,13 +807,13 @@ mod tests {
         let csv = table.to_csv();
 
         assert!(csv.starts_with(
-            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code,wall_type,class_status\n"
+            "category,ref,kind,length,thickness,height,area,volume,perimeter,cost_code,csi_division,wall_type,class_status\n"
         ));
-        assert!(csv.contains(
-            "WALL,0,,10.000,0.200,3.000,30.000,6.000,,09 21 00,unclassified,\n"
-        ));
-        assert!(csv.contains("OPENING,1,Door,0.900,,2.100,1.890,,,08 10 00,,\n"));
-        assert!(csv.contains("ROOM,0,,,,,12.000,,14.000,09 60 00,,\n"));
+        assert!(
+            csv.contains("WALL,0,,10.000,0.200,3.000,30.000,6.000,,09 21 00,09,unclassified,\n")
+        );
+        assert!(csv.contains("OPENING,1,Door,0.900,,2.100,1.890,,,08 10 00,08,,\n"));
+        assert!(csv.contains("ROOM,0,,,,,12.000,,14.000,09 60 00,09,,\n"));
         assert_eq!(csv, table.to_csv());
     }
 

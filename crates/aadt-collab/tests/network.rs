@@ -97,3 +97,29 @@ fn three_clients_all_converge() {
     assert_eq!(texts(&a), texts(&b));
     assert_eq!(texts(&b), texts(&c));
 }
+
+#[test]
+fn cursor_presence_propagates_over_tcp() {
+    let server = RelayServer::start("127.0.0.1:0").unwrap();
+    let mut alice = Client::connect(server.addr(), "alice").unwrap();
+    let bob = Client::connect(server.addr(), "bob").unwrap();
+
+    alice
+        .set_cursor(Point2::new(12.5, -3.0))
+        .expect("send cursor");
+
+    assert!(
+        wait_until(|| {
+            bob.presence()
+                .get("alice")
+                .is_some_and(|p| (p.at.x - 12.5).abs() < 1e-9 && (p.at.y + 3.0).abs() < 1e-9)
+        }),
+        "bob should see alice's cursor"
+    );
+
+    alice.leave().unwrap();
+    assert!(
+        wait_until(|| bob.presence().get("alice").is_none()),
+        "leave should clear alice from bob's presence map"
+    );
+}

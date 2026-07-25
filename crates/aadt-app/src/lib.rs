@@ -240,6 +240,11 @@ impl Session {
         &self.ctx.doc
     }
 
+    /// Mutable access for GUI helpers that must seed blocks before INSERT.
+    pub fn document_mut(&mut self) -> &mut Document {
+        &mut self.ctx.doc
+    }
+
     /// Replace the working document — a front-end opening a file at launch. This
     /// is a bulk load, not a tracked edit: it does not push undo history, exactly
     /// like importing a DXF (spec §4.1). Interactive edits still go through
@@ -259,6 +264,12 @@ impl Session {
     /// [`Document::revision`](aadt_model::Document::revision) changes — safe to
     /// call every frame.
     pub fn drawlist(&mut self) -> &DrawList {
+        self.refresh_draw_cache();
+        &self.draw_cache.as_ref().expect("cache populated").1
+    }
+
+    /// Ensure the drawlist cache matches the current revision (no borrow held).
+    pub fn refresh_draw_cache(&mut self) {
         let rev = self.ctx.doc.revision();
         let stale = match &self.draw_cache {
             Some((cached, _)) => *cached != rev,
@@ -267,7 +278,15 @@ impl Session {
         if stale {
             self.draw_cache = Some((rev, build_drawlist(&self.ctx.doc)));
         }
-        &self.draw_cache.as_ref().expect("cache populated").1
+    }
+
+    /// Borrow the cached drawlist. Call [`refresh_draw_cache`] first each frame.
+    pub fn cached_drawlist(&self) -> &DrawList {
+        static EMPTY: std::sync::OnceLock<DrawList> = std::sync::OnceLock::new();
+        self.draw_cache
+            .as_ref()
+            .map(|(_, list)| list)
+            .unwrap_or_else(|| EMPTY.get_or_init(DrawList::default))
     }
 
     /// True when the drawlist cache matches the current document revision.

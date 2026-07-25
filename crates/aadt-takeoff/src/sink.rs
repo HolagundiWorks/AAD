@@ -65,7 +65,8 @@ impl TakeoffSink for JsonFolderSink {
             format!("takeoff_{}.json", meta.run_id)
         };
         let path = self.folder.join(name);
-        std::fs::write(&path, run.to_json()).map_err(|e| format!("json {}: {e}", path.display()))?;
+        std::fs::write(&path, run.to_json())
+            .map_err(|e| format!("json {}: {e}", path.display()))?;
         Ok(())
     }
 }

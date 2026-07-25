@@ -33,16 +33,32 @@ pub enum FinishRule {
 /// One interactive input step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepKind {
-    Point { prompt: &'static str },
+    Point {
+        prompt: &'static str,
+    },
     /// Repeatable point step (line / wall / polyline chain).
-    NextPoint { prompt: &'static str },
-    Distance { prompt: &'static str },
-    Thickness { prompt: &'static str },
+    NextPoint {
+        prompt: &'static str,
+    },
+    Distance {
+        prompt: &'static str,
+    },
+    Thickness {
+        prompt: &'static str,
+    },
     /// Multi-select phase (verb-noun MOVE/COPY/… when selection is empty).
-    Selection { prompt: &'static str },
-    Side { prompt: &'static str },
-    Text { prompt: &'static str },
-    Entity { prompt: &'static str },
+    Selection {
+        prompt: &'static str,
+    },
+    Side {
+        prompt: &'static str,
+    },
+    Text {
+        prompt: &'static str,
+    },
+    Entity {
+        prompt: &'static str,
+    },
 }
 
 /// Static command definition.
@@ -107,9 +123,7 @@ impl SpaceGesture {
         if !still_down {
             return None;
         }
-        let Some(t0) = self.pressed_at else {
-            return None;
-        };
+        let t0 = self.pressed_at?;
         if !self.hold_fired && now.duration_since(t0) >= self.hold_threshold {
             self.hold_fired = true;
             return Some(SpaceAction::HoldPalette);
@@ -212,7 +226,10 @@ impl CommandEngine {
         let id = self.current_id()?;
         let def = find_def(id)?;
         let step = self.step_index().unwrap_or(0);
-        def.steps.get(step).copied().or_else(|| def.steps.last().copied())
+        def.steps
+            .get(step)
+            .copied()
+            .or_else(|| def.steps.last().copied())
     }
 
     /// Start a command by id (after alias resolve).
@@ -220,7 +237,10 @@ impl CommandEngine {
         let def = find_def(id)?;
         self.point_count = 0;
         self.state = EngineState::Command { id: def.id };
-        self.state = EngineState::Input { id: def.id, step: 0 };
+        self.state = EngineState::Input {
+            id: def.id,
+            step: 0,
+        };
         self.push_history(def.id);
         Some(def)
     }
@@ -250,23 +270,14 @@ impl CommandEngine {
                 if step + 1 < def.steps.len() {
                     let next = def.steps[step + 1];
                     if matches!(next, StepKind::NextPoint { .. }) {
-                        self.state = EngineState::Input {
-                            id,
-                            step: step + 1,
-                        };
+                        self.state = EngineState::Input { id, step: step + 1 };
                     } else if matches!(def.finish, FinishRule::AutoOnLastStep)
                         && step + 1 == def.steps.len() - 1
                     {
                         // move to last step; completion happens on next accept
-                        self.state = EngineState::Input {
-                            id,
-                            step: step + 1,
-                        };
+                        self.state = EngineState::Input { id, step: step + 1 };
                     } else {
-                        self.state = EngineState::Input {
-                            id,
-                            step: step + 1,
-                        };
+                        self.state = EngineState::Input { id, step: step + 1 };
                     }
                 } else if matches!(def.finish, FinishRule::AutoOnLastStep) {
                     self.complete();
@@ -286,10 +297,7 @@ impl CommandEngine {
         };
         let step = self.step_index().unwrap_or(0);
         if step + 1 < def.steps.len() {
-            self.state = EngineState::Input {
-                id,
-                step: step + 1,
-            };
+            self.state = EngineState::Input { id, step: step + 1 };
         } else if matches!(def.finish, FinishRule::AutoOnLastStep) {
             self.complete();
         }
@@ -358,10 +366,9 @@ impl CommandEngine {
         if matches!(
             self.current_step_kind(),
             Some(StepKind::NextPoint { .. } | StepKind::Point { .. })
-        ) {
-            if self.point_count > 0 {
-                self.point_count -= 1;
-            }
+        ) && self.point_count > 0
+        {
+            self.point_count -= 1;
         }
     }
 
@@ -425,10 +432,10 @@ pub fn resolve_fuzzy(token: &str) -> Option<ResolveHit> {
     best.map(|(id, _)| ResolveHit::Fuzzy(id))
 }
 
+/// Resolve a typed command token for Enter / dispatch. Exact id or alias only
+/// (AutoCAD-style: `OFF` must not start OFFSET; use `O` or `OFFSET`).
 pub fn resolve_alias(token: &str) -> Option<CommandId> {
-    match resolve_fuzzy(token)? {
-        ResolveHit::Exact(id) | ResolveHit::Fuzzy(id) => Some(id),
-    }
+    resolve_exact(token)
 }
 
 /// Whether empty Space should finish this command given point count.
@@ -480,10 +487,7 @@ const XLINE_STEPS: &[StepKind] = &[
 
 const TRIM_STEPS: &[StepKind] = &[
     StepKind::Entity {
-        prompt: "TRIM — select cutting edges (Space when done)",
-    },
-    StepKind::Entity {
-        prompt: "TRIM — select object to trim (Space finishes)",
+        prompt: "TRIM — select object to trim or [C]utting edges (Space finishes)",
     },
 ];
 
@@ -580,9 +584,167 @@ const MIRROR_STEPS: &[StepKind] = &[
     },
 ];
 
+const ARRAYRECT_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "ARRAYRECT — select objects (Space when done)",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYRECT — rows (type + Space)",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYRECT — columns (type + Space)",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYRECT — column spacing dx (type or pick)",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYRECT — row spacing dy (type or pick)",
+    },
+];
+
+const ARRAYPOLAR_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "ARRAYPOLAR — select objects (Space when done)",
+    },
+    StepKind::Point {
+        prompt: "ARRAYPOLAR — center point",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYPOLAR — count (type + Space)",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYPOLAR — fill angle degrees <360>",
+    },
+];
+
+const ARRAYPATH_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "ARRAYPATH — select objects (Space when done)",
+    },
+    StepKind::Entity {
+        prompt: "ARRAYPATH — select path (line/pline/arc/circle)",
+    },
+    StepKind::Distance {
+        prompt: "ARRAYPATH — count (type + Space)",
+    },
+];
+
 const ERASE_STEPS: &[StepKind] = &[StepKind::Selection {
     prompt: "ERASE — select objects (Space erases)",
 }];
+
+const LIST_STEPS: &[StepKind] = &[StepKind::Selection {
+    prompt: "LIST — reports entities (runs immediately)",
+}];
+
+const LENGTHEN_STEPS: &[StepKind] = &[
+    StepKind::Entity {
+        prompt: "LENGTHEN — select a line or polyline",
+    },
+    StepKind::Distance {
+        prompt: "LENGTHEN — delta length (type + Space)",
+    },
+];
+
+const DIMSTYLE_STEPS: &[StepKind] = &[StepKind::Text {
+    prompt: "DIMSTYLE — opens Dims manager",
+}];
+
+const STRETCH_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "STRETCH — select objects (Space when done)",
+    },
+    StepKind::Point {
+        prompt: "STRETCH — first crossing-window corner",
+    },
+    StepKind::Point {
+        prompt: "STRETCH — opposite corner",
+    },
+    StepKind::Point {
+        prompt: "STRETCH — base point",
+    },
+    StepKind::Point {
+        prompt: "STRETCH — destination",
+    },
+];
+
+const BLOCK_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "BLOCK — select objects (Space when done)",
+    },
+    StepKind::Text {
+        prompt: "BLOCK — name + Space",
+    },
+    StepKind::Point {
+        prompt: "BLOCK — base point",
+    },
+];
+
+const EXPLODE_STEPS: &[StepKind] = &[StepKind::Selection {
+    prompt: "EXPLODE — select inserts (Space when done)",
+}];
+
+const MATCHPROP_STEPS: &[StepKind] = &[
+    StepKind::Point {
+        prompt: "MATCHPROP — click source",
+    },
+    StepKind::Point {
+        prompt: "MATCHPROP — click targets (Esc finishes)",
+    },
+];
+
+const MLEADER_STEPS: &[StepKind] = &[
+    StepKind::Point {
+        prompt: "MLEADER — arrowhead",
+    },
+    StepKind::Point {
+        prompt: "MLEADER — landing",
+    },
+    StepKind::Point {
+        prompt: "MLEADER — text point",
+    },
+    StepKind::Text {
+        prompt: "MLEADER — type note + Space",
+    },
+];
+
+const DIST_STEPS: &[StepKind] = &[
+    StepKind::Point {
+        prompt: "DIST — first point",
+    },
+    StepKind::Point {
+        prompt: "DIST — second point",
+    },
+];
+
+const DIMRAD_STEPS: &[StepKind] = &[StepKind::Point {
+    prompt: "DIMRADIUS — click a circle or arc",
+}];
+
+const DIMDIA_STEPS: &[StepKind] = &[StepKind::Point {
+    prompt: "DIMDIAMETER — click a circle or arc",
+}];
+
+const DIMANG_STEPS: &[StepKind] = &[
+    StepKind::Point {
+        prompt: "DIMANGULAR — vertex",
+    },
+    StepKind::Point {
+        prompt: "DIMANGULAR — first ray",
+    },
+    StepKind::Point {
+        prompt: "DIMANGULAR — second ray",
+    },
+];
+
+const WBLOCK_STEPS: &[StepKind] = &[
+    StepKind::Selection {
+        prompt: "WBLOCK — select objects (Space when done)",
+    },
+    StepKind::Text {
+        prompt: "WBLOCK — block name + Space",
+    },
+];
 
 const DIM_STEPS: &[StepKind] = &[
     StepKind::Point {
@@ -657,7 +819,7 @@ const PLACE_STEPS: &[StepKind] = &[StepKind::Point {
 static CATALOG: &[CommandDef] = &[
     CommandDef {
         id: "line",
-        aliases: &["L", "LI", "LINE"],
+        aliases: &["L", "LINE"],
         steps: LINE_STEPS,
         repeatable: true,
         finish: FinishRule::EmptySpaceAfterMinPoints(2),
@@ -705,7 +867,7 @@ static CATALOG: &[CommandDef] = &[
     },
     CommandDef {
         id: "offset",
-        aliases: &["O", "OFF", "OFFSET"],
+        aliases: &["O", "OFFSET"],
         steps: OFFSET_STEPS,
         repeatable: true,
         finish: FinishRule::ExplicitSpace,
@@ -752,6 +914,30 @@ static CATALOG: &[CommandDef] = &[
         tool_token: "MIRROR",
     },
     CommandDef {
+        id: "arrayrect",
+        aliases: &["AR", "ARRAY", "ARRAYRECT"],
+        steps: ARRAYRECT_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "ARRAYRECT",
+    },
+    CommandDef {
+        id: "arraypolar",
+        aliases: &["ARRAYPOLAR", "ARRAYPOL"],
+        steps: ARRAYPOLAR_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "ARRAYPOLAR",
+    },
+    CommandDef {
+        id: "arraypath",
+        aliases: &["ARRAYPATH", "APATH"],
+        steps: ARRAYPATH_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "ARRAYPATH",
+    },
+    CommandDef {
         id: "erase",
         aliases: &["E", "ERASE"],
         steps: ERASE_STEPS,
@@ -760,12 +946,116 @@ static CATALOG: &[CommandDef] = &[
         tool_token: "ERASE",
     },
     CommandDef {
+        id: "list",
+        aliases: &["LI", "LS", "LIST"],
+        steps: LIST_STEPS,
+        repeatable: false,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "LIST",
+    },
+    CommandDef {
+        id: "lengthen",
+        aliases: &["LE", "LEN", "LENGTHEN"],
+        steps: LENGTHEN_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "LENGTHEN",
+    },
+    CommandDef {
+        id: "dimstyle",
+        aliases: &["D", "DIMSTYLE"],
+        steps: DIMSTYLE_STEPS,
+        repeatable: false,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DIMSTYLE",
+    },
+    CommandDef {
+        id: "stretch",
+        aliases: &["S", "STRETCH"],
+        steps: STRETCH_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "STRETCH",
+    },
+    CommandDef {
+        id: "block",
+        aliases: &["B", "BLOCK"],
+        steps: BLOCK_STEPS,
+        repeatable: false,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "BLOCK",
+    },
+    CommandDef {
+        id: "wblock",
+        aliases: &["W", "WBLOCK"],
+        steps: WBLOCK_STEPS,
+        repeatable: false,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "WBLOCK",
+    },
+    CommandDef {
+        id: "explode",
+        aliases: &["X", "EXPLODE"],
+        steps: EXPLODE_STEPS,
+        repeatable: true,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "EXPLODE",
+    },
+    CommandDef {
+        id: "matchprop",
+        aliases: &["MA", "MATCHPROP"],
+        steps: MATCHPROP_STEPS,
+        repeatable: true,
+        finish: FinishRule::ExplicitSpace,
+        tool_token: "MATCHPROP",
+    },
+    CommandDef {
+        id: "mleader",
+        aliases: &["MLEADER", "LEADER", "MLD"],
+        steps: MLEADER_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "MLEADER",
+    },
+    CommandDef {
+        id: "dist",
+        aliases: &["DI", "DIST", "DISTANCE"],
+        steps: DIST_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DIST",
+    },
+    CommandDef {
         id: "dim",
         aliases: &["DIM", "DIMLINEAR"],
         steps: DIM_STEPS,
         repeatable: true,
         finish: FinishRule::AutoOnLastStep,
         tool_token: "DIM",
+    },
+    CommandDef {
+        id: "dimradius",
+        aliases: &["DIMRADIUS", "DIMRAD"],
+        steps: DIMRAD_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DIMRADIUS",
+    },
+    CommandDef {
+        id: "dimdiameter",
+        aliases: &["DIMDIAMETER", "DIMDIA"],
+        steps: DIMDIA_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DIMDIAMETER",
+    },
+    CommandDef {
+        id: "dimangular",
+        aliases: &["DIMANGULAR", "DIMANG"],
+        steps: DIMANG_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DIMANGULAR",
     },
     CommandDef {
         id: "qdim",
@@ -817,7 +1107,7 @@ static CATALOG: &[CommandDef] = &[
     },
     CommandDef {
         id: "text",
-        aliases: &["T", "TEXT", "DTEXT"],
+        aliases: &["T", "TEXT", "DTEXT", "DT"],
         steps: TEXT_STEPS,
         repeatable: true,
         finish: FinishRule::AutoOnLastStep,
@@ -825,16 +1115,16 @@ static CATALOG: &[CommandDef] = &[
     },
     CommandDef {
         id: "wall",
-        aliases: &["W", "WALL"],
+        aliases: &["WA", "WALL"],
         steps: WALL_STEPS,
         repeatable: true,
         finish: FinishRule::EmptySpaceAfterMinPoints(2),
         tool_token: "WALL",
     },
-    // Stubs — place a placeholder insert / rect with metadata.
+    // Place tools: seed geometry blocks then INSERT (see ensure_place_blocks).
     CommandDef {
         id: "door",
-        aliases: &["D", "DO", "DOOR"],
+        aliases: &["DO", "DOOR"],
         steps: PLACE_STEPS,
         repeatable: true,
         finish: FinishRule::AutoOnLastStep,
@@ -872,6 +1162,70 @@ static CATALOG: &[CommandDef] = &[
         finish: FinishRule::AutoOnLastStep,
         tool_token: "SLAB",
     },
+    CommandDef {
+        id: "tree",
+        aliases: &["TREE"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "TREE",
+    },
+    CommandDef {
+        id: "shrub",
+        aliases: &["SHRUB", "BUSH"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "SHRUB",
+    },
+    CommandDef {
+        id: "chair",
+        aliases: &["CHAIR"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "CHAIR",
+    },
+    CommandDef {
+        id: "desk",
+        aliases: &["DESK"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "DESK",
+    },
+    CommandDef {
+        id: "sofa",
+        aliases: &["SOFA", "COUCH"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "SOFA",
+    },
+    CommandDef {
+        id: "bed",
+        aliases: &["BED"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "BED",
+    },
+    CommandDef {
+        id: "table",
+        aliases: &["FTABLE", "RDTABLE"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "FTABLE",
+    },
+    CommandDef {
+        id: "toilet",
+        aliases: &["TOILET", "WC"],
+        steps: PLACE_STEPS,
+        repeatable: true,
+        finish: FinishRule::AutoOnLastStep,
+        tool_token: "TOILET",
+    },
 ];
 
 #[cfg(test)]
@@ -885,7 +1239,31 @@ mod tests {
         assert_eq!(resolve_alias("DO"), Some("door"));
         assert_eq!(resolve_alias("CO"), Some("copy")); // not circle
         assert_eq!(resolve_alias("C"), Some("circle"));
-        assert_eq!(resolve_alias("OFF"), Some("offset"));
+        assert_eq!(resolve_alias("O"), Some("offset"));
+        assert_eq!(resolve_alias("W"), Some("wblock"));
+        assert_eq!(resolve_alias("S"), Some("stretch"));
+        assert_eq!(resolve_alias("LI"), Some("list"));
+        assert_eq!(resolve_alias("LS"), Some("list"));
+        assert_eq!(resolve_alias("LE"), Some("lengthen"));
+        assert_eq!(resolve_alias("D"), Some("dimstyle"));
+        assert!(resolve_alias("OFF").is_none());
+        assert!(matches!(
+            resolve_fuzzy("OFF"),
+            Some(ResolveHit::Fuzzy("offset"))
+        ));
+        assert_eq!(resolve_alias("DI"), Some("dist"));
+        assert_eq!(resolve_alias("DISTANCE"), Some("dist"));
+        assert_eq!(resolve_alias("B"), Some("block"));
+        assert_eq!(resolve_alias("X"), Some("explode"));
+        assert_eq!(resolve_alias("MA"), Some("matchprop"));
+        assert_eq!(resolve_alias("DT"), Some("text"));
+        assert_eq!(resolve_alias("DIMRADIUS"), Some("dimradius"));
+        assert_eq!(resolve_alias("MLEADER"), Some("mleader"));
+        // Fuzzy still helps palette prefixes (exact aliases already covered above).
+        assert!(matches!(
+            resolve_fuzzy("POLY"),
+            Some(ResolveHit::Fuzzy("polyline"))
+        ));
     }
 
     #[test]
@@ -929,7 +1307,10 @@ mod tests {
         let mut g = SpaceGesture::default();
         let t0 = Instant::now();
         g.on_press(t0);
-        assert_eq!(g.on_release(t0 + Duration::from_millis(20)), Some(SpaceAction::Single));
+        assert_eq!(
+            g.on_release(t0 + Duration::from_millis(20)),
+            Some(SpaceAction::Single)
+        );
         g.on_press(t0 + Duration::from_millis(40));
         assert_eq!(
             g.on_release(t0 + Duration::from_millis(60)),

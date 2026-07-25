@@ -456,19 +456,13 @@ fn emit_strip_minimal(
         if value.trim().is_empty() {
             return;
         }
-        ids.push(d.add_geometry(
-            LAYER_TB_ATTR,
-            Geometry::Text(Text::new(value, p, ht, 0.0)),
-        ));
+        ids.push(d.add_geometry(LAYER_TB_ATTR, Geometry::Text(Text::new(value, p, ht, 0.0))));
     };
     let label = |d: &mut Document, ids: &mut Vec<EntityId>, value: &str, p: Point2, ht: f64| {
         if value.trim().is_empty() {
             return;
         }
-        ids.push(d.add_geometry(
-            LAYER_TB_TEXT,
-            Geometry::Text(Text::new(value, p, ht, 0.0)),
-        ));
+        ids.push(d.add_geometry(LAYER_TB_TEXT, Geometry::Text(Text::new(value, p, ht, 0.0))));
     };
     line(doc, &mut ids, o, Point2::new(o.x + w, o.y));
     line(
@@ -493,7 +487,13 @@ fn emit_strip_minimal(
     let mut y = o.y + h - ht - inset;
     attr(doc, &mut ids, firm, Point2::new(o.x + inset, y), ht * 1.2);
     y -= ht * 2.0;
-    label(doc, &mut ids, "TITLE", Point2::new(o.x + inset, y), ht * 0.8);
+    label(
+        doc,
+        &mut ids,
+        "TITLE",
+        Point2::new(o.x + inset, y),
+        ht * 0.8,
+    );
     y -= ht + 0.5;
     attr(
         doc,
@@ -544,10 +544,7 @@ fn emit_band_minimal(
         if value.trim().is_empty() {
             return;
         }
-        ids.push(d.add_geometry(
-            LAYER_TB_ATTR,
-            Geometry::Text(Text::new(value, p, ht, 0.0)),
-        ));
+        ids.push(d.add_geometry(LAYER_TB_ATTR, Geometry::Text(Text::new(value, p, ht, 0.0))));
     };
     line(doc, &mut ids, o, Point2::new(o.x + w, o.y));
     line(
@@ -632,25 +629,15 @@ fn emit_strip(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> V
         if value.trim().is_empty() {
             return;
         }
-        ids.push(d.add_geometry(
-            LAYER_TB_TEXT,
-            Geometry::Text(Text::new(value, p, ht, 0.0)),
-        ));
+        ids.push(d.add_geometry(LAYER_TB_TEXT, Geometry::Text(Text::new(value, p, ht, 0.0))));
     };
-    let attr = |d: &mut Document,
-                ids: &mut Vec<EntityId>,
-                value: &str,
-                p: Point2,
-                ht: f64,
-                rot: f64| {
-        if value.trim().is_empty() {
-            return;
-        }
-        ids.push(d.add_geometry(
-            LAYER_TB_ATTR,
-            Geometry::Text(Text::new(value, p, ht, rot)),
-        ));
-    };
+    let attr =
+        |d: &mut Document, ids: &mut Vec<EntityId>, value: &str, p: Point2, ht: f64, rot: f64| {
+            if value.trim().is_empty() {
+                return;
+            }
+            ids.push(d.add_geometry(LAYER_TB_ATTR, Geometry::Text(Text::new(value, p, ht, rot))));
+        };
 
     // Outer strip box (shares right/top/bottom with sheet border; left divider).
     line(doc, &mut ids, o, Point2::new(o.x + w, o.y));
@@ -721,7 +708,14 @@ fn emit_strip(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> V
         if s.trim().is_empty() {
             continue;
         }
-        attr(doc, &mut ids, s, Point2::new(o.x + inset, by), HT_VALUE * 0.9, 0.0);
+        attr(
+            doc,
+            &mut ids,
+            s,
+            Point2::new(o.x + inset, by),
+            HT_VALUE * 0.9,
+            0.0,
+        );
         by -= HT_VALUE + 0.6;
         if by < y_project + inset {
             break;
@@ -821,7 +815,13 @@ fn emit_strip(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> V
         if val.trim().is_empty() && lab != "REV" {
             continue;
         }
-        label(doc, &mut ids, lab, Point2::new(o.x + inset, my), HT_VALUE * 0.85);
+        label(
+            doc,
+            &mut ids,
+            lab,
+            Point2::new(o.x + inset, my),
+            HT_VALUE * 0.85,
+        );
         attr(
             doc,
             &mut ids,
@@ -945,19 +945,13 @@ fn emit_band(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> Ve
         if value.trim().is_empty() {
             return;
         }
-        ids.push(d.add_geometry(
-            LAYER_TB_TEXT,
-            Geometry::Text(Text::new(value, p, ht, 0.0)),
-        ));
+        ids.push(d.add_geometry(LAYER_TB_TEXT, Geometry::Text(Text::new(value, p, ht, 0.0))));
     };
     let attr = |d: &mut Document, ids: &mut Vec<EntityId>, value: &str, p: Point2, ht: f64| {
         if value.trim().is_empty() {
             return;
         }
-        ids.push(d.add_geometry(
-            LAYER_TB_ATTR,
-            Geometry::Text(Text::new(value, p, ht, 0.0)),
-        ));
+        ids.push(d.add_geometry(LAYER_TB_ATTR, Geometry::Text(Text::new(value, p, ht, 0.0))));
     };
 
     // Outer band.
@@ -1007,7 +1001,13 @@ fn emit_band(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> Ve
         if s.trim().is_empty() {
             continue;
         }
-        attr(doc, &mut ids, s, Point2::new(x0 + inset, by), HT_VALUE * 0.85);
+        attr(
+            doc,
+            &mut ids,
+            s,
+            Point2::new(x0 + inset, by),
+            HT_VALUE * 0.85,
+        );
         by -= HT_VALUE + 0.5;
         if by < y0 + inset {
             break;
@@ -1029,11 +1029,23 @@ fn emit_band(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> Ve
     );
     let mut py = y1 - HT_TITLE - HT_LABEL - inset * 2.0;
     if !tb.client.trim().is_empty() && tb.client != project_name {
-        attr(doc, &mut ids, &tb.client, Point2::new(x1 + inset, py), HT_LABEL);
+        attr(
+            doc,
+            &mut ids,
+            &tb.client,
+            Point2::new(x1 + inset, py),
+            HT_LABEL,
+        );
         py -= HT_LABEL + 0.6;
     }
     if !tb.address.trim().is_empty() {
-        attr(doc, &mut ids, &tb.address, Point2::new(x1 + inset, py), HT_VALUE);
+        attr(
+            doc,
+            &mut ids,
+            &tb.address,
+            Point2::new(x1 + inset, py),
+            HT_VALUE,
+        );
     }
 
     // Drawing title.
@@ -1080,7 +1092,13 @@ fn emit_band(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> Ve
         if val.trim().is_empty() {
             continue;
         }
-        label(doc, &mut ids, lab, Point2::new(x3 + inset, my), HT_VALUE * 0.8);
+        label(
+            doc,
+            &mut ids,
+            lab,
+            Point2::new(x3 + inset, my),
+            HT_VALUE * 0.8,
+        );
         attr(
             doc,
             &mut ids,
@@ -1246,10 +1264,12 @@ mod tests {
 
     #[test]
     fn from_properties_prefers_drawing_name() {
-        let mut props = DrawingProperties::default();
-        props.title = "Stored Title".into();
-        props.project = "P1".into();
-        props.drawing_number = "A-101".into();
+        let props = DrawingProperties {
+            title: "Stored Title".into(),
+            project: "P1".into(),
+            drawing_number: "A-101".into(),
+            ..Default::default()
+        };
         let tb = TitleBlock::from_properties(&props, "Plot Name");
         assert_eq!(tb.sheet_title, "Plot Name");
         assert_eq!(tb.project, "P1");
@@ -1293,7 +1313,10 @@ mod tests {
             Geometry::Text(t) if t.value == "A-101"
         )));
         assert!(doc.entities().into_iter().any(|e| e.layer == LAYER_TB_ATTR));
-        assert!(doc.entities().into_iter().any(|e| e.layer == LAYER_REVISION));
+        assert!(doc
+            .entities()
+            .into_iter()
+            .any(|e| e.layer == LAYER_REVISION));
     }
 
     #[test]

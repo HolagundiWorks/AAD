@@ -13,11 +13,15 @@
 //! The full entity set (arcs, circles, text/mtext, hatches, blocks/inserts,
 //! dimensions, tables) continues to grow through M1 (see `docs/ROADMAP.md`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment, Vec2};
 
+pub mod floors;
 pub mod units;
+pub use floors::{
+    floors_sorted, DefaultSpaces, Floor, LevelId, ModelSpace, ModelSpaceId, SpaceCategory,
+};
 pub use units::{
     format_dimension_label, format_length, format_length_pair, parse_length, primary_from_props,
     secondary_enabled, UnitSystem, INCHES_PER_METER, METERS_PER_INCH,
@@ -139,6 +143,10 @@ pub struct Insert {
     pub position: Point2,
     /// Rotation in degrees (DXF convention).
     pub rotation: f64,
+    /// X scale factor (DXF group 41); default 1.
+    pub scale_x: f64,
+    /// Y scale factor (DXF group 42); default 1.
+    pub scale_y: f64,
 }
 
 impl Insert {
@@ -147,8 +155,115 @@ impl Insert {
             name: name.into(),
             position,
             rotation,
+            scale_x: 1.0,
+            scale_y: 1.0,
         }
     }
+
+    pub fn with_scale(mut self, scale_x: f64, scale_y: f64) -> Self {
+        self.scale_x = if scale_x.abs() < 1e-12 {
+            1.0
+        } else {
+            scale_x
+        };
+        self.scale_y = if scale_y.abs() < 1e-12 {
+            1.0
+        } else {
+            scale_y
+        };
+        self
+    }
+
+    /// Same name/scales with a new placement.
+    pub fn at(&self, position: Point2, rotation: f64) -> Self {
+        Self {
+            name: self.name.clone(),
+            position,
+            rotation,
+            scale_x: self.scale_x,
+            scale_y: self.scale_y,
+        }
+    }
+}
+
+/// Prefix applied to layers brought in from DXF/DWG so they stay distinct from
+/// AADT AIA layers. Example: `A-WALL` → `ORG-DWG_LAYER-A-WALL`.
+pub const IMPORTED_LAYER_PREFIX: &str = "ORG-DWG_LAYER-";
+
+/// Strip AutoCAD MTEXT / TEXT formatting so only drawable glyphs remain.
+///
+/// Codes like `\fArial|b0|i0|c0|p34;`, `\H2.5;`, `\C1;`, braces, and `\P`
+/// paragraph marks are removed — the app always renders with its own sans font.
+pub fn sanitize_display_text(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0usize;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\\' && i + 1 < chars.len() {
+            let cmd = chars[i + 1];
+            i += 2;
+            match cmd {
+                'P' | 'p' => out.push('\n'),
+                '~' => out.push(' '),
+                '\\' | '{' | '}' => out.push(cmd),
+                // Font / height / width / tracking / oblique / color / align / stack:
+                // consume through the terminating `;`.
+                'F' | 'f' | 'H' | 'h' | 'W' | 'w' | 'T' | 't' | 'Q' | 'q' | 'C' | 'c'
+                | 'A' | 'a' | 'S' | 's' => {
+                    while i < chars.len() && chars[i] != ';' {
+                        i += 1;
+                    }
+                    if i < chars.len() {
+                        i += 1;
+                    }
+                }
+                // Unicode glyph `\U+00B0` (optional trailing `;`).
+                'U' | 'u' => {
+                    if i < chars.len() && chars[i] == '+' {
+                        i += 1;
+                        let mut hex = String::new();
+                        while i < chars.len() && hex.len() < 8 && chars[i].is_ascii_hexdigit() {
+                            hex.push(chars[i]);
+                            i += 1;
+                        }
+                        if i < chars.len() && chars[i] == ';' {
+                            i += 1;
+                        }
+                        if let Ok(cp) = u32::from_str_radix(&hex, 16) {
+                            if let Some(ch) = char::from_u32(cp) {
+                                out.push(ch);
+                            }
+                        }
+                    }
+                }
+                // Single-letter toggles (underline / overline / strike) — no `;`.
+                'L' | 'l' | 'O' | 'o' | 'K' | 'k' => {}
+                _ => {
+                    // Unknown escape: skip until `;` if present, else drop the cmd letter only.
+                    let start = i;
+                    while i < chars.len() && chars[i] != ';' && chars[i] != '\\' && chars[i] != '{'
+                    {
+                        i += 1;
+                        if i - start > 64 {
+                            break;
+                        }
+                    }
+                    if i < chars.len() && chars[i] == ';' {
+                        i += 1;
+                    }
+                }
+            }
+            continue;
+        }
+        if c == '{' || c == '}' {
+            i += 1;
+            continue;
+        }
+        out.push(c);
+        i += 1;
+    }
+    out.trim().to_string()
 }
 
 /// A single-line text entity (DXF `TEXT`): room labels, annotation, tag values
@@ -167,9 +282,9 @@ pub struct Text {
 impl Text {
     pub fn new(value: impl Into<String>, position: Point2, height: f64, rotation: f64) -> Self {
         Self {
-            value: value.into(),
+            value: sanitize_display_text(&value.into()),
             position,
-            height,
+            height: height.max(0.01),
             rotation,
         }
     }
@@ -266,15 +381,31 @@ impl Block {
     }
 
     /// Upsert a parameter definition by name (case-sensitive key as stored).
-    pub fn set_param(&mut self, name: impl Into<String>, default: impl Into<String>, kind: BlockParamKind) {
+    pub fn set_param(
+        &mut self,
+        name: impl Into<String>,
+        default: impl Into<String>,
+        kind: BlockParamKind,
+    ) {
         let name = name.into();
         let default = default.into();
         if let Some(p) = self.params.iter_mut().find(|p| p.name == name) {
             p.default = default;
             p.kind = kind;
         } else {
-            self.params.push(BlockParam { name, default, kind });
+            self.params.push(BlockParam {
+                name,
+                default,
+                kind,
+            });
         }
+    }
+
+    /// Look up a parameter by name (case-insensitive).
+    pub fn param(&self, name: &str) -> Option<&BlockParam> {
+        self.params
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
     }
 
     /// Upsert a visibility state.
@@ -312,20 +443,23 @@ impl Block {
     }
 }
 
-/// A hatched or filled region (DXF `HATCH`): a closed boundary plus a fill
+/// A hatched or filled region (DXF `HATCH`): closed boundary path(s) plus a fill
 /// pattern.
 ///
 /// Held in its own [`Document`] table rather than as a [`Geometry`] variant.
 /// A hatch is annotation — it contributes nothing to wall pairing or takeoff
 /// geometry — and keeping it out of the `Geometry` enum spares every consumer a
 /// match arm it would only ever ignore. Modeled for **round-trip fidelity**:
-/// the boundary and pattern name survive an import → export cycle; full pattern
-/// line geometry and multi-path boundaries are deferred.
+/// outer + island polylines and pattern name survive import → export. Pattern
+/// line geometry and arc/ellipse edge types are still approximated as polylines.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hatch {
     pub layer: String,
-    /// The (closed) boundary the fill occupies.
-    pub boundary: Polyline,
+    /// Model space this hatch belongs to (floor × category).
+    pub space: ModelSpaceId,
+    /// Closed boundary paths: first is the outer loop; any further paths are
+    /// islands (holes). Always non-empty after construction via [`Hatch::new`].
+    pub boundaries: Vec<Polyline>,
     /// Pattern name, e.g. `SOLID`, `ANSI31`. Preserved verbatim.
     pub pattern: String,
     /// Whether the fill is solid (DXF group 70).
@@ -338,10 +472,21 @@ impl Hatch {
         let solid = pattern.eq_ignore_ascii_case("SOLID");
         Self {
             layer: layer.into(),
-            boundary,
+            space: ModelSpaceId::default(),
+            boundaries: vec![boundary],
             pattern,
             solid,
         }
+    }
+
+    /// Outer (first) boundary path.
+    pub fn outer(&self) -> &Polyline {
+        &self.boundaries[0]
+    }
+
+    /// Append an island (hole) path.
+    pub fn push_island(&mut self, island: Polyline) {
+        self.boundaries.push(island);
     }
 }
 
@@ -377,6 +522,8 @@ pub enum DimensionKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dimension {
     pub layer: String,
+    /// Model space this dimension belongs to (floor × category).
+    pub space: ModelSpaceId,
     pub kind: DimensionKind,
     /// First definition point (DXF 13/23).
     pub p1: Point2,
@@ -449,9 +596,7 @@ impl Geometry {
                 t.height,
                 t.rotation,
             )),
-            Geometry::Insert(i) => {
-                Geometry::Insert(Insert::new(i.name.clone(), shift(i.position), i.rotation))
-            }
+            Geometry::Insert(i) => Geometry::Insert(i.at(shift(i.position), i.rotation)),
         }
     }
 
@@ -480,42 +625,48 @@ impl Geometry {
                 t.height,
                 t.rotation + ddeg,
             )),
-            Geometry::Insert(i) => Geometry::Insert(Insert::new(
-                i.name.clone(),
-                rot(i.position),
-                i.rotation + ddeg,
-            )),
+            Geometry::Insert(i) => Geometry::Insert(i.at(rot(i.position), i.rotation + ddeg)),
         }
     }
 
     /// This geometry scaled by `factor` about `pivot`. Positions scale about the
     /// pivot; radii and text height scale by `|factor|`; rotations are unchanged.
-    /// An insert has no scale field, so only its insertion point moves.
     pub fn scaled(&self, pivot: Point2, factor: f64) -> Geometry {
-        let sc = |p: Point2| p.scale_about(pivot, factor);
-        let f = factor.abs();
+        self.scaled_xy(pivot, factor, factor)
+    }
+
+    /// Non-uniform scale about `pivot` (insert X/Y scale).
+    pub fn scaled_xy(&self, pivot: Point2, scale_x: f64, scale_y: f64) -> Geometry {
+        let sc = |p: Point2| {
+            Point2::new(
+                pivot.x + (p.x - pivot.x) * scale_x,
+                pivot.y + (p.y - pivot.y) * scale_y,
+            )
+        };
+        let fr = (scale_x.abs() * scale_y.abs()).sqrt();
         match self {
             Geometry::Line(s) => Geometry::Line(Segment::new(sc(s.a), sc(s.b))),
             Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
                 p.vertices.iter().map(|&v| sc(v)).collect(),
                 p.closed,
             )),
-            Geometry::Circle(c) => Geometry::Circle(Circle::new(sc(c.center), c.radius * f)),
+            Geometry::Circle(c) => Geometry::Circle(Circle::new(sc(c.center), c.radius * fr)),
             Geometry::Arc(a) => Geometry::Arc(Arc::new(
                 sc(a.center),
-                a.radius * f,
+                a.radius * fr,
                 a.start_angle,
                 a.end_angle,
             )),
             Geometry::Text(t) => Geometry::Text(Text::new(
                 t.value.clone(),
                 sc(t.position),
-                t.height * f,
+                t.height * fr,
                 t.rotation,
             )),
-            Geometry::Insert(i) => {
-                Geometry::Insert(Insert::new(i.name.clone(), sc(i.position), i.rotation))
-            }
+            Geometry::Insert(i) => Geometry::Insert(
+                i.at(sc(i.position), i.rotation)
+                    .with_scale(i.scale_x * scale_x, i.scale_y * scale_y),
+            ),
         }
     }
 
@@ -547,11 +698,7 @@ impl Geometry {
                 t.height,
                 refl(t.rotation),
             )),
-            Geometry::Insert(i) => Geometry::Insert(Insert::new(
-                i.name.clone(),
-                mir(i.position),
-                refl(i.rotation),
-            )),
+            Geometry::Insert(i) => Geometry::Insert(i.at(mir(i.position), refl(i.rotation))),
         }
     }
 
@@ -573,32 +720,37 @@ impl Geometry {
                 p.closed,
             )),
             Geometry::Circle(c) => Geometry::Circle(Circle::new(mv(c.center), c.radius)),
-            Geometry::Arc(a) => Geometry::Arc(Arc::new(
-                mv(a.center),
-                a.radius,
-                a.start_angle,
-                a.end_angle,
-            )),
+            Geometry::Arc(a) => {
+                Geometry::Arc(Arc::new(mv(a.center), a.radius, a.start_angle, a.end_angle))
+            }
             Geometry::Text(t) => Geometry::Text(Text::new(
                 t.value.clone(),
                 mv(t.position),
                 t.height,
                 t.rotation,
             )),
-            Geometry::Insert(i) => {
-                Geometry::Insert(Insert::new(i.name.clone(), mv(i.position), i.rotation))
-            }
+            Geometry::Insert(i) => Geometry::Insert(i.at(mv(i.position), i.rotation)),
         }
     }
 
     /// This (block-space) geometry placed by an insert: shift the block's `base`
-    /// to the origin, rotate by `rotation_deg` (CCW), then translate to
-    /// `position`. This is the rigid placement `position + Rot(θ)·(p − base)` the
-    /// renderer applies to block content, expressed by composing the tested
-    /// [`translated`](Self::translated) and [`rotated`](Self::rotated) transforms —
-    /// so EXPLODE bakes exactly what the canvas would draw.
+    /// to the origin, scale, rotate by `rotation_deg` (CCW), then translate to
+    /// `position`. Matches the canvas placement for EXPLODE.
     pub fn instanced(&self, base: Point2, position: Point2, rotation_deg: f64) -> Geometry {
+        self.instanced_scaled(base, position, rotation_deg, 1.0, 1.0)
+    }
+
+    /// Like [`instanced`](Self::instanced) with non-uniform insert scales.
+    pub fn instanced_scaled(
+        &self,
+        base: Point2,
+        position: Point2,
+        rotation_deg: f64,
+        scale_x: f64,
+        scale_y: f64,
+    ) -> Geometry {
         self.translated(-base.x, -base.y)
+            .scaled_xy(Point2::new(0.0, 0.0), scale_x, scale_y)
             .rotated(Point2::new(0.0, 0.0), rotation_deg.to_radians())
             .translated(position.x, position.y)
     }
@@ -698,6 +850,8 @@ fn offset_polyline(p: &Polyline, distance: f64, side: Option<Point2>) -> Option<
 pub struct Entity {
     pub id: EntityId,
     pub layer: String,
+    /// Model space (floor × category) this entity was drafted into.
+    pub space: ModelSpaceId,
     pub geometry: Geometry,
     pub attributes: HashMap<String, String>,
 }
@@ -740,6 +894,14 @@ enum Op {
         before: String,
         after: String,
     },
+    /// An entity's model space was changed (undo restores `before`).
+    SetEntitySpace {
+        id: EntityId,
+        before: ModelSpaceId,
+        after: ModelSpaceId,
+        before_layer: String,
+        after_layer: String,
+    },
     /// An entity attribute was set or cleared (undo restores `before`, redo
     /// reapplies `after`); `None` means the key was absent.
     SetAttribute {
@@ -755,13 +917,41 @@ enum Op {
     AddDimension(Dimension),
     /// Drawing properties were replaced (undo restores `before`). Used for
     /// UNITS / DIMSTYLE / BPLTSTART so one UNDO reverses the whole command.
+    /// Boxed so `Op` stays compact (properties are a large struct).
     SetProperties {
-        before: DrawingProperties,
-        after: DrawingProperties,
+        before: Box<DrawingProperties>,
+        after: Box<DrawingProperties>,
     },
     /// A block definition was removed (undo re-inserts it, redo removes it) — the
     /// undoable half of `PURGE`.
     RemoveBlock(Block),
+    /// A block definition was inserted or replaced (undo restores `before`).
+    /// Used by interactive BPARAM / BVIS / BATT / BLOCK-style edits.
+    SetBlock { before: Option<Block>, after: Block },
+    /// Active model space changed.
+    SetActiveSpace {
+        before: ModelSpaceId,
+        after: ModelSpaceId,
+    },
+    /// Trace above/below flags changed.
+    SetTrace {
+        before_below: bool,
+        before_above: bool,
+        after_below: bool,
+        after_above: bool,
+    },
+    /// Shared reference origin changed.
+    SetReferenceOrigin {
+        before: Point2,
+        after: Point2,
+    },
+    /// A floor was added (undo removes it and its spaces).
+    AddFloor {
+        floor: Floor,
+        spaces: Vec<ModelSpace>,
+    },
+    /// A custom model space was added (undo removes it).
+    AddModelSpace(ModelSpace),
 }
 
 /// A group of primitive changes committed and undone as one atomic unit.
@@ -850,6 +1040,10 @@ pub struct DrawingProperties {
     pub nameplate_block: String,
     /// `"1"` / `"0"` — live takeoff recomputes when the drawing revision changes (default on).
     pub takeoff_live: String,
+    /// Typical floor-to-floor height (free text, e.g. `3000 mm` or `3.0 m`) — general notes.
+    pub floor_height: String,
+    /// Typical lintel height above FFL (free text, e.g. `2100 mm`) — general notes.
+    pub lintel_height: String,
 }
 
 /// Expand `{field}` tokens in text from drawing properties (unknown tokens left as-is).
@@ -888,6 +1082,8 @@ pub fn resolve_property_text(s: &str, p: &DrawingProperties) -> String {
         ("{units}", p.units.as_str()),
         ("{dimstyle}", p.dimstyle.as_str()),
         ("{nameplate_block}", p.nameplate_block.as_str()),
+        ("{floor_height}", p.floor_height.as_str()),
+        ("{lintel_height}", p.lintel_height.as_str()),
     ];
     for (token, value) in pairs {
         if out.contains(token) {
@@ -900,7 +1096,7 @@ pub fn resolve_property_text(s: &str, p: &DrawingProperties) -> String {
 /// The drawing database. Deterministic iteration order (by id) so downstream
 /// detection and takeoff are reproducible regardless of insertion order — a hard
 /// requirement from spec §8.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct Document {
     entities: HashMap<EntityId, Entity>,
     layers: HashMap<String, Layer>,
@@ -913,7 +1109,19 @@ pub struct Document {
     dimensions: Vec<Dimension>,
     /// Drawing Property Manager fields (title plate / Summary).
     properties: DrawingProperties,
+    /// Shared building reference origin (ArchiCAD-style); all floors share XY.
+    reference_origin: Point2,
+    floors: BTreeMap<LevelId, Floor>,
+    spaces: BTreeMap<ModelSpaceId, ModelSpace>,
+    /// Explicit layer name → category mapping (import review / LAYERMAP).
+    /// When absent, [`SpaceCategory::from_layer_name`] is used.
+    layer_space_map: BTreeMap<String, SpaceCategory>,
+    active_space: ModelSpaceId,
+    trace_below: bool,
+    trace_above: bool,
     next_id: u64,
+    next_floor_id: u64,
+    next_space_id: u64,
     /// The transaction currently being recorded, if any (set only inside `transact`).
     open: Option<Transaction>,
     undo_stack: Vec<Transaction>,
@@ -923,9 +1131,591 @@ pub struct Document {
     revision: u64,
 }
 
+impl Default for Document {
+    fn default() -> Self {
+        let mut doc = Self {
+            entities: HashMap::new(),
+            layers: HashMap::new(),
+            blocks: HashMap::new(),
+            hatches: Vec::new(),
+            dimensions: Vec::new(),
+            properties: DrawingProperties::default(),
+            reference_origin: Point2::new(0.0, 0.0),
+            floors: BTreeMap::new(),
+            spaces: BTreeMap::new(),
+            layer_space_map: BTreeMap::new(),
+            active_space: ModelSpaceId(0),
+            trace_below: false,
+            trace_above: false,
+            next_id: 1,
+            next_floor_id: 1,
+            next_space_id: 1,
+            open: None,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            revision: 0,
+        };
+        doc.ensure_default_spaces();
+        doc
+    }
+}
+
 impl Document {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Ensure Ground floor + five category spaces exist. Idempotent.
+    /// Returns the Ground floor id and Ground·Walls space id.
+    pub fn ensure_default_spaces(&mut self) -> DefaultSpaces {
+        if self.floors.is_empty() {
+            let ground = LevelId(self.next_floor_id);
+            self.next_floor_id += 1;
+            self.floors.insert(
+                ground,
+                Floor {
+                    id: ground,
+                    name: "Ground".into(),
+                    index: 0,
+                    elevation_m: 0.0,
+                },
+            );
+            for cat in SpaceCategory::ALL {
+                let id = ModelSpaceId(self.next_space_id);
+                self.next_space_id += 1;
+                let name = ModelSpace::display_name("Ground", cat);
+                self.spaces.insert(
+                    id,
+                    ModelSpace {
+                        id,
+                        floor: ground,
+                        category: cat,
+                        name,
+                    },
+                );
+                self.add_layer(Layer::new(cat.default_layer()));
+            }
+            if let Some(walls) = self.space_on_floor(ground, SpaceCategory::Walls) {
+                self.active_space = walls;
+            }
+        }
+        let ground = floors_sorted(&self.floors)
+            .first()
+            .map(|f| f.id)
+            .unwrap_or(LevelId(1));
+        let walls = self
+            .space_on_floor(ground, SpaceCategory::Walls)
+            .unwrap_or(ModelSpaceId(1));
+        DefaultSpaces { ground, walls }
+    }
+
+    pub fn reference_origin(&self) -> Point2 {
+        self.reference_origin
+    }
+
+    pub fn set_reference_origin(&mut self, origin: Point2) {
+        if self.reference_origin == origin {
+            return;
+        }
+        let before = self.reference_origin;
+        self.reference_origin = origin;
+        self.record(Op::SetReferenceOrigin {
+            before,
+            after: origin,
+        });
+        self.revision += 1;
+    }
+
+    pub fn floors(&self) -> Vec<&Floor> {
+        floors_sorted(&self.floors)
+    }
+
+    pub fn floor(&self, id: LevelId) -> Option<&Floor> {
+        self.floors.get(&id)
+    }
+
+    pub fn model_spaces(&self) -> impl Iterator<Item = &ModelSpace> {
+        self.spaces.values()
+    }
+
+    pub fn model_space(&self, id: ModelSpaceId) -> Option<&ModelSpace> {
+        self.spaces.get(&id)
+    }
+
+    pub fn active_space(&self) -> ModelSpaceId {
+        self.active_space
+    }
+
+    pub fn active_model_space(&self) -> Option<&ModelSpace> {
+        self.spaces.get(&self.active_space)
+    }
+
+    pub fn active_floor_id(&self) -> Option<LevelId> {
+        self.active_model_space().map(|s| s.floor)
+    }
+
+    pub fn trace_below(&self) -> bool {
+        self.trace_below
+    }
+
+    pub fn trace_above(&self) -> bool {
+        self.trace_above
+    }
+
+    pub fn space_on_floor(&self, floor: LevelId, category: SpaceCategory) -> Option<ModelSpaceId> {
+        self.spaces
+            .values()
+            .find(|s| s.floor == floor && s.category == category)
+            .map(|s| s.id)
+    }
+
+    pub fn spaces_on_floor(&self, floor: LevelId) -> Vec<&ModelSpace> {
+        let mut v: Vec<&ModelSpace> = self.spaces.values().filter(|s| s.floor == floor).collect();
+        v.sort_by_key(|s| s.category);
+        v
+    }
+
+    pub fn floor_below(&self, floor: LevelId) -> Option<LevelId> {
+        let sorted = floors_sorted(&self.floors);
+        let idx = sorted.iter().position(|f| f.id == floor)?;
+        if idx == 0 {
+            None
+        } else {
+            Some(sorted[idx - 1].id)
+        }
+    }
+
+    pub fn floor_above(&self, floor: LevelId) -> Option<LevelId> {
+        let sorted = floors_sorted(&self.floors);
+        let idx = sorted.iter().position(|f| f.id == floor)?;
+        sorted.get(idx + 1).map(|f| f.id)
+    }
+
+    /// Model spaces that participate in object snap: the active space, same-floor
+    /// soft underlays, and TRACE below/above floors. Picking/editing stay active-only.
+    pub fn snap_candidate_spaces(&self) -> Vec<ModelSpaceId> {
+        let mut out = Vec::new();
+        let active = self.active_space();
+        out.push(active);
+        let Some(floor) = self.active_floor_id() else {
+            return out;
+        };
+        for s in self.spaces_on_floor(floor) {
+            if s.id != active {
+                out.push(s.id);
+            }
+        }
+        if self.trace_below() {
+            if let Some(below) = self.floor_below(floor) {
+                for s in self.spaces_on_floor(below) {
+                    out.push(s.id);
+                }
+            }
+        }
+        if self.trace_above() {
+            if let Some(above) = self.floor_above(floor) {
+                for s in self.spaces_on_floor(above) {
+                    out.push(s.id);
+                }
+            }
+        }
+        out
+    }
+
+    pub fn set_active_space(&mut self, id: ModelSpaceId) -> Result<(), String> {
+        if !self.spaces.contains_key(&id) {
+            return Err(format!("unknown model space {}", id.0));
+        }
+        if self.active_space == id {
+            return Ok(());
+        }
+        let before = self.active_space;
+        self.active_space = id;
+        self.record(Op::SetActiveSpace {
+            before,
+            after: id,
+        });
+        self.revision += 1;
+        Ok(())
+    }
+
+    pub fn set_active_floor(&mut self, floor: LevelId) -> Result<(), String> {
+        if !self.floors.contains_key(&floor) {
+            return Err(format!("unknown floor {}", floor.0));
+        }
+        let cat = self
+            .active_model_space()
+            .map(|s| s.category)
+            .unwrap_or(SpaceCategory::Walls);
+        let space = self
+            .space_on_floor(floor, cat)
+            .or_else(|| self.space_on_floor(floor, SpaceCategory::Walls))
+            .ok_or_else(|| format!("floor {} has no model spaces", floor.0))?;
+        self.set_active_space(space)
+    }
+
+    pub fn set_active_category(&mut self, category: SpaceCategory) -> Result<(), String> {
+        let floor = self
+            .active_floor_id()
+            .ok_or_else(|| "no active floor".to_string())?;
+        let space = self
+            .space_on_floor(floor, category)
+            .ok_or_else(|| format!("no {category} space on active floor"))?;
+        self.set_active_space(space)
+    }
+
+    pub fn set_trace(&mut self, below: bool, above: bool) {
+        if self.trace_below == below && self.trace_above == above {
+            return;
+        }
+        let before_below = self.trace_below;
+        let before_above = self.trace_above;
+        self.trace_below = below;
+        self.trace_above = above;
+        self.record(Op::SetTrace {
+            before_below,
+            before_above,
+            after_below: below,
+            after_above: above,
+        });
+        self.revision += 1;
+    }
+
+    /// Append a floor above the topmost, creating five category spaces.
+    pub fn add_floor(&mut self, name: impl Into<String>, elevation_m: f64) -> LevelId {
+        let name = name.into();
+        let index = self
+            .floors
+            .values()
+            .map(|f| f.index)
+            .max()
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let id = LevelId(self.next_floor_id);
+        self.next_floor_id += 1;
+        let floor = Floor {
+            id,
+            name: name.clone(),
+            index,
+            elevation_m,
+        };
+        let mut spaces = Vec::with_capacity(5);
+        for cat in SpaceCategory::ALL {
+            let sid = ModelSpaceId(self.next_space_id);
+            self.next_space_id += 1;
+            let ms = ModelSpace {
+                id: sid,
+                floor: id,
+                category: cat,
+                name: ModelSpace::display_name(&name, cat),
+            };
+            self.spaces.insert(sid, ms.clone());
+            spaces.push(ms);
+            self.add_layer(Layer::new(cat.default_layer()));
+        }
+        self.floors.insert(id, floor.clone());
+        self.record(Op::AddFloor { floor, spaces });
+        self.revision += 1;
+        id
+    }
+
+    pub fn rename_floor(&mut self, id: LevelId, name: impl Into<String>) -> bool {
+        let name = name.into();
+        let Some(floor) = self.floors.get_mut(&id) else {
+            return false;
+        };
+        floor.name = name.clone();
+        for s in self.spaces.values_mut() {
+            if s.floor == id {
+                if s.category == SpaceCategory::Custom {
+                    // Keep the custom label after the floor prefix if present.
+                    let label = s
+                        .name
+                        .rsplit_once('·')
+                        .map(|(_, rest)| rest.trim().to_string())
+                        .unwrap_or_else(|| s.name.clone());
+                    s.name = format!("{name} · {label}");
+                } else {
+                    s.name = ModelSpace::display_name(&name, s.category);
+                }
+            }
+        }
+        self.revision += 1;
+        true
+    }
+
+    /// Add a custom model space on the active floor (or `floor` if given).
+    pub fn add_custom_space(
+        &mut self,
+        floor: LevelId,
+        label: impl Into<String>,
+    ) -> Result<ModelSpaceId, String> {
+        if !self.floors.contains_key(&floor) {
+            return Err(format!("unknown floor {}", floor.0));
+        }
+        let label = label.into().trim().to_string();
+        if label.is_empty() {
+            return Err("custom space needs a name".into());
+        }
+        let floor_name = self
+            .floors
+            .get(&floor)
+            .map(|f| f.name.clone())
+            .unwrap_or_else(|| "Floor".into());
+        let sid = ModelSpaceId(self.next_space_id);
+        self.next_space_id += 1;
+        let ms = ModelSpace {
+            id: sid,
+            floor,
+            category: SpaceCategory::Custom,
+            name: format!("{floor_name} · {label}"),
+        };
+        self.spaces.insert(sid, ms.clone());
+        self.add_layer(Layer::new(SpaceCategory::Custom.default_layer()));
+        self.record(Op::AddModelSpace(ms));
+        self.revision += 1;
+        Ok(sid)
+    }
+
+    /// Layer name derived from the active model space category (compat shim).
+    pub fn active_category_layer(&self) -> String {
+        self.active_model_space()
+            .map(|s| s.category.default_layer().to_string())
+            .unwrap_or_else(|| "A-WALL".into())
+    }
+
+    /// Assign every entity / hatch / dim to `space` (used after OPEN/import).
+    pub fn assign_all_to_space(&mut self, space: ModelSpaceId) {
+        for e in self.entities.values_mut() {
+            e.space = space;
+        }
+        for h in &mut self.hatches {
+            h.space = space;
+        }
+        for d in &mut self.dimensions {
+            d.space = space;
+        }
+        self.revision += 1;
+    }
+
+    /// Assign each item to the Ground space matching its layer→category map
+    /// (or [`SpaceCategory::from_layer_name`] when unmapped).
+    pub fn assign_imported_by_layer(&mut self) {
+        let defaults = self.ensure_default_spaces();
+        self.seed_layer_map_heuristics();
+        self.reassign_by_layer_map(defaults.ground);
+        let _ = self.set_active_space(defaults.walls);
+    }
+
+    /// Resolve the category for a layer: explicit map first, then heuristic.
+    pub fn category_for_layer(&self, layer: &str) -> SpaceCategory {
+        self.layer_space_map
+            .get(layer)
+            .copied()
+            .unwrap_or_else(|| SpaceCategory::from_layer_name(layer))
+    }
+
+    pub fn layer_space_map(&self) -> &BTreeMap<String, SpaceCategory> {
+        &self.layer_space_map
+    }
+
+    /// Replace the whole layer→category map (untracked outside a transaction).
+    pub fn set_layer_space_map(&mut self, map: BTreeMap<String, SpaceCategory>) {
+        if self.layer_space_map == map {
+            return;
+        }
+        self.layer_space_map = map;
+        self.revision += 1;
+    }
+
+    pub fn set_layer_category(&mut self, layer: impl Into<String>, category: SpaceCategory) {
+        let layer = layer.into();
+        if self.layer_space_map.get(&layer) == Some(&category) {
+            return;
+        }
+        self.layer_space_map.insert(layer, category);
+        self.revision += 1;
+    }
+
+    /// Seed map entries for every distinct layer currently used (heuristic fill).
+    /// Does not overwrite existing map entries.
+    pub fn seed_layer_map_heuristics(&mut self) {
+        let mut layers: BTreeMap<String, ()> = BTreeMap::new();
+        for e in self.entities.values() {
+            layers.insert(e.layer.clone(), ());
+        }
+        for h in &self.hatches {
+            layers.insert(h.layer.clone(), ());
+        }
+        for d in &self.dimensions {
+            layers.insert(d.layer.clone(), ());
+        }
+        for name in self.layers.keys() {
+            if name.starts_with(IMPORTED_LAYER_PREFIX) {
+                layers.insert(name.clone(), ());
+            }
+        }
+        let mut changed = false;
+        for layer in layers.into_keys() {
+            if self.layer_space_map.contains_key(&layer) {
+                continue;
+            }
+            self.layer_space_map
+                .insert(layer.clone(), SpaceCategory::from_layer_name(&layer));
+            changed = true;
+        }
+        if changed {
+            self.revision += 1;
+        }
+    }
+
+    /// Reassign **all** entities / hatches / dims (every floor) onto category
+    /// spaces of `floor` using the layer→category map. LAYERMAP APPLY yanks the
+    /// whole drawing onto the active floor.
+    pub fn reassign_by_layer_map(&mut self, floor: LevelId) {
+        self.ensure_default_spaces();
+        let walls = self
+            .space_on_floor(floor, SpaceCategory::Walls)
+            .unwrap_or(self.active_space);
+        let resolve = |doc: &Document, layer: &str| -> ModelSpaceId {
+            let cat = doc.category_for_layer(layer);
+            doc.space_on_floor(floor, cat).unwrap_or(walls)
+        };
+        let entity_spaces: Vec<(EntityId, ModelSpaceId)> = self
+            .entities
+            .values()
+            .map(|e| (e.id, resolve(self, &e.layer)))
+            .collect();
+        for (id, space) in entity_spaces {
+            if let Some(e) = self.entities.get_mut(&id) {
+                e.space = space;
+            }
+        }
+        let hatch_spaces: Vec<ModelSpaceId> = self
+            .hatches
+            .iter()
+            .map(|h| resolve(self, &h.layer))
+            .collect();
+        for (h, space) in self.hatches.iter_mut().zip(hatch_spaces) {
+            h.space = space;
+        }
+        let dim_spaces: Vec<ModelSpaceId> = self
+            .dimensions
+            .iter()
+            .map(|d| resolve(self, &d.layer))
+            .collect();
+        for (d, space) in self.dimensions.iter_mut().zip(dim_spaces) {
+            d.space = space;
+        }
+        self.revision += 1;
+    }
+
+    /// Layers used by geometry in `space`, plus the category shim and mapped layers.
+    pub fn layers_related_to_space(&self, space: ModelSpaceId) -> Vec<String> {
+        let mut set = std::collections::BTreeSet::new();
+        if let Some(ms) = self.model_space(space) {
+            set.insert(ms.category.default_layer().to_string());
+            for (layer, cat) in &self.layer_space_map {
+                if *cat == ms.category {
+                    set.insert(layer.clone());
+                }
+            }
+        }
+        for e in self.entities.values().filter(|e| e.space == space) {
+            set.insert(e.layer.clone());
+        }
+        for h in self.hatches.iter().filter(|h| h.space == space) {
+            set.insert(h.layer.clone());
+        }
+        for d in self.dimensions.iter().filter(|d| d.space == space) {
+            set.insert(d.layer.clone());
+        }
+        set.into_iter().collect()
+    }
+
+    /// Layers related to any model space on `floor`.
+    pub fn layers_related_to_floor(&self, floor: LevelId) -> Vec<String> {
+        let mut set = std::collections::BTreeSet::new();
+        for s in self.spaces_on_floor(floor) {
+            for name in self.layers_related_to_space(s.id) {
+                set.insert(name);
+            }
+        }
+        set.into_iter().collect()
+    }
+
+    /// Distinct layers used by geometry, with entity counts (entities only).
+    pub fn layer_usage_counts(&self) -> BTreeMap<String, usize> {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for e in self.entities.values() {
+            *counts.entry(e.layer.clone()).or_default() += 1;
+        }
+        for h in &self.hatches {
+            *counts.entry(h.layer.clone()).or_default() += 1;
+        }
+        for d in &self.dimensions {
+            *counts.entry(d.layer.clone()).or_default() += 1;
+        }
+        counts
+    }
+
+    /// Restore a previously saved layer→space map (file load; untracked).
+    pub fn restore_layer_space_map(&mut self, map: BTreeMap<String, SpaceCategory>) {
+        self.layer_space_map = map;
+    }
+
+    pub fn entities_in_space(&self, space: ModelSpaceId) -> Vec<&Entity> {
+        let mut v: Vec<&Entity> = self.entities.values().filter(|e| e.space == space).collect();
+        v.sort_by_key(|e| e.id);
+        v
+    }
+
+    pub fn entities_on_floor(&self, floor: LevelId) -> Vec<&Entity> {
+        let ids: std::collections::HashSet<ModelSpaceId> = self
+            .spaces
+            .values()
+            .filter(|s| s.floor == floor)
+            .map(|s| s.id)
+            .collect();
+        let mut v: Vec<&Entity> = self
+            .entities
+            .values()
+            .filter(|e| ids.contains(&e.space))
+            .collect();
+        v.sort_by_key(|e| e.id);
+        v
+    }
+
+    /// Restore floor table from a native-file load (untracked).
+    pub fn restore_floors(
+        &mut self,
+        floors: Vec<Floor>,
+        spaces: Vec<ModelSpace>,
+        active: ModelSpaceId,
+        origin: Point2,
+        trace_below: bool,
+        trace_above: bool,
+        next_floor_id: u64,
+        next_space_id: u64,
+    ) {
+        self.floors.clear();
+        self.spaces.clear();
+        for f in floors {
+            self.floors.insert(f.id, f);
+        }
+        for s in spaces {
+            self.spaces.insert(s.id, s);
+        }
+        self.active_space = active;
+        self.reference_origin = origin;
+        self.trace_below = trace_below;
+        self.trace_above = trace_above;
+        self.next_floor_id = next_floor_id.max(1);
+        self.next_space_id = next_space_id.max(1);
+        if self.floors.is_empty() {
+            self.ensure_default_spaces();
+        }
+        self.revision += 1;
     }
 
     /// Monotonic revision token, bumped on every mutation. A consumer that caches
@@ -953,8 +1743,8 @@ impl Document {
             let before = self.properties.clone();
             self.properties = properties.clone();
             self.record(Op::SetProperties {
-                before,
-                after: properties,
+                before: Box::new(before),
+                after: Box::new(properties),
             });
         } else {
             self.properties = properties;
@@ -1057,6 +1847,17 @@ impl Document {
                     e.layer = after.clone();
                 }
             }
+            Op::SetEntitySpace {
+                id,
+                after,
+                after_layer,
+                ..
+            } => {
+                if let Some(e) = self.entities.get_mut(id) {
+                    e.space = *after;
+                    e.layer = after_layer.clone();
+                }
+            }
             Op::SetAttribute { id, key, after, .. } => {
                 Self::write_attribute(&mut self.entities, id, key, after.clone());
             }
@@ -1067,10 +1868,36 @@ impl Document {
                 self.dimensions.push(d.clone());
             }
             Op::SetProperties { after, .. } => {
-                self.properties = after.clone();
+                self.properties = (**after).clone();
             }
             Op::RemoveBlock(b) => {
                 self.blocks.remove(&b.name);
+            }
+            Op::SetBlock { after, .. } => {
+                self.blocks.insert(after.name.clone(), after.clone());
+            }
+            Op::SetActiveSpace { after, .. } => {
+                self.active_space = *after;
+            }
+            Op::SetTrace {
+                after_below,
+                after_above,
+                ..
+            } => {
+                self.trace_below = *after_below;
+                self.trace_above = *after_above;
+            }
+            Op::SetReferenceOrigin { after, .. } => {
+                self.reference_origin = *after;
+            }
+            Op::AddFloor { floor, spaces } => {
+                self.floors.insert(floor.id, floor.clone());
+                for s in spaces {
+                    self.spaces.insert(s.id, s.clone());
+                }
+            }
+            Op::AddModelSpace(s) => {
+                self.spaces.insert(s.id, s.clone());
             }
         }
     }
@@ -1099,6 +1926,17 @@ impl Document {
                     e.layer = before.clone();
                 }
             }
+            Op::SetEntitySpace {
+                id,
+                before,
+                before_layer,
+                ..
+            } => {
+                if let Some(e) = self.entities.get_mut(id) {
+                    e.space = *before;
+                    e.layer = before_layer.clone();
+                }
+            }
             Op::SetAttribute {
                 id, key, before, ..
             } => {
@@ -1112,10 +1950,40 @@ impl Document {
                 self.dimensions.pop();
             }
             Op::SetProperties { before, .. } => {
-                self.properties = before.clone();
+                self.properties = (**before).clone();
             }
             Op::RemoveBlock(b) => {
                 self.blocks.insert(b.name.clone(), b.clone());
+            }
+            Op::SetBlock { before, after } => {
+                if let Some(b) = before {
+                    self.blocks.insert(b.name.clone(), b.clone());
+                } else {
+                    self.blocks.remove(&after.name);
+                }
+            }
+            Op::SetActiveSpace { before, .. } => {
+                self.active_space = *before;
+            }
+            Op::SetTrace {
+                before_below,
+                before_above,
+                ..
+            } => {
+                self.trace_below = *before_below;
+                self.trace_above = *before_above;
+            }
+            Op::SetReferenceOrigin { before, .. } => {
+                self.reference_origin = *before;
+            }
+            Op::AddFloor { floor, spaces } => {
+                for s in spaces {
+                    self.spaces.remove(&s.id);
+                }
+                self.floors.remove(&floor.id);
+            }
+            Op::AddModelSpace(s) => {
+                self.spaces.remove(&s.id);
             }
         }
     }
@@ -1257,7 +2125,16 @@ impl Document {
 
     /// Insert geometry on a layer, auto-registering the layer if unseen, and
     /// return the new entity's id. Attributes default to empty.
+    ///
+    /// Stamps the active model space. When `layer` is empty, uses the category's
+    /// default AIA shim layer.
     pub fn add_geometry(&mut self, layer: impl Into<String>, geometry: Geometry) -> EntityId {
+        self.add_entity(layer, geometry, HashMap::new())
+    }
+
+    /// Insert geometry into the active model space using the category layer shim.
+    pub fn add_geometry_in_active(&mut self, geometry: Geometry) -> EntityId {
+        let layer = self.active_category_layer();
         self.add_entity(layer, geometry, HashMap::new())
     }
 
@@ -1268,13 +2145,18 @@ impl Document {
         geometry: Geometry,
         attributes: HashMap<String, String>,
     ) -> EntityId {
-        let layer = layer.into();
+        let mut layer = layer.into();
+        if layer.trim().is_empty() {
+            layer = self.active_category_layer();
+        }
+        self.ensure_default_spaces();
         self.add_layer(Layer::new(layer.clone()));
         let id = EntityId(self.next_id);
         self.next_id += 1;
         let entity = Entity {
             id,
             layer,
+            space: self.active_space,
             geometry,
             attributes,
         };
@@ -1339,6 +2221,34 @@ impl Document {
             id,
             before,
             after: layer,
+        });
+        self.revision += 1;
+        true
+    }
+
+    /// Move an entity into a model space and retarget its layer shim.
+    pub fn set_entity_space(&mut self, id: EntityId, space: ModelSpaceId) -> bool {
+        let Some(ms) = self.spaces.get(&space).cloned() else {
+            return false;
+        };
+        let layer = ms.category.default_layer().to_string();
+        self.add_layer(Layer::new(layer.clone()));
+        let Some(entity) = self.entities.get_mut(&id) else {
+            return false;
+        };
+        if entity.space == space && entity.layer == layer {
+            return true;
+        }
+        let before = entity.space;
+        let before_layer = entity.layer.clone();
+        entity.space = space;
+        entity.layer = layer.clone();
+        self.record(Op::SetEntitySpace {
+            id,
+            before,
+            after: space,
+            before_layer,
+            after_layer: layer,
         });
         self.revision += 1;
         true
@@ -1442,13 +2352,25 @@ impl Document {
     // --- Block definitions ---------------------------------------------------
 
     /// Define a block, replacing any existing definition of the same name.
+    /// Insert or replace a block definition.
     ///
-    /// **Untracked**, like a file load: block definitions arrive with the
-    /// drawing rather than as a user edit, so they do not flood the undo
-    /// history. An interactive `BLOCK` command would wrap this in a transaction
-    /// of its own once M1 grows one.
+    /// **Untracked** outside a transaction (file load / DXF import). Inside
+    /// [`transact`](Self::transact), recorded as [`Op::SetBlock`] so BPARAM /
+    /// BVIS / BATT / interactive `BLOCK` edits undo cleanly.
     pub fn add_block(&mut self, block: Block) {
-        self.blocks.insert(block.name.clone(), block);
+        if self.open.is_some() {
+            let before = self.blocks.get(&block.name).cloned();
+            if before.as_ref() == Some(&block) {
+                return;
+            }
+            self.blocks.insert(block.name.clone(), block.clone());
+            self.record(Op::SetBlock {
+                before,
+                after: block,
+            });
+        } else {
+            self.blocks.insert(block.name.clone(), block);
+        }
         self.revision += 1;
     }
 
@@ -1458,6 +2380,11 @@ impl Document {
     /// rather than assume resolution succeeds.
     pub fn block(&self, name: &str) -> Option<&Block> {
         self.blocks.get(name)
+    }
+
+    /// Mutable access to a block definition (library import scaling / params).
+    pub fn block_mut(&mut self, name: &str) -> Option<&mut Block> {
+        self.blocks.get_mut(name)
     }
 
     /// All block definitions in ascending name order (deterministic).
@@ -1488,7 +2415,15 @@ impl Document {
     /// is open (an interactive `HATCH`), and left **untracked** otherwise — so a
     /// bulk file load or block instantiation does not flood the undo history,
     /// exactly like [`add_geometry`](Self::add_geometry).
-    pub fn add_hatch(&mut self, hatch: Hatch) {
+    pub fn add_hatch(&mut self, mut hatch: Hatch) {
+        self.ensure_default_spaces();
+        if hatch.space.0 == 0 {
+            hatch.space = self.active_space;
+        }
+        if hatch.layer.trim().is_empty() {
+            hatch.layer = self.active_category_layer();
+        }
+        self.add_layer(Layer::new(hatch.layer.clone()));
         if self.open.is_some() {
             self.record(Op::AddHatch(hatch.clone()));
         }
@@ -1501,14 +2436,107 @@ impl Document {
         &self.hatches
     }
 
+    /// Rename every current layer to [`IMPORTED_LAYER_PREFIX`]`{name}` and remap
+    /// entity / hatch / dim / block-content layer references. Call **before**
+    /// seeding AIA layers so imported CAD layers stay intact and distinct.
+    pub fn retag_imported_layers(&mut self) {
+        let mut names: std::collections::HashSet<String> =
+            self.layers.keys().cloned().collect();
+        for e in self.entities.values() {
+            names.insert(e.layer.clone());
+        }
+        for h in &self.hatches {
+            names.insert(h.layer.clone());
+        }
+        for d in &self.dimensions {
+            names.insert(d.layer.clone());
+        }
+        for b in self.blocks.values() {
+            for be in &b.entities {
+                names.insert(be.layer.clone());
+            }
+        }
+        let mut renames: Vec<(String, String)> = Vec::new();
+        for name in names {
+            if name.is_empty() || name.starts_with(IMPORTED_LAYER_PREFIX) {
+                continue;
+            }
+            renames.push((name.clone(), format!("{IMPORTED_LAYER_PREFIX}{name}")));
+        }
+        for (from, to) in &renames {
+            if let Some(mut layer) = self.layers.remove(from) {
+                layer.name = to.clone();
+                self.layers.insert(to.clone(), layer);
+            } else {
+                self.layers.insert(to.clone(), Layer::new(to.clone()));
+            }
+        }
+        let map = |s: &str| -> String {
+            renames
+                .iter()
+                .find(|(f, _)| f == s)
+                .map(|(_, t)| t.clone())
+                .unwrap_or_else(|| s.to_string())
+        };
+        if !renames.is_empty() {
+            for e in self.entities.values_mut() {
+                e.layer = map(&e.layer);
+            }
+            for h in &mut self.hatches {
+                h.layer = map(&h.layer);
+            }
+            for d in &mut self.dimensions {
+                d.layer = map(&d.layer);
+            }
+            for b in self.blocks.values_mut() {
+                for be in &mut b.entities {
+                    be.layer = map(&be.layer);
+                }
+            }
+        }
+        // Always scrub MTEXT/TEXT formatting so the canvas never shows font names.
+        for d in &mut self.dimensions {
+            d.text = sanitize_display_text(&d.text);
+        }
+        for b in self.blocks.values_mut() {
+            for be in &mut b.entities {
+                if let Geometry::Text(t) = &mut be.geometry {
+                    t.value = sanitize_display_text(&t.value);
+                }
+            }
+        }
+        for e in self.entities.values_mut() {
+            if let Geometry::Text(t) = &mut e.geometry {
+                t.value = sanitize_display_text(&t.value);
+            }
+        }
+        self.revision += 1;
+    }
+
     /// Add a dimension. Undoable when a transaction is open, untracked otherwise
     /// — see [`add_hatch`](Self::add_hatch).
-    pub fn add_dimension(&mut self, dimension: Dimension) {
+    pub fn add_dimension(&mut self, mut dimension: Dimension) {
+        self.ensure_default_spaces();
+        if dimension.space.0 == 0 {
+            dimension.space = self.active_space;
+        }
+        if dimension.layer.trim().is_empty() {
+            dimension.layer = self.active_category_layer();
+        }
+        self.add_layer(Layer::new(dimension.layer.clone()));
         if self.open.is_some() {
             self.record(Op::AddDimension(dimension.clone()));
         }
         self.dimensions.push(dimension);
         self.revision += 1;
+    }
+
+    pub fn next_floor_id(&self) -> u64 {
+        self.next_floor_id
+    }
+
+    pub fn next_space_id(&self) -> u64 {
+        self.next_space_id
     }
 
     /// Dimensions in insertion order (deterministic).
@@ -1529,6 +2557,19 @@ impl Document {
         let mut v: Vec<&Entity> = self.entities.values().collect();
         v.sort_by_key(|e| e.id);
         v
+    }
+
+    /// Unordered entity iterator (no alloc) — prefer for hit-tests / osnap.
+    pub fn iter_entities(&self) -> impl Iterator<Item = &Entity> {
+        self.entities.values()
+    }
+
+    /// Unordered entities in one model space (no alloc / sort).
+    pub fn iter_entities_in_space(
+        &self,
+        space: ModelSpaceId,
+    ) -> impl Iterator<Item = &Entity> {
+        self.entities.values().filter(move |e| e.space == space)
     }
 
     /// Every endpoint/vertex in the document, for a quick overall bounding box.
@@ -1561,7 +2602,10 @@ impl Document {
         }
         // Annotation lives outside the entity store but still bounds the drawing.
         for h in &self.hatches {
-            pts.extend(h.boundary.vertices.iter().copied());
+            pts.extend(h.outer().vertices.iter().copied());
+            for island in h.boundaries.iter().skip(1) {
+                pts.extend(island.vertices.iter().copied());
+            }
         }
         for d in &self.dimensions {
             pts.push(d.p1);
@@ -1820,6 +2864,7 @@ mod tests {
 
         doc.transact("dim", |d| {
             d.add_dimension(Dimension {
+                space: Default::default(),
                 layer: "A-DIMS".to_string(),
                 kind: DimensionKind::Aligned,
                 p1: Point2::new(0.0, 0.0),
@@ -2066,6 +3111,7 @@ mod tests {
         );
         doc.add_hatch(Hatch::new("A-FLOR", boundary, "ANSI31"));
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".into(),
             kind: DimensionKind::Linear,
             p1: Point2::new(0.0, 0.0),
@@ -2121,14 +3167,14 @@ mod tests {
     fn revision_bumps_on_mutation_and_undo() {
         let mut doc = Document::new();
         let r0 = doc.revision();
-        doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
+        let id = doc.add_geometry("A-WALL", line(0.0, 0.0, 1.0, 0.0));
         let r1 = doc.revision();
         assert!(r1 > r0, "adding an entity must bump the revision");
         // A pure query does not change the revision.
         let _ = doc.entities();
         assert_eq!(doc.revision(), r1);
         doc.transact("erase", |d| {
-            d.remove_entity(EntityId(0));
+            d.remove_entity(id);
         });
         let r2 = doc.revision();
         assert!(r2 > r1);
@@ -2143,8 +3189,8 @@ mod tests {
     fn transaction_undo_and_redo_roundtrip() {
         let mut doc = Document::new();
         doc.transact("Draw two walls", |d| {
-            d.add_geometry("A-WALL", line(0.0, 0.0, 4.0, 0.0));
-            d.add_geometry("A-WALL", line(4.0, 0.0, 4.0, 3.0));
+            d.add_geometry("TEMP-WALL", line(0.0, 0.0, 4.0, 0.0));
+            d.add_geometry("TEMP-WALL", line(4.0, 0.0, 4.0, 3.0));
         });
         assert_eq!(doc.len(), 2);
         assert_eq!(doc.undo_label(), Some("Draw two walls"));
@@ -2152,11 +3198,11 @@ mod tests {
         assert_eq!(doc.undo().as_deref(), Some("Draw two walls"));
         assert_eq!(doc.len(), 0);
         // The layer created by the transaction is gone too.
-        assert!(doc.layer("A-WALL").is_none());
+        assert!(doc.layer("TEMP-WALL").is_none());
 
         assert_eq!(doc.redo().as_deref(), Some("Draw two walls"));
         assert_eq!(doc.len(), 2);
-        assert!(doc.layer("A-WALL").is_some());
+        assert!(doc.layer("TEMP-WALL").is_some());
     }
 
     #[test]
@@ -2196,9 +3242,11 @@ mod tests {
 
     #[test]
     fn resolve_property_text_expands_known_tokens() {
-        let mut p = DrawingProperties::default();
-        p.title = "Floor Plan".into();
-        p.project = "Tower".into();
+        let p = DrawingProperties {
+            title: "Floor Plan".into(),
+            project: "Tower".into(),
+            ..Default::default()
+        };
         assert_eq!(
             resolve_property_text("{title} — {project}", &p),
             "Floor Plan — Tower"
@@ -2209,5 +3257,129 @@ mod tests {
             "{unknown}",
             "unknown tokens left intact"
         );
+    }
+
+    #[test]
+    fn default_document_has_ground_and_five_spaces() {
+        let doc = Document::new();
+        assert_eq!(doc.floors().len(), 1);
+        assert_eq!(doc.floors()[0].name, "Ground");
+        assert_eq!(doc.model_spaces().count(), 5);
+        let active = doc.active_model_space().unwrap();
+        assert_eq!(active.category, SpaceCategory::Walls);
+        assert_eq!(active.name, "Ground · Walls");
+    }
+
+    #[test]
+    fn add_floor_creates_spaces_and_trace_neighbours() {
+        let mut doc = Document::new();
+        let ground = doc.active_floor_id().unwrap();
+        let l1 = doc.add_floor("Level 1", 3.0);
+        assert_eq!(doc.floors().len(), 2);
+        assert_eq!(doc.spaces_on_floor(l1).len(), 5);
+        assert_eq!(doc.floor_above(ground), Some(l1));
+        assert_eq!(doc.floor_below(l1), Some(ground));
+        doc.set_active_floor(l1).unwrap();
+        doc.set_active_category(SpaceCategory::Furniture).unwrap();
+        assert_eq!(
+            doc.active_model_space().unwrap().category,
+            SpaceCategory::Furniture
+        );
+        let id = doc.add_geometry_in_active(line(0.0, 0.0, 1.0, 0.0));
+        let e = doc.get(id).unwrap();
+        assert_eq!(e.layer, "A-FURN");
+        assert_eq!(e.space, doc.active_space());
+        doc.set_trace(true, true);
+        assert!(doc.trace_below() && doc.trace_above());
+    }
+
+    #[test]
+    fn add_custom_space_on_floor() {
+        let mut doc = Document::new();
+        let ground = doc.active_floor_id().unwrap();
+        let id = doc.add_custom_space(ground, "MEP").unwrap();
+        assert_eq!(doc.spaces_on_floor(ground).len(), 6);
+        let ms = doc.model_space(id).unwrap();
+        assert_eq!(ms.category, SpaceCategory::Custom);
+        assert!(ms.name.contains("MEP"));
+        assert_eq!(ms.category.default_layer(), "A-ANNO");
+    }
+
+    #[test]
+    fn layer_space_map_overrides_heuristic_on_reassign() {
+        let mut doc = Document::new();
+        let id = doc.add_geometry(
+            "ORG-DWG_LAYER-MISC",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        doc.set_layer_category("ORG-DWG_LAYER-MISC", SpaceCategory::Furniture);
+        let ground = doc.active_floor_id().unwrap();
+        doc.reassign_by_layer_map(ground);
+        let furn = doc.space_on_floor(ground, SpaceCategory::Furniture).unwrap();
+        assert_eq!(doc.get(id).unwrap().space, furn);
+        assert!(doc
+            .layers_related_to_space(furn)
+            .iter()
+            .any(|n| n == "ORG-DWG_LAYER-MISC"));
+    }
+
+    #[test]
+    fn layermap_apply_yanks_all_floors_onto_active() {
+        let mut doc = Document::new();
+        let ground = doc.active_floor_id().unwrap();
+        let level1 = doc.add_floor("Level 1", 3.0);
+        let walls_l1 = doc.space_on_floor(level1, SpaceCategory::Walls).unwrap();
+        let furn_g = doc
+            .space_on_floor(ground, SpaceCategory::Furniture)
+            .unwrap();
+        // Entity lives on Level 1 walls; keep an import layer that maps to Furniture.
+        let id = doc.add_geometry(
+            "ORG-DWG_LAYER-FURN",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        doc.set_entity_space(id, walls_l1);
+        // set_entity_space retargets the shim layer — restore the import layer name.
+        assert!(doc.set_entity_layer(id, "ORG-DWG_LAYER-FURN"));
+        assert_eq!(doc.get(id).unwrap().space, walls_l1);
+        doc.set_layer_category("ORG-DWG_LAYER-FURN", SpaceCategory::Furniture);
+        let _ = doc.set_active_floor(ground);
+        doc.reassign_by_layer_map(ground);
+        assert_eq!(doc.get(id).unwrap().space, furn_g);
+    }
+
+    #[test]
+    fn sanitize_display_text_strips_mtext_font_and_size() {
+        let raw = r"{\fArial|b0|i0|c0|p34;\H2.5000;ROOM 101}";
+        assert_eq!(sanitize_display_text(raw), "ROOM 101");
+        assert_eq!(
+            sanitize_display_text(r"Line A\PLine B"),
+            "Line A\nLine B"
+        );
+        let t = Text::new(raw, Point2::new(0.0, 0.0), 2.5, 0.0);
+        assert_eq!(t.value, "ROOM 101");
+    }
+
+    #[test]
+    fn retag_imported_layers_prefixes_and_sanitizes() {
+        let mut doc = Document::new();
+        // Construct without `Text::new` so retag must scrub formatting itself.
+        doc.add_geometry(
+            "WALLS",
+            Geometry::Text(Text {
+                value: r"{\fArial|b0;\H1.5;Label}".into(),
+                position: Point2::new(0.0, 0.0),
+                height: 1.5,
+                rotation: 0.0,
+            }),
+        );
+        doc.retag_imported_layers();
+        assert!(doc.layer("ORG-DWG_LAYER-WALLS").is_some());
+        assert!(doc.layer("WALLS").is_none());
+        let e = doc.entities().into_iter().next().unwrap();
+        assert_eq!(e.layer, "ORG-DWG_LAYER-WALLS");
+        match &e.geometry {
+            Geometry::Text(t) => assert_eq!(t.value, "Label"),
+            other => panic!("expected text, got {other:?}"),
+        }
     }
 }

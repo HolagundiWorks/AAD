@@ -25,8 +25,8 @@ impl UnitSystem {
     /// Parse a UNITS token (`ft-in`, `ft`, `in`, `m`, `meters`, …).
     pub fn parse(token: &str) -> Option<Self> {
         match token.trim().to_ascii_lowercase().as_str() {
-            "" | "ft-in" | "ft_in" | "ftin" | "architectural" | "arch" | "ft" | "feet"
-            | "foot" | "in" | "inch" | "inches" | "imperial" => Some(Self::FeetInches),
+            "" | "ft-in" | "ft_in" | "ftin" | "architectural" | "arch" | "ft" | "feet" | "foot"
+            | "in" | "inch" | "inches" | "imperial" => Some(Self::FeetInches),
             "m" | "meter" | "meters" | "metre" | "metres" | "metric" | "decimal" => {
                 Some(Self::Meters)
             }
@@ -101,9 +101,7 @@ pub fn parse_length(text: &str, system: UnitSystem) -> Result<f64, String> {
             UnitSystem::Meters => inches * METERS_PER_INCH,
         });
     }
-    let v: f64 = s
-        .parse()
-        .map_err(|_| format!("not a length: {text:?}"))?;
+    let v: f64 = s.parse().map_err(|_| format!("not a length: {text:?}"))?;
     Ok(v) // bare number = inches or metres per active system
 }
 
@@ -214,14 +212,8 @@ pub fn format_dimension_label(
     let secondary = secondary_enabled(dim_secondary);
     match kind {
         Angular => format!("{measurement:.1}°"),
-        Radius => format!(
-            "R{}",
-            format_length_pair(measurement, primary, secondary)
-        ),
-        Diameter => format!(
-            "⌀{}",
-            format_length_pair(measurement, primary, secondary)
-        ),
+        Radius => format!("R{}", format_length_pair(measurement, primary, secondary)),
+        Diameter => format!("⌀{}", format_length_pair(measurement, primary, secondary)),
         Linear | Aligned | OrdinateX | OrdinateY => {
             format_length_pair(measurement, primary, secondary)
         }
@@ -248,7 +240,7 @@ mod tests {
         assert!(s.contains("m"));
         let s2 = format_length_pair(3.81, UnitSystem::Meters, true);
         assert!(s2.contains("m"));
-        assert!(s2.contains('\'' ) || s2.contains('"'));
+        assert!(s2.contains('\'') || s2.contains('"'));
     }
 
     #[test]

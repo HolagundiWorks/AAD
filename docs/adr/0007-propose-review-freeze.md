@@ -15,8 +15,10 @@ Classification is a three-phase workflow on attributes only (no geometry edits):
    `AADT-WALL-TYPE`, `AADT-CLASS-CONF`, `AADT-CLASS-STATUS`, `AADT-CLASS-REV`,
    `AADT-CLASS-SOURCE`. Confidence ≥ **0.98** → status `accepted`; otherwise
    `proposed`. Entities already `frozen` are skipped.
-2. **Review** (`REVIEW`, GUI AI panel) — list proposed / low-confidence rows;
-   `ACCEPT` / `REJECT` / type override (`SOURCE=user`, rev bump).
+2. **Review** (`REVIEW`, CLI/session; GUI panel tracked) — list proposed /
+   low-confidence rows; `ACCEPT` / `REJECT` / type override (`SOURCE=user`,
+   rev bump). An egui AI panel is planned (see industry audit gap G4) but is
+   **not** required for the attribute workflow to work.
 3. **Freeze** (`FREEZE`) — explicit lock to `frozen`. Freeze is contractual:
    re-infer never overwrites frozen types.
 
@@ -26,7 +28,8 @@ Takeoff remains deterministic: quantities stay; rows may carry `wall_type` /
 ## Consequences
 
 - Geometry draft loop unchanged; AI never mutates coordinates.
-- CLI/session and GUI share the same commands and attribute schema.
+- CLI/session share the same commands and attribute schema; GUI should call the
+  same commands when the review panel lands.
 - Multi-object catalogs, OCR, and online learning from overrides are out of scope
   for this slice (override pairs may be audited later).
 

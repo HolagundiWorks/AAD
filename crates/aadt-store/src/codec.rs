@@ -63,11 +63,17 @@ pub fn encode_geometry(g: &Geometry) -> Result<String, StoreError> {
             )
         }
         Geometry::Insert(i) => {
-            // Block names are whitespace-free in practice; store as one token.
-            format!(
-                "INSERT {} {} {} {}",
-                i.name, i.position.x, i.position.y, i.rotation
-            )
+            if (i.scale_x - 1.0).abs() > 1e-9 || (i.scale_y - 1.0).abs() > 1e-9 {
+                format!(
+                    "INSERT {} {} {} {} {} {}",
+                    i.name, i.position.x, i.position.y, i.rotation, i.scale_x, i.scale_y
+                )
+            } else {
+                format!(
+                    "INSERT {} {} {} {}",
+                    i.name, i.position.x, i.position.y, i.rotation
+                )
+            }
         }
     })
 }
@@ -137,13 +143,22 @@ pub fn decode_geometry(s: &str) -> Result<Geometry, StoreError> {
                 rotation,
             )))
         }
-        "INSERT" => Ok(Geometry::Insert(Insert::new(
-            it.next()
+        "INSERT" => {
+            let name = it
+                .next()
                 .ok_or_else(|| StoreError::Format("INSERT missing name".into()))?
-                .to_string(),
-            Point2::new(num(&mut it)?, num(&mut it)?),
-            num(&mut it)?,
-        ))),
+                .to_string();
+            let pos = Point2::new(num(&mut it)?, num(&mut it)?);
+            let rot = num(&mut it)?;
+            let rest: Vec<&str> = it.collect();
+            let mut ins = Insert::new(name, pos, rot);
+            if rest.len() >= 2 {
+                if let (Ok(sx), Ok(sy)) = (rest[0].parse::<f64>(), rest[1].parse::<f64>()) {
+                    ins = ins.with_scale(sx, sy);
+                }
+            }
+            Ok(Geometry::Insert(ins))
+        }
         other => Err(StoreError::Format(format!(
             "unknown geometry kind {other:?}"
         ))),
@@ -156,6 +171,61 @@ fn num<'a>(it: &mut impl Iterator<Item = &'a str>) -> Result<f64, StoreError> {
         .ok_or_else(|| StoreError::Format("unexpected end of geometry".into()))?;
     t.parse()
         .map_err(|_| StoreError::Format(format!("not a number: {t:?}")))
+}
+
+/// Encode hatch boundary path(s). One path keeps the legacy single `PLINE` form;
+/// multiple paths use a `HATCHPATHS` multi-line payload.
+pub fn encode_hatch_boundaries(paths: &[Polyline]) -> Result<String, StoreError> {
+    if paths.is_empty() {
+        return Err(StoreError::Format("hatch needs at least one path".into()));
+    }
+    if paths.len() == 1 {
+        return encode_geometry(&Geometry::Polyline(paths[0].clone()));
+    }
+    let mut out = format!("HATCHPATHS {}", paths.len());
+    for p in paths {
+        out.push('\n');
+        out.push_str(&encode_geometry(&Geometry::Polyline(p.clone()))?);
+    }
+    Ok(out)
+}
+
+/// Decode hatch boundaries from [`encode_hatch_boundaries`] (or legacy single PLINE).
+pub fn decode_hatch_boundaries(s: &str) -> Result<Vec<Polyline>, StoreError> {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix("HATCHPATHS") {
+        let mut lines = rest.lines();
+        let header = lines
+            .next()
+            .ok_or_else(|| StoreError::Format("HATCHPATHS missing count".into()))?
+            .trim();
+        let n: usize = header
+            .parse()
+            .map_err(|_| StoreError::Format(format!("bad HATCHPATHS count: {header:?}")))?;
+        let mut paths = Vec::with_capacity(n);
+        for line in lines {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Geometry::Polyline(p) = decode_geometry(line)? else {
+                return Err(StoreError::Format("hatch path must be a polyline".into()));
+            };
+            paths.push(p);
+        }
+        if paths.len() != n {
+            return Err(StoreError::Format(format!(
+                "HATCHPATHS expected {n} paths, got {}",
+                paths.len()
+            )));
+        }
+        Ok(paths)
+    } else {
+        let Geometry::Polyline(p) = decode_geometry(s)? else {
+            return Err(StoreError::Format("hatch geom must be a polyline".into()));
+        };
+        Ok(vec![p])
+    }
 }
 
 #[cfg(test)]
@@ -175,5 +245,32 @@ mod tests {
         let g = Geometry::Insert(Insert::new("DOOR-01", Point2::new(3.0, 4.0), 90.0));
         let dec = decode_geometry(&encode_geometry(&g).unwrap()).unwrap();
         assert_eq!(g, dec);
+    }
+
+    #[test]
+    fn multi_path_hatch_boundaries_round_trip() {
+        let outer = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 10.0),
+                Point2::new(0.0, 10.0),
+            ],
+            true,
+        );
+        let hole = Polyline::new(
+            vec![
+                Point2::new(3.0, 3.0),
+                Point2::new(7.0, 3.0),
+                Point2::new(7.0, 7.0),
+                Point2::new(3.0, 7.0),
+            ],
+            true,
+        );
+        let enc = encode_hatch_boundaries(&[outer.clone(), hole.clone()]).unwrap();
+        let dec = decode_hatch_boundaries(&enc).unwrap();
+        assert_eq!(dec.len(), 2);
+        assert_eq!(dec[0], outer);
+        assert_eq!(dec[1], hole);
     }
 }

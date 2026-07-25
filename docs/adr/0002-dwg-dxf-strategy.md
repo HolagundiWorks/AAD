@@ -1,35 +1,30 @@
 # ADR-0002 — DWG/DXF interoperability strategy
 
-- **Status:** Proposed
+- **Status:** Accepted (DXF first; DWG via open-source Rust parser)
 - **Context:** Spec §7 / §11 #2 — DWG/DXF round-trip is non-negotiable for
-  architects exchanging files. Options: ODA SDK (licensed, high-fidelity) vs.
-  LibreDWG (open, lighter). DXF is ASCII; DWG is a reverse-engineered binary.
+  architects exchanging files. Options: ODA SDK (licensed) vs. LibreDWG (GPL FFI)
+  vs. a pure-Rust open-source DWG stack.
 
 ## Decision
 
-**DXF first, DWG later, behind a stable import/export API.**
+**DXF first (hand-written `aadt-dxf`), then DWG via [`acadrust`](https://crates.io/crates/acadrust)
+(MPL-2.0, pure Rust, R13–R2018), behind the same public import/export API.**
 
-- M0 ships a small, dependency-free reader for the ASCII DXF entity types the
-  takeoff slice needs (`LINE`, `LWPOLYLINE`) in `aadt-dxf`.
-- M1 extends this to the full in-scope DXF entity set and DXF **export**
-  (round-trip). At M1 we may adopt the `dxf` crate to avoid hand-maintaining a
-  full reader; the public `aadt-dxf` entry points are shaped so this is a
-  drop-in swap.
-- **DWG** gets its own milestone. It requires either an **ODA SDK** license
-  (high fidelity, cost) or a **LibreDWG** FFI binding (open, lower fidelity).
-  Decision deferred until DWG is scheduled, so licensing cost is incurred only
-  when the feature is built.
+- ASCII DXF covers the entity set AADT models (including multi-path hatch polylines).
+- DWG: `import_dwg_path` / `export_dwg_path` map a supported 2D subset
+  (Line, Circle, Arc, LwPolyline, Text, Insert, XLine approx.). Hatches and
+  dimensions are DXF-only for now. **No ODA SDK** for the open-source product line.
+- LibreDWG FFI remains a fallback if a customer file fails `acadrust`.
 
 ## Consequences
 
-- The differentiator (takeoff) is proven without taking on a heavyweight binary
-  parser or a license up front.
-- Architects can exchange DXF immediately; DWG-native shops wait for the DWG
-  milestone. This is acceptable because DXF is a universal interchange format.
+- Takeoff proves value on DXF without a license tax.
+- DWG shops can open files without Autodesk tooling; fidelity is open-source
+  best-effort, not ODA-certified.
+- Keep `acadrust` unmodified (MPL-2.0); attribute in NOTICE when distributing.
 
 ## Alternatives considered
 
-- **ODA SDK from day one:** highest fidelity but a licensing/integration cost
-  before the product's value is proven.
-- **LibreDWG from day one:** open, but adds FFI complexity and fidelity risk to
-  M0 for no differentiator benefit.
+- **ODA SDK:** highest fidelity, licensing cost — rejected for OSS default.
+- **LibreDWG FFI from day one:** GPL/complexity — deferred behind Rust parser.
+- **DXF-only forever:** unacceptable for many architect handoffs.

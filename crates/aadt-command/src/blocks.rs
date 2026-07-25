@@ -12,18 +12,19 @@ pub fn register_blocks(r: &mut Registry) {
     r.register(Box::new(BattCmd));
 }
 
-fn update_block<F>(ctx: &mut Context, name: &str, f: F) -> Result<(), String>
+fn update_block<F>(ctx: &mut Context, name: &str, label: &str, f: F) -> Result<(), String>
 where
     F: FnOnce(&mut aadt_model::Block),
 {
-    let mut block = ctx
-        .doc
-        .block(name)
-        .cloned()
-        .ok_or_else(|| format!("block {name:?} not found"))?;
-    f(&mut block);
-    ctx.doc.add_block(block);
-    Ok(())
+    ctx.doc.transact(label, |d| {
+        let mut block = d
+            .block(name)
+            .cloned()
+            .ok_or_else(|| format!("block {name:?} not found"))?;
+        f(&mut block);
+        d.add_block(block);
+        Ok(())
+    })
 }
 
 struct BparamCmd;
@@ -42,7 +43,9 @@ impl Command for BparamCmd {
             .get(3)
             .map(|s| BlockParamKind::parse(s))
             .unwrap_or(BlockParamKind::String);
-        update_block(ctx, &block, |b| b.set_param(key.clone(), default.clone(), kind))?;
+        update_block(ctx, &block, "BPARAM", |b| {
+            b.set_param(key.clone(), default.clone(), kind)
+        })?;
         Ok(format!(
             "BPARAM: {block}.{key} = {default:?} ({})",
             kind.as_str()
@@ -111,13 +114,13 @@ impl Command for BvisCmd {
             if a.eq_ignore_ascii_case("hide") {
                 continue;
             }
-            let i: usize = a
-                .parse()
-                .map_err(|_| format!("BVIS: bad index {a:?}"))?;
+            let i: usize = a.parse().map_err(|_| format!("BVIS: bad index {a:?}"))?;
             hidden.push(i);
         }
         let n = hidden.len();
-        update_block(ctx, &block, |b| b.set_visibility(state.clone(), hidden))?;
+        update_block(ctx, &block, "BVIS", |b| {
+            b.set_visibility(state.clone(), hidden)
+        })?;
         Ok(format!("BVIS: {block} state {state:?} hides {n} ent(s)"))
     }
 }
@@ -155,10 +158,7 @@ impl Command for BsetVisCmd {
         ctx.doc.transact("BSETVIS", |d| {
             d.set_attribute(id, BLOCK_VIS_ATTR, state.clone());
         });
-        Ok(format!(
-            "BSETVIS: entity {} VISIBILITY={state:?}",
-            id.0
-        ))
+        Ok(format!("BSETVIS: entity {} VISIBILITY={state:?}", id.0))
     }
 }
 
@@ -235,5 +235,22 @@ mod tests {
         );
         let block = ctx.doc.block("DOOR").unwrap();
         assert_eq!(block.hidden_for("Swing"), &[1usize]);
+    }
+
+    #[test]
+    fn bparam_is_undoable() {
+        let i = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        i.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap();
+        i.eval_line(&mut ctx, "SELECT 0").unwrap();
+        i.eval_line(&mut ctx, "BLOCK WIN 0 0").unwrap();
+        assert!(ctx.doc.block("WIN").unwrap().params.is_empty());
+        i.eval_line(&mut ctx, "BPARAM WIN WNAME W1").unwrap();
+        assert_eq!(ctx.doc.block("WIN").unwrap().params.len(), 1);
+        i.eval_line(&mut ctx, "UNDO").unwrap();
+        assert!(
+            ctx.doc.block("WIN").unwrap().params.is_empty(),
+            "UNDO must restore block definition"
+        );
     }
 }

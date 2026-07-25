@@ -7,9 +7,7 @@ use std::collections::BTreeMap;
 use aadt_geometry::{Circle, Point2, Polyline, Segment};
 use aadt_model::{Geometry, Text};
 
-use crate::{
-    entities_word, parse_f64, resolve_targets, Command, Context, Registry,
-};
+use crate::{entities_word, parse_f64, resolve_targets, Command, Context, Registry};
 
 pub fn register_annotation(r: &mut Registry) {
     r.register(Box::new(TableCmd));
@@ -189,10 +187,7 @@ impl Command for AutoNumCmd {
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let token = args.first().ok_or("AUTONUM: missing target")?;
         let prefix = args.get(1).cloned().unwrap_or_else(|| "".into());
-        let start = args
-            .get(2)
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(1);
+        let start = args.get(2).and_then(|s| s.parse::<i64>().ok()).unwrap_or(1);
         let height = args
             .get(3)
             .and_then(|s| s.parse::<f64>().ok())
@@ -286,10 +281,7 @@ impl Command for SectionLineCmd {
         let r = tick * 0.9;
         let ht = r * 0.9;
         ctx.doc.transact("SECTIONLINE", |d| {
-            d.add_geometry(
-                "A-SECT-IDEN",
-                Geometry::Line(Segment::new(a, b)),
-            );
+            d.add_geometry("A-SECT-IDEN", Geometry::Line(Segment::new(a, b)));
             // End ticks.
             for p in [a, b] {
                 d.add_geometry(
@@ -361,22 +353,16 @@ impl Command for CalloutCmd {
         let center = Point2::new(tx, ty);
         let ht = radius * 0.85;
         ctx.doc.transact("CALLOUT", |d| {
-            d.add_geometry(
-                "A-ANNO-NOTE",
-                Geometry::Line(Segment::new(arrow, center)),
-            );
-            d.add_geometry(
-                "A-ANNO-NOTE",
-                Geometry::Circle(Circle {
-                    center,
-                    radius,
-                }),
-            );
+            d.add_geometry("A-ANNO-NOTE", Geometry::Line(Segment::new(arrow, center)));
+            d.add_geometry("A-ANNO-NOTE", Geometry::Circle(Circle { center, radius }));
             d.add_geometry(
                 "A-ANNO-NOTE",
                 Geometry::Text(Text::new(
                     text.clone(),
-                    Point2::new(center.x - ht * 0.35 * text.chars().count() as f64 * 0.15, center.y - ht * 0.35),
+                    Point2::new(
+                        center.x - ht * 0.35 * text.chars().count() as f64 * 0.15,
+                        center.y - ht * 0.35,
+                    ),
                     ht,
                     0.0,
                 )),
@@ -488,18 +474,15 @@ fn scalloped_rect(xmin: f64, ymin: f64, xmax: f64, ymax: f64, arc: f64) -> Vec<P
             let p0 = Point2::new(ax + (bx - ax) * t0, ay + (by - ay) * t0);
             let p1 = Point2::new(ax + (bx - ax) * t1, ay + (by - ay) * t1);
             let mid = p0.midpoint(p1);
-            let crest = Point2::new(mid.x + outward_nx * arc * 0.55, mid.y + outward_ny * arc * 0.55);
+            let crest = Point2::new(
+                mid.x + outward_nx * arc * 0.55,
+                mid.y + outward_ny * arc * 0.55,
+            );
             // Quarter-ish bulge via two samples.
             pts.push(p0);
-            pts.push(Point2::new(
-                (p0.x + crest.x) * 0.5,
-                (p0.y + crest.y) * 0.5,
-            ));
+            pts.push(Point2::new((p0.x + crest.x) * 0.5, (p0.y + crest.y) * 0.5));
             pts.push(crest);
-            pts.push(Point2::new(
-                (p1.x + crest.x) * 0.5,
-                (p1.y + crest.y) * 0.5,
-            ));
+            pts.push(Point2::new((p1.x + crest.x) * 0.5, (p1.y + crest.y) * 0.5));
             let _ = p1;
         }
         pts.push(Point2::new(bx, by));

@@ -60,7 +60,10 @@ impl ModelClient for FoundryLocalClient {
         let path = if self.base_path.is_empty() {
             "/v1/chat/completions".to_string()
         } else {
-            format!("{}/v1/chat/completions", self.base_path.trim_end_matches('/'))
+            format!(
+                "{}/v1/chat/completions",
+                self.base_path.trim_end_matches('/')
+            )
         };
 
         // System + user keeps the JSON-only contract explicit for small models.
@@ -86,13 +89,12 @@ Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len(),
         );
 
-        let mut stream = TcpStream::connect((self.host.as_str(), self.port))
-            .map_err(|e| {
-                AiError::Unavailable(format!(
-                    "Foundry Local at {}:{} — {e} (is the service running?)",
-                    self.host, self.port
-                ))
-            })?;
+        let mut stream = TcpStream::connect((self.host.as_str(), self.port)).map_err(|e| {
+            AiError::Unavailable(format!(
+                "Foundry Local at {}:{} — {e} (is the service running?)",
+                self.host, self.port
+            ))
+        })?;
         stream
             .write_all(request.as_bytes())
             .map_err(|e| AiError::Unavailable(e.to_string()))?;
@@ -170,7 +172,8 @@ mod tests {
 
     #[test]
     fn extracts_openai_content() {
-        let body = r#"{"choices":[{"message":{"role":"assistant","content":"{\"assignments\":[]}"}}]}"#;
+        let body =
+            r#"{"choices":[{"message":{"role":"assistant","content":"{\"assignments\":[]}"}}]}"#;
         let c = extract_chat_content(body).unwrap();
         assert!(c.contains("assignments"));
     }

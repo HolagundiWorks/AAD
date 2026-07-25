@@ -35,17 +35,21 @@
 //! never decides the markup set, out-of-order and duplicate delivery are safe; it
 //! is verified over a loopback socket in `tests/network.rs`.
 //!
-//! **Still deferred:** presence/cursors and a hosted session service — both need
-//! a running deployment and a display, not new engine logic.
+//! **Local presence** (cursors / join / leave) rides the same TCP relay as
+//! ephemeral `J`/`L`/`P` lines — not stored in the markup op log. A **hosted**
+//! session service remains deferred (needs deployment, not engine logic).
 
 pub mod op;
+pub mod presence;
 pub mod replica;
 pub mod sync;
 pub mod wire;
 
 pub use op::{Action, Op, OpId};
+pub use presence::{Presence, PresenceMap};
 pub use replica::Replica;
 pub use sync::{Client, RelayServer};
+pub use wire::PresenceMsg;
 
 /// Milestone in which cloud collaboration is implemented.
 pub const MILESTONE: &str = "M8";

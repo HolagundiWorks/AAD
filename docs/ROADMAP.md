@@ -36,7 +36,8 @@ Each milestone is a shippable, verifiable increment.
 1. **LISP is deferred from Phase 1 to M6** (now ✅). The command registry was
    LISP-ready from M1; the interpreter ships and is reachable from the Session
    (`LISP` / bare `(…)`).
-2. **DWG read/write is deferred behind DXF.** See
+2. **DWG/DXF round-trip is deferred behind DXF**, then completed via open-source
+   `acadrust` R/W for a 2D subset. See
    [`adr/0002-dwg-dxf-strategy.md`](adr/0002-dwg-dxf-strategy.md).
 
 ---
@@ -52,18 +53,18 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 | Kind | Commands |
 |---|---|
 | Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
-| Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ERASE` |
+| Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
 | Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` |
 | AADT | `TAKEOFF` `SCHEDULE` `SECTION` `STANDARDS` `BLOCKLIB` |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
 
 **Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
-`M` `CO` `RO` `SC` `MI` · `E` · `DIM*` · pick/box select · Ortho (Shift / F8) ·
+`M` `CO` `RO` `SC` `MI` `AR`/`ARRAYPOLAR`/`ARRAYPATH` · `E` · `DIM*` · pick/box select · Ortho (Shift / F8) ·
 Osnap endpoint/midpoint (F3) · Polar (F10).
 
 **Keep but de-emphasize** (scripts / DXF fidelity, not GUI chrome): other `DIM*`
-variants, `HATCH`, `CHAMFER`, `ARRAY`, `EXPLODE`, `PURGE`, `GROUP*`/`UNGROUP`,
+variants, `HATCH`, `CHAMFER`, `EXPLODE`, `PURGE`, `GROUP*`/`UNGROUP`,
 `AREA`.
 
 **Do not add:** MTEXT sprawl, spline/ellipse without a real need, ribbon/toolbar
@@ -162,14 +163,39 @@ UI):** interactive viewing, freehand/stamps, on-PDF measure, raster diff.
 
 ## M8 — Cloud Collaboration ✅ (engine)
 
-Convergent op log + TCP relay (`aadt collab --net`). **Remaining:** presence /
-hosted session service.
+Convergent op log + TCP relay (`aadt collab --net`) + **local presence**
+(`J`/`L`/`P` cursor lines on the same relay). **Post-1.0:** hosted session
+service (auth, discovery, persistence).
 
 ---
 
-## Next
+## Next ✅
 
-1. More AADT metadata tables in `.aadt` (detection cache, cost-code maps).
-2. DWG when exchange demand requires it (ADR-0002).
-3. Optional WinUI chrome over `aadt-ffi` — engine unchanged.
-4. wgpu viewport only if entity-count performance demands it.
+The former Next polish items are **done**:
+
+1. **DWG write / round-trip** — `export_dwg_path` via `acadrust` `DwgWriter`;
+   `SAVE *.dwg` / GUI filter; best-effort 2D subset (hatches/dims skipped).
+2. **DXF multi-path hatch** — `Hatch.boundaries` (outer + islands); DXF `91`/`93`
+   round-trip; store codec `HATCHPATHS`.
+3. **Local presence** — join / leave / cursor on the TCP relay (ephemeral; not
+   in the markup backlog).
+
+**Locked out of scope:** paper space / XREF / VP (nameplate PDF plotting is the
+sheet path). **UNDO ≠ HISTORY** — keep both; do not merge.
+
+### Floors + category model spaces (ADR-0009) ✅
+
+ArchiCAD-style **floors** with a shared **reference origin**, and per-floor
+**model spaces** that *are* the element categories (Walls / Structural / Lintel /
+BeamLayout / Furniture)—not layer filters. `TRACE` ghosts adjacent floors;
+Levels strip + `FLOOR` / `CATEGORY` / `ORIGIN` commands; `.aadt` schema v6.
+
+## Post-1.0
+
+- Hosted collab session service (beyond local TCP relay).
+- M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;
+  transparent mid-command `'ZOOM` / grip-edit.
+- M7 PDF viewer UI: interactive viewing, freehand/stamps, on-PDF measure, raster diff.
+- Optional: WinUI over `aadt-ffi`, live Postgres, AI schedule/notes formatting
+  (never gates takeoff).
+- DWG: Autodesk-certified fidelity / hatch+dim DWG mapping; hatch arc/ellipse edges.

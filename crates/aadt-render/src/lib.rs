@@ -83,6 +83,11 @@ pub enum DrawCommand {
         position: Point2,
         label: String,
     },
+    /// Filled closed polygon (solid hatch). Drawn under strokes by backends.
+    Fill {
+        layer: String,
+        points: Vec<Point2>,
+    },
 }
 
 impl DrawCommand {
@@ -93,7 +98,8 @@ impl DrawCommand {
             | DrawCommand::Circle { layer, .. }
             | DrawCommand::Arc { layer, .. }
             | DrawCommand::Text { layer, .. }
-            | DrawCommand::Marker { layer, .. } => layer,
+            | DrawCommand::Marker { layer, .. }
+            | DrawCommand::Fill { layer, .. } => layer,
         }
     }
 }
@@ -102,6 +108,8 @@ impl DrawCommand {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DrawList {
     pub commands: Vec<DrawCommand>,
+    /// Parallel to `commands`: true = ghost underlay (dimmed, non-editable).
+    pub underlay: Vec<bool>,
 }
 
 impl DrawList {
@@ -112,20 +120,29 @@ impl DrawList {
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
     }
+
+    fn push(&mut self, cmd: DrawCommand, underlay: bool) {
+        self.commands.push(cmd);
+        self.underlay.push(underlay);
+    }
+
+    fn extend(&mut self, cmds: impl IntoIterator<Item = DrawCommand>, underlay: bool) {
+        for cmd in cmds {
+            self.push(cmd, underlay);
+        }
+    }
 }
 
-/// The rigid placement an [`Insert`](aadt_model::Insert) applies to its block's
-/// geometry: shift the block's `base` to the origin, rotate by the insert angle
-/// (degrees CCW, the DXF convention shared with [`Arc`](aadt_geometry::Arc) and
-/// [`Text`](aadt_model::Text)), then translate to the insert position. No scale —
-/// [`Insert`](aadt_model::Insert) carries none. The identity transform (base and
-/// position at the origin, zero rotation) leaves top-level geometry untouched, so
-/// one code path serves both placed entities and instanced block content.
+/// The placement an [`Insert`](aadt_model::Insert) applies to its block's
+/// geometry: shift the block's `base` to the origin, scale, rotate by the insert
+/// angle (degrees CCW), then translate to the insert position.
 #[derive(Debug, Clone, Copy)]
 struct Xform {
     base: Point2,
     rotation_deg: f64,
     position: Point2,
+    scale_x: f64,
+    scale_y: f64,
 }
 
 impl Xform {
@@ -133,65 +150,99 @@ impl Xform {
         base: Point2::new(0.0, 0.0),
         rotation_deg: 0.0,
         position: Point2::new(0.0, 0.0),
+        scale_x: 1.0,
+        scale_y: 1.0,
     };
 
-    /// Map a block-space point to world space: `position + Rot(θ)·(p − base)`.
+    /// Map a block-space point to world space.
     fn point(&self, p: Point2) -> Point2 {
-        let (lx, ly) = (p.x - self.base.x, p.y - self.base.y);
+        let (lx, ly) = (
+            (p.x - self.base.x) * self.scale_x,
+            (p.y - self.base.y) * self.scale_y,
+        );
         let (s, c) = self.rotation_deg.to_radians().sin_cos();
         Point2::new(
             self.position.x + lx * c - ly * s,
             self.position.y + lx * s + ly * c,
         )
     }
+
+    fn radius_scale(&self) -> f64 {
+        (self.scale_x.abs() * self.scale_y.abs()).sqrt()
+    }
 }
 
-/// Turn one piece of (possibly block-space) geometry into a draw primitive,
-/// transformed by `xform` and tagged with `layer`. A nested `Insert` inside a
-/// block becomes a [`DrawCommand::Marker`] at its transformed insertion point —
-/// recursive block instantiation is a later increment, and a marker keeps it
-/// visible without risking unbounded recursion on a cyclic definition.
-fn primitive(
+/// Turn one piece of (possibly block-space) geometry into draw primitives.
+/// Nested inserts expand recursively (depth-limited) when `doc` is provided.
+fn push_primitive(
+    out: &mut Vec<DrawCommand>,
+    doc: &Document,
     geometry: &Geometry,
     xform: &Xform,
     layer: String,
     props: &aadt_model::DrawingProperties,
-) -> DrawCommand {
+    depth: u32,
+) {
     match geometry {
-        Geometry::Line(s) => DrawCommand::Polyline {
+        Geometry::Line(s) => out.push(DrawCommand::Polyline {
             layer,
             points: vec![xform.point(s.a), xform.point(s.b)],
             closed: false,
-        },
-        Geometry::Polyline(p) => DrawCommand::Polyline {
+        }),
+        Geometry::Polyline(p) => out.push(DrawCommand::Polyline {
             layer,
             points: p.vertices.iter().map(|v| xform.point(*v)).collect(),
             closed: p.closed,
-        },
-        Geometry::Circle(c) => DrawCommand::Circle {
+        }),
+        Geometry::Circle(c) => out.push(DrawCommand::Circle {
             layer,
             center: xform.point(c.center),
-            radius: c.radius,
-        },
-        Geometry::Arc(a) => DrawCommand::Arc {
+            radius: c.radius * xform.radius_scale(),
+        }),
+        Geometry::Arc(a) => out.push(DrawCommand::Arc {
             layer,
             center: xform.point(a.center),
-            radius: a.radius,
+            radius: a.radius * xform.radius_scale(),
             start_angle: a.start_angle + xform.rotation_deg,
             end_angle: a.end_angle + xform.rotation_deg,
-        },
-        Geometry::Text(t) => DrawCommand::Text {
+        }),
+        Geometry::Text(t) => out.push(DrawCommand::Text {
             layer,
             position: xform.point(t.position),
-            height: t.height,
+            height: t.height * xform.radius_scale(),
             rotation: t.rotation + xform.rotation_deg,
             value: aadt_model::resolve_property_text(&t.value, props),
-        },
-        Geometry::Insert(ins) => DrawCommand::Marker {
-            layer,
-            position: xform.point(ins.position),
-            label: ins.name.clone(),
-        },
+        }),
+        Geometry::Insert(ins) => {
+            if depth >= 8 {
+                out.push(DrawCommand::Marker {
+                    layer,
+                    position: xform.point(ins.position),
+                    label: ins.name.clone(),
+                });
+                return;
+            }
+            match doc.block(&ins.name) {
+                Some(block) => {
+                    for be in &block.entities {
+                        let baked = be.geometry.instanced_scaled(
+                            block.base,
+                            ins.position,
+                            ins.rotation,
+                            ins.scale_x,
+                            ins.scale_y,
+                        );
+                        let ly = instanced_layer(&be.layer, &layer);
+                        push_primitive(out, doc, &baked, xform, ly, props, depth + 1);
+                    }
+                }
+                None => out.push(DrawCommand::Marker {
+                    layer,
+                    position: xform.point(ins.position),
+                    label: ins.name.clone(),
+                }),
+            }
+        }
     }
 }
 
@@ -208,15 +259,78 @@ fn instanced_layer(block_entity_layer: &str, insert_layer: &str) -> String {
     }
 }
 
-/// The boundary of a [`Hatch`] as a closed poly-line. The fill pattern itself is
-/// a backend concern (solid fills and pattern lines are the renderer's to draw);
-/// the drawlist carries the outline, tagged with the hatch's layer.
-fn hatch_command(hatch: &Hatch) -> DrawCommand {
-    DrawCommand::Polyline {
-        layer: hatch.layer.clone(),
-        points: hatch.boundary.vertices.clone(),
-        closed: true,
+/// Hatch boundaries as outlines; solid hatches also emit a [`DrawCommand::Fill`].
+fn hatch_commands(hatch: &Hatch) -> Vec<DrawCommand> {
+    let mut out = Vec::new();
+    // Always fill the outer path (pattern hatches get a light wash + strokes).
+    if let Some(outer) = hatch.boundaries.first() {
+        if outer.vertices.len() >= 3 {
+            out.push(DrawCommand::Fill {
+                layer: hatch.layer.clone(),
+                points: outer.vertices.clone(),
+            });
+        }
+        if !hatch.solid {
+            out.extend(pattern_hatch_lines(hatch, outer));
+        }
     }
+    for b in &hatch.boundaries {
+        out.push(DrawCommand::Polyline {
+            layer: hatch.layer.clone(),
+            points: b.vertices.clone(),
+            closed: true,
+        });
+    }
+    out
+}
+
+fn pattern_hatch_lines(hatch: &Hatch, outer: &aadt_geometry::Polyline) -> Vec<DrawCommand> {
+    let xs: Vec<f64> = outer.vertices.iter().map(|p| p.x).collect();
+    let ys: Vec<f64> = outer.vertices.iter().map(|p| p.y).collect();
+    let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
+        xs.iter().cloned().reduce(f64::min),
+        xs.iter().cloned().reduce(f64::max),
+        ys.iter().cloned().reduce(f64::min),
+        ys.iter().cloned().reduce(f64::max),
+    ) else {
+        return Vec::new();
+    };
+    let span = (max_x - min_x).max(max_y - min_y).max(1.0);
+    let step = (span / 18.0).clamp(0.05, span);
+    let mut cmds = Vec::new();
+    let mut x = min_x - span;
+    while x < max_x + span {
+        // Sample the diagonal and keep only segments whose midpoints lie inside.
+        let a = Point2::new(x, min_y - span * 0.1);
+        let b = Point2::new(x + (max_y - min_y) + span * 0.2, max_y + span * 0.1);
+        let mut run: Vec<Point2> = Vec::new();
+        let samples = 48;
+        for i in 0..=samples {
+            let t = i as f64 / samples as f64;
+            let p = Point2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+            if outer.contains_point(p) {
+                run.push(p);
+            } else if run.len() >= 2 {
+                cmds.push(DrawCommand::Polyline {
+                    layer: hatch.layer.clone(),
+                    points: std::mem::take(&mut run),
+                    closed: false,
+                });
+                run.clear();
+            } else {
+                run.clear();
+            }
+        }
+        if run.len() >= 2 {
+            cmds.push(DrawCommand::Polyline {
+                layer: hatch.layer.clone(),
+                points: run,
+                closed: false,
+            });
+        }
+        x += step;
+    }
+    cmds
 }
 
 /// A [`Dimension`] flattened to AutoCAD-like draw primitives: extension lines,
@@ -264,7 +378,12 @@ fn dimension_commands(dim: &Dimension, props: &aadt_model::DrawingProperties) ->
             let mut out = vec![poly_open(&dim.layer, vec![dim.vertex, dim.p1])];
             // Arrow at the rim point, pointing outward from centre.
             if let Some(u) = (dim.p1 - dim.vertex).normalized() {
-                out.push(arrowhead(&dim.layer, dim.p1, u, text_height * 0.45 * dim_scale));
+                out.push(arrowhead(
+                    &dim.layer,
+                    dim.p1,
+                    u,
+                    text_height * 0.45 * dim_scale,
+                ));
             }
             out.push(DrawCommand::Text {
                 layer: dim.layer.clone(),
@@ -309,11 +428,7 @@ fn dimension_commands(dim: &Dimension, props: &aadt_model::DrawingProperties) ->
     }
 }
 
-fn dim_text_height(
-    props: &aadt_model::DrawingProperties,
-    scale_ref: f64,
-    dim_scale: f64,
-) -> f64 {
+fn dim_text_height(props: &aadt_model::DrawingProperties, scale_ref: f64, dim_scale: f64) -> f64 {
     props
         .dim_text_height
         .trim()
@@ -334,7 +449,9 @@ fn poly_open(layer: &str, points: Vec<Point2>) -> DrawCommand {
 
 /// Filled-looking arrowhead as a small closed triangle at `tip`, pointing along `dir`.
 fn arrowhead(layer: &str, tip: Point2, dir: aadt_geometry::Vec2, size: f64) -> DrawCommand {
-    let u = dir.normalized().unwrap_or(aadt_geometry::Vec2::new(1.0, 0.0));
+    let u = dir
+        .normalized()
+        .unwrap_or(aadt_geometry::Vec2::new(1.0, 0.0));
     let n = u.perp();
     let base = tip + u * (-size);
     let left = base + n * (size * 0.35);
@@ -402,7 +519,9 @@ fn aligned_dimension_commands(
     // offset is positive — i.e. further along ext_dir).
     let mid = d1.midpoint(d2);
     let text_pos = mid + ext_dir * (text_height * 0.65);
-    let mut rot = (dim.p2.y - dim.p1.y).atan2(dim.p2.x - dim.p1.x).to_degrees();
+    let mut rot = (dim.p2.y - dim.p1.y)
+        .atan2(dim.p2.x - dim.p1.x)
+        .to_degrees();
     // Keep text readable (never upside-down).
     if rot > 90.0 {
         rot -= 180.0;
@@ -435,12 +554,60 @@ fn aligned_dimension_commands(
 /// single [`DrawCommand::Marker`] at its insertion point rather than being dropped.
 ///
 /// [`Hatch`]es contribute their boundary outline and [`Dimension`]s their
-/// dimension line plus value text (see [`hatch_command`], [`dimension_commands`]).
+/// dimension line plus value text (see [`hatch_commands`], [`dimension_commands`]).
+/// Build the draw list with floor trace underlays (ArchiCAD-style).
+///
+/// Pass order: floor below (if traced) → floor above (if traced) → other
+/// categories on the active floor (soft underlay) → active model space (full).
 pub fn build_drawlist(doc: &Document) -> DrawList {
-    let mut commands = Vec::with_capacity(doc.len());
+    build_drawlist_with_trace(doc)
+}
+
+/// Explicit entry point for the floor/category draw pipeline.
+pub fn build_drawlist_with_trace(doc: &Document) -> DrawList {
+    let mut list = DrawList::default();
+    let active = doc.active_space();
+    let active_floor = doc.active_floor_id();
+
+    let push_space = |list: &mut DrawList, space: aadt_model::ModelSpaceId, underlay: bool| {
+        append_space_commands(list, doc, space, underlay);
+    };
+
+    if let Some(floor) = active_floor {
+        if doc.trace_below() {
+            if let Some(below) = doc.floor_below(floor) {
+                for s in doc.spaces_on_floor(below) {
+                    push_space(&mut list, s.id, true);
+                }
+            }
+        }
+        if doc.trace_above() {
+            if let Some(above) = doc.floor_above(floor) {
+                for s in doc.spaces_on_floor(above) {
+                    push_space(&mut list, s.id, true);
+                }
+            }
+        }
+        // Same-floor context (non-active categories) as a soft underlay.
+        for s in doc.spaces_on_floor(floor) {
+            if s.id != active {
+                push_space(&mut list, s.id, true);
+            }
+        }
+    }
+
+    push_space(&mut list, active, false);
+    list
+}
+
+fn append_space_commands(
+    list: &mut DrawList,
+    doc: &Document,
+    space: aadt_model::ModelSpaceId,
+    underlay: bool,
+) {
     let props = doc.properties();
-    for e in doc.entities() {
-        // A hidden layer (off or frozen) draws nothing.
+    for e in doc.entities_in_space(space) {
         if !doc.layer_shown(&e.layer) {
             continue;
         }
@@ -451,6 +618,8 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
                         base: block.base,
                         rotation_deg: ins.rotation,
                         position: ins.position,
+                        scale_x: ins.scale_x,
+                        scale_y: ins.scale_y,
                     };
                     let vis = e
                         .attribute(aadt_model::BLOCK_VIS_ATTR)
@@ -461,29 +630,45 @@ pub fn build_drawlist(doc: &Document) -> DrawList {
                             continue;
                         }
                         let layer = instanced_layer(&be.layer, &e.layer);
-                        commands.push(primitive(&be.geometry, &xform, layer, props));
+                        let mut cmds = Vec::new();
+                        push_primitive(&mut cmds, doc, &be.geometry, &xform, layer, props, 1);
+                        list.extend(cmds, underlay);
                     }
                 }
-                None => commands.push(DrawCommand::Marker {
-                    layer: e.layer.clone(),
-                    position: ins.position,
-                    label: ins.name.clone(),
-                }),
+                None => list.push(
+                    DrawCommand::Marker {
+                        layer: e.layer.clone(),
+                        position: ins.position,
+                        label: ins.name.clone(),
+                    },
+                    underlay,
+                ),
             },
-            other => commands.push(primitive(other, &Xform::IDENTITY, e.layer.clone(), props)),
+            other => {
+                let mut cmds = Vec::new();
+                push_primitive(
+                    &mut cmds,
+                    doc,
+                    other,
+                    &Xform::IDENTITY,
+                    e.layer.clone(),
+                    props,
+                    0,
+                );
+                list.extend(cmds, underlay);
+            }
         }
     }
     for hatch in doc.hatches() {
-        if doc.layer_shown(&hatch.layer) {
-            commands.push(hatch_command(hatch));
+        if hatch.space == space && doc.layer_shown(&hatch.layer) {
+            list.extend(hatch_commands(hatch), underlay);
         }
     }
     for dim in doc.dimensions() {
-        if doc.layer_shown(&dim.layer) {
-            commands.extend(dimension_commands(dim, doc.properties()));
+        if dim.space == space && doc.layer_shown(&dim.layer) {
+            list.extend(dimension_commands(dim, doc.properties()), underlay);
         }
     }
-    DrawList { commands }
 }
 
 /// The world→screen transform for a 2D CAD viewport: a centre point in world
@@ -868,6 +1053,7 @@ mod tests {
             "ANSI31",
         ));
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "A-DIMS".to_string(),
             kind: DimensionKind::Linear,
             p1: Point2::new(0.0, 0.0),
@@ -886,16 +1072,32 @@ mod tests {
             list.len()
         );
 
-        // The hatch renders as a closed boundary on its layer.
+        // Pattern hatch (ANSI31) emits diagonal strokes + closed boundary.
         let hatch = list
             .commands
             .iter()
-            .find(|c| c.layer() == "A-FLOR")
+            .find(|c| {
+                matches!(
+                    c,
+                    DrawCommand::Polyline {
+                        layer,
+                        closed: true,
+                        points,
+                        ..
+                    } if layer == "A-FLOR" && points.len() == 4
+                )
+            })
             .expect("hatch boundary present");
         assert!(matches!(
             hatch,
             DrawCommand::Polyline { closed: true, points, .. } if points.len() == 4
         ));
+        assert!(
+            list.commands
+                .iter()
+                .any(|c| matches!(c, DrawCommand::Polyline { layer, closed: false, .. } if layer == "A-FLOR")),
+            "pattern hatch should emit diagonal strokes"
+        );
 
         // The dimension renders as a span line plus its measured value as text.
         let dim_text = list.commands.iter().find_map(|c| match c {
@@ -1024,8 +1226,8 @@ mod tests {
 
     #[test]
     fn visibility_hides_block_entities() {
-        use std::collections::HashMap;
         use aadt_model::BLOCK_VIS_ATTR;
+        use std::collections::HashMap;
 
         let mut doc = Document::new();
         let mut block = Block::new("WIN", Point2::new(0.0, 0.0));

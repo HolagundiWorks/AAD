@@ -1,14 +1,12 @@
 //! Drawing time machine — Sheets-style checkpoints inside `.aadt`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aadt_model::Document;
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::{
-    init_schema_tables, read_document, write_document, StoreError, SCHEMA_VERSION,
-};
+use crate::{init_schema_tables, read_document, write_document, StoreError, SCHEMA_VERSION};
 
 /// Max number of `auto` checkpoints retained (named ones are never pruned).
 pub const MAX_AUTO_CHECKPOINTS: usize = 20;
@@ -293,14 +291,7 @@ fn insert_checkpoint(
     conn.execute(
         "INSERT INTO history_checkpoint (created_at, label, kind, doc_revision, note, author)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![
-            created,
-            label,
-            kind,
-            doc.revision() as i64,
-            note,
-            author
-        ],
+        params![created, label, kind, doc.revision() as i64, note, author],
     )?;
     let id = conn.last_insert_rowid();
     conn.execute(
@@ -323,9 +314,8 @@ pub fn append_auto_checkpoint(conn: &Connection, doc: &Document) -> Result<i64, 
 
 fn prune_auto(conn: &Connection, keep: usize) -> Result<(), StoreError> {
     let ids: Vec<i64> = {
-        let mut q = conn.prepare(
-            "SELECT id FROM history_checkpoint WHERE kind = 'auto' ORDER BY id DESC",
-        )?;
+        let mut q =
+            conn.prepare("SELECT id FROM history_checkpoint WHERE kind = 'auto' ORDER BY id DESC")?;
         let all: Vec<i64> = q
             .query_map([], |r| r.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -335,8 +325,14 @@ fn prune_auto(conn: &Connection, keep: usize) -> Result<(), StoreError> {
         all.into_iter().skip(keep).collect()
     };
     for id in ids {
-        conn.execute("DELETE FROM history_blob WHERE checkpoint_id = ?1", params![id])?;
-        conn.execute("DELETE FROM history_change WHERE checkpoint_id = ?1", params![id])?;
+        conn.execute(
+            "DELETE FROM history_blob WHERE checkpoint_id = ?1",
+            params![id],
+        )?;
+        conn.execute(
+            "DELETE FROM history_change WHERE checkpoint_id = ?1",
+            params![id],
+        )?;
         conn.execute("DELETE FROM history_checkpoint WHERE id = ?1", params![id])?;
     }
     Ok(())
@@ -400,8 +396,7 @@ pub fn purge_auto_checkpoints(path: impl AsRef<Path>) -> Result<usize, StoreErro
     let conn = Connection::open(path.as_ref())?;
     ensure_v5_or_migrate(&conn)?;
     let ids: Vec<i64> = {
-        let mut q =
-            conn.prepare("SELECT id FROM history_checkpoint WHERE kind = 'auto'")?;
+        let mut q = conn.prepare("SELECT id FROM history_checkpoint WHERE kind = 'auto'")?;
         let collected = q
             .query_map([], |r| r.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
@@ -409,8 +404,14 @@ pub fn purge_auto_checkpoints(path: impl AsRef<Path>) -> Result<usize, StoreErro
     };
     let n = ids.len();
     for id in ids {
-        conn.execute("DELETE FROM history_blob WHERE checkpoint_id = ?1", params![id])?;
-        conn.execute("DELETE FROM history_change WHERE checkpoint_id = ?1", params![id])?;
+        conn.execute(
+            "DELETE FROM history_blob WHERE checkpoint_id = ?1",
+            params![id],
+        )?;
+        conn.execute(
+            "DELETE FROM history_change WHERE checkpoint_id = ?1",
+            params![id],
+        )?;
         conn.execute("DELETE FROM history_checkpoint WHERE id = ?1", params![id])?;
     }
     Ok(n)
@@ -439,10 +440,4 @@ pub(crate) fn ensure_v5_or_migrate(conn: &Connection) -> Result<(), StoreError> 
         ))),
         None => Err(StoreError::Format("missing schema_version".into())),
     }
-}
-
-/// Resolve path used by HISTORY when only a basename is known.
-#[allow(dead_code)]
-pub fn resolve_aadt_path(path: &str) -> PathBuf {
-    PathBuf::from(path)
 }

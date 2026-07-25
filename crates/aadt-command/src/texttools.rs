@@ -1,4 +1,4 @@
-﻿//! Text utilities from HCW-TOOLS.lsp: FIXTXT, TextIncrement, TXTALIGN, etc.
+//! Text utilities from HCW-TOOLS.lsp: FIXTXT, TextIncrement, TXTALIGN, etc.
 
 use aadt_geometry::Point2;
 use aadt_model::{Geometry, Text};
@@ -196,7 +196,10 @@ impl Command for TextIncrementCmd {
         "TEXTINCREMENT id x y — copy TEXT with last number incremented (preserves zero pad)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let id = parse_entity_id(args.first().ok_or("TEXTINCREMENT: missing id")?, "TEXTINCREMENT")?;
+        let id = parse_entity_id(
+            args.first().ok_or("TEXTINCREMENT: missing id")?,
+            "TEXTINCREMENT",
+        )?;
         let x = parse_f64(args, 1, "TEXTINCREMENT")?;
         let y = parse_f64(args, 2, "TEXTINCREMENT")?;
         let e = ctx
@@ -302,14 +305,12 @@ impl Command for TxtDupCmd {
         let mut dups = Vec::new();
         for e in ctx.doc.entities() {
             if let Geometry::Text(t) = &e.geometry {
-                let key = format!(
-                    "{}|{:.3},{:.3}",
-                    t.value, t.position.x, t.position.y
-                );
-                if seen.contains_key(&key) {
-                    dups.push(e.id);
-                } else {
-                    seen.insert(key, e.id);
+                let key = format!("{}|{:.3},{:.3}", t.value, t.position.x, t.position.y);
+                match seen.entry(key) {
+                    std::collections::hash_map::Entry::Vacant(v) => {
+                        v.insert(e.id);
+                    }
+                    std::collections::hash_map::Entry::Occupied(_) => dups.push(e.id),
                 }
             }
         }
@@ -411,7 +412,11 @@ impl Command for WinLabelCmd {
         let mut ids = Vec::new();
         let mut base = None::<Point2>;
         let mut i = 0;
-        if args.first().map(|s| s.eq_ignore_ascii_case("AT")).unwrap_or(false) {
+        if args
+            .first()
+            .map(|s| s.eq_ignore_ascii_case("AT"))
+            .unwrap_or(false)
+        {
             let x = parse_f64(args, 1, "WINLABEL")?;
             let y = parse_f64(args, 2, "WINLABEL")?;
             base = Some(Point2::new(x, y));
@@ -444,8 +449,7 @@ impl Command for WinLabelCmd {
         }
         if labels.is_empty() {
             return Err(
-                "WINLABEL: no INSERT with WNAME in selection (set via EATTEDIT / BPARAM)"
-                    .into(),
+                "WINLABEL: no INSERT with WNAME in selection (set via EATTEDIT / BPARAM)".into(),
             );
         }
         let n = labels.len();
@@ -545,19 +549,12 @@ mod tests {
             .id;
         i.eval_line(&mut ctx, &format!("SELECT {}", insert_id.0))
             .unwrap();
-        let msg = i
-            .eval_line(&mut ctx, "WINLABEL AT 0 10")
-            .unwrap()
-            .unwrap();
+        let msg = i.eval_line(&mut ctx, "WINLABEL AT 0 10").unwrap().unwrap();
         assert!(msg.contains("AB12"));
-        let label = ctx
-            .doc
-            .entities()
-            .iter()
-            .find_map(|e| match &e.geometry {
-                Geometry::Text(t) if e.layer == "WIN_LABELS" => Some(t.value.as_str()),
-                _ => None,
-            });
+        let label = ctx.doc.entities().iter().find_map(|e| match &e.geometry {
+            Geometry::Text(t) if e.layer == "WIN_LABELS" => Some(t.value.as_str()),
+            _ => None,
+        });
         assert_eq!(label, Some("AB"));
     }
 }

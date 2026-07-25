@@ -25,9 +25,8 @@ pub fn generate_section(
     }
 
     let dir = Point2::new(cut_b.x - cut_a.x, cut_b.y - cut_a.y);
-    let along = |p: Point2| -> f64 {
-        ((p.x - cut_a.x) * dir.x + (p.y - cut_a.y) * dir.y) / cut_len
-    };
+    let along =
+        |p: Point2| -> f64 { ((p.x - cut_a.x) * dir.x + (p.y - cut_a.y) * dir.y) / cut_len };
 
     // Collect wall hits and opening gaps along the cut (parametric 0..cut_len).
     let mut walls: Vec<(f64, f64)> = Vec::new(); // (s0, s1) along cut
@@ -118,10 +117,7 @@ pub fn generate_section(
     }
 
     // Cut indicator on plan (dashed mark on A-SECT-IDEN at cut ends).
-    doc.add_geometry(
-        "A-SECT-IDEN",
-        Geometry::Line(Segment::new(cut_a, cut_b)),
-    );
+    doc.add_geometry("A-SECT-IDEN", Geometry::Line(Segment::new(cut_a, cut_b)));
     added += 1;
 
     Ok(added)
@@ -199,17 +195,9 @@ mod tests {
             "A-WALL",
             Geometry::Line(Segment::new(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0))),
         );
-        let n = generate_section(
-            &mut doc,
-            Point2::new(5.0, 0.0),
-            Point2::new(5.0, 10.0),
-            3.0,
-        )
-        .unwrap();
+        let n =
+            generate_section(&mut doc, Point2::new(5.0, 0.0), Point2::new(5.0, 10.0), 3.0).unwrap();
         assert!(n >= 3);
-        assert!(doc
-            .entities()
-            .iter()
-            .any(|e| e.layer == "A-SECT-PATT"));
+        assert!(doc.entities().iter().any(|e| e.layer == "A-SECT-PATT"));
     }
 }

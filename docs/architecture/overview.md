@@ -8,21 +8,20 @@ documentation.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                      AADT Application (aadt-app)                │
+│                      AADT Application (aadt-app / aadt-cli)     │
 ├───────────────────────────────────────────────────────────────┤
 │                     AADT ENGINE (flagship layer)               │
-│   aadt-detect     │     aadt-takeoff      │     aadt-docs       │
-│   (elements)      │     (quantities)      │  (sheets/notes)     │
+│   aadt-detect  │  aadt-takeoff  │  aadt-docs  │  aadt-standards │
 │                   AI Orchestration (aadt-ai)                    │
 │         on-demand, local — Foundry Local (default)              │
 ├───────────────────────────────────────────────────────────────┤
 │                     CAD CORE (substrate)                       │
 │  aadt-command  │  aadt-geometry  │  aadt-lisp  │  aadt-pdf      │
-│              aadt-model (document model / undo)                 │
+│  aadt-library  │           aadt-model (document / undo)         │
 ├───────────────────────────────────────────────────────────────┤
-│        File I/O: aadt-dxf (DXF now, DWG later) | native        │
+│  File I/O: aadt-dxf (DXF + DWG import) · aadt-store (.aadt v5)   │
 ├───────────────────────────────────────────────────────────────┤
-│                Rendering: aadt-render (wgpu 2D)                 │
+│  Rendering: aadt-render · Collab: aadt-collab · FFI: aadt-ffi   │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -31,31 +30,33 @@ documentation.
 | Spec layer (§3) | Crate(s) |
 |---|---|
 | Rendering | `aadt-render` |
-| File I/O (DWG/DXF, native) | `aadt-dxf` (native format: see ADR-0004) |
+| File I/O (DXF, DWG import, native `.aadt`) | `aadt-dxf`, `aadt-store` (ADR-0002) |
 | Document model / undo | `aadt-model` |
 | Geometry kernel | `aadt-geometry` |
 | Command interpreter | `aadt-command` |
+| Standards / libraries | `aadt-standards`, `aadt-library` |
 | LISP engine | `aadt-lisp` |
 | PDF markup & comparison | `aadt-pdf` |
 | Element detection & classification | `aadt-detect` |
 | Takeoff & quantity engine | `aadt-takeoff` |
 | Documentation & sheet production | `aadt-docs` |
 | AI orchestration | `aadt-ai` |
-| Application shell | `aadt-app`, `aadt-cli` |
+| Collaboration | `aadt-collab` |
+| Application shell | `aadt-app`, `aadt-cli`, `aadt-ffi` |
 
 ## Data flow (the M0 pipeline, extended by later milestones)
 
 ```
-DXF/DWG ──▶ aadt-dxf ──▶ aadt-model (Document)
-                              │
-                              ▼
-                        aadt-detect  ── walls, wall graph, rooms
-                              │
-                              ▼
-                        aadt-takeoff ── quantities ──▶ CSV / Excel / tables
-                              │
-                              ▼  (optional, explicit, on-demand)
-                         aadt-ai ── wall-type inference, formatting, anomalies
+DXF / .aadt ──▶ aadt-dxf | aadt-store ──▶ aadt-model (Document)
+                                              │
+                                              ▼
+                                        aadt-detect  ── walls, wall graph, rooms
+                                              │
+                                              ▼
+                                        aadt-takeoff ── quantities ──▶ CSV / Excel / tables / sinks
+                                              │
+                                              ▼  (optional, explicit, on-demand)
+                                         aadt-ai ── wall-type inference, formatting, anomalies
 ```
 
 Key properties:
@@ -139,8 +140,16 @@ in the top bar. Tokens live in `crates/aadt-app/src/gui_theme.rs`.
 5. The response is **proposed** as classification attributes (`RECOGNIZE` /
    Propose → Review → Freeze; see [ADR-0007](../adr/0007-propose-review-freeze.md)).
    Geometry is never rewritten. Freeze is an explicit lock; re-infer skips frozen.
+   **Today review is CLI/session commands** (`REVIEW` / `ACCEPT` / `REJECT` /
+   `FREEZE`); an egui AI panel is a tracked gap (see [industry audit](../audit/2026-07-industry-standards-audit.md)).
 6. No AADT background AI thread; Foundry Local’s own service owns process
    lifetime. Optional AADT-owned hosts still use poll-driven warm/unload in
    `aadt_ai::lifecycle`.
 7. If the local model is unavailable or slow, the action fails gracefully with a
    command-line message; drafting and deterministic takeoff are never blocked.
+
+## Related
+
+- [Roadmap](../ROADMAP.md)
+- [Industry-standards audit (July 2026)](../audit/2026-07-industry-standards-audit.md)
+- [CHANGELOG](../CHANGELOG.md)

@@ -6,11 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "DXF import (LINE, LWPOLYLINE) into the document model. Full entity set + DXF export + DWG in later milestones (ADR-0002)."
+description = "DXF/DWG import-export into the document model (ADR-0002)."
 
 [dependencies]
 aadt-geometry.workspace = true
 aadt-model.workspace = true
+acadrust = { workspace = true }
 
 [lints]
 workspace = true

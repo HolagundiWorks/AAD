@@ -10,7 +10,7 @@
 
 use aadt_detect::{Detection, OpeningKind, StructuralKind};
 use aadt_geometry::Point2;
-use aadt_model::{Document, EntityId, Geometry, Text};
+use aadt_model::{Document, DrawingProperties, EntityId, Floor, Geometry, Text};
 
 /// Layer general notes are drawn on.
 pub const NOTES_LAYER: &str = "A-NOTE";
@@ -76,6 +76,48 @@ impl NotesLibrary {
         }
         out
     }
+
+    /// Like [`Self::suggest`], then appends height / floor-schedule notes from
+    /// drawing properties and the document floor table.
+    pub fn suggest_for_drawing(
+        &self,
+        det: &Detection,
+        props: &DrawingProperties,
+        floors: &[&Floor],
+    ) -> Vec<String> {
+        let mut out = self.suggest(det);
+        out.extend(height_notes(props));
+        out.extend(floor_schedule_notes(floors));
+        out
+    }
+}
+
+/// Notes derived from Drawing Properties floor / lintel height fields.
+pub fn height_notes(props: &DrawingProperties) -> Vec<String> {
+    let mut out = Vec::new();
+    let fh = props.floor_height.trim();
+    if !fh.is_empty() {
+        out.push(format!("Typical floor-to-floor height is {fh}."));
+    }
+    let lh = props.lintel_height.trim();
+    if !lh.is_empty() {
+        out.push(format!(
+            "Typical lintel height is {lh} above finished floor level (FFL)."
+        ));
+    }
+    out
+}
+
+/// One note listing storey elevations when more than one floor exists.
+pub fn floor_schedule_notes(floors: &[&Floor]) -> Vec<String> {
+    if floors.len() < 2 {
+        return Vec::new();
+    }
+    let parts: Vec<String> = floors
+        .iter()
+        .map(|f| format!("{} @ {:.3} m", f.name, f.elevation_m))
+        .collect();
+    vec![format!("Floor levels (FFL): {}.", parts.join("; "))]
 }
 
 impl Default for NotesLibrary {
@@ -162,7 +204,7 @@ mod tests {
     use super::*;
     use aadt_detect::{detect, DetectionConfig};
     use aadt_geometry::Segment;
-    use aadt_model::{Document as Doc, Insert};
+    use aadt_model::{Document as Doc, Insert, LevelId};
 
     fn doc_with_door_and_room() -> Doc {
         let mut doc = Doc::new();
@@ -233,6 +275,43 @@ mod tests {
         let det = detect(&doc, &DetectionConfig::default());
         let lib = NotesLibrary::standard();
         assert_eq!(lib.suggest(&det), lib.suggest(&det));
+    }
+
+    #[test]
+    fn height_notes_from_drawing_properties() {
+        let props = DrawingProperties {
+            floor_height: "3000 mm".into(),
+            lintel_height: "2100 mm".into(),
+            ..Default::default()
+        };
+        let notes = height_notes(&props);
+        assert_eq!(notes.len(), 2);
+        assert!(notes[0].contains("3000 mm"));
+        assert!(notes[1].contains("2100 mm"));
+        assert!(notes[1].contains("FFL"));
+    }
+
+    #[test]
+    fn floor_schedule_note_for_multiple_floors() {
+        let floors = [
+            Floor {
+                id: LevelId(1),
+                name: "Ground".into(),
+                index: 0,
+                elevation_m: 0.0,
+            },
+            Floor {
+                id: LevelId(2),
+                name: "Level 1".into(),
+                index: 1,
+                elevation_m: 3.0,
+            },
+        ];
+        let refs: Vec<&Floor> = floors.iter().collect();
+        let notes = floor_schedule_notes(&refs);
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("Ground @ 0.000 m"));
+        assert!(notes[0].contains("Level 1 @ 3.000 m"));
     }
 
     #[test]

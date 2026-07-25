@@ -24,12 +24,15 @@ mod autodim;
 mod blocks;
 mod bplt;
 mod essentials;
+mod floors;
 mod hcw;
+mod place_blocks;
 mod room;
 mod texttools;
 
-pub use room::{room_type_for_command, RoomSettings, ROOM_TYPES};
 pub use autodim::DEFAULT_DIM_LAYER;
+pub use place_blocks::ensure_place_blocks;
+pub use room::{room_type_for_command, RoomSettings, ROOM_TYPES};
 
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.
 ///
@@ -170,7 +173,9 @@ pub fn builtins() -> Registry {
     r.register(Box::new(ExtendCmd));
     r.register(Box::new(FilletCmd));
     r.register(Box::new(ChamferCmd));
-    r.register(Box::new(ArrayCmd));
+    r.register(Box::new(ArrayRectCmd));
+    r.register(Box::new(ArrayPolarCmd));
+    r.register(Box::new(ArrayPathCmd));
     r.register(Box::new(ExplodeCmd));
     r.register(Box::new(EraseCmd));
     r.register(Box::new(GripEditCmd));
@@ -178,6 +183,14 @@ pub fn builtins() -> Registry {
     r.register(Box::new(LayerCmd));
     r.register(Box::new(LayersCmd));
     r.register(Box::new(PurgeCmd));
+    r.register(Box::new(floors::FloorCmd));
+    r.register(Box::new(floors::FloorAddCmd));
+    r.register(Box::new(floors::SpaceAddCmd));
+    r.register(Box::new(floors::CategoryCmd));
+    r.register(Box::new(floors::TraceCmd));
+    r.register(Box::new(floors::OriginCmd));
+    r.register(Box::new(floors::ChSpaceCmd));
+    r.register(Box::new(floors::LayerMapCmd));
     // Annotate.
     r.register(Box::new(DimCmd));
     r.register(Box::new(DimContinueCmd));
@@ -353,7 +366,11 @@ fn entity_extent(g: &Geometry) -> Option<Bbox> {
 /// Resolve an edit command's target token to a set of entity ids: `ALL`,
 /// `SELECTION` (the last `SELECT`), a group name, or a single numeric id. Ids
 /// that no longer exist are dropped, so a group survives erasing a member.
-pub(crate) fn resolve_targets(ctx: &Context, token: &str, cmd: &str) -> Result<Vec<EntityId>, String> {
+pub(crate) fn resolve_targets(
+    ctx: &Context,
+    token: &str,
+    cmd: &str,
+) -> Result<Vec<EntityId>, String> {
     let exists = |id: &EntityId| ctx.doc.get(*id).is_some();
     let ids: Vec<EntityId> = match token.to_ascii_uppercase().as_str() {
         "ALL" => {
@@ -504,7 +521,7 @@ impl Command for TextCmd {
         "TEXT"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["DTEXT", "T"]
+        &["DTEXT", "DT", "T"]
     }
     fn help(&self) -> &str {
         "TEXT x y height [layer] value... — add single-line text (default layer A-ANNO-TEXT)"
@@ -545,7 +562,7 @@ impl Command for MleaderCmd {
         "MLEADER"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["LEADER", "MLD", "LE"]
+        &["LEADER", "MLD"]
     }
     fn help(&self) -> &str {
         "MLEADER ax ay lx ly tx ty height value... — leader arrow→landing→text (v0: line+text)"
@@ -595,7 +612,7 @@ impl Command for InsertCmd {
         &["I"]
     }
     fn help(&self) -> &str {
-        "INSERT name x y [rotation] [layer] — place a block reference"
+        "INSERT name x y [rotation] [layer] [scale] — place a block reference (scale default 1)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let name = args.first().ok_or("INSERT: missing block name")?.clone();
@@ -608,6 +625,12 @@ impl Command for InsertCmd {
             None => 0.0,
         };
         let layer = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
+        let scale = match args.get(5) {
+            Some(s) => s
+                .parse::<f64>()
+                .map_err(|_| format!("INSERT: scale {s:?} is not a number"))?,
+            None => 1.0,
+        };
         let attrs = ctx
             .doc
             .block(&name)
@@ -616,11 +639,13 @@ impl Command for InsertCmd {
         let id = ctx.doc.transact("INSERT", |d| {
             d.add_entity(
                 layer,
-                Geometry::Insert(Insert::new(name, Point2::new(x, y), rotation)),
+                Geometry::Insert(
+                    Insert::new(name, Point2::new(x, y), rotation).with_scale(scale, scale),
+                ),
                 attrs,
             )
         });
-        Ok(format!("INSERT added as entity {}", id.0))
+        Ok(format!("INSERT added as entity {} (scale {scale})", id.0))
     }
 }
 
@@ -830,12 +855,7 @@ impl Command for MirrorCmd {
         }
         let erase = args
             .get(5)
-            .map(|s| {
-                matches!(
-                    s.to_ascii_lowercase().as_str(),
-                    "y" | "yes" | "erase" | "1"
-                )
-            })
+            .map(|s| matches!(s.to_ascii_lowercase().as_str(), "y" | "yes" | "erase" | "1"))
             .unwrap_or(false);
         let n = targets.len();
         if erase {
@@ -844,10 +864,7 @@ impl Command for MirrorCmd {
                     d.mirror_entity(*id, a, b);
                 }
             });
-            Ok(format!(
-                "mirrored {n} {} (source erased)",
-                entities_word(n)
-            ))
+            Ok(format!("mirrored {n} {} (source erased)", entities_word(n)))
         } else {
             // Keep source: add mirrored clones (AutoCAD default).
             let clones: Vec<(String, Geometry, std::collections::HashMap<String, String>)> =
@@ -868,10 +885,7 @@ impl Command for MirrorCmd {
                     d.add_entity(layer, g, attrs);
                 }
             });
-            Ok(format!(
-                "mirrored {n} {} (source kept)",
-                entities_word(n)
-            ))
+            Ok(format!("mirrored {n} {} (source kept)", entities_word(n)))
         }
     }
 }
@@ -959,10 +973,14 @@ fn far_end(x: Point2, s: Segment) -> Point2 {
     }
 }
 
-/// Is `p` on the *bounded* shape (line segment, arc sweep, or full circle)?
+/// Is `p` on the *bounded* shape (line segment, arc sweep, polyline edges, or full circle)?
 fn point_on_shape(g: &Geometry, p: Point2) -> bool {
     match g {
         Geometry::Line(s) => s.distance_to_point(p) <= HIT_EPS,
+        Geometry::Polyline(pl) => pl
+            .segments()
+            .iter()
+            .any(|s| s.distance_to_point(p) <= HIT_EPS),
         Geometry::Arc(a) => a.contains_point(p),
         Geometry::Circle(c) => (p.distance(c.center) - c.radius).abs() <= HIT_EPS,
         _ => false,
@@ -970,10 +988,10 @@ fn point_on_shape(g: &Geometry, p: Point2) -> bool {
 }
 
 /// Intersection points of the two shapes' *unbounded* curves (a line as its
-/// infinite line, an arc/circle as its full circle). Supports line/arc/circle
-/// pairs; arc-vs-arc/circle is not modelled and yields nothing.
+/// infinite line, an arc/circle as its full circle). Supports line/arc/circle/
+/// polyline pairs; arc-vs-arc/circle is not modelled and yields nothing.
 fn curve_crossings(a: &Geometry, b: &Geometry) -> Vec<Point2> {
-    use Geometry::{Arc, Circle, Line};
+    use Geometry::{Arc, Circle, Line, Polyline};
     match (a, b) {
         (Line(s1), Line(s2)) => s1
             .line_intersection(*s2)
@@ -982,6 +1000,27 @@ fn curve_crossings(a: &Geometry, b: &Geometry) -> Vec<Point2> {
             .collect(),
         (Line(s), Arc(ar)) | (Arc(ar), Line(s)) => ar.circle().line_intersections(*s),
         (Line(s), Circle(c)) | (Circle(c), Line(s)) => c.line_intersections(*s),
+        // Expand polylines to edges (walls / LWPOLYLINE cutters).
+        (Polyline(p), Polyline(q)) => {
+            let mut pts = Vec::new();
+            for seg_p in p.segments() {
+                for seg_q in q.segments() {
+                    pts.extend(curve_crossings(
+                        &Geometry::Line(seg_p),
+                        &Geometry::Line(seg_q),
+                    ));
+                }
+            }
+            pts
+        }
+        (Polyline(p), other) => {
+            let mut pts = Vec::new();
+            for seg in p.segments() {
+                pts.extend(curve_crossings(&Geometry::Line(seg), other));
+            }
+            pts
+        }
+        (_, Polyline(_)) => curve_crossings(b, a),
         _ => Vec::new(),
     }
 }
@@ -1050,90 +1089,400 @@ impl Command for TrimCmd {
         &["TR"]
     }
     fn help(&self) -> &str {
-        "TRIM id cutter px py — trim a line, arc, or polyline at its crossing with another entity, dropping the piece at (px, py)"
+        "TRIM id px py [cutter…] — trim at the pick (AutoCAD-like): remove the \
+         segment between adjacent cutting edges. With no cutters, every other \
+         entity is a cutting edge (Quick mode). Legacy: TRIM id cutter px py"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let id = parse_entity_id(args.first().ok_or("TRIM: missing entity id")?, "TRIM")?;
-        let cutter_id = parse_entity_id(args.get(1).ok_or("TRIM: missing cutter id")?, "TRIM")?;
-        let pick = Point2::new(parse_f64(args, 2, "TRIM")?, parse_f64(args, 3, "TRIM")?);
+        let (id, pick, cutter_ids) = parse_trim_args(args)?;
         let target = require_geometry(ctx, id, "TRIM")?;
-        let cutter = require_geometry(ctx, cutter_id, "TRIM")?;
+        let cutters = resolve_trim_cutters(ctx, id, &cutter_ids)?;
+        if cutters.is_empty() {
+            return Err("TRIM: no cutting edges available".into());
+        }
 
-        // The crossing nearest the pick, for the whole-shape (line/arc) targets.
-        let nearest_crossing = || {
-            nearest_to(&bounded_crossings(&target, &cutter), pick)
-                .ok_or_else(|| "TRIM: the cutter does not cross the entity".to_string())
-        };
-
-        let new = match &target {
-            Geometry::Line(s) => {
-                let x = nearest_crossing()?;
-                // Keep the side away from the pick point.
-                let kept = if s.project_param(pick) < s.project_param(x) {
-                    Segment::new(x, s.b)
-                } else {
-                    Segment::new(s.a, x)
-                };
-                if kept.length() <= HIT_EPS {
-                    return Err("TRIM: nothing would be left of the line".to_string());
-                }
-                Geometry::Line(kept)
-            }
-            Geometry::Arc(a) => {
-                let x = nearest_crossing()?;
-                // The crossing splits the sweep in two; drop the half the pick is on.
-                let theta = a.angle_of(x);
-                let first_half = Arc::new(a.center, a.radius, a.start_angle, theta);
-                if first_half.contains_angle(a.angle_of(pick)) {
-                    Geometry::Arc(Arc::new(a.center, a.radius, theta, a.end_angle))
-                } else {
-                    Geometry::Arc(first_half)
-                }
-            }
-            Geometry::Polyline(p) => {
-                if p.closed {
-                    return Err("TRIM: closed polylines are not supported".to_string());
-                }
-                let verts = &p.vertices;
-                // The crossing (edge index, point) nearest the pick.
-                let mut hits: Vec<(usize, Point2)> = Vec::new();
-                for (k, w) in verts.windows(2).enumerate() {
-                    for x in segment_crossings(Segment::new(w[0], w[1]), &cutter) {
-                        hits.push((k, x));
-                    }
-                }
-                let (k, x) = hits
-                    .into_iter()
-                    .min_by(|a, b| a.1.distance(pick).total_cmp(&b.1.distance(pick)))
-                    .ok_or("TRIM: the cutter does not cross the entity")?;
-                // Keep the run of the path away from the pick, cut at the crossing.
-                let x_pos = length_to_vertex(verts, k) + verts[k].distance(x);
-                let new_verts: Vec<Point2> = if path_param(verts, pick) < x_pos {
-                    std::iter::once(x)
-                        .chain(verts[k + 1..].iter().copied())
-                        .collect()
-                } else {
-                    verts[..=k]
-                        .iter()
-                        .copied()
-                        .chain(std::iter::once(x))
-                        .collect()
-                };
-                if new_verts.len() < 2 {
-                    return Err("TRIM: nothing would be left of the polyline".to_string());
-                }
-                Geometry::Polyline(Polyline::new(new_verts, false))
-            }
-            _ => {
-                return Err(format!(
-                    "TRIM: entity {} must be a line, arc, or polyline",
-                    id.0
-                ))
-            }
-        };
-        ctx.doc.transact("TRIM", |d| d.replace_geometry(id, new));
+        let result = trim_geometry(&target, &cutters, pick)?;
+        apply_trim_result(ctx, id, result)?;
         Ok(format!("trimmed entity {}", id.0))
     }
+}
+
+/// Parse TRIM args.
+///
+/// Preferred (Quick / multi-cutter): `id px py [cutter…]`  
+/// Legacy single-cutter: `id cutter px py` (exactly four numeric tokens).
+fn parse_trim_args(args: &[String]) -> Result<(EntityId, Point2, Vec<EntityId>), String> {
+    if args.len() < 3 {
+        return Err("TRIM: need id px py [cutter…]".into());
+    }
+    let id = parse_entity_id(&args[0], "TRIM")?;
+
+    // Legacy: TRIM id cutter px py
+    if args.len() == 4
+        && args[1].parse::<i64>().is_ok()
+        && args[2].parse::<f64>().is_ok()
+        && args[3].parse::<f64>().is_ok()
+    {
+        let cutter = parse_entity_id(&args[1], "TRIM")?;
+        let pick = Point2::new(parse_f64(args, 2, "TRIM")?, parse_f64(args, 3, "TRIM")?);
+        return Ok((id, pick, vec![cutter]));
+    }
+
+    let pick = Point2::new(parse_f64(args, 1, "TRIM")?, parse_f64(args, 2, "TRIM")?);
+    let mut cutters = Vec::new();
+    for a in args.iter().skip(3) {
+        cutters.push(parse_entity_id(a, "TRIM")?);
+    }
+    Ok((id, pick, cutters))
+}
+
+fn resolve_trim_cutters(
+    ctx: &Context,
+    target: EntityId,
+    explicit: &[EntityId],
+) -> Result<Vec<Geometry>, String> {
+    if explicit.is_empty() {
+        Ok(ctx
+            .doc
+            .entities()
+            .iter()
+            .filter(|e| e.id != target)
+            .map(|e| e.geometry.clone())
+            .collect())
+    } else {
+        let mut out = Vec::with_capacity(explicit.len());
+        for cid in explicit {
+            if *cid == target {
+                continue;
+            }
+            out.push(require_geometry(ctx, *cid, "TRIM")?);
+        }
+        Ok(out)
+    }
+}
+
+/// Outcome of a trim: keep one piece on the original id, optionally add a second.
+struct TrimResult {
+    /// Geometry left on the original entity (`None` = erase the entity).
+    kept: Option<Geometry>,
+    /// Extra piece when a middle segment is removed (AutoCAD split).
+    split: Option<Geometry>,
+}
+
+fn apply_trim_result(ctx: &mut Context, id: EntityId, result: TrimResult) -> Result<(), String> {
+    let layer = ctx
+        .doc
+        .get(id)
+        .map(|e| e.layer.clone())
+        .ok_or_else(|| format!("TRIM: no entity with id {}", id.0))?;
+    let attrs = ctx
+        .doc
+        .get(id)
+        .map(|e| e.attributes.clone())
+        .unwrap_or_default();
+    ctx.doc.transact("TRIM", |d| {
+        match (&result.kept, &result.split) {
+            (Some(k), Some(s)) => {
+                d.replace_geometry(id, k.clone());
+                d.add_entity(layer.clone(), s.clone(), attrs.clone());
+            }
+            (Some(k), None) => {
+                d.replace_geometry(id, k.clone());
+            }
+            (None, Some(s)) => {
+                d.replace_geometry(id, s.clone());
+            }
+            (None, None) => {
+                d.remove_entity(id);
+            }
+        }
+    });
+    Ok(())
+}
+
+/// AutoCAD-like trim: remove the portion of `target` that contains `pick`,
+/// bounded by the nearest cutting-edge crossings on either side.
+fn trim_geometry(target: &Geometry, cutters: &[Geometry], pick: Point2) -> Result<TrimResult, String> {
+    match target {
+        Geometry::Line(s) => trim_line(*s, cutters, pick),
+        Geometry::Arc(a) => trim_arc(*a, cutters, pick),
+        Geometry::Polyline(p) => {
+            if p.closed {
+                return Err("TRIM: closed polylines are not supported".into());
+            }
+            trim_polyline(p, cutters, pick)
+        }
+        _ => Err("TRIM: entity must be a line, arc, or polyline".into()),
+    }
+}
+
+fn dedup_sorted_params(mut vals: Vec<f64>) -> Vec<f64> {
+    vals.sort_by(|a, b| a.total_cmp(b));
+    let mut out: Vec<f64> = Vec::new();
+    for v in vals {
+        if out.last().is_none_or(|p| (v - p).abs() > HIT_EPS) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// Remove interval `(lo, hi)` on a unit parameter in `[0, 1]`, returning up to two
+/// kept pieces as `(t0, t1)` ranges.
+fn keep_ranges_after_cut(lo: f64, hi: f64) -> Vec<(f64, f64)> {
+    let mut kept = Vec::new();
+    if lo > HIT_EPS {
+        kept.push((0.0, lo));
+    }
+    if hi < 1.0 - HIT_EPS {
+        kept.push((hi, 1.0));
+    }
+    kept
+}
+
+fn interval_containing(bounds: &[f64], t: f64) -> Option<(f64, f64)> {
+    if bounds.len() < 2 {
+        return None;
+    }
+    // Prefer a strictly containing interval; fall back to nearest midpoint.
+    for w in bounds.windows(2) {
+        let (lo, hi) = (w[0], w[1]);
+        if hi - lo <= HIT_EPS {
+            continue;
+        }
+        if t >= lo - HIT_EPS && t <= hi + HIT_EPS {
+            // If t sits exactly on a shared cut, prefer the interval whose
+            // interior is closer to t (slight bias toward the right when equal).
+            return Some((lo, hi));
+        }
+    }
+    let mut best: Option<(f64, f64, f64)> = None;
+    for w in bounds.windows(2) {
+        let (lo, hi) = (w[0], w[1]);
+        if hi - lo <= HIT_EPS {
+            continue;
+        }
+        let mid = 0.5 * (lo + hi);
+        let dist = (t - mid).abs();
+        if best.is_none_or(|(bd, _, _)| dist < bd) {
+            best = Some((dist, lo, hi));
+        }
+    }
+    best.map(|(_, lo, hi)| (lo, hi))
+}
+
+fn trim_line(s: Segment, cutters: &[Geometry], pick: Point2) -> Result<TrimResult, String> {
+    let target = Geometry::Line(s);
+    let mut cuts = Vec::new();
+    for c in cutters {
+        for p in bounded_crossings(&target, c) {
+            let t = s.project_param(p);
+            if (-HIT_EPS..=1.0 + HIT_EPS).contains(&t) {
+                cuts.push(t.clamp(0.0, 1.0));
+            }
+        }
+    }
+    let cuts = dedup_sorted_params(cuts);
+    if cuts.is_empty() {
+        return Err("TRIM: the cutter does not cross the entity".into());
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(1.0);
+    let pick_t = s.project_param(pick).clamp(0.0, 1.0);
+    let (lo, hi) = interval_containing(&bounds, pick_t)
+        .ok_or("TRIM: the cutter does not cross the entity")?;
+    // Degenerate: pick on a zero-length stub.
+    if hi - lo <= HIT_EPS {
+        return Err("TRIM: nothing would be left of the line".into());
+    }
+    let kept_ranges = keep_ranges_after_cut(lo, hi);
+    if kept_ranges.is_empty() {
+        return Err("TRIM: nothing would be left of the line".into());
+    }
+    let point_at = |t: f64| s.a + (s.b - s.a) * t;
+    let segs: Vec<Geometry> = kept_ranges
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let seg = Segment::new(point_at(a), point_at(b));
+            (seg.length() > HIT_EPS).then_some(Geometry::Line(seg))
+        })
+        .collect();
+    match segs.len() {
+        0 => Err("TRIM: nothing would be left of the line".into()),
+        1 => Ok(TrimResult {
+            kept: Some(segs[0].clone()),
+            split: None,
+        }),
+        _ => Ok(TrimResult {
+            kept: Some(segs[0].clone()),
+            split: Some(segs[1].clone()),
+        }),
+    }
+}
+
+fn trim_arc(a: Arc, cutters: &[Geometry], pick: Point2) -> Result<TrimResult, String> {
+    let target = Geometry::Arc(a);
+    let sweep = a.sweep();
+    if sweep <= HIT_EPS {
+        return Err("TRIM: nothing would be left of the arc".into());
+    }
+    let mut cuts = Vec::new();
+    for c in cutters {
+        for p in bounded_crossings(&target, c) {
+            let off = (a.angle_of(p) - a.start_angle).rem_euclid(360.0);
+            if off <= sweep + HIT_EPS {
+                cuts.push((off / sweep).clamp(0.0, 1.0));
+            }
+        }
+    }
+    let cuts = dedup_sorted_params(cuts);
+    if cuts.is_empty() {
+        return Err("TRIM: the cutter does not cross the entity".into());
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(1.0);
+    let pick_off = (a.angle_of(pick) - a.start_angle).rem_euclid(360.0);
+    let pick_t = (pick_off / sweep).clamp(0.0, 1.0);
+    let (lo, hi) = interval_containing(&bounds, pick_t)
+        .ok_or("TRIM: the cutter does not cross the entity")?;
+    let kept_ranges = keep_ranges_after_cut(lo, hi);
+    if kept_ranges.is_empty() {
+        return Err("TRIM: nothing would be left of the arc".into());
+    }
+    let arc_at = |t0: f64, t1: f64| {
+        let start = a.start_angle + sweep * t0;
+        let end = a.start_angle + sweep * t1;
+        Geometry::Arc(Arc::new(a.center, a.radius, start, end))
+    };
+    let arcs: Vec<Geometry> = kept_ranges
+        .into_iter()
+        .filter(|(t0, t1)| t1 - t0 > HIT_EPS)
+        .map(|(t0, t1)| arc_at(t0, t1))
+        .collect();
+    match arcs.len() {
+        0 => Err("TRIM: nothing would be left of the arc".into()),
+        1 => Ok(TrimResult {
+            kept: Some(arcs[0].clone()),
+            split: None,
+        }),
+        _ => Ok(TrimResult {
+            kept: Some(arcs[0].clone()),
+            split: Some(arcs[1].clone()),
+        }),
+    }
+}
+
+fn trim_polyline(
+    p: &Polyline,
+    cutters: &[Geometry],
+    pick: Point2,
+) -> Result<TrimResult, String> {
+    let verts = &p.vertices;
+    if verts.len() < 2 {
+        return Err("TRIM: nothing would be left of the polyline".into());
+    }
+    let total: f64 = verts.windows(2).map(|w| w[0].distance(w[1])).sum();
+    if total <= HIT_EPS {
+        return Err("TRIM: nothing would be left of the polyline".into());
+    }
+    let mut cuts = Vec::new();
+    for (k, w) in verts.windows(2).enumerate() {
+        let seg = Segment::new(w[0], w[1]);
+        for c in cutters {
+            for x in segment_crossings(seg, c) {
+                let along = length_to_vertex(verts, k) + verts[k].distance(x);
+                cuts.push((along / total).clamp(0.0, 1.0));
+            }
+        }
+    }
+    let cuts = dedup_sorted_params(cuts);
+    if cuts.is_empty() {
+        return Err("TRIM: the cutter does not cross the entity".into());
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(1.0);
+    let pick_t = (path_param(verts, pick) / total).clamp(0.0, 1.0);
+    let (lo, hi) = interval_containing(&bounds, pick_t)
+        .ok_or("TRIM: the cutter does not cross the entity")?;
+    let kept_ranges = keep_ranges_after_cut(lo, hi);
+    if kept_ranges.is_empty() {
+        return Err("TRIM: nothing would be left of the polyline".into());
+    }
+    let polys: Vec<Geometry> = kept_ranges
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let v = polyline_slice(verts, a * total, b * total)?;
+            (v.len() >= 2).then_some(Geometry::Polyline(Polyline::new(v, false)))
+        })
+        .collect();
+    match polys.len() {
+        0 => Err("TRIM: nothing would be left of the polyline".into()),
+        1 => Ok(TrimResult {
+            kept: Some(polys[0].clone()),
+            split: None,
+        }),
+        _ => Ok(TrimResult {
+            kept: Some(polys[0].clone()),
+            split: Some(polys[1].clone()),
+        }),
+    }
+}
+
+/// Extract an open polyline subpath from arc-length `s0` to `s1` (inclusive).
+fn polyline_slice(verts: &[Point2], s0: f64, s1: f64) -> Option<Vec<Point2>> {
+    if s1 - s0 <= HIT_EPS || verts.len() < 2 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let point_on = |a: Point2, b: Point2, d: f64| {
+        let len = a.distance(b);
+        if len <= HIT_EPS {
+            a
+        } else {
+            a + (b - a) * (d / len)
+        }
+    };
+    // Start point.
+    {
+        let mut c = 0.0;
+        for w in verts.windows(2) {
+            let len = w[0].distance(w[1]);
+            if c + len >= s0 - HIT_EPS {
+                out.push(point_on(w[0], w[1], (s0 - c).clamp(0.0, len)));
+                break;
+            }
+            c += len;
+        }
+    }
+    // Intermediate vertices strictly inside (s0, s1).
+    let mut cum = 0.0;
+    for (i, w) in verts.windows(2).enumerate() {
+        let len = w[0].distance(w[1]);
+        let v_end = cum + len;
+        if i + 1 < verts.len() && v_end > s0 + HIT_EPS && v_end < s1 - HIT_EPS {
+            out.push(verts[i + 1]);
+        }
+        cum = v_end;
+    }
+    // End point.
+    {
+        let mut c = 0.0;
+        for w in verts.windows(2) {
+            let len = w[0].distance(w[1]);
+            if c + len >= s1 - HIT_EPS {
+                let p = point_on(w[0], w[1], (s1 - c).clamp(0.0, len));
+                if out.last().is_none_or(|q| q.distance(p) > HIT_EPS) {
+                    out.push(p);
+                }
+                break;
+            }
+            c += len;
+        }
+    }
+    (out.len() >= 2).then_some(out)
 }
 
 struct ExtendCmd;
@@ -1388,46 +1737,235 @@ impl Command for ChamferCmd {
     }
 }
 
-struct ArrayCmd;
-impl Command for ArrayCmd {
+struct ArrayRectCmd;
+impl Command for ArrayRectCmd {
     fn name(&self) -> &str {
-        "ARRAY"
+        "ARRAYRECT"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["AR"]
+        &["ARRAY", "AR"]
     }
     fn help(&self) -> &str {
-        "ARRAY id rows cols dx dy — rectangular array of copies (rows×cols, spacing dx/dy)"
+        "ARRAYRECT target rows cols dx dy — rectangular array (SELECTION|ALL|id)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("ARRAY: missing entity id")?;
-        let id = parse_entity_id(raw, "ARRAY")?;
-        let rows = parse_usize(args, 1, "ARRAY")?;
-        let cols = parse_usize(args, 2, "ARRAY")?;
-        let dx = parse_f64(args, 3, "ARRAY")?;
-        let dy = parse_f64(args, 4, "ARRAY")?;
+        let token = args.first().ok_or("ARRAYRECT: missing target")?;
+        let targets = resolve_targets(ctx, token, "ARRAYRECT")?;
+        let rows = parse_usize(args, 1, "ARRAYRECT")?;
+        let cols = parse_usize(args, 2, "ARRAYRECT")?;
+        let dx = parse_f64(args, 3, "ARRAYRECT")?;
+        let dy = parse_f64(args, 4, "ARRAYRECT")?;
         if rows == 0 || cols == 0 {
-            return Err("ARRAY: rows and cols must be at least 1".to_string());
+            return Err("ARRAYRECT: rows and cols must be at least 1".to_string());
         }
-        let existing = ctx
-            .doc
-            .get(id)
-            .ok_or_else(|| format!("ARRAY: no entity with id {}", id.0))?;
-        let layer = existing.layer.clone();
-        let geometry = existing.geometry.clone();
-        // Every grid cell except the original's (0,0) gets a translated copy.
+        let sources: Vec<(String, Geometry)> = targets
+            .iter()
+            .filter_map(|id| ctx.doc.get(*id))
+            .map(|e| (e.layer.clone(), e.geometry.clone()))
+            .collect();
         let offsets: Vec<(f64, f64)> = (0..rows)
             .flat_map(|i| (0..cols).map(move |j| (i, j)))
             .filter(|&(i, j)| !(i == 0 && j == 0))
             .map(|(i, j)| (j as f64 * dx, i as f64 * dy))
             .collect();
-        let count = offsets.len();
-        ctx.doc.transact("ARRAY", |d| {
-            for (ox, oy) in &offsets {
-                d.add_geometry(layer.clone(), translate_geometry(&geometry, *ox, *oy));
+        let copies = sources.len() * offsets.len();
+        ctx.doc.transact("ARRAYRECT", |d| {
+            for (layer, geometry) in &sources {
+                for &(ox, oy) in &offsets {
+                    d.add_geometry(layer.clone(), geometry.translated(ox, oy));
+                }
             }
         });
-        Ok(format!("arrayed entity {} into {count} copies", id.0))
+        Ok(format!(
+            "arrayed {} {} into {copies} copies ({rows}×{cols})",
+            sources.len(),
+            entities_word(sources.len())
+        ))
+    }
+}
+
+struct ArrayPolarCmd;
+impl Command for ArrayPolarCmd {
+    fn name(&self) -> &str {
+        "ARRAYPOLAR"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["ARRAYPOL"]
+    }
+    fn help(&self) -> &str {
+        "ARRAYPOLAR target cx cy count fill_deg [Y|N] — polar array; Y rotates items (default)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let token = args.first().ok_or("ARRAYPOLAR: missing target")?;
+        let targets = resolve_targets(ctx, token, "ARRAYPOLAR")?;
+        let cx = parse_f64(args, 1, "ARRAYPOLAR")?;
+        let cy = parse_f64(args, 2, "ARRAYPOLAR")?;
+        let count = parse_usize(args, 3, "ARRAYPOLAR")?;
+        let fill = parse_f64(args, 4, "ARRAYPOLAR")?;
+        let rotate_items = parse_yn_flag(args.get(5), true, "ARRAYPOLAR")?;
+        if count < 2 {
+            return Err("ARRAYPOLAR: count must be at least 2".to_string());
+        }
+        let center = Point2::new(cx, cy);
+        let sources: Vec<(String, Geometry)> = targets
+            .iter()
+            .filter_map(|id| ctx.doc.get(*id))
+            .map(|e| (e.layer.clone(), e.geometry.clone()))
+            .collect();
+        let step = fill / count as f64;
+        let mut copies = 0usize;
+        ctx.doc.transact("ARRAYPOLAR", |d| {
+            for (layer, geometry) in &sources {
+                for i in 1..count {
+                    let deg = step * i as f64;
+                    let g = if rotate_items {
+                        geometry.rotated(center, deg.to_radians())
+                    } else {
+                        polar_translate_only(geometry, center, deg)
+                    };
+                    d.add_geometry(layer.clone(), g);
+                    copies += 1;
+                }
+            }
+        });
+        Ok(format!(
+            "polar-arrayed {} {} into {copies} copies",
+            sources.len(),
+            entities_word(sources.len())
+        ))
+    }
+}
+
+struct ArrayPathCmd;
+impl Command for ArrayPathCmd {
+    fn name(&self) -> &str {
+        "ARRAYPATH"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["APATH"]
+    }
+    fn help(&self) -> &str {
+        "ARRAYPATH target path_id count [Y|N] — array along a line/pline/arc/circle; Y aligns (default)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let token = args.first().ok_or("ARRAYPATH: missing target")?;
+        let targets = resolve_targets(ctx, token, "ARRAYPATH")?;
+        let path_raw = args.get(1).ok_or("ARRAYPATH: missing path id")?;
+        let path_id = parse_entity_id(path_raw, "ARRAYPATH")?;
+        let count = parse_usize(args, 2, "ARRAYPATH")?;
+        let align = parse_yn_flag(args.get(3), true, "ARRAYPATH")?;
+        if count < 2 {
+            return Err("ARRAYPATH: count must be at least 2".to_string());
+        }
+        if targets.contains(&path_id) {
+            return Err("ARRAYPATH: path entity cannot be in the target set".to_string());
+        }
+        let path_ent = ctx
+            .doc
+            .get(path_id)
+            .ok_or_else(|| format!("ARRAYPATH: no entity with id {}", path_id.0))?;
+        let path_geom = path_ent.geometry.clone();
+        let closed = path_is_closed(&path_geom);
+        let total = path_length(&path_geom)
+            .ok_or("ARRAYPATH: path must be a line, polyline, arc, or circle")?;
+        if total <= 1e-9 {
+            return Err("ARRAYPATH: path has zero length".to_string());
+        }
+        let samples: Vec<(Point2, f64)> = (0..count)
+            .filter_map(|i| {
+                let s = if closed {
+                    total * (i as f64) / (count as f64)
+                } else if count == 1 {
+                    0.0
+                } else {
+                    total * (i as f64) / ((count - 1) as f64)
+                };
+                path_point_and_tangent(&path_geom, s)
+            })
+            .collect();
+        if samples.len() != count {
+            return Err("ARRAYPATH: could not sample the path".to_string());
+        }
+        let base_tangent = samples[0].1;
+        let sources: Vec<(String, Geometry)> = targets
+            .iter()
+            .filter_map(|id| ctx.doc.get(*id))
+            .map(|e| (e.layer.clone(), e.geometry.clone()))
+            .collect();
+        let mut copies = 0usize;
+        ctx.doc.transact("ARRAYPATH", |d| {
+            for (layer, geometry) in &sources {
+                let anchor = geometry_anchor(geometry);
+                for (pt, tangent) in samples.iter().skip(1) {
+                    let g = if align {
+                        let rot = tangent - base_tangent;
+                        geometry.instanced(anchor, *pt, rot)
+                    } else {
+                        geometry.translated(pt.x - anchor.x, pt.y - anchor.y)
+                    };
+                    d.add_geometry(layer.clone(), g);
+                    copies += 1;
+                }
+            }
+        });
+        Ok(format!(
+            "path-arrayed {} {} into {copies} copies",
+            sources.len(),
+            entities_word(sources.len())
+        ))
+    }
+}
+
+/// Parse optional `Y`/`N` (or Yes/No); missing uses `default`.
+fn parse_yn_flag(raw: Option<&String>, default: bool, cmd: &str) -> Result<bool, String> {
+    let Some(s) = raw else {
+        return Ok(default);
+    };
+    match s.to_ascii_uppercase().as_str() {
+        "Y" | "YES" => Ok(true),
+        "N" | "NO" => Ok(false),
+        _ => Err(format!("{cmd}: expected Y or N, got {s:?}")),
+    }
+}
+
+/// Move geometry so its anchor orbits `center` by `deg` without rotating orientation.
+fn polar_translate_only(geometry: &Geometry, center: Point2, deg: f64) -> Geometry {
+    let anchor = geometry_anchor(geometry);
+    let moved = anchor.rotate_about(center, deg.to_radians());
+    geometry.translated(moved.x - anchor.x, moved.y - anchor.y)
+}
+
+fn geometry_anchor(g: &Geometry) -> Point2 {
+    entity_extent(g)
+        .map(|b| Point2::new((b.min.x + b.max.x) * 0.5, (b.min.y + b.max.y) * 0.5))
+        .unwrap_or(Point2::new(0.0, 0.0))
+}
+
+fn path_is_closed(g: &Geometry) -> bool {
+    match g {
+        Geometry::Circle(_) => true,
+        Geometry::Polyline(p) => p.closed,
+        _ => false,
+    }
+}
+
+fn path_length(g: &Geometry) -> Option<f64> {
+    match g {
+        Geometry::Line(s) => Some(s.length()),
+        Geometry::Polyline(p) => Some(p.length()),
+        Geometry::Arc(a) => Some(a.length()),
+        Geometry::Circle(c) => Some(c.circumference()),
+        _ => None,
+    }
+}
+
+fn path_point_and_tangent(g: &Geometry, s: f64) -> Option<(Point2, f64)> {
+    match g {
+        Geometry::Line(seg) => seg.point_and_tangent_at(s),
+        Geometry::Polyline(p) => p.point_and_tangent_at(s),
+        Geometry::Arc(a) => a.point_and_tangent_at(s),
+        Geometry::Circle(c) => c.point_and_tangent_at(s),
+        _ => None,
     }
 }
 
@@ -1469,8 +2007,13 @@ impl Command for ExplodeCmd {
                 };
                 (
                     layer,
-                    be.geometry
-                        .instanced(block.base, ins.position, ins.rotation),
+                    be.geometry.instanced_scaled(
+                        block.base,
+                        ins.position,
+                        ins.rotation,
+                        ins.scale_x,
+                        ins.scale_y,
+                    ),
                 )
             })
             .collect();
@@ -1657,7 +2200,10 @@ impl Command for XlineCmd {
         let origin = Point2::new(x, y);
         let ext = aadt_geometry::Vec2::new(dir.x * XLINE_EXTENT, dir.y * XLINE_EXTENT);
         let layer = args.get(4).cloned().unwrap_or_else(|| "0".to_string());
-        let seg = Segment::new(origin + aadt_geometry::Vec2::new(-ext.x, -ext.y), origin + ext);
+        let seg = Segment::new(
+            origin + aadt_geometry::Vec2::new(-ext.x, -ext.y),
+            origin + ext,
+        );
         let id = ctx
             .doc
             .transact("XLINE", |d| d.add_geometry(layer, Geometry::Line(seg)));
@@ -1675,9 +2221,7 @@ mod xline_tests {
     fn xline_creates_long_segment_through_origin() {
         let interp = Interpreter::with_builtins();
         let mut ctx = Context::new();
-        interp
-            .eval_line(&mut ctx, "XLINE 0 0 1 0 A-ANNO")
-            .unwrap();
+        interp.eval_line(&mut ctx, "XLINE 0 0 1 0 A-ANNO").unwrap();
         assert_eq!(ctx.doc.len(), 1);
         let Geometry::Line(s) = &ctx.doc.entities()[0].geometry else {
             panic!("expected line");
@@ -1948,7 +2492,7 @@ impl Command for DistCmd {
         "DIST"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["DI"]
+        &["DI", "DISTANCE"]
     }
     fn help(&self) -> &str {
         "DIST x1 y1 x2 y2 — report the distance between two points"
@@ -2032,22 +2576,29 @@ impl Command for DimCmd {
             if let (Ok(tx), Ok(ty)) = (args[4].parse::<f64>(), args[5].parse::<f64>()) {
                 (
                     Point2::new(tx, ty),
-                    args.get(6).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
+                    args.get(6)
+                        .cloned()
+                        .unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
                 )
             } else {
                 (
                     p1.midpoint(p2),
-                    args.get(4).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
+                    args.get(4)
+                        .cloned()
+                        .unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
                 )
             }
         } else {
             (
                 p1.midpoint(p2),
-                args.get(4).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
+                args.get(4)
+                    .cloned()
+                    .unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string()),
             )
         };
         let measurement = p1.distance(p2);
         let dim = Dimension {
+            space: Default::default(),
             layer,
             kind: DimensionKind::Aligned,
             p1,
@@ -2064,12 +2615,10 @@ impl Command for DimCmd {
 
 /// Last linear/aligned dimension in the document (continue/baseline base).
 fn last_continue_base(doc: &Document) -> Option<&Dimension> {
-    doc.dimensions().iter().rev().find(|d| {
-        matches!(
-            d.kind,
-            DimensionKind::Aligned | DimensionKind::Linear
-        )
-    })
+    doc.dimensions()
+        .iter()
+        .rev()
+        .find(|d| matches!(d.kind, DimensionKind::Aligned | DimensionKind::Linear))
 }
 
 /// Signed offset of the dim line from the definition segment (along left normal).
@@ -2104,9 +2653,7 @@ impl Command for DimContinueCmd {
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         if args.is_empty() {
-            return Err(
-                "DIMCONTINUE: missing next point (x y); place a DIM first".into(),
-            );
+            return Err("DIMCONTINUE: missing next point (x y); place a DIM first".into());
         }
         // Optional trailing layer if the last token is non-numeric and count is odd.
         let (coord_args, layer_override) = if args.len() >= 3 && args.len() % 2 == 1 {
@@ -2142,11 +2689,10 @@ impl Command for DimContinueCmd {
             }
             let offset = dim_line_offset(&base);
             let text_anchor = continue_text_anchor(p1, next, offset);
-            let layer = layer_override
-                .clone()
-                .unwrap_or_else(|| base.layer.clone());
+            let layer = layer_override.clone().unwrap_or_else(|| base.layer.clone());
             let measurement = p1.distance(next);
             let dim = Dimension {
+                space: Default::default(),
                 layer,
                 kind: DimensionKind::Aligned,
                 p1,
@@ -2208,6 +2754,7 @@ impl Command for DimRadiusCmd {
         let on_circle = Point2::new(center.x + radius, center.y);
         let layer = args.get(1).cloned().unwrap_or_else(|| entity.layer.clone());
         let dim = Dimension {
+            space: Default::default(),
             layer,
             kind: DimensionKind::Radius,
             p1: on_circle,
@@ -2256,8 +2803,12 @@ impl Command for DimAngularCmd {
         );
         // Interior angle between the rays, in degrees.
         let degrees = d1.dot(d2).clamp(-1.0, 1.0).acos().to_degrees();
-        let layer = args.get(6).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string());
+        let layer = args
+            .get(6)
+            .cloned()
+            .unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string());
         let dim = Dimension {
+            space: Default::default(),
             layer,
             kind: DimensionKind::Angular,
             p1,
@@ -2308,6 +2859,7 @@ impl Command for DimDiameterCmd {
         let layer = args.get(1).cloned().unwrap_or_else(|| entity.layer.clone());
         let diameter = 2.0 * radius;
         let dim = Dimension {
+            space: Default::default(),
             layer,
             kind: DimensionKind::Diameter,
             p1,
@@ -2348,8 +2900,12 @@ impl Command for DimOrdinateCmd {
             "Y" => (DimensionKind::OrdinateY, feature.y),
             _ => return Err(format!("DIMORDINATE: axis must be X or Y, got {axis:?}")),
         };
-        let layer = args.get(5).cloned().unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string());
+        let layer = args
+            .get(5)
+            .cloned()
+            .unwrap_or_else(|| DEFAULT_DIM_LAYER.to_string());
         let dim = Dimension {
+            space: Default::default(),
             layer,
             kind,
             p1: feature,
@@ -2597,7 +3153,7 @@ impl Command for ListCmd {
         "LIST"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["LI"]
+        &["LI", "LS"]
     }
     fn help(&self) -> &str {
         "LIST — summarize entities in the document"
@@ -2824,9 +3380,7 @@ mod tests {
         let mut ctx = Context::new();
         interp.eval_line(&mut ctx, "LINE 0 1 2 1").unwrap();
         assert_eq!(ctx.doc.len(), 1);
-        interp
-            .eval_line(&mut ctx, "MIRROR 0 0 0 1 0")
-            .unwrap();
+        interp.eval_line(&mut ctx, "MIRROR 0 0 0 1 0").unwrap();
         assert_eq!(ctx.doc.len(), 2, "default N keeps source + adds mirror");
         // Original still above the axis.
         if let Geometry::Line(s) = &ctx.doc.entities()[0].geometry {
@@ -2916,6 +3470,61 @@ mod tests {
     }
 
     #[test]
+    fn trim_removes_middle_segment_between_two_cutters() {
+        // AutoCAD: click between two crossings → remove middle, leave two pieces.
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0").unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE 3 -2 3 2").unwrap(); // id 1
+        interp.eval_line(&mut ctx, "LINE 7 -2 7 2").unwrap(); // id 2
+        interp.eval_line(&mut ctx, "TRIM 0 5 0 1 2").unwrap(); // pick mid, explicit cutters
+        assert_eq!(ctx.doc.len(), 4, "original line split + two cutters");
+        let line0 = ctx.doc.get(EntityId(0)).unwrap();
+        let Geometry::Line(s0) = &line0.geometry else {
+            panic!("expected line on id 0");
+        };
+        // One stub ends at x=3, the other starts at x=7.
+        let lengths: Vec<f64> = ctx
+            .doc
+            .entities()
+            .iter()
+            .filter_map(|e| match &e.geometry {
+                Geometry::Line(s) if e.layer == line0.layer => Some(s.length()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            lengths.iter().any(|l| (*l - 3.0).abs() < 1e-6),
+            "left stub ~3: {lengths:?}"
+        );
+        assert!(
+            lengths.iter().any(|l| (*l - 3.0).abs() < 1e-6),
+            "right stub ~3: {lengths:?}"
+        );
+        assert!(
+            s0.a.distance(Point2::new(0.0, 0.0)) < 1e-9
+                || s0.a.distance(Point2::new(7.0, 0.0)) < 1e-9,
+            "kept piece starts at an end or right cut: {:?}",
+            s0
+        );
+    }
+
+    #[test]
+    fn trim_quick_mode_uses_all_entities_as_cutters() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0").unwrap();
+        interp.eval_line(&mut ctx, "LINE 5 -3 5 3").unwrap();
+        // Three-arg form: Quick mode (all other ents are cutters).
+        interp.eval_line(&mut ctx, "TRIM 0 1 0").unwrap();
+        if let Geometry::Line(s) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!(s.a.distance(Point2::new(5.0, 0.0)) < 1e-9 || s.b.distance(Point2::new(5.0, 0.0)) < 1e-9);
+        } else {
+            panic!("expected line");
+        }
+    }
+
+    #[test]
     fn extend_lengthens_a_line_to_a_boundary() {
         let interp = Interpreter::with_builtins();
         let mut ctx = Context::new();
@@ -2999,6 +3608,28 @@ mod tests {
             );
         } else {
             panic!("expected polyline");
+        }
+    }
+
+    #[test]
+    fn trim_uses_a_polyline_as_cutting_edge() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Horizontal line cut by a vertical polyline wall through x=5.
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0").unwrap(); // id 0
+        interp
+            .eval_line(&mut ctx, "POLYLINE 5 -2 5 2 A-WALL")
+            .unwrap(); // id 1
+        interp.eval_line(&mut ctx, "TRIM 0 1 1 0").unwrap();
+        if let Geometry::Line(s) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!(
+                s.a.distance(Point2::new(5.0, 0.0)) < 1e-9,
+                "trimmed to wall: {:?}",
+                s
+            );
+            assert!(s.b.distance(Point2::new(10.0, 0.0)) < 1e-9);
+        } else {
+            panic!("expected line");
         }
     }
 
@@ -3130,6 +3761,65 @@ mod tests {
         // One UNDO removes all copies atomically.
         interp.eval_line(&mut ctx, "UNDO").unwrap();
         assert_eq!(ctx.doc.len(), 1);
+    }
+
+    #[test]
+    fn arrayrect_selection_arrays_each_target() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 1").unwrap();
+        interp.eval_line(&mut ctx, "CIRCLE 100 0 1").unwrap();
+        interp.eval_line(&mut ctx, "SELECT 0 1").unwrap();
+        // 1×2 → one copy each → 4 entities total.
+        interp
+            .eval_line(&mut ctx, "ARRAYRECT SELECTION 1 2 10 0")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 4);
+    }
+
+    #[test]
+    fn arraypolar_four_items_quarter_turn() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "CIRCLE 10 0 1").unwrap();
+        interp
+            .eval_line(&mut ctx, "ARRAYPOLAR 0 0 0 4 360 Y")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 4);
+        let mut centers: Vec<(i64, i64)> = ctx
+            .doc
+            .entities()
+            .iter()
+            .filter_map(|e| match &e.geometry {
+                Geometry::Circle(c) => Some((c.center.x.round() as i64, c.center.y.round() as i64)),
+                _ => None,
+            })
+            .collect();
+        centers.sort_unstable();
+        assert_eq!(centers, [(-10, 0), (0, -10), (0, 10), (10, 0)]);
+    }
+
+    #[test]
+    fn arraypath_along_a_line() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 30 0").unwrap(); // id 0 = path
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 1").unwrap(); // id 1
+        interp
+            .eval_line(&mut ctx, "ARRAYPATH 1 0 4 N")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 5); // path + original + 3 copies
+        let mut xs: Vec<i64> = ctx
+            .doc
+            .entities()
+            .iter()
+            .filter_map(|e| match &e.geometry {
+                Geometry::Circle(c) => Some(c.center.x.round() as i64),
+                _ => None,
+            })
+            .collect();
+        xs.sort_unstable();
+        assert_eq!(xs, [0, 10, 20, 30]);
     }
 
     #[test]
@@ -3388,7 +4078,11 @@ mod tests {
         assert!((d.p2.x - 16.0).abs() < 1e-9);
         assert!((d.measurement - 6.0).abs() < 1e-9);
         // Offset preserved (~2 units above).
-        assert!((d.text_anchor.y - 2.0).abs() < 1e-6, "anchor y={:?}", d.text_anchor);
+        assert!(
+            (d.text_anchor.y - 2.0).abs() < 1e-6,
+            "anchor y={:?}",
+            d.text_anchor
+        );
         assert_eq!(d.layer, "A-ANNO-DIMS");
 
         // Chain again from the continued end.
@@ -3505,7 +4199,7 @@ mod tests {
         let h = &ctx.doc.hatches()[0];
         assert_eq!(h.pattern, "ANSI31");
         assert_eq!(h.layer, "A-FLOR");
-        assert_eq!(h.boundary.vertices.len(), 4);
+        assert_eq!(h.outer().vertices.len(), 4);
 
         interp.eval_line(&mut ctx, "UNDO").unwrap();
         assert!(ctx.doc.hatches().is_empty(), "undo removes the hatch");
@@ -3516,7 +4210,7 @@ mod tests {
         let h = ctx.doc.hatches().last().unwrap();
         assert!(h.solid, "default pattern SOLID is a solid fill");
         assert_eq!(h.layer, "A-COL", "inherits the entity's layer");
-        assert!(h.boundary.vertices.len() >= 3);
+        assert!(h.outer().vertices.len() >= 3);
 
         // An open shape (a line) cannot be hatched.
         interp.eval_line(&mut ctx, "LINE 0 0 1 0").unwrap(); // id 2
@@ -3610,9 +4304,7 @@ mod tests {
     fn mleader_and_stretch_are_undoable() {
         let interp = Interpreter::with_builtins();
         let mut ctx = Context::new();
-        interp
-            .eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL")
-            .unwrap();
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL").unwrap();
         interp
             .eval_line(&mut ctx, "MLEADER 0 0 2 1 3 1 0.25 NOTE A")
             .unwrap();

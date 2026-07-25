@@ -34,11 +34,16 @@ pub mod sheet;
 pub mod titleblock;
 
 pub use compose::{grid_areas, place_drawing, present, Composed, DrawingArea, View};
-pub use notes::{notes_from_text, notes_to_text, place_notes, NotesLibrary, NotesStyle};
+pub use notes::{
+    floor_schedule_notes, height_notes, notes_from_text, notes_to_text, place_notes, NotesLibrary,
+    NotesStyle,
+};
 pub use plot::{
-    compose_plot_sheet, compose_plot_sheet_for_selection, compose_plot_sheet_oriented,
-    drawing_area_for_preset, drawing_area_for_sheet, orientation_from_bbox, orientation_from_extents,
-    orientation_from_points, orientation_from_selection,
+    compose_plot_sheet, compose_plot_sheet_for_area, compose_plot_sheet_for_selection,
+    compose_plot_sheet_oriented, document_from_selection, document_in_window,
+    drawing_area_for_preset, drawing_area_for_sheet, orientation_from_bbox,
+    orientation_from_extents, orientation_from_points, orientation_from_selection,
+    PlotContent, PLOT_DRAWING_MARGIN,
 };
 pub use qa::{QaFinding, QaSeverity, SheetReview};
 pub use sheet::{Orientation, PaperSize, Sheet};

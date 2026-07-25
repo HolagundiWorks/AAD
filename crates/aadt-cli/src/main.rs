@@ -183,16 +183,14 @@ fn cmd_sheet(args: &[String]) -> Result<(), String> {
 
     // Suggest notes from the drawing itself.
     let det = detect(&model, &DetectionConfig::default());
-    let notes = NotesLibrary::standard().suggest(&det);
+    let props = model.properties();
+    let floors = model.floors();
+    let notes = NotesLibrary::standard().suggest_for_drawing(&det, props, &floors);
 
     // Compose onto a fresh sheet (paper space), rather than mixing paper
     // millimetres with the model's own units in one document.
     // The drawing, fit into the area left of (landscape) or above (portrait) the title block.
-    let sheet = Sheet::new(
-        paper,
-        aadt_docs::orientation_from_extents(&model),
-        10.0,
-    );
+    let sheet = Sheet::new(paper, aadt_docs::orientation_from_extents(&model), 10.0);
     let mut doc = aadt_model::Document::new();
     sheet.place(&mut doc);
 
@@ -420,15 +418,18 @@ fn cmd_infer(args: &[String]) -> Result<(), String> {
                 aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD,
             );
             let counts = aadt_ai::status_counts(&doc);
-            let review =
-                aadt_ai::list_for_review(&doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
+            let review = aadt_ai::list_for_review(&doc, aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD);
             println!(
                 "Proposed {n} wall type(s) as attributes (auto-accept ≥ {:.0}%).",
                 aadt_ai::DEFAULT_AUTO_ACCEPT_THRESHOLD * 100.0
             );
             println!(
                 "Status: proposed={} accepted={} frozen={} rejected={}; {} need review.",
-                counts[0].1, counts[1].1, counts[2].1, counts[3].1, review.len()
+                counts[0].1,
+                counts[1].1,
+                counts[2].1,
+                counts[3].1,
+                review.len()
             );
             if let Some(path) = &save {
                 aadt_dxf::export_path(&doc, path).map_err(|e| e.to_string())?;

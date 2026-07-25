@@ -125,8 +125,7 @@ impl TakeoffTable {
         }
         let mut erase: Vec<EntityId> = Vec::new();
         for e in doc.entities() {
-            if e.attribute("AADT-SCHEDULE").is_some()
-                || e.attribute("AADT-SCHEDULE-PART").is_some()
+            if e.attribute("AADT-SCHEDULE").is_some() || e.attribute("AADT-SCHEDULE-PART").is_some()
             {
                 erase.push(e.id);
             }

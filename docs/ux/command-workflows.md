@@ -85,7 +85,7 @@ Click a closed polyline or circle boundary.
 
 ## Modify
 
-All of **MOVE / COPY / ROTATE / SCALE / MIRROR / ERASE** support:
+All of **MOVE / COPY / ROTATE / SCALE / MIRROR / ARRAYRECT / ARRAYPOLAR / ARRAYPATH / ERASE** support:
 
 - **Noun-verb:** select first, then run the command  
 - **Verb-noun:** run command, click objects, **Space** when the set is ready  
@@ -118,13 +118,50 @@ Select → first axis → second axis → **Erase source?** `[Yes/No] <N>`
 - **N** (default / Space) — keep originals, add mirrored copies  
 - **Y** — mirror in place (erase source)  
 
+### ARRAYRECT (`AR` / `ARRAY`)
+
+Select → Space (if verb-noun) → **rows** → **columns** → **dx** → **dy**.
+
+- Type integers for rows/cols (minimum 1).  
+- Spacing: type a number, or pick two points (uses distance).  
+- Feed: `ARRAYRECT SELECTION rows cols dx dy` (also `ALL` / id / group).  
+
+### ARRAYPOLAR (`ARRAYPOL`)
+
+Select → **center** → **count** (≥ 2) → **fill angle** (degrees; empty Space = 360) → **Rotate items?** `[Y/N] <Y>`.
+
+- **Y** (default) — rotate each copy about the center.  
+- **N** — translate only (orientation unchanged).  
+
+### ARRAYPATH (`APATH`)
+
+Select → pick a **path** (line / polyline / arc / circle) → **count** (≥ 2) → **Align?** `[Y/N] <Y>`.
+
+- Open paths sample from start to end (`i/(count−1)`).  
+- Closed paths / circles use `i/count` (no duplicate at the seam).  
+- **Y** — rotate items to the path tangent; **N** — translate only.  
+
 ### OFFSET (`O`)
 
 Type distance + Space → pick object → pick side (repeat) → Space finishes.
 
-### TRIM (`TR`)
+### TRIM (`TR`) — AutoCAD Quick mode
 
-Cutting edges (or none = all) → Space → objects to trim → Space finishes.
+Default **Quick** mode (like AutoCAD `TRIMEXTENDMODE=1`):
+
+1. Start `TRIM` / `TR`
+2. Click the **portion to remove** (all drawing entities act as cutting edges)
+3. Repeat as needed · **Space** finishes
+
+Options while trimming:
+
+| Input | Action |
+|-------|--------|
+| `[C]` / `CUTTING` | Standard mode — select cutting edges, Space, then objects |
+| **Shift+click** | Extend instead of trim (AutoCAD shift-select) |
+| Space | Finish |
+
+Clicking between **two** crossings removes the middle segment and splits the object (AutoCAD behavior).
 
 ### EXTEND (`EX`)
 
@@ -140,7 +177,8 @@ Select objects → Space confirms erase (or pre-select then `E` / Space).
 
 ### STRETCH (`S`)
 
-Requires pre-selection. Window → base → destination.
+Verb-noun (AutoCAD-style): select objects → Space → crossing window → base → destination.  
+Pre-selected objects skip the select step (noun-verb).
 
 ### Grips
 
@@ -307,8 +345,10 @@ Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out 
 | Noun-verb + verb-noun | Yes | Edit transforms + erase |
 | Window / crossing | Yes | L→R / R→L |
 | Selection highlight + grips | Yes | Blue glow; inserts expand |
-| Dyn input near cursor | Yes | F12 toggle not separate |
+| Dyn input near cursor | Yes | F12 / DYN status chip |
 | Ortho / Osnap / Polar | Yes | F8 / F3 / F10 |
+| Relative `@dx,dy` | Yes | All point tools (anchor or origin) |
+| Natural language ASK | Yes | Local rules + Foundry Local (`phi-3.5-mini`) |
 | LINE Undo/Close | Yes | |
 | CIRCLE Diameter | Yes | Also 2P / 3P |
 | CIRCLE 2P / 3P | Yes | |

@@ -205,7 +205,7 @@ Specify second point or <use first point as displacement>:
 | SCALE | Base → factor **or** Reference | `R` = old length → new length |
 | MIRROR | First axis → second axis | Erase source Y/N not yet prompted |
 | OFFSET | Distance → object → side (repeat) | Space finishes |
-| TRIM | Cutting edges → Enter → objects | Space advances / finishes |
+| TRIM | Quick: objects to trim (all = cutters); `[C]` cutting edges | Space finishes; Shift+click extends |
 | EXTEND | Boundary → objects | Multi until Space |
 | FILLET | Radius → two lines | In catalog + interactive |
 | ERASE | Select → Enter | Verb-noun or noun-verb |

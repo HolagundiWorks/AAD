@@ -309,9 +309,8 @@ pub fn load_takeoff_run(
             .collect::<Result<Vec<_>, _>>()?;
     }
     {
-        let mut q = conn.prepare(
-            "SELECT number, kind, cost_code FROM takeoff_structural WHERE run_id = ?1",
-        )?;
+        let mut q = conn
+            .prepare("SELECT number, kind, cost_code FROM takeoff_structural WHERE run_id = ?1")?;
         data.structural = q
             .query_map(params![run_id], |r| {
                 Ok(TakeoffStructuralRow {

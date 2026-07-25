@@ -53,11 +53,7 @@ pub fn aci_to_srgb(aci: u8) -> (u8, u8, u8) {
             let idx = (n - 10) as usize;
             let hue = idx / 10;
             let rem = idx % 10;
-            let (light, sat) = if rem < 5 {
-                (rem, 1.0)
-            } else {
-                (rem - 5, 0.5)
-            };
+            let (light, sat) = if rem < 5 { (rem, 1.0) } else { (rem - 5, 0.5) };
             let value = match light {
                 0 => 0.35,
                 1 => 0.50,

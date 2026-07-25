@@ -1,7 +1,9 @@
-//! # aadt-library — Block and hatch libraries (DXF / SVG only)
+//! # aadt-library — Block, hatch, and font libraries
 //!
-//! On-disk folders under `libraries/blocks/` and `libraries/hatches/`. Block
-//! import accepts DXF block definitions and SVG path geometry; PNG is rejected.
+//! On-disk folders under `libraries/blocks/`, `libraries/hatches/`, and
+//! `libraries/fonts/`. Block import accepts DXF block definitions and SVG path
+//! geometry; PNG is rejected. Drawing text uses Adobe Source Sans 3 (OFL) from
+//! `libraries/fonts/` (also embedded in the desktop shell).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,16 +70,26 @@ pub struct BlockEntry {
     pub path: PathBuf,
 }
 
-/// Scan `root/blocks` for `.dxf` and `.svg` files (PNG rejected at import time).
+/// Scan `root/blocks` for `.dxf` and `.svg` files (recursive; PNG rejected at import).
 pub fn list_blocks(root: &Path) -> Result<Vec<BlockEntry>, LibraryError> {
     let dir = root.join("blocks");
     if !dir.is_dir() {
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for ent in fs::read_dir(&dir)? {
+    list_blocks_dir(&dir, &mut out)?;
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+fn list_blocks_dir(dir: &Path, out: &mut Vec<BlockEntry>) -> Result<(), LibraryError> {
+    for ent in fs::read_dir(dir)? {
         let ent = ent?;
         let path = ent.path();
+        if path.is_dir() {
+            list_blocks_dir(&path, out)?;
+            continue;
+        }
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
@@ -92,8 +104,20 @@ pub fn list_blocks(root: &Path) -> Result<Vec<BlockEntry>, LibraryError> {
             out.push(BlockEntry { name, path });
         }
     }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(out)
+    Ok(())
+}
+
+/// Inches → metres (opensource dxfBlocks are drawn in inches).
+pub const INCH_TO_METRE: f64 = 0.0254;
+
+/// True when `path` is under `libraries/blocks/opensource` (imperial source units).
+pub fn is_opensource_inch_block(path: &Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .map(|s| s.eq_ignore_ascii_case("opensource"))
+            .unwrap_or(false)
+    })
 }
 
 /// Import a block file into `doc` as a named block definition.
@@ -101,25 +125,119 @@ pub fn list_blocks(root: &Path) -> Result<Vec<BlockEntry>, LibraryError> {
 /// - `.dxf` — first block definition in the file, or ENTITIES as an anonymous block
 /// - `.svg` — path/`polyline`/`line`/`rect` geometry → polylines
 /// - `.png` / raster — rejected
-pub fn import_block(doc: &mut Document, path: &Path, name: Option<&str>) -> Result<String, LibraryError> {
+///
+/// When `scale` is `None`, opensource inch blocks are auto-scaled by [`INCH_TO_METRE`].
+pub fn import_block(
+    doc: &mut Document,
+    path: &Path,
+    name: Option<&str>,
+) -> Result<String, LibraryError> {
+    let scale = if is_opensource_inch_block(path) {
+        Some(INCH_TO_METRE)
+    } else {
+        None
+    };
+    import_block_scaled(doc, path, name, scale)
+}
+
+/// Import with an explicit uniform scale about the block base (1.0 = leave as-is).
+pub fn import_block_scaled(
+    doc: &mut Document,
+    path: &Path,
+    name: Option<&str>,
+    scale: Option<f64>,
+) -> Result<String, LibraryError> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    match ext.as_str() {
+    let imported = match ext.as_str() {
         "png" | "jpg" | "jpeg" | "gif" | "bmp" | "webp" => {
             return Err(LibraryError::Msg(format!(
                 "raster image {:?} rejected — block library accepts DXF and SVG only",
                 path.file_name().unwrap_or_default()
-            )));
+            )))
         }
-        "dxf" => import_dxf_block(doc, path, name),
-        "svg" => import_svg_block(doc, path, name),
-        other => Err(LibraryError::Msg(format!(
-            "unsupported block format .{other}; use DXF or SVG"
-        ))),
+        "dxf" => import_dxf_block(doc, path, name)?,
+        "svg" => import_svg_block(doc, path, name)?,
+        other => {
+            return Err(LibraryError::Msg(format!(
+                "unsupported block format .{other}; use DXF or SVG"
+            )))
+        }
+    };
+    if let Some(factor) = scale.filter(|f| (*f - 1.0).abs() > 1e-12) {
+        if let Some(block) = doc.block_mut(&imported) {
+            let pivot = block.base;
+            for e in &mut block.entities {
+                e.geometry = e.geometry.scaled(pivot, factor);
+            }
+            // Nominal WIDTH (metres) from geometry extent for takeoff / scaling.
+            if let Some(bb) = block_bbox(block) {
+                let w = (bb.max.x - bb.min.x).max(0.0);
+                if w > 1e-9 {
+                    block.set_param("WIDTH", format!("{w:.4}"), aadt_model::BlockParamKind::String);
+                }
+            }
+            block.set_param("UNITS", "m", aadt_model::BlockParamKind::String);
+        }
+    } else if let Some(block) = doc.block_mut(&imported) {
+        if block.param("WIDTH").is_none() {
+            if let Some(bb) = block_bbox(block) {
+                let w = (bb.max.x - bb.min.x).max(0.0);
+                if w > 1e-9 {
+                    block.set_param("WIDTH", format!("{w:.4}"), aadt_model::BlockParamKind::String);
+                }
+            }
+        }
+        if block.param("UNITS").is_none() {
+            block.set_param("UNITS", "m", aadt_model::BlockParamKind::String);
+        }
     }
+    Ok(imported)
+}
+
+fn block_bbox(block: &Block) -> Option<aadt_geometry::Bbox> {
+    let mut pts = Vec::new();
+    for e in &block.entities {
+        match &e.geometry {
+            Geometry::Line(s) => {
+                pts.push(s.a);
+                pts.push(s.b);
+            }
+            Geometry::Polyline(p) => pts.extend(p.vertices.iter().copied()),
+            Geometry::Circle(c) => {
+                pts.push(Point2::new(c.center.x - c.radius, c.center.y - c.radius));
+                pts.push(Point2::new(c.center.x + c.radius, c.center.y + c.radius));
+            }
+            Geometry::Arc(a) => {
+                pts.push(Point2::new(a.center.x - a.radius, a.center.y - a.radius));
+                pts.push(Point2::new(a.center.x + a.radius, a.center.y + a.radius));
+            }
+            Geometry::Text(t) => pts.push(t.position),
+            Geometry::Insert(i) => pts.push(i.position),
+        }
+    }
+    aadt_geometry::Bbox::of_points(pts)
+}
+
+/// Import every DXF/SVG under `root/blocks` (skips duplicates already in `doc`).
+pub fn import_all_blocks(doc: &mut Document, root: &Path) -> Result<Vec<String>, LibraryError> {
+    let mut imported = Vec::new();
+    for entry in list_blocks(root)? {
+        if doc.block(&entry.name).is_some() {
+            continue;
+        }
+        match import_block(doc, &entry.path, Some(&entry.name)) {
+            Ok(name) => imported.push(name),
+            Err(e) => {
+                // Skip broken files; keep going.
+                eprintln!("BLOCKLIB skip {}: {e}", entry.path.display());
+            }
+        }
+    }
+    Ok(imported)
 }
 
 fn import_dxf_block(
@@ -128,14 +246,12 @@ fn import_dxf_block(
     name: Option<&str>,
 ) -> Result<String, LibraryError> {
     let src = aadt_dxf::import_path(path).map_err(|e| LibraryError::Msg(e.to_string()))?;
-    let block_name = name
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("BLOCK")
-                .to_string()
-        });
+    let block_name = name.map(str::to_string).unwrap_or_else(|| {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("BLOCK")
+            .to_string()
+    });
 
     if let Some(existing) = src.blocks().into_iter().next() {
         let mut b = Block::new(block_name.clone(), existing.base);
@@ -168,7 +284,8 @@ fn import_svg_block(
     name: Option<&str>,
 ) -> Result<String, LibraryError> {
     let text = fs::read_to_string(path)?;
-    if text.contains("<image") || text.to_ascii_lowercase().contains("xlink:href") && text.contains(".png")
+    if text.contains("<image")
+        || text.to_ascii_lowercase().contains("xlink:href") && text.contains(".png")
     {
         // Embedded raster — reject.
         if text.to_ascii_lowercase().contains(".png")
@@ -184,14 +301,12 @@ fn import_svg_block(
     if geoms.is_empty() {
         return Err(LibraryError::Msg("SVG produced no path geometry".into()));
     }
-    let block_name = name
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("SVG")
-                .to_string()
-        });
+    let block_name = name.map(str::to_string).unwrap_or_else(|| {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("SVG")
+            .to_string()
+    });
     let mut b = Block::new(block_name.clone(), Point2::new(0.0, 0.0));
     for g in geoms {
         b.entities.push(BlockEntity {
@@ -303,13 +418,10 @@ fn parse_points_list(s: &str) -> Result<Vec<Point2>, LibraryError> {
                 .map_err(|_| LibraryError::Msg(format!("bad point number {t:?}")))
         })
         .collect::<Result<_, _>>()?;
-    if nums.len() % 2 != 0 {
+    if !nums.len().is_multiple_of(2) {
         return Err(LibraryError::Msg("odd number of point coordinates".into()));
     }
-    Ok(nums
-        .chunks(2)
-        .map(|c| Point2::new(c[0], c[1]))
-        .collect())
+    Ok(nums.chunks(2).map(|c| Point2::new(c[0], c[1])).collect())
 }
 
 /// Parse a subset of SVG path `d` commands: M/m L/l H/h V/v Z/z.
@@ -541,7 +653,11 @@ pub fn list_hatch_patterns(root: &Path) -> Result<Vec<HatchPattern>, LibraryErro
         for ent in fs::read_dir(&dir)? {
             let ent = ent?;
             let path = ent.path();
-            if path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("pat")) == Some(true)
+            if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("pat"))
+                == Some(true)
             {
                 let name = path
                     .file_stem()
@@ -562,13 +678,7 @@ pub fn list_hatch_patterns(root: &Path) -> Result<Vec<HatchPattern>, LibraryErro
 }
 
 /// Convenience: add a rectangular solid hatch on a layer.
-pub fn add_rect_hatch(
-    doc: &mut Document,
-    layer: &str,
-    pattern: &str,
-    min: Point2,
-    max: Point2,
-) {
+pub fn add_rect_hatch(doc: &mut Document, layer: &str, pattern: &str, min: Point2, max: Point2) {
     let boundary = Polyline::new(
         vec![
             Point2::new(min.x, min.y),
@@ -579,6 +689,48 @@ pub fn add_rect_hatch(
         true,
     );
     doc.add_hatch(Hatch::new(layer, boundary, pattern));
+}
+
+/// Default drawing typeface (Adobe Source Sans 3, SIL OFL).
+pub const DEFAULT_DRAWING_FONT: &str = "SourceSans3";
+
+/// A typeface available under `libraries/fonts/`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontEntry {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+/// List `.ttf` / `.otf` fonts under `root/fonts`, ensuring Source Sans 3 is first
+/// when present so drawings share one open-source sans.
+pub fn list_fonts(root: &Path) -> Result<Vec<FontEntry>, LibraryError> {
+    let dir = root.join("fonts");
+    let mut out = Vec::new();
+    if dir.is_dir() {
+        for ent in fs::read_dir(&dir)? {
+            let ent = ent?;
+            let path = ent.path();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase());
+            if matches!(ext.as_deref(), Some("ttf" | "otf")) {
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Font")
+                    .to_string();
+                out.push(FontEntry { name, path });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    // Prefer Source Sans 3 as the canonical drawing face.
+    if let Some(i) = out.iter().position(|f| f.name.starts_with("SourceSans3-Regular")) {
+        let preferred = out.remove(i);
+        out.insert(0, preferred);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -594,7 +746,8 @@ mod tests {
 
     #[test]
     fn parses_svg_rect_and_path() {
-        let svg = r#"<svg><rect x="0" y="0" width="10" height="5"/><path d="M0 0 L10 0 L10 5 Z"/></svg>"#;
+        let svg =
+            r#"<svg><rect x="0" y="0" width="10" height="5"/><path d="M0 0 L10 0 L10 5 Z"/></svg>"#;
         let g = parse_svg_geometry(svg).unwrap();
         assert!(g.len() >= 2);
     }
@@ -602,5 +755,10 @@ mod tests {
     #[test]
     fn builtins_include_solid() {
         assert!(builtin_hatch_patterns().iter().any(|p| p.name == "SOLID"));
+    }
+
+    #[test]
+    fn default_font_constant() {
+        assert_eq!(DEFAULT_DRAWING_FONT, "SourceSans3");
     }
 }

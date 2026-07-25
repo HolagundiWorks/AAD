@@ -169,7 +169,10 @@ impl Command for EllipseCmd {
         let id = ctx.doc.transact("ELLIPSE", |d| {
             d.add_geometry(layer, Geometry::Polyline(Polyline::new(verts, true)))
         });
-        Ok(format!("ELLIPSE (polyline approx) added as entity {}", id.0))
+        Ok(format!(
+            "ELLIPSE (polyline approx) added as entity {}",
+            id.0
+        ))
     }
 }
 
@@ -301,7 +304,7 @@ impl Command for LengthenCmd {
         "LENGTHEN"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["LEN"]
+        &["LEN", "LE"]
     }
     fn help(&self) -> &str {
         "LENGTHEN id delta — extend/shorten a line or open polyline by delta at the end"
@@ -522,7 +525,10 @@ impl Command for MatchPropCmd {
         "MATCHPROP source_id target — copy layer from source to target (SELECTION|ALL|id)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let src = parse_entity_id(args.first().ok_or("MATCHPROP: missing source")?, "MATCHPROP")?;
+        let src = parse_entity_id(
+            args.first().ok_or("MATCHPROP: missing source")?,
+            "MATCHPROP",
+        )?;
         let token = args.get(1).ok_or("MATCHPROP: missing target")?;
         let layer = ctx
             .doc
@@ -730,8 +736,7 @@ impl Command for LayUnisoCmd {
         "LAYUNISO — restore layer visibility after LAYISO"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let n = crate::autodim::restore_layer_iso(ctx)
-            .map_err(|e| format!("LAYUNISO: {e}"))?;
+        let n = crate::autodim::restore_layer_iso(ctx).map_err(|e| format!("LAYUNISO: {e}"))?;
         Ok(format!("restored visibility for {n} layer(s)"))
     }
 }
@@ -746,7 +751,10 @@ impl Command for LayOffCmd {
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let name = args.first().ok_or("LAYOFF: missing layer")?.clone();
-        if !ctx.doc.transact("LAYOFF", |d| d.set_layer_visible(&name, false)) {
+        if !ctx
+            .doc
+            .transact("LAYOFF", |d| d.set_layer_visible(&name, false))
+        {
             return Err(format!("LAYOFF: no layer {name:?}"));
         }
         Ok(format!("layer {name:?} off"))
@@ -1063,7 +1071,7 @@ impl Command for ZoomCmd {
         &["Z"]
     }
     fn help(&self) -> &str {
-        "ZOOM E|EXTENTS | W x1 y1 x2 y2 | S factor | P — set navigation hint for the viewport"
+        "ZOOM A|ALL | E|EXTENTS | W x1 y1 x2 y2 | S factor | P — viewport zoom (GUI: Z then A for All)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let sub = args
@@ -1301,11 +1309,7 @@ impl Command for ChangeCmd {
         while let Some(tok) = it.next() {
             match tok.to_ascii_uppercase().as_str() {
                 "LAYER" | "LA" => {
-                    layer = Some(
-                        it.next()
-                            .ok_or("CHANGE: LAYER needs a name")?
-                            .clone(),
-                    );
+                    layer = Some(it.next().ok_or("CHANGE: LAYER needs a name")?.clone());
                 }
                 other => {
                     return Err(format!("CHANGE: unknown option {other:?} (try LAYER)"));
@@ -1364,12 +1368,7 @@ impl Command for UnitsCmd {
             if tok == "secondary" || tok == "alt" || tok == "dimalt" {
                 let on = args
                     .get(i + 1)
-                    .map(|s| {
-                        matches!(
-                            s.to_ascii_lowercase().as_str(),
-                            "1" | "on" | "true" | "yes"
-                        )
-                    })
+                    .map(|s| matches!(s.to_ascii_lowercase().as_str(), "1" | "on" | "true" | "yes"))
                     .unwrap_or(true);
                 props.dim_secondary = if on { "1".into() } else { "0".into() };
                 i += 2;
@@ -1432,11 +1431,7 @@ impl Command for TemplateCmd {
                 ctx.doc.transact("TEMPLATE LAYERS", |d| {
                     for &(name, color, lw) in LAYERS {
                         if d.layer(name).is_none() {
-                            d.add_layer(
-                                Layer::new(name)
-                                    .with_color(color)
-                                    .with_lineweight_mm(lw),
-                            );
+                            d.add_layer(Layer::new(name).with_color(color).with_lineweight_mm(lw));
                             added += 1;
                         }
                     }
@@ -1458,9 +1453,7 @@ impl Command for TemplateCmd {
                 ctx.doc.set_properties(props);
                 Ok(format!("nameplate template block set to {name}"))
             }
-            _ => Err(
-                "TEMPLATE: use LAYERS or FROMBLOCK <name>".into(),
-            ),
+            _ => Err("TEMPLATE: use LAYERS or FROMBLOCK <name>".into()),
         }
     }
 }
@@ -1536,10 +1529,11 @@ impl Command for OverkillCmd {
                     quant(b.y),
                     e.layer.clone(),
                 );
-                if seen.contains_key(&key) {
-                    kill.push(e.id);
-                } else {
-                    seen.insert(key, e.id);
+                match seen.entry(key) {
+                    std::collections::hash_map::Entry::Vacant(v) => {
+                        v.insert(e.id);
+                    }
+                    std::collections::hash_map::Entry::Occupied(_) => kill.push(e.id),
                 }
             }
         }
@@ -1575,10 +1569,7 @@ impl Command for StubCmd {
         self.help
     }
     fn run(&self, _ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        Err(format!(
-            "{}: not implemented in this milestone",
-            self.name
-        ))
+        Err(format!("{}: not implemented in this milestone", self.name))
     }
 }
 
@@ -1668,7 +1659,8 @@ mod tests {
         assert!(ctx.doc.layer("TMPL_TEXT").is_some());
         i.eval_line(&mut ctx, "LINE 0 0 1 0 TMPL_BORDER").unwrap();
         i.eval_line(&mut ctx, "BLOCK NAMEPLATE 0 0 0").unwrap();
-        i.eval_line(&mut ctx, "TEMPLATE FROMBLOCK NAMEPLATE").unwrap();
+        i.eval_line(&mut ctx, "TEMPLATE FROMBLOCK NAMEPLATE")
+            .unwrap();
         assert_eq!(ctx.doc.properties().nameplate_block, "NAMEPLATE");
     }
 
@@ -1676,7 +1668,16 @@ mod tests {
     fn li_and_le_aliases_resolve() {
         let r = crate::builtins();
         assert!(r.resolve("LI").is_some());
-        assert!(r.resolve("LE").is_some());
+        assert_eq!(r.resolve("LI").unwrap().name(), "LIST");
+        assert!(r.resolve("LS").is_some());
+        assert_eq!(r.resolve("LE").unwrap().name(), "LENGTHEN");
+        assert_eq!(r.resolve("DISTANCE").unwrap().name(), "DIST");
+        assert!(!r
+            .resolve("MLEADER")
+            .unwrap()
+            .aliases()
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case("LE")));
         assert!(r.resolve("POL").is_some());
         assert!(r.resolve("MA").is_some());
     }

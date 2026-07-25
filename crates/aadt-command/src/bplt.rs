@@ -23,50 +23,265 @@ const AREA_REPORT_TEXT_H: f64 = 0.20;
 const TITLE_BLOCK_H: f64 = 0.060;
 
 const BPLT_LAYERS: &[BpltLayer] = &[
-    BpltLayer { name: "BP-SITE-BOUNDARY", aci: 1, linetype: "Continuous", lw_enum: 50 },
-    BpltLayer { name: "BP-SITE-SETBACK", aci: 3, linetype: "DASHED2", lw_enum: 25 },
-    BpltLayer { name: "BP-SITE-SURRENDER", aci: 3, linetype: "DASHED", lw_enum: 18 },
-    BpltLayer { name: "BP-ROAD-EDGE", aci: 8, linetype: "Continuous", lw_enum: 35 },
-    BpltLayer { name: "BP-ROAD-CL", aci: 8, linetype: "CENTER2", lw_enum: 18 },
-    BpltLayer { name: "BP-ROAD-WIDENING", aci: 8, linetype: "DASHED", lw_enum: 18 },
-    BpltLayer { name: "BP-DRIVEWAY", aci: 52, linetype: "Continuous", lw_enum: 25 },
-    BpltLayer { name: "BP-COMP-WALL", aci: 9, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-BUILDING-CUT", aci: 7, linetype: "Continuous", lw_enum: 50 },
-    BpltLayer { name: "BP-BUILDING-VIEW", aci: 7, linetype: "Continuous", lw_enum: 25 },
-    BpltLayer { name: "BP-BUILDING-HATCH", aci: 7, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-DOOR", aci: 252, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-WINDOW", aci: 252, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-STAIR", aci: 142, linetype: "Continuous", lw_enum: 25 },
-    BpltLayer { name: "BP-LIFT", aci: 141, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-RAMP", aci: 140, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-CORRIDOR", aci: 143, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-ROOM", aci: 153, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-TOILET", aci: 153, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-BALCONY", aci: 144, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-TERRACE", aci: 96, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-PORCH", aci: 22, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-PARKING", aci: 151, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-RWH", aci: 133, linetype: "Continuous", lw_enum: 18 },
-    BpltLayer { name: "BP-SHEET-BORDER", aci: 8, linetype: "Continuous", lw_enum: 50 },
-    BpltLayer { name: "BP-TITLE-BLOCK", aci: 8, linetype: "Continuous", lw_enum: 25 },
-    BpltLayer { name: "BP-DIM", aci: 2, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-TEXT-GENERAL", aci: 2, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-TEXT-ROOM", aci: 2, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-AREA-TABLE", aci: 2, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-NOTES", aci: 2, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "BP-SECTION", aci: 30, linetype: "Continuous", lw_enum: 35 },
-    BpltLayer { name: "BP-ELEVATION", aci: 30, linetype: "Continuous", lw_enum: 25 },
+    BpltLayer {
+        name: "BP-SITE-BOUNDARY",
+        aci: 1,
+        linetype: "Continuous",
+        lw_enum: 50,
+    },
+    BpltLayer {
+        name: "BP-SITE-SETBACK",
+        aci: 3,
+        linetype: "DASHED2",
+        lw_enum: 25,
+    },
+    BpltLayer {
+        name: "BP-SITE-SURRENDER",
+        aci: 3,
+        linetype: "DASHED",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-ROAD-EDGE",
+        aci: 8,
+        linetype: "Continuous",
+        lw_enum: 35,
+    },
+    BpltLayer {
+        name: "BP-ROAD-CL",
+        aci: 8,
+        linetype: "CENTER2",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-ROAD-WIDENING",
+        aci: 8,
+        linetype: "DASHED",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-DRIVEWAY",
+        aci: 52,
+        linetype: "Continuous",
+        lw_enum: 25,
+    },
+    BpltLayer {
+        name: "BP-COMP-WALL",
+        aci: 9,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-BUILDING-CUT",
+        aci: 7,
+        linetype: "Continuous",
+        lw_enum: 50,
+    },
+    BpltLayer {
+        name: "BP-BUILDING-VIEW",
+        aci: 7,
+        linetype: "Continuous",
+        lw_enum: 25,
+    },
+    BpltLayer {
+        name: "BP-BUILDING-HATCH",
+        aci: 7,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-DOOR",
+        aci: 252,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-WINDOW",
+        aci: 252,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-STAIR",
+        aci: 142,
+        linetype: "Continuous",
+        lw_enum: 25,
+    },
+    BpltLayer {
+        name: "BP-LIFT",
+        aci: 141,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-RAMP",
+        aci: 140,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-CORRIDOR",
+        aci: 143,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-ROOM",
+        aci: 153,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-TOILET",
+        aci: 153,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-BALCONY",
+        aci: 144,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-TERRACE",
+        aci: 96,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-PORCH",
+        aci: 22,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-PARKING",
+        aci: 151,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-RWH",
+        aci: 133,
+        linetype: "Continuous",
+        lw_enum: 18,
+    },
+    BpltLayer {
+        name: "BP-SHEET-BORDER",
+        aci: 8,
+        linetype: "Continuous",
+        lw_enum: 50,
+    },
+    BpltLayer {
+        name: "BP-TITLE-BLOCK",
+        aci: 8,
+        linetype: "Continuous",
+        lw_enum: 25,
+    },
+    BpltLayer {
+        name: "BP-DIM",
+        aci: 2,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-TEXT-GENERAL",
+        aci: 2,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-TEXT-ROOM",
+        aci: 2,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-AREA-TABLE",
+        aci: 2,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-NOTES",
+        aci: 2,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "BP-SECTION",
+        aci: 30,
+        linetype: "Continuous",
+        lw_enum: 35,
+    },
+    BpltLayer {
+        name: "BP-ELEVATION",
+        aci: 30,
+        linetype: "Continuous",
+        lw_enum: 25,
+    },
     // AP- AutoPlan helpers (subset of full LISP table)
-    BpltLayer { name: "AP-DRAWING-BOUND", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-SITE-GROSS", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-SITE-NET", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-ROAD", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-BLDG-BOUNDARY", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-FLOOR-LEVEL", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-BLDG-AREA", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-ROOM", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-STAIRCASE", aci: 253, linetype: "Continuous", lw_enum: 13 },
-    BpltLayer { name: "AP-PARKING", aci: 253, linetype: "Continuous", lw_enum: 13 },
+    BpltLayer {
+        name: "AP-DRAWING-BOUND",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-SITE-GROSS",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-SITE-NET",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-ROAD",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-BLDG-BOUNDARY",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-FLOOR-LEVEL",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-BLDG-AREA",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-ROOM",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-STAIRCASE",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
+    BpltLayer {
+        name: "AP-PARKING",
+        aci: 253,
+        linetype: "Continuous",
+        lw_enum: 13,
+    },
 ];
 
 fn lw_mm(enum_int: i32) -> f32 {
@@ -98,8 +313,7 @@ fn apply_bplt_layers_into(d: &mut aadt_model::Document) -> usize {
 
 /// Create / update BPLT layers. Returns count processed.
 pub fn apply_bplt_layers(ctx: &mut Context) -> usize {
-    ctx.doc
-        .transact("BPLT LAYERS", |d| apply_bplt_layers_into(d))
+    ctx.doc.transact("BPLT LAYERS", apply_bplt_layers_into)
 }
 
 pub fn register_bplt(r: &mut Registry) {
@@ -149,7 +363,11 @@ impl Command for BpltLayersCmd {
         let h = LEGEND_TEXT_H;
         let mut entries = Vec::new();
         let mut yy = y;
-        entries.push(("Building Permission Layer Tool — Layer Legend".to_string(), yy, h * 1.5));
+        entries.push((
+            "Building Permission Layer Tool — Layer Legend".to_string(),
+            yy,
+            h * 1.5,
+        ));
         yy -= h * 2.0;
         for def in BPLT_LAYERS {
             entries.push((def.name.to_string(), yy, h));
@@ -221,7 +439,9 @@ impl Command for BpltCopyCmd {
                 d.add_geometry(layer, g);
             }
         });
-        Ok(format!("BPLTCOPY done. Copied: {copied}  Skipped: {skipped}"))
+        Ok(format!(
+            "BPLTCOPY done. Copied: {copied}  Skipped: {skipped}"
+        ))
     }
 }
 

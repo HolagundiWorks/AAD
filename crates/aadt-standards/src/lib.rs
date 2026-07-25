@@ -9,13 +9,13 @@ mod aci;
 mod catalog;
 mod section;
 mod sets;
+mod space_map;
 
 pub use aci::{
     aci_to_srgb, contrast_ratio, contrast_vs_white, min_lineweight_mm_for_contrast,
     relative_luminance, GRAPHICS_AA_MIN,
 };
-pub use catalog::{
-    apply_standard_layers, find_layer, Discipline, StandardLayer, AIA_LAYERS,
-};
+pub use catalog::{apply_standard_layers, find_layer, Discipline, StandardLayer, AIA_LAYERS};
 pub use section::generate_section;
 pub use sets::{apply_layer_set, LayerSet, PRESETS};
+pub use space_map::{category_default_layer, category_from_layer};

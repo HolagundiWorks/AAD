@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use aadt_geometry::{Bbox, Point2};
+use aadt_geometry::{Bbox, Point2, Segment};
 use aadt_model::{Document, EntityId, Geometry, DEFAULT_LINEWEIGHT_MM};
 use aadt_render::{Camera, DrawCommand, DrawList};
 use aadt_standards::aci_to_srgb;
@@ -28,10 +28,10 @@ use crate::osnap::{OsnapState, SnapKind};
 use crate::prefs::UserPrefs;
 use crate::{Feedback, Session};
 
-#[path = "command_engine.rs"]
-mod command_engine;
 #[path = "gui_chrome.rs"]
 mod chrome;
+#[path = "command_engine.rs"]
+mod command_engine;
 #[path = "gui_icons.rs"]
 mod icons;
 #[path = "gui_theme.rs"]
@@ -51,6 +51,37 @@ fn parse_entity_id_from_feedback(msg: Option<&str>) -> Option<u64> {
 
 /// Pick tolerance in screen pixels (also drives pickbox half-size).
 const PICK_PIXELS: f64 = 6.0;
+
+/// Cached Layers-panel row: name, ACI, visible, frozen, locked, lineweight_mm, linetype.
+type LayerRowCache = (String, u8, bool, bool, bool, f32, String);
+
+/// Which layers the Layer Manager lists.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LayerMgrScope {
+    /// Layers related to the active model space (default).
+    ActiveSpace,
+    /// Layers related to any space on the active floor.
+    ActiveFloor,
+    /// Imported CAD layers (`ORG-DWG_LAYER-*`).
+    Import,
+    /// Every layer in the drawing.
+    All,
+}
+
+impl LayerMgrScope {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ActiveSpace => "Space",
+            Self::ActiveFloor => "Floor",
+            Self::Import => "Import",
+            Self::All => "All",
+        }
+    }
+
+    fn cache_key(self) -> &'static str {
+        self.label()
+    }
+}
 
 /// Crosshair total size in screen pixels (AutoCAD-style fixed cursor).
 const CROSSHAIR_SIZE_PX: f32 = 100.0;
@@ -84,8 +115,18 @@ fn parse_comma_xy(text: &str) -> Option<Point2> {
     parse_dyn_xy(x, y)
 }
 
+/// Parse `@dx,dy` relative to `anchor` (AutoCAD-style relative coords).
+fn parse_relative_xy(text: &str, anchor: Point2) -> Option<Point2> {
+    let rest = text.trim().strip_prefix('@')?;
+    let delta = parse_comma_xy(rest)?;
+    Some(Point2::new(anchor.x + delta.x, anchor.y + delta.y))
+}
+
 /// Object-snap aperture in screen pixels (slightly larger than pick).
 const SNAP_PIXELS: f64 = 10.0;
+
+/// Click vs micro-drag threshold (screen px) for accepting a drafting point.
+const PLACE_DRAG_PX: f32 = 3.0;
 
 /// Default plot scale denominator (1:100) for lineweight preview.
 const PLOT_SCALE: f32 = 100.0;
@@ -94,18 +135,24 @@ const PLOT_SCALE: f32 = 100.0;
 /// closes. Drivers (the CLI `app` command) register `OPEN`/`SAVE`/`TAKEOFF`/
 /// `LISP` on the session before calling this — the GUI never owns those deps.
 pub fn run(session: Session) -> eframe::Result<()> {
+    let icon =
+        eframe::icon_data::from_png_bytes(include_bytes!("../assets/branding/app_icon_256.png"))
+            .unwrap_or_default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("AADT")
-            .with_inner_size([1280.0, 800.0]),
+            .with_inner_size([1280.0, 800.0])
+            .with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(
         "AADT",
         options,
         Box::new(move |cc| {
-            // Windows 11 / Fluent: calm flat chrome; force OS light title bar.
+            // Windows 11 / Fluent neutrals + AADT brand orange.
             theme::apply_fluent_visuals(&cc.egui_ctx);
+            theme::install_drawing_fonts(&cc.egui_ctx);
+            // Keep OS DPI; density comes from compact text/spacing (Cursor-like).
             icons::install(&cc.egui_ctx);
             Ok(Box::new(AadtApp::from_session(session)))
         }),
@@ -189,11 +236,16 @@ pub(super) enum Tool {
         landing: Option<Point2>,
         text_pt: Option<Point2>,
     },
-    /// Stretch: window corner1 → corner2 → base → destination.
+    /// Stretch: select objects → crossing window → base → destination.
     Stretch {
+        collecting: bool,
         w0: Option<Point2>,
         w1: Option<Point2>,
         base: Option<Point2>,
+    },
+    /// Distance inquiry: two clicks (DI / DIST).
+    Dist {
+        first: Option<Point2>,
     },
     /// Vector freehand brush on A-PRES-MARK (polyline strokes).
     Brush {
@@ -236,6 +288,28 @@ pub(super) enum Tool {
         collecting: bool,
         a: Option<Point2>,
         b: Option<Point2>,
+    },
+    /// Rectangular array: rows → cols → dx → dy.
+    ArrayRect {
+        collecting: bool,
+        rows: Option<usize>,
+        cols: Option<usize>,
+        /// First point when measuring a spacing by two clicks.
+        spacing_a: Option<Point2>,
+        dx: Option<f64>,
+    },
+    /// Polar array: center → count → fill angle → rotate items Y/N.
+    ArrayPolar {
+        collecting: bool,
+        center: Option<Point2>,
+        count: Option<usize>,
+        fill: Option<f64>,
+    },
+    /// Path array: path entity → count → align Y/N.
+    ArrayPath {
+        collecting: bool,
+        path: Option<EntityId>,
+        count: Option<usize>,
     },
     /// Erase: select objects (verb-noun or noun-verb), Space confirms.
     Erase,
@@ -280,6 +354,10 @@ pub(super) enum Tool {
     ZoomWindow {
         first: Option<Point2>,
     },
+    /// Plot window: two corners for the area to plot to PDF.
+    PlotWindow {
+        first: Option<Point2>,
+    },
     /// Section cut line on plan (two clicks).
     SectionLine {
         first: Option<Point2>,
@@ -315,6 +393,14 @@ pub(super) enum PlaceKind {
     Column,
     Beam,
     Slab,
+    Tree,
+    Shrub,
+    Chair,
+    Desk,
+    Sofa,
+    Bed,
+    Table,
+    Toilet,
 }
 
 /// CIRCLE creation mode (AutoCAD Center / 2P / 3P).
@@ -361,7 +447,28 @@ impl PlaceKind {
             Self::Window => "A-GLAZ",
             Self::Column => "S-COLS",
             Self::Beam => "S-BEAM",
-            Self::Slab => "A-FLOR",
+            Self::Slab | Self::Toilet => "A-FLOR",
+            Self::Tree | Self::Shrub => "S-TREE",
+            Self::Chair | Self::Desk | Self::Sofa | Self::Bed | Self::Table => "A-FURN",
+        }
+    }
+
+    /// Model-space category this place tool belongs to.
+    #[allow(dead_code)]
+    pub(super) fn space_category(self) -> aadt_model::SpaceCategory {
+        use aadt_model::SpaceCategory;
+        match self {
+            Self::Door | Self::Window => SpaceCategory::Walls,
+            Self::Column | Self::Slab => SpaceCategory::Structural,
+            Self::Beam => SpaceCategory::BeamLayout,
+            Self::Chair
+            | Self::Desk
+            | Self::Sofa
+            | Self::Bed
+            | Self::Table
+            | Self::Toilet
+            | Self::Tree
+            | Self::Shrub => SpaceCategory::Furniture,
         }
     }
 
@@ -372,17 +479,134 @@ impl PlaceKind {
             Self::Column => "column",
             Self::Beam => "beam",
             Self::Slab => "slab",
+            Self::Tree => "tree",
+            Self::Shrub => "shrub",
+            Self::Chair => "chair",
+            Self::Desk => "desk",
+            Self::Sofa => "sofa",
+            Self::Bed => "bed",
+            Self::Table => "table",
+            Self::Toilet => "toilet",
         }
     }
 
-    fn block_name(self) -> &'static str {
+    pub(super) fn block_name(self) -> &'static str {
         match self {
             Self::Door => "DOOR-SINGLE",
             Self::Window => "WINDOW",
             Self::Column => "COLUMN",
             Self::Beam => "BEAM",
             Self::Slab => "SLAB",
+            Self::Tree => "TREE",
+            Self::Shrub => "SHRUB",
+            Self::Chair => "FURN-CHAIR",
+            Self::Desk => "FURN-DESK",
+            Self::Sofa => "FURN-SOFA",
+            Self::Bed => "FURN-BED",
+            Self::Table => "FURN-TABLE",
+            Self::Toilet => "FIXTURE-TOILET",
         }
+    }
+}
+
+/// Place tools shown for the active model-space category.
+pub(super) fn place_kinds_for_category(
+    cat: aadt_model::SpaceCategory,
+) -> &'static [( &'static str, PlaceKind)] {
+    use aadt_model::SpaceCategory;
+    use PlaceKind::*;
+    match cat {
+        SpaceCategory::Walls => &[("Door", Door), ("Window", Window)],
+        SpaceCategory::Structural => &[("Column", Column), ("Slab", Slab)],
+        SpaceCategory::Lintel => &[],
+        SpaceCategory::BeamLayout => &[("Beam", Beam)],
+        SpaceCategory::Furniture => &[
+            ("Chair", Chair),
+            ("Desk", Desk),
+            ("Sofa", Sofa),
+            ("Bed", Bed),
+            ("Table", Table),
+            ("Toilet", Toilet),
+            ("Tree", Tree),
+            ("Shrub", Shrub),
+        ],
+        SpaceCategory::Custom => &[
+            ("Door", Door),
+            ("Window", Window),
+            ("Column", Column),
+            ("Beam", Beam),
+            ("Slab", Slab),
+            ("Chair", Chair),
+            ("Desk", Desk),
+            ("Sofa", Sofa),
+            ("Bed", Bed),
+            ("Table", Table),
+            ("Toilet", Toilet),
+            ("Tree", Tree),
+            ("Shrub", Shrub),
+        ],
+    }
+}
+
+/// Whether a block name belongs to the active space category.
+pub(super) fn block_name_for_category(name: &str, cat: aadt_model::SpaceCategory) -> bool {
+    use aadt_model::SpaceCategory;
+    if matches!(cat, SpaceCategory::Custom) {
+        return true;
+    }
+    let u = name.trim().to_ascii_uppercase();
+    match cat {
+        SpaceCategory::Walls => {
+            u.contains("DOOR") || u.contains("WINDOW") || u.contains("GLAZ") || u.contains("OPENING")
+        }
+        SpaceCategory::Structural => {
+            u.contains("COL") || u.contains("SLAB") || u.contains("FOUND") || u.contains("PIER")
+        }
+        SpaceCategory::Lintel => u.contains("LINT"),
+        SpaceCategory::BeamLayout => u.contains("BEAM"),
+        SpaceCategory::Furniture => {
+            u.contains("FURN")
+                || u.contains("FIXTURE")
+                || u.contains("TREE")
+                || u.contains("SHRUB")
+                || u.contains("TOILET")
+                || u.contains("CHAIR")
+                || u.contains("DESK")
+                || u.contains("SOFA")
+                || u.contains("BED")
+                || u.contains("TABLE")
+                || u.contains("SINK")
+                || u.contains("SHOWER")
+                || u.contains("BATHTUB")
+        }
+        SpaceCategory::Custom => true,
+    }
+}
+
+/// Library folder / path hint → space category filter.
+pub(super) fn library_path_for_category(path: &std::path::Path, cat: aadt_model::SpaceCategory) -> bool {
+    use aadt_model::SpaceCategory;
+    if matches!(cat, SpaceCategory::Custom) {
+        return true;
+    }
+    let s = path.to_string_lossy().to_ascii_lowercase();
+    let name = path
+        .file_stem()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_ascii_uppercase();
+    if block_name_for_category(&name, cat) {
+        return true;
+    }
+    match cat {
+        SpaceCategory::Walls => s.contains("door") || s.contains("window"),
+        SpaceCategory::Structural => s.contains("column") || s.contains("struct") || s.contains("slab"),
+        SpaceCategory::Lintel => s.contains("lintel"),
+        SpaceCategory::BeamLayout => s.contains("beam"),
+        SpaceCategory::Furniture => {
+            s.contains("furn") || s.contains("fixture") || s.contains("tree") || s.contains("plant")
+        }
+        SpaceCategory::Custom => true,
     }
 }
 
@@ -393,9 +617,7 @@ impl PlaceKind {
 pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
     let collect = !has_selection;
     match token.to_ascii_uppercase().as_str() {
-        "L" | "LINE" => Some(Tool::Line {
-            points: Vec::new(),
-        }),
+        "L" | "LINE" => Some(Tool::Line { points: Vec::new() }),
         "C" | "CIRCLE" => Some(Tool::Circle {
             mode: CircleMode::Center,
             p1: None,
@@ -421,13 +643,32 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         "H" | "HATCH" => Some(Tool::Hatch),
         "TR" | "TRIM" => Some(Tool::Trim {
             cutters: Vec::new(),
-            phase: TrimPhase::CuttingEdges,
+            // AutoCAD Quick mode: all geometry are cutting edges; click objects to trim.
+            phase: TrimPhase::Objects,
         }),
         "EX" | "EXTEND" => Some(Tool::Extend { boundary: None }),
         "MI" | "MIRROR" => Some(Tool::Mirror {
             collecting: collect,
             a: None,
             b: None,
+        }),
+        "AR" | "ARRAY" | "ARRAYRECT" => Some(Tool::ArrayRect {
+            collecting: collect,
+            rows: None,
+            cols: None,
+            spacing_a: None,
+            dx: None,
+        }),
+        "ARRAYPOLAR" | "ARRAYPOL" => Some(Tool::ArrayPolar {
+            collecting: collect,
+            center: None,
+            count: None,
+            fill: None,
+        }),
+        "ARRAYPATH" | "APATH" => Some(Tool::ArrayPath {
+            collecting: collect,
+            path: None,
+            count: None,
         }),
         "X" | "EXPLODE" => Some(Tool::Explode),
         "DIM" | "DIMLINEAR" => Some(Tool::Dim {
@@ -448,8 +689,8 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             dist: None,
             entity: None,
         }),
-        "T" | "TEXT" | "DTEXT" => Some(Tool::Text { origin: None }),
-        "MLEADER" | "LEADER" | "MLD" | "LE" => Some(Tool::Mleader {
+        "T" | "TEXT" | "DTEXT" | "DT" => Some(Tool::Text { origin: None }),
+        "MLEADER" | "LEADER" | "MLD" => Some(Tool::Mleader {
             arrow: None,
             landing: None,
             text_pt: None,
@@ -462,24 +703,26 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         }),
         "REVMARK" | "REVT" => Some(Tool::RevMark),
         "REVCLOUD" | "RCLOUD" => Some(Tool::RevCloud { first: None }),
-        "S" | "STRETCH" if has_selection => Some(Tool::Stretch {
+        "S" | "STRETCH" => Some(Tool::Stretch {
+            collecting: collect,
             w0: None,
             w1: None,
             base: None,
         }),
+        "DI" | "DIST" | "DISTANCE" => Some(Tool::Dist { first: None }),
         "BRUSH" | "VB" => Some(Tool::Brush { points: None }),
         "F" | "FILLET" => Some(Tool::Fillet {
             radius: None,
             first: None,
         }),
         "E" | "ERASE" => Some(Tool::Erase),
-        "I" | "INSERT" => None, // needs a block name — use Blocks Manager
+        "I" | "INSERT" => None, // opens Blocks Manager in dispatch
         "B" | "BLOCK" => Some(Tool::MakeBlock {
             erase: false,
             collecting: collect,
             name: None,
         }),
-        "WBLOCK" => Some(Tool::MakeBlock {
+        "W" | "WBLOCK" => Some(Tool::MakeBlock {
             erase: true,
             collecting: collect,
             name: None,
@@ -505,11 +748,11 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             ref_a: None,
             old_len: None,
         }),
-        "W" | "WALL" => Some(Tool::Wall {
+        "WA" | "WALL" => Some(Tool::Wall {
             thickness: None,
             points: Vec::new(),
         }),
-        "D" | "DO" | "DOOR" => Some(Tool::PlaceElem {
+        "DO" | "DOOR" => Some(Tool::PlaceElem {
             kind: PlaceKind::Door,
         }),
         "WI" | "WINDOW" => Some(Tool::PlaceElem {
@@ -523,6 +766,30 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         }),
         "SL" | "SLAB" => Some(Tool::PlaceElem {
             kind: PlaceKind::Slab,
+        }),
+        "TREE" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Tree,
+        }),
+        "SHRUB" | "BUSH" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Shrub,
+        }),
+        "CHAIR" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Chair,
+        }),
+        "DESK" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Desk,
+        }),
+        "SOFA" | "COUCH" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Sofa,
+        }),
+        "BED" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Bed,
+        }),
+        "FTABLE" | "RDTABLE" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Table,
+        }),
+        "TOILET" | "WC" => Some(Tool::PlaceElem {
+            kind: PlaceKind::Toilet,
         }),
         "IROOM" | "MROOM" => None, // opens picker in dispatch
         "IAR" | "MAR" => Some(Tool::RoomArea),
@@ -580,24 +847,38 @@ struct AadtApp {
     polar: bool,
     /// Object-snap tracking (F11): keep osnap active while polar is on.
     osnap_track: bool,
+    /// Dynamic Input near-cursor prompts (F12).
+    dyn_mode: bool,
     /// Camera before last ZOOM, for ZOOM P.
     zoom_prev: Option<Camera>,
     /// Active snap under the cursor (for the marker), if any.
     snap_hit: Option<(SnapKind, Point2)>,
     /// Active layer-set name for the side panel.
     layer_set: String,
-    /// Right-dock tab: Layers / Blocks / Takeoff / Hatches / Annotate / Templates / Units / Dims.
+    /// Left-dock tab: Layers / Blocks.
+    left_tab: usize,
+    /// Right-dock tab: Takeoff / Hatches / Annotate / Templates / Units / Dims / History / Properties.
     right_tab: usize,
     /// Block name queued for INSERT from the Blocks Manager.
     insert_block: String,
     /// Filter text in the Layer Manager.
     layer_filter: String,
-    /// Show the right-hand Layer Properties Manager.
+    /// Layer Manager list scope (Space / Floor / Import / All).
+    layer_mgr_scope: LayerMgrScope,
+    /// Map-layers-to-spaces review dialog.
+    show_layer_map: bool,
+    /// Draft map edited in the dialog (layer → category).
+    layer_map_draft: std::collections::BTreeMap<String, aadt_model::SpaceCategory>,
+    /// Show the right-hand tools manager.
     show_layer_mgr: bool,
+    /// Show the left-hand structure manager (Layers / Blocks).
+    show_left_mgr: bool,
     /// Status-bar: display lineweights in the viewport.
     show_lweights: bool,
     /// Local copy of Drawing Property Manager fields (applied on Save in the panel).
     props_edit: aadt_model::DrawingProperties,
+    /// Draft name for Add space in Drawing Properties / levels.
+    space_add_draft: String,
     /// Footer Drawing Properties panel open.
     show_drawing_props: bool,
     /// Plot-to-PDF dialog open.
@@ -612,6 +893,10 @@ struct AadtApp {
     plot_include_notes: bool,
     /// Nameplate preset token (`professional` / `compact` / `minimal`).
     plot_nameplate: String,
+    /// Plot content: 0 = extents, 1 = selection, 2 = window.
+    plot_area_mode: u8,
+    /// World-space window from PlotWindow tool (when mode = 2).
+    plot_window: Option<aadt_geometry::Bbox>,
     /// Drafting coordinate fields (Tab cycles X ↔ Y).
     dyn_x: String,
     dyn_y: String,
@@ -627,6 +912,8 @@ struct AadtApp {
     table_cols: String,
     /// Takeoff publish sink spec (`none` / `csv:dir` / …).
     takeoff_sink_spec: String,
+    /// Natural-language ASK box (Foundry Local / local rules).
+    nl_ask: String,
     /// Label for HISTORY SAVE from the History panel.
     history_label: String,
     /// Spacebar-primary command engine.
@@ -635,7 +922,7 @@ struct AadtApp {
     /// Hold / Ctrl+Space command palette.
     palette_open: bool,
     palette_filter: String,
-    /// Path of the last successful OPEN/SAVE (.aadt or .dxf).
+    /// Path of the last successful OPEN/SAVE (.aadt, .dxf, or .dwg).
     file_path: Option<PathBuf>,
     /// True when the document has unsaved edits.
     dirty: bool,
@@ -653,13 +940,22 @@ struct AadtApp {
     osnap_state: OsnapState,
     /// Right panel width (persisted).
     right_panel_width: f32,
-    /// Cached layer rows: (doc revision, filter, rows).
-    layer_rows_cache: Option<(u64, String, Vec<(String, u8, bool, bool, bool, f32, String)>)>,
+    /// Left panel width (persisted).
+    left_panel_width: f32,
+    /// Cached layer rows: (doc revision, filter+scope key, rows).
+    layer_rows_cache: Option<(u64, String, Vec<LayerRowCache>)>,
     /// Cached drawing blocks for the Blocks tab.
     blocks_cache_rev: Option<u64>,
     blocks_cache: Vec<(String, usize)>,
     /// Last pointer screen pos used for meaningful-repaint gating.
     last_pointer_screen: Option<egui::Pos2>,
+    /// Cached window title — avoid ViewportCommand every frame.
+    last_window_title: String,
+    /// Library block listing cache (name, path) — avoid FS walk every frame.
+    library_cache: Vec<(String, PathBuf)>,
+    library_cache_at: Option<Instant>,
+    /// Shift held on the last canvas interaction (TRIM↔EXTEND).
+    pointer_shift: bool,
 }
 
 impl AadtApp {
@@ -685,15 +981,22 @@ impl AadtApp {
             osnap: prefs.osnap,
             polar: prefs.polar,
             osnap_track: prefs.osnap_track,
+            dyn_mode: prefs.dyn_mode,
             zoom_prev: None,
             snap_hit: None,
             layer_set: "CONSTRUCTION".to_string(),
+            left_tab: 0,
             right_tab: 0,
             insert_block: String::new(),
             layer_filter: String::new(),
+            layer_mgr_scope: LayerMgrScope::ActiveSpace,
+            show_layer_map: false,
+            layer_map_draft: std::collections::BTreeMap::new(),
             show_layer_mgr: prefs.show_layer_mgr,
+            show_left_mgr: prefs.show_left_mgr,
             show_lweights: prefs.show_lweights,
             props_edit: aadt_model::DrawingProperties::default(),
+            space_add_draft: String::new(),
             show_drawing_props: false,
             plot_open: false,
             plot_drawing_name: String::new(),
@@ -701,6 +1004,8 @@ impl AadtApp {
             plot_notes: String::new(),
             plot_include_notes: true,
             plot_nameplate: "professional".into(),
+            plot_area_mode: 0,
+            plot_window: None,
             dyn_x: String::new(),
             dyn_y: String::new(),
             dyn_focus: CoordFocus::X,
@@ -710,6 +1015,7 @@ impl AadtApp {
             table_rows: "5".into(),
             table_cols: "4".into(),
             takeoff_sink_spec: prefs.takeoff_sink.clone(),
+            nl_ask: String::new(),
             history_label: String::new(),
             engine: CommandEngine::default(),
             space_gesture: SpaceGesture::default(),
@@ -723,11 +1029,16 @@ impl AadtApp {
             show_shortcuts: false,
             show_room_picker: false,
             osnap_state: OsnapState::default(),
-            right_panel_width: prefs.right_panel_width.clamp(240.0, 640.0),
+            right_panel_width: prefs.right_panel_width.clamp(200.0, 640.0),
+            left_panel_width: prefs.left_panel_width.clamp(180.0, 520.0),
             layer_rows_cache: None,
             blocks_cache_rev: None,
             blocks_cache: Vec::new(),
             last_pointer_screen: None,
+            last_window_title: String::new(),
+            library_cache: Vec::new(),
+            library_cache_at: None,
+            pointer_shift: false,
         }
     }
 
@@ -737,9 +1048,12 @@ impl AadtApp {
             osnap: self.osnap,
             polar: self.polar,
             osnap_track: self.osnap_track,
+            dyn_mode: self.dyn_mode,
             show_layer_mgr: self.show_layer_mgr,
+            show_left_mgr: self.show_left_mgr,
             show_lweights: self.show_lweights,
             right_panel_width: self.right_panel_width,
+            left_panel_width: self.left_panel_width,
             autosave_secs: self.autosave_secs,
             takeoff_sink: self.takeoff_sink_spec.clone(),
         }
@@ -780,16 +1094,23 @@ impl AadtApp {
         let rev0 = self.session.document().revision();
         let fb = self.session.feed(line);
         let ok = matches!(fb, Feedback::Ok(_));
-        let head = line.trim().split_whitespace().next().unwrap_or("");
+        let head = line.split_whitespace().next().unwrap_or("");
         let up = head.to_ascii_uppercase();
         if ok && (up == "OPEN" || up == "SAVE") {
-            if let Some(path) = line.trim().split_once(char::is_whitespace).map(|(_, p)| p.trim()) {
+            if let Some(path) = line.split_once(char::is_whitespace).map(|(_, p)| p.trim()) {
                 if !path.is_empty() {
                     let pb = PathBuf::from(path);
                     self.file_path = Some(pb.clone());
                     self.dirty = false;
                     if up == "OPEN" {
                         self.recovery_prompt = Self::detect_recovery(Some(&pb));
+                        // OPEN retags CAD layers under Import Layers (`IMPORT` set).
+                        self.layer_set = "IMPORT".to_string();
+                        self.layer_mgr_scope = LayerMgrScope::Import;
+                        self.sync_layer_from_active_space();
+                        self.open_layer_map_dialog();
+                        self.show_left_mgr = true;
+                        self.left_tab = 0;
                     } else if up == "SAVE" {
                         let auto = Self::autosave_path(&pb);
                         let _ = std::fs::remove_file(auto);
@@ -798,6 +1119,20 @@ impl AadtApp {
             }
         } else if self.session.document().revision() != rev0 {
             self.dirty = true;
+        }
+        if ok
+            && matches!(
+                up.as_str(),
+                "FLOOR" | "FLOORADD" | "CATEGORY" | "SPACEADD" | "CHSPACE"
+            )
+        {
+            // Floor/space context change — drop selection that may live elsewhere.
+            // CHSPACE moves selection into the active space; still clear highlight.
+            if up != "CHSPACE" {
+                self.selection.clear();
+            }
+            self.sync_layer_from_active_space();
+            self.layer_rows_cache = None;
         }
         fb
     }
@@ -817,6 +1152,7 @@ impl AadtApp {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("AADT", &["aadt"])
             .add_filter("DXF", &["dxf"])
+            .add_filter("DWG", &["dwg"])
             .set_file_name("drawing.aadt")
             .save_file()
         {
@@ -836,16 +1172,15 @@ impl AadtApp {
         self.file_path = None;
         self.dirty = false;
         self.recovery_prompt = None;
-        self.note = "New drawing".into();
+        self.layer_set = "CONSTRUCTION".to_string();
+        self.sync_layer_from_active_space();
+        self.note = "New drawing — Ground · Walls".into();
     }
 
-    fn refresh_window_title(&self, ctx: &egui::Context) {
+    fn refresh_window_title(&mut self, ctx: &egui::Context) {
         let title = match &self.file_path {
             Some(p) => {
-                let name = p
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("drawing");
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("drawing");
                 if self.dirty {
                     format!("AADT — {name}*")
                 } else {
@@ -860,7 +1195,31 @@ impl AadtApp {
                 }
             }
         };
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        if title != self.last_window_title {
+            self.last_window_title = title.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        }
+    }
+
+    /// Refresh library file list at most every 2s (or on first open / invalidate).
+    pub(super) fn ensure_library_cache(&mut self, force: bool) {
+        let stale = force
+            || self.library_cache_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_secs(2));
+        if !stale {
+            return;
+        }
+        let root = aadt_library::default_library_root();
+        self.library_cache = aadt_library::list_blocks(&root)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|b| (b.name, b.path))
+            .collect();
+        self.library_cache_at = Some(Instant::now());
+    }
+
+    pub(super) fn invalidate_library_cache(&mut self) {
+        self.library_cache_at = None;
+        self.library_cache.clear();
     }
 
     fn tick_autosave(&mut self) {
@@ -877,9 +1236,7 @@ impl AadtApp {
             }
         }
         let auto = Self::autosave_path(&path);
-        let fb = self
-            .session
-            .feed(&format!("SAVE {}", auto.display()));
+        let fb = self.session.feed(&format!("SAVE {}", auto.display()));
         // Autosave must not clear dirty or rewrite file_path.
         if matches!(fb, Feedback::Ok(_)) {
             self.last_autosave = Some(now);
@@ -905,16 +1262,54 @@ impl AadtApp {
     fn layer_rows_snapshot(&mut self) -> Vec<(String, u8, bool, bool, bool, f32, String)> {
         let rev = self.session.document().revision();
         let filter = self.layer_filter.to_ascii_uppercase();
+        let scope_key = format!("{}|{}", self.layer_mgr_scope.cache_key(), filter);
         let stale = match &self.layer_rows_cache {
-            Some((r, f, _)) => *r != rev || *f != filter,
+            Some((r, f, _)) => *r != rev || *f != scope_key,
             None => true,
         };
         if stale {
+            let allowed: Option<std::collections::HashSet<String>> = match self.layer_mgr_scope {
+                LayerMgrScope::All => None,
+                LayerMgrScope::Import => Some(
+                    self.session
+                        .document()
+                        .layers()
+                        .filter(|l| l.name.starts_with(aadt_model::IMPORTED_LAYER_PREFIX))
+                        .map(|l| l.name.clone())
+                        .collect(),
+                ),
+                LayerMgrScope::ActiveSpace => {
+                    let sid = self.session.document().active_space();
+                    Some(
+                        self.session
+                            .document()
+                            .layers_related_to_space(sid)
+                            .into_iter()
+                            .collect(),
+                    )
+                }
+                LayerMgrScope::ActiveFloor => {
+                    let names = self
+                        .session
+                        .document()
+                        .active_floor_id()
+                        .map(|fid| self.session.document().layers_related_to_floor(fid))
+                        .unwrap_or_default();
+                    Some(names.into_iter().collect())
+                }
+            };
             let mut rows: Vec<(String, u8, bool, bool, bool, f32, String)> = self
                 .session
                 .document()
                 .layers()
-                .filter(|l| filter.is_empty() || l.name.to_ascii_uppercase().contains(&filter))
+                .filter(|l| {
+                    if let Some(set) = &allowed {
+                        if !set.contains(&l.name) {
+                            return false;
+                        }
+                    }
+                    filter.is_empty() || l.name.to_ascii_uppercase().contains(&filter)
+                })
                 .map(|l| {
                     (
                         l.name.clone(),
@@ -928,12 +1323,59 @@ impl AadtApp {
                 })
                 .collect();
             rows.sort_by(|a, b| a.0.cmp(&b.0));
-            self.layer_rows_cache = Some((rev, filter, rows));
+            self.layer_rows_cache = Some((rev, scope_key, rows));
         }
         self.layer_rows_cache
             .as_ref()
             .map(|(_, _, rows)| rows.clone())
             .unwrap_or_default()
+    }
+
+    /// Seed and open the layer→space mapping dialog.
+    pub(super) fn open_layer_map_dialog(&mut self) {
+        self.session.document_mut().seed_layer_map_heuristics();
+        let counts = self.session.document().layer_usage_counts();
+        let mut draft = self.session.document().layer_space_map().clone();
+        // Prefer import layers; fall back to all used layers.
+        let mut layers: Vec<String> = counts
+            .keys()
+            .filter(|n| n.starts_with(aadt_model::IMPORTED_LAYER_PREFIX))
+            .cloned()
+            .collect();
+        if layers.is_empty() {
+            layers = counts.keys().cloned().collect();
+        }
+        for layer in &layers {
+            draft
+                .entry(layer.clone())
+                .or_insert_with(|| aadt_model::SpaceCategory::from_layer_name(layer));
+        }
+        // Keep only layers we are reviewing.
+        draft.retain(|k, _| layers.iter().any(|l| l == k));
+        self.layer_map_draft = draft;
+        self.show_layer_map = !self.layer_map_draft.is_empty();
+        if self.show_layer_map {
+            self.note = "Map imported layers to model spaces".into();
+        }
+    }
+
+    pub(super) fn apply_layer_map_draft(&mut self) {
+        let map = self.layer_map_draft.clone();
+        self.session.document_mut().set_layer_space_map(map);
+        let floor = self
+            .session
+            .document()
+            .active_floor_id()
+            .or_else(|| self.session.document().floors().first().map(|f| f.id));
+        if let Some(floor) = floor {
+            self.session.document_mut().reassign_by_layer_map(floor);
+        }
+        self.layer_rows_cache = None;
+        self.dirty = true;
+        self.show_layer_map = false;
+        self.layer_mgr_scope = LayerMgrScope::ActiveSpace;
+        self.sync_layer_from_active_space();
+        self.note = "Layer → space map applied (all floors yanked onto active floor)".into();
     }
 
     pub(super) fn draw_recovery_prompt(&mut self, ctx: &egui::Context) {
@@ -947,14 +1389,11 @@ impl AadtApp {
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
                     .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
-                    .rounding(0.0),
+                    .rounding(theme::radius::DIALOG),
             )
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.label(format!(
-                    "A newer autosave was found:\n{}",
-                    auto.display()
-                ));
+                ui.label(format!("A newer autosave was found:\n{}", auto.display()));
                 ui.horizontal(|ui| {
                     if ui.button("Restore").clicked() {
                         let p = auto.display().to_string();
@@ -983,7 +1422,7 @@ impl AadtApp {
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
                     .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
-                    .rounding(0.0),
+                    .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
                 ui.label(egui::RichText::new("Spacebar command engine").strong());
@@ -997,19 +1436,25 @@ impl AadtApp {
                 ui.separator();
                 ui.label(egui::RichText::new("Modes & file").strong());
                 ui.label("F1 — this sheet");
-                ui.label("F3 — object snap · F8 — ortho · F10 — polar · F11 — osnap track");
+                ui.label("F3 — object snap (END/MID/CEN) · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
+                ui.label("Delete / Backspace — erase selection · W — WBLOCK · WA — WALL");
+                ui.label("Z Enter — ZOOM · A Enter — All (extents) · W — Window · P — Previous");
                 ui.label("Ctrl+S — quick save · Ctrl+Shift+S — Save As");
                 ui.label("Ctrl+O — open · Ctrl+N — new · Ctrl+Z/Y — undo/redo");
                 ui.separator();
                 ui.label(egui::RichText::new("Command steps (AutoCAD-like)").strong());
-                ui.label("MOVE/COPY/… — verb-noun: pick objects · Space · points (noun-verb if pre-selected)");
+                ui.label("MOVE/COPY/STRETCH/… — verb-noun: pick objects · Space · points (noun-verb if pre-selected)");
                 ui.label("LINE — points · [U]ndo vertex · [C]lose · Space finish");
                 ui.label("CIRCLE — center · radius/[D] · or [2P]/3P]");
                 ui.label("XLINE — point · through (or H/V/A) · Space ends");
                 ui.label("RECTANGLE — corner · corner (or D length/width, @W,H)");
-                ui.label("TRIM — cutting edges · Space · objects · Space ends");
+                ui.label("Typed points — x,y absolute · @dx,dy relative to last point");
+                ui.label("TRIM — Quick: click object to trim · [C]utting edges · Space ends");
                 ui.label("DIM — pt1 · pt2 · dim-line location (AutoCAD-like)");
                 ui.label("MIRROR — axis · Erase source? [Y/N] <N>");
+                ui.label("ARRAYRECT / AR — rows · cols · dx · dy");
+                ui.label("ARRAYPOLAR — center · count · fill° · rotate? [Y/N] <Y>");
+                ui.label("ARRAYPATH — path · count · align? [Y/N] <Y>");
                 ui.label("Grips — select · click grip · new location");
                 ui.label("SCALE — select · base · factor (or R = Reference length)");
                 ui.label("ROTATE — select · base · angle (or R = Reference angle)");
@@ -1035,7 +1480,7 @@ impl AadtApp {
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
                     .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
-                    .rounding(0.0),
+                    .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
                 ui.label(
@@ -1110,7 +1555,8 @@ impl AadtApp {
                 landing,
                 text_pt,
             } => text_pt.or(*landing).or(*arrow),
-            Tool::Stretch { w0, w1, base } => base.or(*w1).or(*w0),
+            Tool::Stretch { w0, w1, base, .. } => base.or(*w1).or(*w0),
+            Tool::Dist { first } => *first,
             Tool::Brush { points } => points.as_ref().and_then(|v| v.last().copied()),
             Tool::Polyline { points } => points.last().copied(),
             Tool::Wall { points, .. } => points.last().copied(),
@@ -1121,7 +1567,18 @@ impl AadtApp {
                 a,
                 b,
             } => b.or(*a),
+            Tool::ArrayPolar {
+                collecting: false,
+                center,
+                ..
+            } => *center,
+            Tool::ArrayRect {
+                collecting: false,
+                spacing_a,
+                ..
+            } => *spacing_a,
             Tool::ZoomWindow { first } => *first,
+            Tool::PlotWindow { first } => *first,
             Tool::SectionLine { first } => *first,
             Tool::Callout { arrow, center } => center.or(*arrow),
             Tool::RevCloud { first } => *first,
@@ -1141,11 +1598,33 @@ impl AadtApp {
             | Tool::RevMark
             | Tool::TablePlace
             | Tool::PlaceElem { .. }
-            | Tool::Move { collecting: true, .. }
-            | Tool::Copy { collecting: true, .. }
-            | Tool::Rotate { collecting: true, .. }
-            | Tool::Scale { collecting: true, .. }
-            | Tool::Mirror { collecting: true, .. }
+            | Tool::Move {
+                collecting: true, ..
+            }
+            | Tool::Copy {
+                collecting: true, ..
+            }
+            | Tool::Rotate {
+                collecting: true, ..
+            }
+            | Tool::Scale {
+                collecting: true, ..
+            }
+            | Tool::Mirror {
+                collecting: true, ..
+            }
+            | Tool::ArrayRect {
+                collecting: true, ..
+            }
+            | Tool::ArrayPolar {
+                collecting: true, ..
+            }
+            | Tool::ArrayPath {
+                collecting: true, ..
+            }
+            | Tool::ArrayPath {
+                collecting: false, ..
+            }
             | Tool::Erase
             | Tool::RoomArea
             | Tool::Select => None,
@@ -1172,36 +1651,55 @@ impl AadtApp {
                 phase: RectPhase::OppositeCorner,
                 first: Some(_),
                 ..
-            } | Tool::RoomLabel {
-                first: Some(_),
-                ..
-            }
+            } | Tool::RoomLabel { first: Some(_), .. }
         ) {
             return p;
         }
         let Some(a) = self.tool_anchor() else {
             return p;
         };
-        let dx = (p.x - a.x).abs();
-        let dy = (p.y - a.y).abs();
-        if dx >= dy {
-            Point2::new(p.x, a.y)
-        } else {
-            Point2::new(a.x, p.y)
+        // Ortho / Shift: lock to nearer world axis (H/V).
+        if self.ortho || shift {
+            let dx = (p.x - a.x).abs();
+            let dy = (p.y - a.y).abs();
+            return if dx >= dy {
+                Point2::new(p.x, a.y)
+            } else {
+                Point2::new(a.x, p.y)
+            };
         }
+        // Polar (without Ortho): snap direction to nearest 45° increment.
+        if self.polar {
+            let dx = p.x - a.x;
+            let dy = p.y - a.y;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist < 1e-12 {
+                return p;
+            }
+            let ang = dy.atan2(dx);
+            let step = std::f64::consts::FRAC_PI_4;
+            let snapped = (ang / step).round() * step;
+            return Point2::new(a.x + dist * snapped.cos(), a.y + dist * snapped.sin());
+        }
+        p
     }
 
-    /// Resolve a world cursor: object snap first, then Ortho/Shift.
+    /// Resolve a world cursor: object snap first (active + TRACE/underlay), then Ortho/Shift.
     fn resolve_pick(&mut self, raw: Point2, shift: bool) -> Point2 {
         let mut p = raw;
         self.snap_hit = None;
         if self.osnap {
             let tol = SNAP_PIXELS / self.camera.scale;
             let move_tol = 2.0 / self.camera.scale;
-            if let Some(hit) =
-                self.osnap_state
-                    .resolve(self.session.document(), raw, tol, move_tol, Instant::now())
-            {
+            let spaces = self.session.document().snap_candidate_spaces();
+            if let Some(hit) = self.osnap_state.resolve_in_spaces(
+                self.session.document(),
+                Some(spaces.as_slice()),
+                raw,
+                tol,
+                move_tol,
+                Instant::now(),
+            ) {
                 self.snap_hit = Some(hit);
                 p = hit.1;
             }
@@ -1219,14 +1717,8 @@ impl AadtApp {
     /// tool is direct distance entry (along the cursor direction); otherwise it is
     /// a command token, dispatched like a command line.
     fn commit_dyn(&mut self) {
-        // Absolute X/Y from Tab fields while drafting a point.
+        // Absolute / relative X/Y from Tab fields while drafting a point.
         if self.expects_point_coords() {
-            if let Some(p) = parse_dyn_xy(&self.dyn_x, &self.dyn_y) {
-                self.clear_dyn_coords();
-                self.dyn_input.clear();
-                self.on_pick(p);
-                return;
-            }
             let combined = if !self.dyn_input.is_empty() {
                 self.dyn_input.clone()
             } else if !self.dyn_x.is_empty() && self.dyn_y.is_empty() {
@@ -1234,6 +1726,24 @@ impl AadtApp {
             } else {
                 format!("{},{}", self.dyn_x, self.dyn_y)
             };
+            // `@dx,dy` relative to the tool anchor (or origin when starting a tool).
+            if combined.trim_start().starts_with('@') {
+                let anchor = self
+                    .tool_anchor()
+                    .unwrap_or_else(|| Point2::new(0.0, 0.0));
+                if let Some(p) = parse_relative_xy(combined.trim(), anchor) {
+                    self.clear_dyn_coords();
+                    self.dyn_input.clear();
+                    self.on_pick(p);
+                    return;
+                }
+            }
+            if let Some(p) = parse_dyn_xy(&self.dyn_x, &self.dyn_y) {
+                self.clear_dyn_coords();
+                self.dyn_input.clear();
+                self.on_pick(p);
+                return;
+            }
             if let Some(p) = parse_comma_xy(&combined) {
                 self.clear_dyn_coords();
                 self.dyn_input.clear();
@@ -1267,6 +1777,43 @@ impl AadtApp {
                 self.engine.complete();
                 return;
             }
+            // ARRAYPOLAR: empty fill → 360°, then ask rotate; empty rotate → Y.
+            if let Tool::ArrayPolar {
+                collecting: false,
+                center: Some(c),
+                count: Some(n),
+                fill: None,
+            } = self.tool
+            {
+                self.tool = Tool::ArrayPolar {
+                    collecting: false,
+                    center: Some(c),
+                    count: Some(n),
+                    fill: Some(360.0),
+                };
+                self.note = "ARRAYPOLAR — Rotate items as copied? [Yes/No] <Y>".into();
+                return;
+            }
+            if let Tool::ArrayPolar {
+                collecting: false,
+                center: Some(c),
+                count: Some(n),
+                fill: Some(fill),
+            } = self.tool
+            {
+                self.finish_array_polar(c, n, fill, true);
+                return;
+            }
+            // ARRAYPATH: empty align → Y.
+            if let Tool::ArrayPath {
+                collecting: false,
+                path: Some(pid),
+                count: Some(n),
+            } = self.tool
+            {
+                self.finish_array_path(pid, n, true);
+                return;
+            }
             if let Tool::Brush {
                 points: Some(ref pts),
             } = self.tool
@@ -1276,10 +1823,7 @@ impl AadtApp {
                         .iter()
                         .flat_map(|q| [q.x.to_string(), q.y.to_string()])
                         .collect();
-                    self.app_feed(&format!(
-                        "POLYLINE {} A-PRES-MARK",
-                        coords.join(" ")
-                    ));
+                    self.app_feed(&format!("POLYLINE {} A-PRES-MARK", coords.join(" ")));
                 }
                 self.tool = Tool::Select;
             } else if let Tool::Polyline { ref points } = self.tool {
@@ -1305,7 +1849,7 @@ impl AadtApp {
                 };
                 self.engine.advance_step();
                 self.note =
-                    "TRIM — select object to trim (click side to remove · Space finishes)".into();
+                    "TRIM — select object to trim or [C]utting edges (Space finishes)".into();
             } else if matches!(
                 self.tool,
                 Tool::Trim {
@@ -1324,6 +1868,22 @@ impl AadtApp {
             return;
         }
         let up = text.to_ascii_uppercase();
+        // TRIM — AutoCAD [C]utting edges option (Standard mode).
+        if matches!(
+            self.tool,
+            Tool::Trim {
+                phase: TrimPhase::Objects,
+                ..
+            }
+        ) && (up == "C" || up == "CUTTING" || up == "CUTTINGEDGES" || up == "CUTTING EDGES")
+        {
+            self.tool = Tool::Trim {
+                cutters: Vec::new(),
+                phase: TrimPhase::CuttingEdges,
+            };
+            self.note = "TRIM — select cutting edges (Space when done)".into();
+            return;
+        }
         // RECTANGLE keywords / Dimensions / @W,H
         if matches!(self.tool, Tool::Rectangle { .. }) {
             if up == "D" || up == "DIM" || up == "DIMENSIONS" {
@@ -1400,6 +1960,51 @@ impl AadtApp {
                 }
             }
         }
+        // ZOOM options (AutoCAD: Z Enter, then A = All / E = Extents / W / P / S).
+        if matches!(self.tool, Tool::ZoomWindow { first: None }) {
+            match up.as_str() {
+                "A" | "ALL" | "E" | "EXTENTS" => {
+                    self.apply_nav_hint("extents");
+                    self.tool = Tool::Select;
+                    self.note = if matches!(up.as_str(), "A" | "ALL") {
+                        "Zoom All".into()
+                    } else {
+                        "Zoom Extents".into()
+                    };
+                    return;
+                }
+                "W" | "WINDOW" => {
+                    self.note = "ZOOM Window — click first corner".into();
+                    return;
+                }
+                "P" | "PREVIOUS" => {
+                    self.apply_nav_hint("previous");
+                    self.tool = Tool::Select;
+                    self.note = "Zoom Previous".into();
+                    return;
+                }
+                "S" | "SCALE" => {
+                    self.note = "ZOOM Scale — type factor and Space (e.g. 2 or 0.5x)".into();
+                    return;
+                }
+                _ => {
+                    // Bare number or "2x" / "0.5X" as scale factor.
+                    let factor = if let Some(rest) = up.strip_suffix('X') {
+                        rest.parse::<f64>().ok()
+                    } else {
+                        text.parse::<f64>().ok()
+                    };
+                    if let Some(f) = factor {
+                        if f.is_finite() && f.abs() > f64::EPSILON {
+                            self.apply_nav_hint(&format!("scale:{f}"));
+                            self.tool = Tool::Select;
+                            self.note = format!("Zoom scale ×{f}");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
         // XLINE mode keywords
         if matches!(self.tool, Tool::Xline { .. }) {
             if matches!(up.as_str(), "H" | "HOR" | "HORIZONTAL") {
@@ -1465,12 +2070,15 @@ impl AadtApp {
             if let Tool::Polyline { points } = &self.tool {
                 if points.len() >= 3 {
                     let layer = self.layer();
-                    if let (Some(&first), Some(&last)) = (points.first(), points.last()) {
-                        self.session.feed(&format!(
-                            "LINE {} {} {} {} {}",
-                            last.x, last.y, first.x, first.y, layer
-                        ));
-                    }
+                    let coords: Vec<String> = points
+                        .iter()
+                        .flat_map(|q| [q.x.to_string(), q.y.to_string()])
+                        .collect();
+                    self.session.feed(&format!(
+                        "POLYLINE {} CLOSED {}",
+                        coords.join(" "),
+                        layer
+                    ));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -1490,11 +2098,9 @@ impl AadtApp {
         }
         if let Tool::Polyline { points } = &mut self.tool {
             if up == "U" || up == "UNDO" {
-                if points.len() >= 2 {
+                // Vertices live only in tool state until commit — never document UNDO.
+                if !points.is_empty() {
                     points.pop();
-                    self.session.feed("UNDO");
-                } else if points.len() == 1 {
-                    points.clear();
                 }
                 return;
             }
@@ -1575,6 +2181,145 @@ impl AadtApp {
                 return;
             }
         }
+        // ARRAYRECT typed rows / cols / spacings.
+        if let Tool::ArrayRect {
+            collecting: false,
+            rows,
+            cols,
+            spacing_a: None,
+            dx,
+        } = self.tool
+        {
+            if let Ok(n) = text.parse::<usize>() {
+                if rows.is_none() {
+                    if n == 0 {
+                        self.note = "ARRAYRECT — rows must be at least 1".into();
+                        return;
+                    }
+                    self.tool = Tool::ArrayRect {
+                        collecting: false,
+                        rows: Some(n),
+                        cols: None,
+                        spacing_a: None,
+                        dx: None,
+                    };
+                    self.note = "ARRAYRECT — columns (type + Space)".into();
+                    return;
+                }
+                if cols.is_none() {
+                    if n == 0 {
+                        self.note = "ARRAYRECT — columns must be at least 1".into();
+                        return;
+                    }
+                    self.tool = Tool::ArrayRect {
+                        collecting: false,
+                        rows,
+                        cols: Some(n),
+                        spacing_a: None,
+                        dx: None,
+                    };
+                    self.note = "ARRAYRECT — column spacing dx (type or pick two points)".into();
+                    return;
+                }
+            }
+            if let Ok(v) = text.parse::<f64>() {
+                if rows.is_some() && cols.is_some() && dx.is_none() {
+                    self.tool = Tool::ArrayRect {
+                        collecting: false,
+                        rows,
+                        cols,
+                        spacing_a: None,
+                        dx: Some(v),
+                    };
+                    self.note = "ARRAYRECT — row spacing dy (type or pick two points)".into();
+                    return;
+                }
+                if let (Some(r), Some(c), Some(dxv)) = (rows, cols, dx) {
+                    self.finish_array_rect(r, c, dxv, v);
+                    return;
+                }
+            }
+        }
+        // ARRAYPOLAR typed count / fill / rotate flag.
+        if let Tool::ArrayPolar {
+            collecting: false,
+            center: Some(c),
+            count,
+            fill,
+        } = self.tool
+        {
+            match (count, fill) {
+                (None, _) => {
+                    if let Ok(n) = text.parse::<usize>() {
+                        if n < 2 {
+                            self.note = "ARRAYPOLAR — count must be at least 2".into();
+                            return;
+                        }
+                        self.tool = Tool::ArrayPolar {
+                            collecting: false,
+                            center: Some(c),
+                            count: Some(n),
+                            fill: None,
+                        };
+                        self.note = "ARRAYPOLAR — fill angle degrees <360>".into();
+                        return;
+                    }
+                }
+                (Some(n), None) => {
+                    if let Ok(deg) = text.parse::<f64>() {
+                        self.tool = Tool::ArrayPolar {
+                            collecting: false,
+                            center: Some(c),
+                            count: Some(n),
+                            fill: Some(deg),
+                        };
+                        self.note = "ARRAYPOLAR — Rotate items as copied? [Yes/No] <Y>".into();
+                        return;
+                    }
+                }
+                (Some(n), Some(f)) => {
+                    let yes = matches!(up.as_str(), "Y" | "YES") || text.is_empty();
+                    let no = matches!(up.as_str(), "N" | "NO");
+                    if yes || no {
+                        self.finish_array_polar(c, n, f, yes);
+                        return;
+                    }
+                }
+            }
+        }
+        // ARRAYPATH typed count / align flag.
+        if let Tool::ArrayPath {
+            collecting: false,
+            path: Some(pid),
+            count,
+        } = self.tool
+        {
+            match count {
+                None => {
+                    if let Ok(n) = text.parse::<usize>() {
+                        if n < 2 {
+                            self.note = "ARRAYPATH — count must be at least 2".into();
+                            return;
+                        }
+                        self.tool = Tool::ArrayPath {
+                            collecting: false,
+                            path: Some(pid),
+                            count: Some(n),
+                        };
+                        self.note = "ARRAYPATH — Align items to path? [Yes/No] <Y>".into();
+                        return;
+                    }
+                }
+                Some(n) => {
+                    let yes = matches!(up.as_str(), "Y" | "YES") || text.is_empty();
+                    let no = matches!(up.as_str(), "N" | "NO");
+                    if yes || no {
+                        self.finish_array_path(pid, n, yes);
+                        return;
+                    }
+                }
+            }
+        }
         // ROTATE: Reference keyword or typed degrees after pivot.
         if let Tool::Rotate {
             collecting: false,
@@ -1592,8 +2337,7 @@ impl AadtApp {
                     ref_a: None,
                     ref_ang: None,
                 };
-                self.note =
-                    "ROTATE Reference — click first point of reference angle".into();
+                self.note = "ROTATE Reference — click first point of reference angle".into();
                 return;
             }
             if let Ok(deg) = text.parse::<f64>() {
@@ -1605,10 +2349,8 @@ impl AadtApp {
                     return;
                 };
                 self.sync_selection();
-                self.session.feed(&format!(
-                    "ROTATE SELECTION {} {} {}",
-                    piv.x, piv.y, angle
-                ));
+                self.session
+                    .feed(&format!("ROTATE SELECTION {} {} {}", piv.x, piv.y, angle));
                 self.tool = Tool::Select;
                 self.engine.complete();
                 return;
@@ -1630,10 +2372,8 @@ impl AadtApp {
             if let Ok(factor) = text.parse::<f64>() {
                 if factor.abs() > f64::EPSILON {
                     self.sync_selection();
-                    self.session.feed(&format!(
-                        "SCALE SELECTION {} {} {}",
-                        piv.x, piv.y, factor
-                    ));
+                    self.session
+                        .feed(&format!("SCALE SELECTION {} {} {}", piv.x, piv.y, factor));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -1652,10 +2392,8 @@ impl AadtApp {
                 if old > f64::EPSILON && new_len.abs() > f64::EPSILON {
                     let factor = new_len / old;
                     self.sync_selection();
-                    self.session.feed(&format!(
-                        "SCALE SELECTION {} {} {}",
-                        piv.x, piv.y, factor
-                    ));
+                    self.session
+                        .feed(&format!("SCALE SELECTION {} {} {}", piv.x, piv.y, factor));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -1679,7 +2417,11 @@ impl AadtApp {
                 }
             }
         }
-        if let Tool::Fillet { radius: None, first: None } = self.tool {
+        if let Tool::Fillet {
+            radius: None,
+            first: None,
+        } = self.tool
+        {
             if let Ok(r) = self.parse_model_length(&text) {
                 if r >= 0.0 {
                     self.tool = Tool::Fillet {
@@ -1838,6 +2580,21 @@ impl AadtApp {
                     name: None,
                     ..
                 }
+                | Tool::ArrayRect {
+                    collecting: false,
+                    spacing_a: None,
+                    ..
+                }
+                | Tool::ArrayPolar {
+                    collecting: false,
+                    center: Some(_),
+                    ..
+                }
+                | Tool::ArrayPath {
+                    collecting: false,
+                    path: Some(_),
+                    ..
+                }
         )
     }
 
@@ -1900,8 +2657,10 @@ impl AadtApp {
                 self.session.document(),
                 &aadt_detect::DetectionConfig::default(),
             );
-            self.plot_notes =
-                aadt_docs::notes_to_text(&aadt_docs::NotesLibrary::standard().suggest(&det));
+            let floors = self.session.document().floors();
+            self.plot_notes = aadt_docs::notes_to_text(
+                &aadt_docs::NotesLibrary::standard().suggest_for_drawing(&det, &props, &floors),
+            );
         } else {
             self.plot_notes = props.standard_notes.clone();
         }
@@ -1923,11 +2682,34 @@ impl AadtApp {
                 Some(t) => {
                     let skip_selection = matches!(
                         t,
-                        Tool::Move { collecting: false, .. }
-                            | Tool::Copy { collecting: false, .. }
-                            | Tool::Rotate { collecting: false, .. }
-                            | Tool::Scale { collecting: false, .. }
-                            | Tool::Mirror { collecting: false, .. }
+                        Tool::Move {
+                            collecting: false,
+                            ..
+                        } | Tool::Copy {
+                            collecting: false,
+                            ..
+                        } | Tool::Rotate {
+                            collecting: false,
+                            ..
+                        } | Tool::Scale {
+                            collecting: false,
+                            ..
+                        } | Tool::Mirror {
+                            collecting: false,
+                            ..
+                        } | Tool::ArrayRect {
+                            collecting: false,
+                            ..
+                        } | Tool::ArrayPolar {
+                            collecting: false,
+                            ..
+                        } | Tool::ArrayPath {
+                            collecting: false,
+                            ..
+                        } | Tool::Stretch {
+                            collecting: false,
+                            ..
+                        }
                     );
                     if matches!(
                         t,
@@ -1936,6 +2718,9 @@ impl AadtApp {
                             | Tool::Rotate { .. }
                             | Tool::Scale { .. }
                             | Tool::Mirror { .. }
+                            | Tool::ArrayRect { .. }
+                            | Tool::ArrayPolar { .. }
+                            | Tool::ArrayPath { .. }
                             | Tool::Stretch { .. }
                     ) {
                         self.sync_selection();
@@ -1954,8 +2739,31 @@ impl AadtApp {
                     );
                 }
                 None => {
+                    // Inquiry / manager / CLI-backed commands with no interactive Tool yet.
+                    if cmd_id == "list" {
+                        let fb = self.app_feed("LIST");
+                        self.engine.complete();
+                        self.tool = Tool::Select;
+                        self.note = fb
+                            .message()
+                            .map(|m| m.to_string())
+                            .unwrap_or_else(|| "LIST complete".into());
+                        return;
+                    }
+                    if cmd_id == "dimstyle" {
+                        self.engine.complete();
+                        self.show_layer_mgr = true;
+                        self.right_tab = 5;
+                        self.props_edit = self.session.document().properties().clone();
+                        self.note = "Dimension style / Dims manager".into();
+                        self.persist_prefs();
+                        return;
+                    }
                     self.engine.cancel();
-                    self.note = format!("{} — not available interactively", cmd_id.to_ascii_uppercase());
+                    self.note = format!(
+                        "{} — not available interactively",
+                        cmd_id.to_ascii_uppercase()
+                    );
                 }
             }
         }
@@ -1985,8 +2793,7 @@ impl AadtApp {
                 if let Some(id) = parse_entity_id_from_feedback(fb.message()) {
                     self.session
                         .feed(&format!("EATTEDIT {id} AADT-WALL-THICKNESS {th}"));
-                    self.session
-                        .feed(&format!("EATTEDIT {id} AADT-ELEM wall"));
+                    self.session.feed(&format!("EATTEDIT {id} AADT-ELEM wall"));
                 }
             }
             Tool::Polyline { points } if points.len() >= 2 => {
@@ -1998,9 +2805,7 @@ impl AadtApp {
                 self.session
                     .feed(&format!("POLYLINE {} {}", coords.join(" "), layer));
             }
-            Tool::Brush {
-                points: Some(pts),
-            } if pts.len() >= 2 => {
+            Tool::Brush { points: Some(pts) } if pts.len() >= 2 => {
                 let coords: Vec<String> = pts
                     .iter()
                     .flat_map(|q| [q.x.to_string(), q.y.to_string()])
@@ -2029,6 +2834,23 @@ impl AadtApp {
             self.commit_dyn();
             return;
         }
+        // ARRAYPOLAR / ARRAYPATH Y-N or fill defaults via commit_dyn empty path.
+        if matches!(
+            self.tool,
+            Tool::ArrayPolar {
+                collecting: false,
+                center: Some(_),
+                count: Some(_),
+                ..
+            } | Tool::ArrayPath {
+                collecting: false,
+                path: Some(_),
+                count: Some(_),
+            }
+        ) {
+            self.commit_dyn();
+            return;
+        }
         if self.has_typed_dyn() {
             self.commit_dyn();
             return;
@@ -2050,7 +2872,7 @@ impl AadtApp {
             };
             self.engine.advance_step();
             self.note =
-                "TRIM — select object to trim (click side to remove · Space finishes)".into();
+                "TRIM — select object to trim or [C]utting edges (Space finishes)".into();
             return;
         }
         if matches!(
@@ -2154,7 +2976,9 @@ impl AadtApp {
         let id = if filter.trim().is_empty() {
             self.engine.history.front().copied()
         } else {
-            resolve_alias(&filter)
+            command_engine::resolve_fuzzy(&filter).map(|hit| match hit {
+                command_engine::ResolveHit::Exact(id) | command_engine::ResolveHit::Fuzzy(id) => id,
+            })
         };
         self.palette_open = false;
         self.palette_filter.clear();
@@ -2211,7 +3035,7 @@ impl AadtApp {
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
                     .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
-                    .rounding(0.0),
+                    .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
                 ui.label(
@@ -2246,12 +3070,8 @@ impl AadtApp {
     }
 
     fn layer(&self) -> String {
-        let l = self.current_layer.trim();
-        if l.is_empty() {
-            "0".to_string()
-        } else {
-            l.to_string()
-        }
+        // Drafting always targets the active model-space category (layer is a shim).
+        self.session.document().active_category_layer()
     }
 
     fn drafting(&self) -> bool {
@@ -2271,15 +3091,37 @@ impl AadtApp {
     fn tool_is_collecting(&self) -> bool {
         matches!(
             self.tool,
-            Tool::Move { collecting: true, .. }
-                | Tool::Copy { collecting: true, .. }
-                | Tool::Rotate { collecting: true, .. }
-                | Tool::Scale { collecting: true, .. }
-                | Tool::Mirror { collecting: true, .. }
-                | Tool::MakeBlock {
-                    collecting: true, ..
-                }
-                | Tool::Erase
+            Tool::Move {
+                collecting: true,
+                ..
+            } | Tool::Copy {
+                collecting: true,
+                ..
+            } | Tool::Rotate {
+                collecting: true,
+                ..
+            } | Tool::Scale {
+                collecting: true,
+                ..
+            } | Tool::Mirror {
+                collecting: true,
+                ..
+            } | Tool::ArrayRect {
+                collecting: true,
+                ..
+            } | Tool::ArrayPolar {
+                collecting: true,
+                ..
+            } | Tool::ArrayPath {
+                collecting: true,
+                ..
+            } | Tool::MakeBlock {
+                collecting: true,
+                ..
+            } | Tool::Stretch {
+                collecting: true,
+                ..
+            } | Tool::Erase
         )
     }
 
@@ -2348,6 +3190,46 @@ impl AadtApp {
                 self.engine.advance_step();
                 self.note = "MIRROR — first axis point".into();
             }
+            Tool::ArrayRect { .. } => {
+                self.tool = Tool::ArrayRect {
+                    collecting: false,
+                    rows: None,
+                    cols: None,
+                    spacing_a: None,
+                    dx: None,
+                };
+                self.engine.advance_step();
+                self.note = "ARRAYRECT — rows (type + Space)".into();
+            }
+            Tool::ArrayPolar { .. } => {
+                self.tool = Tool::ArrayPolar {
+                    collecting: false,
+                    center: None,
+                    count: None,
+                    fill: None,
+                };
+                self.engine.advance_step();
+                self.note = "ARRAYPOLAR — center point".into();
+            }
+            Tool::ArrayPath { .. } => {
+                self.tool = Tool::ArrayPath {
+                    collecting: false,
+                    path: None,
+                    count: None,
+                };
+                self.engine.advance_step();
+                self.note = "ARRAYPATH — select path (line/pline/arc/circle)".into();
+            }
+            Tool::Stretch { .. } => {
+                self.tool = Tool::Stretch {
+                    collecting: false,
+                    w0: None,
+                    w1: None,
+                    base: None,
+                };
+                self.engine.advance_step();
+                self.note = "STRETCH — click first crossing-window corner".into();
+            }
             Tool::MakeBlock { erase, .. } => {
                 let erase = *erase;
                 self.tool = Tool::MakeBlock {
@@ -2393,6 +3275,37 @@ impl AadtApp {
     /// selection; anything else → feed to the session.
     fn dispatch(&mut self, line: &str) {
         self.note.clear();
+        // While ZOOM is active, A/E/W/P/S are options — not new commands (A≠ARC).
+        if matches!(self.tool, Tool::ZoomWindow { first: None }) && !line.contains(' ') {
+            let up = line.to_ascii_uppercase();
+            match up.as_str() {
+                "A" | "ALL" | "E" | "EXTENTS" => {
+                    self.apply_nav_hint("extents");
+                    self.tool = Tool::Select;
+                    self.note = if matches!(up.as_str(), "A" | "ALL") {
+                        "Zoom All".into()
+                    } else {
+                        "Zoom Extents".into()
+                    };
+                    return;
+                }
+                "W" | "WINDOW" => {
+                    self.note = "ZOOM Window — click first corner".into();
+                    return;
+                }
+                "P" | "PREVIOUS" => {
+                    self.apply_nav_hint("previous");
+                    self.tool = Tool::Select;
+                    self.note = "Zoom Previous".into();
+                    return;
+                }
+                "S" | "SCALE" => {
+                    self.note = "ZOOM Scale — type factor and Space (e.g. 2 or 0.5x)".into();
+                    return;
+                }
+                _ => {}
+            }
+        }
         if !line.contains(' ') {
             let up = line.to_ascii_uppercase();
             if matches!(up.as_str(), "E" | "ERASE") && !self.selection.is_empty() {
@@ -2400,9 +3313,23 @@ impl AadtApp {
                 return;
             }
             if matches!(up.as_str(), "LA" | "LAYER") {
-                self.show_layer_mgr = true;
-                self.right_tab = 0;
+                self.show_left_mgr = true;
+                self.left_tab = 0;
                 self.note = "Layer Properties Manager".into();
+                return;
+            }
+            if matches!(up.as_str(), "BLOCKS" | "I" | "INSERT") {
+                self.show_left_mgr = true;
+                self.left_tab = 1;
+                self.note = "Blocks Manager — pick a block to INSERT".into();
+                return;
+            }
+            if matches!(up.as_str(), "D" | "DIMSTYLE") {
+                self.show_layer_mgr = true;
+                self.right_tab = 5;
+                self.props_edit = self.session.document().properties().clone();
+                self.note = "Dimension style / Dims manager".into();
+                self.persist_prefs();
                 return;
             }
             if matches!(up.as_str(), "PR" | "PROPERTIES") {
@@ -2410,9 +3337,11 @@ impl AadtApp {
                 return;
             }
             if matches!(up.as_str(), "Z" | "ZOOM") {
-                // Bare Z → zoom extents (window zoom via Z W or tool after ZOOM W).
-                self.apply_nav_hint("extents");
-                self.note = "Zoom extents (type ZOOM W for window)".into();
+                // AutoCAD: Z Enter starts ZOOM; then A/E/W/P/S (not immediate extents).
+                self.tool = Tool::ZoomWindow { first: None };
+                self.note =
+                    "ZOOM — [A]ll [E]xtents [W]indow [P]revious [S]cale · or click window"
+                        .into();
                 return;
             }
             if matches!(up.as_str(), "P" | "PAN") {
@@ -2431,11 +3360,37 @@ impl AadtApp {
             if let Some(t) = tool_for(line, !self.selection.is_empty()) {
                 let skip_selection = matches!(
                     t,
-                    Tool::Move { collecting: false, .. }
-                        | Tool::Copy { collecting: false, .. }
-                        | Tool::Rotate { collecting: false, .. }
-                        | Tool::Scale { collecting: false, .. }
-                        | Tool::Mirror { collecting: false, .. }
+                    Tool::Move {
+                        collecting: false,
+                        ..
+                    } | Tool::Copy {
+                        collecting: false,
+                        ..
+                    } | Tool::Rotate {
+                        collecting: false,
+                        ..
+                    } | Tool::Scale {
+                        collecting: false,
+                        ..
+                    } | Tool::Mirror {
+                        collecting: false,
+                        ..
+                    } | Tool::ArrayRect {
+                        collecting: false,
+                        ..
+                    } | Tool::ArrayPolar {
+                        collecting: false,
+                        ..
+                    } | Tool::ArrayPath {
+                        collecting: false,
+                        ..
+                    } | Tool::Stretch {
+                        collecting: false,
+                        ..
+                    } | Tool::MakeBlock {
+                        collecting: false,
+                        ..
+                    }
                 );
                 if matches!(
                     t,
@@ -2444,6 +3399,9 @@ impl AadtApp {
                         | Tool::Rotate { .. }
                         | Tool::Scale { .. }
                         | Tool::Mirror { .. }
+                        | Tool::ArrayRect { .. }
+                        | Tool::ArrayPolar { .. }
+                        | Tool::ArrayPath { .. }
                         | Tool::Stretch { .. }
                 ) {
                     self.sync_selection();
@@ -2451,6 +3409,11 @@ impl AadtApp {
                 self.tool = t;
                 if skip_selection {
                     self.engine.advance_step();
+                }
+                if let Tool::ZoomWindow { first: None } = self.tool {
+                    self.note =
+                        "ZOOM — [A]ll [E]xtents [W]indow [P]revious [S]cale · or click window"
+                            .into();
                 }
                 if let Tool::MakeBlock {
                     erase,
@@ -2464,10 +3427,6 @@ impl AadtApp {
                         "BLOCK — type block name and Space".into()
                     };
                 }
-                return;
-            }
-            if matches!(up.as_str(), "S" | "STRETCH") {
-                self.note = "Select objects first, then run STRETCH.".to_string();
                 return;
             }
         }
@@ -2484,7 +3443,7 @@ impl AadtApp {
 
     fn apply_nav_hint(&mut self, hint: &str) {
         if hint == "extents" || hint == "previous" && self.zoom_prev.is_none() {
-            self.zoom_prev = Some(self.camera.clone());
+            self.zoom_prev = Some(self.camera);
             self.fitted = false;
             return;
         }
@@ -2496,7 +3455,7 @@ impl AadtApp {
         }
         if let Some(rest) = hint.strip_prefix("scale:") {
             if let Ok(f) = rest.parse::<f64>() {
-                self.zoom_prev = Some(self.camera.clone());
+                self.zoom_prev = Some(self.camera);
                 self.camera.scale *= f;
             }
             return;
@@ -2504,7 +3463,7 @@ impl AadtApp {
         if let Some(rest) = hint.strip_prefix("window:") {
             let parts: Vec<f64> = rest.split(',').filter_map(|s| s.parse().ok()).collect();
             if parts.len() == 4 {
-                self.zoom_prev = Some(self.camera.clone());
+                self.zoom_prev = Some(self.camera);
                 let (x1, y1, x2, y2) = (parts[0], parts[1], parts[2], parts[3]);
                 let min = Point2::new(x1.min(x2), y1.min(y2));
                 let max = Point2::new(x1.max(x2), y1.max(y2));
@@ -2549,10 +3508,8 @@ impl AadtApp {
             Tool::Line { points } => {
                 let mut pts = points;
                 if let Some(&a) = pts.last() {
-                    self.session.feed(&format!(
-                        "LINE {} {} {} {} {}",
-                        a.x, a.y, p.x, p.y, layer
-                    ));
+                    self.session
+                        .feed(&format!("LINE {} {} {} {} {}", a.x, a.y, p.x, p.y, layer));
                 }
                 pts.push(p);
                 self.tool = Tool::Line { points: pts };
@@ -2681,50 +3638,47 @@ impl AadtApp {
                 phase,
                 dim_length,
                 dim_width,
-            } => {
-                match (phase, first, dim_length, dim_width) {
-                    (RectPhase::DimWidth, None, Some(len), Some(w)) => {
-                        self.place_rectangle_dims(p, len, w, &layer);
-                    }
-                    (RectPhase::FirstCorner, None, _, _) => {
-                        self.tool = Tool::Rectangle {
-                            first: Some(p),
-                            phase: RectPhase::OppositeCorner,
-                            dim_length: None,
-                            dim_width: None,
-                        };
-                        self.engine.accept_point();
-                        self.note =
-                            "RECTANGLE — opposite corner or @W,H (D = dimensions)".into();
-                    }
-                    (RectPhase::OppositeCorner, Some(a), _, _)
-                    | (RectPhase::DimWidth, Some(a), _, _) => {
-                        self.place_rectangle(a, p, &layer);
-                    }
-                    (RectPhase::DimLength, _, _, _) | (RectPhase::DimWidth, None, _, _) => {
-                        self.tool = Tool::Rectangle {
-                            first: Some(p),
-                            phase,
-                            dim_length,
-                            dim_width,
-                        };
-                        self.note = if phase == RectPhase::DimLength {
-                            "RECTANGLE — type length and Space"
-                        } else {
-                            "RECTANGLE — type width and Space"
-                        }
-                        .into();
-                    }
-                    _ => {
-                        self.tool = Tool::Rectangle {
-                            first: Some(p),
-                            phase: RectPhase::OppositeCorner,
-                            dim_length: None,
-                            dim_width: None,
-                        };
-                    }
+            } => match (phase, first, dim_length, dim_width) {
+                (RectPhase::DimWidth, None, Some(len), Some(w)) => {
+                    self.place_rectangle_dims(p, len, w, &layer);
                 }
-            }
+                (RectPhase::FirstCorner, None, _, _) => {
+                    self.tool = Tool::Rectangle {
+                        first: Some(p),
+                        phase: RectPhase::OppositeCorner,
+                        dim_length: None,
+                        dim_width: None,
+                    };
+                    self.engine.accept_point();
+                    self.note = "RECTANGLE — opposite corner or @W,H (D = dimensions)".into();
+                }
+                (RectPhase::OppositeCorner, Some(a), _, _)
+                | (RectPhase::DimWidth, Some(a), _, _) => {
+                    self.place_rectangle(a, p, &layer);
+                }
+                (RectPhase::DimLength, _, _, _) | (RectPhase::DimWidth, None, _, _) => {
+                    self.tool = Tool::Rectangle {
+                        first: Some(p),
+                        phase,
+                        dim_length,
+                        dim_width,
+                    };
+                    self.note = if phase == RectPhase::DimLength {
+                        "RECTANGLE — type length and Space"
+                    } else {
+                        "RECTANGLE — type width and Space"
+                    }
+                    .into();
+                }
+                _ => {
+                    self.tool = Tool::Rectangle {
+                        first: Some(p),
+                        phase: RectPhase::OppositeCorner,
+                        dim_length: None,
+                        dim_width: None,
+                    };
+                }
+            },
             Tool::Xline {
                 origin,
                 mode,
@@ -2805,8 +3759,7 @@ impl AadtApp {
                         ref_a: Some(p),
                         ref_ang: None,
                     };
-                    self.note =
-                        "ROTATE Reference — click second point of reference angle".into();
+                    self.note = "ROTATE Reference — click second point of reference angle".into();
                 }
                 (Some(piv), true, Some(a), None) => {
                     let ref_ang_val = (p.y - a.y).atan2(p.x - a.x).to_degrees();
@@ -2817,8 +3770,9 @@ impl AadtApp {
                         ref_a: None,
                         ref_ang: Some(ref_ang_val),
                     };
-                    self.note = "ROTATE Reference — type new angle or click first point of new angle"
-                        .into();
+                    self.note =
+                        "ROTATE Reference — type new angle or click first point of new angle"
+                            .into();
                 }
                 (Some(piv), true, None, Some(ref_ang_val)) => {
                     self.tool = Tool::Rotate {
@@ -2828,8 +3782,7 @@ impl AadtApp {
                         ref_a: Some(p),
                         ref_ang: Some(ref_ang_val),
                     };
-                    self.note =
-                        "ROTATE Reference — click second point of new angle".into();
+                    self.note = "ROTATE Reference — click second point of new angle".into();
                 }
                 (Some(piv), true, Some(a), Some(ref_ang_val)) => {
                     let new_ang = (p.y - a.y).atan2(p.x - a.x).to_degrees();
@@ -2855,8 +3808,7 @@ impl AadtApp {
                         old_len: None,
                     };
                     self.engine.accept_point();
-                    self.note =
-                        "SCALE — type factor and Space (or R / click for Reference)".into();
+                    self.note = "SCALE — type factor and Space (or R / click for Reference)".into();
                 }
                 (Some(piv), None, None) => {
                     // Click after base starts Reference (first point of old length).
@@ -2896,10 +3848,8 @@ impl AadtApp {
                     if old > f64::EPSILON && new_len > f64::EPSILON {
                         let factor = new_len / old;
                         self.sync_selection();
-                        self.session.feed(&format!(
-                            "SCALE SELECTION {} {} {}",
-                            piv.x, piv.y, factor
-                        ));
+                        self.session
+                            .feed(&format!("SCALE SELECTION {} {} {}", piv.x, piv.y, factor));
                         self.engine.complete();
                     }
                     self.tool = Tool::Select;
@@ -2954,41 +3904,65 @@ impl AadtApp {
                     self.note = "MLEADER — type the note and Enter".into();
                 }
             },
-            Tool::Stretch { w0, w1, base } => match (w0, w1, base) {
-                (None, _, _) => {
-                    self.tool = Tool::Stretch {
-                        w0: Some(p),
-                        w1: None,
-                        base: None,
+            Tool::Stretch { collecting, w0, w1, base } => {
+                if collecting {
+                    return; // picks handled by collect_selection_pick
+                }
+                match (w0, w1, base) {
+                    (None, _, _) => {
+                        self.tool = Tool::Stretch {
+                            collecting: false,
+                            w0: Some(p),
+                            w1: None,
+                            base: None,
+                        };
+                        self.note = "STRETCH — click opposite crossing-window corner".into();
+                    }
+                    (Some(a), None, _) => {
+                        self.tool = Tool::Stretch {
+                            collecting: false,
+                            w0: Some(a),
+                            w1: Some(p),
+                            base: None,
+                        };
+                        self.note = "STRETCH — click the base point".into();
+                    }
+                    (Some(a), Some(b), None) => {
+                        self.tool = Tool::Stretch {
+                            collecting: false,
+                            w0: Some(a),
+                            w1: Some(b),
+                            base: Some(p),
+                        };
+                        self.note = "STRETCH — click the destination".into();
+                    }
+                    (Some(a), Some(b), Some(c)) => {
+                        self.sync_selection();
+                        let lo = Point2::new(a.x.min(b.x), a.y.min(b.y));
+                        let hi = Point2::new(a.x.max(b.x), a.y.max(b.y));
+                        self.app_feed(&format!(
+                            "STRETCH {} {} {} {} {} {} SELECTION",
+                            lo.x,
+                            lo.y,
+                            hi.x,
+                            hi.y,
+                            p.x - c.x,
+                            p.y - c.y
+                        ));
+                        self.tool = Tool::Select;
                     }
                 }
-                (Some(a), None, _) => {
-                    self.tool = Tool::Stretch {
-                        w0: Some(a),
-                        w1: Some(p),
-                        base: None,
-                    }
+            }
+            Tool::Dist { first } => match first {
+                None => {
+                    self.tool = Tool::Dist { first: Some(p) };
+                    self.note = "DIST — click second point".into();
                 }
-                (Some(a), Some(b), None) => {
-                    self.tool = Tool::Stretch {
-                        w0: Some(a),
-                        w1: Some(b),
-                        base: Some(p),
+                Some(a) => {
+                    let fb = self.app_feed(&format!("DIST {} {} {} {}", a.x, a.y, p.x, p.y));
+                    if let Some(m) = fb.message() {
+                        self.note = m.to_string();
                     }
-                }
-                (Some(a), Some(b), Some(c)) => {
-                    self.sync_selection();
-                    let lo = Point2::new(a.x.min(b.x), a.y.min(b.y));
-                    let hi = Point2::new(a.x.max(b.x), a.y.max(b.y));
-                    self.app_feed(&format!(
-                        "STRETCH {} {} {} {} {} {} SELECTION",
-                        lo.x,
-                        lo.y,
-                        hi.x,
-                        hi.y,
-                        p.x - c.x,
-                        p.y - c.y
-                    ));
                     self.tool = Tool::Select;
                 }
             },
@@ -3014,18 +3988,14 @@ impl AadtApp {
                         }
                     }
                     Some(a) => {
-                        self.session
-                            .feed(&format!("FILLET {} {} {}", a.0, id.0, r));
+                        self.session.feed(&format!("FILLET {} {} {}", a.0, id.0, r));
                         self.tool = Tool::Select;
                     }
                 }
             }
             Tool::Insert { name } => {
                 let layer = self.layer();
-                self.app_feed(&format!(
-                    "INSERT {} {} {} 0 {}",
-                    name, p.x, p.y, layer
-                ));
+                self.app_feed(&format!("INSERT {} {} {} 0 {}", name, p.x, p.y, layer));
                 // Stay in insert mode for multiple placements (AutoCAD-like).
                 self.note = format!("INSERT {name} — click to place another (Esc finishes)");
             }
@@ -3074,10 +4044,8 @@ impl AadtApp {
                             room_type: room_type.clone(),
                             first: Some(p),
                         };
-                        self.note = format!(
-                            "{} — pick opposite corner",
-                            room_type.to_ascii_uppercase()
-                        );
+                        self.note =
+                            format!("{} — pick opposite corner", room_type.to_ascii_uppercase());
                     }
                     Some(a) => {
                         let name = room_type.clone();
@@ -3115,8 +4083,7 @@ impl AadtApp {
                 self.note = "POLYLINE — click next vertex (Space finishes)".into();
             }
             Tool::Wall {
-                thickness: None,
-                ..
+                thickness: None, ..
             } => {
                 self.note = "WALL — type thickness and Space first".into();
             }
@@ -3133,14 +4100,11 @@ impl AadtApp {
                 self.note = "WALL — next point (Space finish · Double-Space repeat)".into();
             }
             Tool::PlaceElem { kind } => {
+                aadt_command::ensure_place_blocks(self.session.document_mut());
                 let layer = kind.layer();
                 let block = kind.block_name();
-                let fb = self.app_feed(&format!(
-                    "INSERT {} {} {} 0 {}",
-                    block, p.x, p.y, layer
-                ));
+                let fb = self.app_feed(&format!("INSERT {} {} {} 0 {}", block, p.x, p.y, layer));
                 let id = parse_entity_id_from_feedback(fb.message()).or_else(|| {
-                    // Fallback: small rectangle if INSERT failed.
                     let s = 0.45;
                     let fb2 = self.app_feed(&format!(
                         "RECTANGLE {} {} {} {} {}",
@@ -3201,17 +4165,54 @@ impl AadtApp {
                     }
                     TrimPhase::Objects => {
                         let cutters = cutters.clone();
-                        if cutters.is_empty() {
-                            // Implied: all entities can act as cutters (AutoCAD Enter-with-none).
-                            let all: Vec<_> =
-                                self.session.document().entities().iter().map(|e| e.id).collect();
-                            self.trim_object(id, &all, p);
-                        } else {
-                            self.trim_object(id, &cutters, p);
+                        // AutoCAD: Shift+select extends instead of trims.
+                        if self.pointer_shift {
+                            let mut boundaries: Vec<EntityId> = cutters
+                                .iter()
+                                .copied()
+                                .filter(|b| *b != id)
+                                .collect();
+                            if boundaries.is_empty() {
+                                boundaries = self
+                                    .session
+                                    .document()
+                                    .entities()
+                                    .iter()
+                                    .map(|e| e.id)
+                                    .filter(|&eid| eid != id)
+                                    .collect();
+                            }
+                            let mut ok = false;
+                            for b in boundaries {
+                                let fb = self.app_feed(&format!(
+                                    "EXTEND {} {} {} {}",
+                                    id.0, b.0, p.x, p.y
+                                ));
+                                if !fb.is_err() {
+                                    ok = true;
+                                    break;
+                                }
+                            }
+                            if ok {
+                                self.note =
+                                    "TRIM — select object to trim or Shift+extend (Space finishes)"
+                                        .into();
+                            } else {
+                                self.note =
+                                    "TRIM — Shift+click: nothing to extend at that pick".into();
+                            }
+                            return;
                         }
-                        // Stay in Objects phase for additional trims.
-                        self.note =
-                            "TRIM — select next object (Space finishes)".into();
+                        let ok = if cutters.is_empty() {
+                            self.trim_object(id, &[], p)
+                        } else {
+                            self.trim_object(id, &cutters, p)
+                        };
+                        if ok {
+                            self.note =
+                                "TRIM — select next object or [C]utting edges (Space finishes)"
+                                    .into();
+                        }
                     }
                 }
             }
@@ -3223,19 +4224,15 @@ impl AadtApp {
                 };
                 match boundary {
                     None => {
-                        self.tool = Tool::Extend {
-                            boundary: Some(id),
-                        };
+                        self.tool = Tool::Extend { boundary: Some(id) };
                         self.note = "EXTEND — click near the end to lengthen".into();
                     }
                     Some(b) => {
                         self.session
                             .feed(&format!("EXTEND {} {} {} {}", id.0, b.0, p.x, p.y));
-                        self.tool = Tool::Extend {
-                            boundary: Some(b),
-                        };
-                        self.note = "EXTEND — click near the end to lengthen (Space finishes)"
-                            .into();
+                        self.tool = Tool::Extend { boundary: Some(b) };
+                        self.note =
+                            "EXTEND — click near the end to lengthen (Space finishes)".into();
                     }
                 }
             }
@@ -3266,6 +4263,105 @@ impl AadtApp {
                     self.note = "MIRROR — type Y or N (Space = No)".into();
                 }
             },
+            Tool::ArrayRect {
+                collecting: false,
+                rows,
+                cols,
+                spacing_a,
+                dx,
+            } => {
+                if rows.is_none() || cols.is_none() {
+                    self.note = "ARRAYRECT — type rows and columns first".into();
+                    return;
+                }
+                match (spacing_a, dx) {
+                    (None, None) => {
+                        self.tool = Tool::ArrayRect {
+                            collecting: false,
+                            rows,
+                            cols,
+                            spacing_a: Some(p),
+                            dx: None,
+                        };
+                        self.note = "ARRAYRECT — second point for column spacing".into();
+                    }
+                    (Some(a0), None) => {
+                        let d = a0.distance(p);
+                        self.tool = Tool::ArrayRect {
+                            collecting: false,
+                            rows,
+                            cols,
+                            spacing_a: None,
+                            dx: Some(d),
+                        };
+                        self.note = "ARRAYRECT — row spacing dy (type or pick two points)".into();
+                    }
+                    (None, Some(dxv)) => {
+                        self.tool = Tool::ArrayRect {
+                            collecting: false,
+                            rows,
+                            cols,
+                            spacing_a: Some(p),
+                            dx: Some(dxv),
+                        };
+                        self.note = "ARRAYRECT — second point for row spacing".into();
+                    }
+                    (Some(a0), Some(dxv)) => {
+                        let dy = a0.distance(p);
+                        self.finish_array_rect(rows.unwrap(), cols.unwrap(), dxv, dy);
+                    }
+                }
+            }
+            Tool::ArrayPolar {
+                collecting: false,
+                center,
+                count,
+                fill,
+            } => {
+                if center.is_none() {
+                    self.tool = Tool::ArrayPolar {
+                        collecting: false,
+                        center: Some(p),
+                        count: None,
+                        fill: None,
+                    };
+                    self.engine.accept_point();
+                    self.note = "ARRAYPOLAR — count (type + Space)".into();
+                } else if count.is_none() {
+                    self.note = "ARRAYPOLAR — type count and Space".into();
+                } else if fill.is_none() {
+                    self.note = "ARRAYPOLAR — type fill angle or Space for 360".into();
+                } else {
+                    self.note = "ARRAYPOLAR — type Y or N (Space = Yes)".into();
+                }
+            }
+            Tool::ArrayPath {
+                collecting: false,
+                path,
+                count,
+            } => {
+                if path.is_none() {
+                    let tol = PICK_PIXELS / self.camera.scale;
+                    match pick_entity(self.session.document(), p, tol) {
+                        Some(id) => {
+                            self.tool = Tool::ArrayPath {
+                                collecting: false,
+                                path: Some(id),
+                                count: None,
+                            };
+                            self.note = "ARRAYPATH — count (type + Space)".into();
+                        }
+                        None => {
+                            self.note =
+                                "ARRAYPATH — click a line, polyline, arc, or circle".into();
+                        }
+                    }
+                } else if count.is_none() {
+                    self.note = "ARRAYPATH — type count and Space".into();
+                } else {
+                    self.note = "ARRAYPATH — type Y or N (Space = Yes)".into();
+                }
+            }
             Tool::Explode => {
                 let tol = PICK_PIXELS / self.camera.scale;
                 if let Some(id) = pick_entity(self.session.document(), p, tol) {
@@ -3303,10 +4399,7 @@ impl AadtApp {
                     self.note = "QDIM — select objects first, then pick dim-line side".into();
                 } else {
                     self.sync_selection();
-                    self.app_feed(&format!(
-                        "QDIM SELECTION {} {} AN-DIMS",
-                        p.x, p.y
-                    ));
+                    self.app_feed(&format!("QDIM SELECTION {} {} AN-DIMS", p.x, p.y));
                     self.tool = Tool::Select;
                 }
             }
@@ -3378,36 +4471,44 @@ impl AadtApp {
                 };
                 match source {
                     None => {
-                        self.tool = Tool::MatchProp {
-                            source: Some(id),
-                        };
+                        self.tool = Tool::MatchProp { source: Some(id) };
                         self.note = "MATCHPROP — click target object(s)".into();
                     }
                     Some(src) => {
-                        self.session
-                            .feed(&format!("MATCHPROP {} {}", src.0, id.0));
-                        self.tool = Tool::MatchProp {
-                            source: Some(src),
-                        };
+                        self.session.feed(&format!("MATCHPROP {} {}", src.0, id.0));
+                        self.tool = Tool::MatchProp { source: Some(src) };
                         self.note = "MATCHPROP — click another target (Esc finishes)".into();
                     }
                 }
             }
             Tool::ZoomWindow { first } => match first {
-                None => self.tool = Tool::ZoomWindow { first: Some(p) },
+                None => {
+                    self.tool = Tool::ZoomWindow { first: Some(p) };
+                    self.note = "ZOOM Window — click opposite corner".into();
+                }
                 Some(a) => {
                     self.apply_nav_hint(&format!("window:{},{},{},{}", a.x, a.y, p.x, p.y));
                     self.tool = Tool::Select;
-                    self.note = "Zoom window".into();
+                    self.note = "Zoom Window".into();
+                }
+            },
+            Tool::PlotWindow { first } => match first {
+                None => {
+                    self.tool = Tool::PlotWindow { first: Some(p) };
+                    self.note = "PLOT WINDOW — click opposite corner".into();
+                }
+                Some(a) => {
+                    self.plot_window = Some(aadt_geometry::Bbox::from_corners(a, p));
+                    self.plot_area_mode = 2;
+                    self.tool = Tool::Select;
+                    self.seed_plot_dialog();
+                    self.note = "Plot window set — confirm Plot to PDF".into();
                 }
             },
             Tool::SectionLine { first } => match first {
                 None => self.tool = Tool::SectionLine { first: Some(p) },
                 Some(a) => {
-                    self.app_feed(&format!(
-                        "SECTIONLINE {} {} {} {} A",
-                        a.x, a.y, p.x, p.y
-                    ));
+                    self.app_feed(&format!("SECTIONLINE {} {} {} {} A", a.x, a.y, p.x, p.y));
                     self.tool = Tool::Select;
                 }
             },
@@ -3447,34 +4548,73 @@ impl AadtApp {
             Tool::RevCloud { first } => match first {
                 None => self.tool = Tool::RevCloud { first: Some(p) },
                 Some(a) => {
-                    self.app_feed(&format!(
-                        "REVCLOUD {} {} {} {}",
-                        a.x, a.y, p.x, p.y
-                    ));
+                    self.app_feed(&format!("REVCLOUD {} {} {} {}", a.x, a.y, p.x, p.y));
                     self.tool = Tool::Select;
                 }
             },
             Tool::TablePlace => {
                 let rows = self.table_rows.parse::<u32>().unwrap_or(5).clamp(1, 200);
                 let cols = self.table_cols.parse::<u32>().unwrap_or(4).clamp(1, 50);
-                self.app_feed(&format!(
-                    "TABLE {} {} {} {}",
-                    p.x, p.y, rows, cols
-                ));
+                self.app_feed(&format!("TABLE {} {} {} {}", p.x, p.y, rows, cols));
                 self.tool = Tool::Select;
             }
             Tool::Offset { .. }
             | Tool::Select
             | Tool::Erase
-            | Tool::Move { collecting: true, .. }
-            | Tool::Copy { collecting: true, .. }
-            | Tool::Rotate { collecting: true, .. }
-            | Tool::Scale { collecting: true, .. }
-            | Tool::Mirror { collecting: true, .. }
+            | Tool::Move {
+                collecting: true, ..
+            }
+            | Tool::Copy {
+                collecting: true, ..
+            }
+            | Tool::Rotate {
+                collecting: true, ..
+            }
+            | Tool::Scale {
+                collecting: true, ..
+            }
+            | Tool::Mirror {
+                collecting: true, ..
+            }
+            | Tool::ArrayRect {
+                collecting: true, ..
+            }
+            | Tool::ArrayPolar {
+                collecting: true, ..
+            }
+            | Tool::ArrayPath {
+                collecting: true, ..
+            }
             | Tool::MakeBlock {
                 collecting: true, ..
             } => {}
         }
+    }
+
+    fn finish_array_rect(&mut self, rows: usize, cols: usize, dx: f64, dy: f64) {
+        self.sync_selection();
+        self.app_feed(&format!("ARRAYRECT SELECTION {rows} {cols} {dx} {dy}"));
+        self.tool = Tool::Select;
+        self.engine.complete();
+    }
+
+    fn finish_array_polar(&mut self, c: Point2, count: usize, fill: f64, rotate: bool) {
+        self.sync_selection();
+        let flag = if rotate { "Y" } else { "N" };
+        self.app_feed(&format!(
+            "ARRAYPOLAR SELECTION {} {} {count} {fill} {flag}",
+            c.x, c.y
+        ));
+        self.tool = Tool::Select;
+        self.engine.complete();
+    }
+
+    fn finish_array_path(&mut self, path: EntityId, count: usize, align: bool) {
+        self.sync_selection();
+        let flag = if align { "Y" } else { "N" };
+        self.app_feed(&format!("ARRAYPATH SELECTION {} {count} {flag}", path.0));
+        self.tool = Tool::Select;
+        self.engine.complete();
     }
 
     /// Click while OFFSET is waiting for an entity: pick under the cursor.
@@ -3597,24 +4737,30 @@ impl AadtApp {
         }
     }
 
-    fn trim_object(&mut self, target: EntityId, cutters: &[EntityId], pick: Point2) {
-        let mut ok = false;
-        for c in cutters {
-            if *c == target {
-                continue;
+    /// AutoCAD-like TRIM: one shot against all cutting edges at the pick.
+    /// Returns whether a trim applied.
+    fn trim_object(&mut self, target: EntityId, cutters: &[EntityId], pick: Point2) -> bool {
+        let cutter_ids: Vec<EntityId> = cutters
+            .iter()
+            .copied()
+            .filter(|c| *c != target)
+            .collect();
+        let fb = if cutter_ids.is_empty() {
+            // Quick mode — every other entity is a cutting edge.
+            self.app_feed(&format!("TRIM {} {} {}", target.0, pick.x, pick.y))
+        } else {
+            let mut line = format!("TRIM {} {} {}", target.0, pick.x, pick.y);
+            for c in &cutter_ids {
+                line.push(' ');
+                line.push_str(&c.0.to_string());
             }
-            let fb = self.app_feed(&format!(
-                "TRIM {} {} {} {}",
-                target.0, c.0, pick.x, pick.y
-            ));
-            if !fb.is_err() {
-                ok = true;
-                break;
-            }
+            self.app_feed(&line)
+        };
+        if fb.is_err() {
+            self.note = "TRIM — no crossing with cutting edges at that pick".into();
+            return false;
         }
-        if !ok {
-            self.note = "TRIM — no crossing with selected cutting edges".into();
-        }
+        true
     }
 
     /// The prompt shown while a tool is active.
@@ -3645,7 +4791,9 @@ impl AadtApp {
             Tool::Trim {
                 phase: TrimPhase::Objects,
                 ..
-            } => return Some("TRIM — select object to trim (Space finishes)"),
+            } => {
+                return Some("TRIM — select object to trim or [C]utting edges (Space finishes)")
+            }
             Tool::Xline {
                 mode: XlineMode::Through,
                 origin: None,
@@ -3674,21 +4822,30 @@ impl AadtApp {
                 ang_deg: Some(_),
                 ..
             } => return Some("XLINE Ang — specify a point"),
-            Tool::Move { collecting: true, .. } => {
-                return Some("MOVE — select objects (Space when done)")
-            }
-            Tool::Copy { collecting: true, .. } => {
-                return Some("COPY — select objects (Space when done)")
-            }
-            Tool::Rotate { collecting: true, .. } => {
-                return Some("ROTATE — select objects (Space when done)")
-            }
-            Tool::Scale { collecting: true, .. } => {
-                return Some("SCALE — select objects (Space when done)")
-            }
-            Tool::Mirror { collecting: true, .. } => {
-                return Some("MIRROR — select objects (Space when done)")
-            }
+            Tool::Move {
+                collecting: true, ..
+            } => return Some("MOVE — select objects (Space when done)"),
+            Tool::Copy {
+                collecting: true, ..
+            } => return Some("COPY — select objects (Space when done)"),
+            Tool::Rotate {
+                collecting: true, ..
+            } => return Some("ROTATE — select objects (Space when done)"),
+            Tool::Scale {
+                collecting: true, ..
+            } => return Some("SCALE — select objects (Space when done)"),
+            Tool::Mirror {
+                collecting: true, ..
+            } => return Some("MIRROR — select objects (Space when done)"),
+            Tool::ArrayRect {
+                collecting: true, ..
+            } => return Some("ARRAYRECT — select objects (Space when done)"),
+            Tool::ArrayPolar {
+                collecting: true, ..
+            } => return Some("ARRAYPOLAR — select objects (Space when done)"),
+            Tool::ArrayPath {
+                collecting: true, ..
+            } => return Some("ARRAYPATH — select objects (Space when done)"),
             Tool::MakeBlock {
                 collecting: true, ..
             } => return Some("BLOCK — select objects (Space when done)"),
@@ -3853,14 +5010,8 @@ impl AadtApp {
                 room_type,
                 first: None,
             } if room_type.is_empty() => "ROOM — type room name and Space",
-            Tool::RoomLabel {
-                first: None,
-                ..
-            } => "ROOM — pick first corner",
-            Tool::RoomLabel {
-                first: Some(_),
-                ..
-            } => "ROOM — pick opposite corner",
+            Tool::RoomLabel { first: None, .. } => "ROOM — pick first corner",
+            Tool::RoomLabel { first: Some(_), .. } => "ROOM — pick opposite corner",
             Tool::RoomArea => "IAR — click a closed polyline or circle",
             Tool::Mleader { arrow: None, .. } => "MLEADER — click the arrowhead",
             Tool::Mleader {
@@ -3876,18 +5027,34 @@ impl AadtApp {
             Tool::Mleader {
                 text_pt: Some(_), ..
             } => "MLEADER — type the note and Space",
-            Tool::Stretch { w0: None, .. } => "STRETCH — click first window corner",
             Tool::Stretch {
+                collecting: true,
+                ..
+            } => "STRETCH — select objects (Space when done)",
+            Tool::Stretch {
+                collecting: false,
+                w0: None,
+                ..
+            } => "STRETCH — click first crossing-window corner",
+            Tool::Stretch {
+                collecting: false,
                 w0: Some(_),
                 w1: None,
                 ..
-            } => "STRETCH — click opposite window corner",
+            } => "STRETCH — click opposite crossing-window corner",
             Tool::Stretch {
+                collecting: false,
                 w1: Some(_),
                 base: None,
                 ..
             } => "STRETCH — click the base point",
-            Tool::Stretch { base: Some(_), .. } => "STRETCH — click the destination",
+            Tool::Stretch {
+                collecting: false,
+                base: Some(_),
+                ..
+            } => "STRETCH — click the destination",
+            Tool::Dist { first: None } => "DIST — click first point",
+            Tool::Dist { first: Some(_) } => "DIST — click second point",
             Tool::Brush { .. } => "BRUSH — click/drag freehand; Space finishes (A-PRES-MARK)",
             Tool::Fillet { radius: None, .. } => "FILLET — type radius and Space (0 = sharp)",
             Tool::Fillet {
@@ -3920,7 +5087,9 @@ impl AadtApp {
                 ..
             } => "WBLOCK — pick base point",
             Tool::Polyline { .. } => "POLYLINE — click vertices (Space finishes)",
-            Tool::Wall { thickness: None, .. } => "WALL — type thickness and Space",
+            Tool::Wall {
+                thickness: None, ..
+            } => "WALL — type thickness and Space",
             Tool::Wall {
                 thickness: Some(_), ..
             } => "WALL — pick points (Space finish · Double-Space repeat)",
@@ -3930,13 +5099,19 @@ impl AadtApp {
                 PlaceKind::Column => "COLUMN — click insertion point",
                 PlaceKind::Beam => "BEAM — click insertion point",
                 PlaceKind::Slab => "SLAB — click insertion point",
+                PlaceKind::Tree => "TREE — click insertion point",
+                PlaceKind::Shrub => "SHRUB — click insertion point",
+                PlaceKind::Chair => "CHAIR — click insertion point",
+                PlaceKind::Desk => "DESK — click insertion point",
+                PlaceKind::Sofa => "SOFA — click insertion point",
+                PlaceKind::Bed => "BED — click insertion point",
+                PlaceKind::Table => "TABLE — click insertion point",
+                PlaceKind::Toilet => "TOILET — click insertion point",
             },
             Tool::Hatch => "HATCH — click a closed boundary",
             Tool::Trim { .. } => "TRIM",
             Tool::Extend { boundary: None } => "EXTEND — click the boundary edge",
-            Tool::Extend {
-                boundary: Some(_),
-            } => "EXTEND — click near the end to lengthen",
+            Tool::Extend { boundary: Some(_) } => "EXTEND — click near the end to lengthen",
             Tool::Mirror {
                 collecting: false,
                 a: None,
@@ -3952,11 +5127,82 @@ impl AadtApp {
                 a: Some(_),
                 b: Some(_),
             } => "MIRROR — Erase source objects? [Yes/No] <N>",
+            Tool::ArrayRect {
+                collecting: false,
+                rows: None,
+                ..
+            } => "ARRAYRECT — rows (type + Space)",
+            Tool::ArrayRect {
+                collecting: false,
+                rows: Some(_),
+                cols: None,
+                ..
+            } => "ARRAYRECT — columns (type + Space)",
+            Tool::ArrayRect {
+                collecting: false,
+                cols: Some(_),
+                dx: None,
+                spacing_a: None,
+                ..
+            } => "ARRAYRECT — column spacing dx (type or pick)",
+            Tool::ArrayRect {
+                collecting: false,
+                dx: None,
+                spacing_a: Some(_),
+                ..
+            } => "ARRAYRECT — second point for column spacing",
+            Tool::ArrayRect {
+                collecting: false,
+                dx: Some(_),
+                spacing_a: None,
+                ..
+            } => "ARRAYRECT — row spacing dy (type or pick)",
+            Tool::ArrayRect {
+                collecting: false,
+                dx: Some(_),
+                spacing_a: Some(_),
+                ..
+            } => "ARRAYRECT — second point for row spacing",
+            Tool::ArrayPolar {
+                collecting: false,
+                center: None,
+                ..
+            } => "ARRAYPOLAR — center point",
+            Tool::ArrayPolar {
+                collecting: false,
+                center: Some(_),
+                count: None,
+                ..
+            } => "ARRAYPOLAR — count (type + Space)",
+            Tool::ArrayPolar {
+                collecting: false,
+                count: Some(_),
+                fill: None,
+                ..
+            } => "ARRAYPOLAR — fill angle degrees <360>",
+            Tool::ArrayPolar {
+                collecting: false,
+                fill: Some(_),
+                ..
+            } => "ARRAYPOLAR — Rotate items as copied? [Yes/No] <Y>",
+            Tool::ArrayPath {
+                collecting: false,
+                path: None,
+                ..
+            } => "ARRAYPATH — select path (line/pline/arc/circle)",
+            Tool::ArrayPath {
+                collecting: false,
+                path: Some(_),
+                count: None,
+            } => "ARRAYPATH — count (type + Space)",
+            Tool::ArrayPath {
+                collecting: false,
+                path: Some(_),
+                count: Some(_),
+            } => "ARRAYPATH — Align items to path? [Yes/No] <Y>",
             Tool::GripEdit { .. } => "GRIP — specify new location (Esc cancels)",
             Tool::Explode => "EXPLODE — click a block reference",
-            Tool::Dim {
-                first: None, ..
-            } => "DIM — click first definition point",
+            Tool::Dim { first: None, .. } => "DIM — click first definition point",
             Tool::Dim {
                 first: Some(_),
                 second: None,
@@ -3973,13 +5219,15 @@ impl AadtApp {
                 vertex: Some(_),
                 p1: None,
             } => "DIMANGULAR — click first ray point",
-            Tool::DimAngular {
-                p1: Some(_), ..
-            } => "DIMANGULAR — click second ray point",
+            Tool::DimAngular { p1: Some(_), .. } => "DIMANGULAR — click second ray point",
             Tool::MatchProp { source: None } => "MATCHPROP — click source",
             Tool::MatchProp { source: Some(_) } => "MATCHPROP — click targets",
-            Tool::ZoomWindow { first: None } => "ZOOM — click first corner",
-            Tool::ZoomWindow { first: Some(_) } => "ZOOM — click opposite corner",
+            Tool::ZoomWindow { first: None } => {
+                "ZOOM — [A]ll [E]xtents [W]indow [P]revious [S]cale · or click window"
+            }
+            Tool::ZoomWindow { first: Some(_) } => "ZOOM Window — click opposite corner",
+            Tool::PlotWindow { first: None } => "PLOT WINDOW — click first corner",
+            Tool::PlotWindow { first: Some(_) } => "PLOT WINDOW — click opposite corner",
             Tool::SectionLine { first: None } => "SECTIONLINE — first point",
             Tool::SectionLine { first: Some(_) } => "SECTIONLINE — second point",
             Tool::Callout { arrow: None, .. } => "CALLOUT — arrow",
@@ -3994,11 +5242,30 @@ impl AadtApp {
             Tool::RevCloud { first: None } => "REVCLOUD — first corner",
             Tool::RevCloud { first: Some(_) } => "REVCLOUD — opposite corner",
             Tool::TablePlace => "TABLE — click origin",
-            Tool::Move { collecting: true, .. }
-            | Tool::Copy { collecting: true, .. }
-            | Tool::Rotate { collecting: true, .. }
-            | Tool::Scale { collecting: true, .. }
-            | Tool::Mirror { collecting: true, .. }
+            Tool::Move {
+                collecting: true, ..
+            }
+            | Tool::Copy {
+                collecting: true, ..
+            }
+            | Tool::Rotate {
+                collecting: true, ..
+            }
+            | Tool::Scale {
+                collecting: true, ..
+            }
+            | Tool::Mirror {
+                collecting: true, ..
+            }
+            | Tool::ArrayRect {
+                collecting: true, ..
+            }
+            | Tool::ArrayPolar {
+                collecting: true, ..
+            }
+            | Tool::ArrayPath {
+                collecting: true, ..
+            }
             | Tool::MakeBlock {
                 collecting: true, ..
             } => "select objects (Space when done)",
@@ -4050,6 +5317,7 @@ impl AadtApp {
             lines.push(match kind {
                 SnapKind::Endpoint => "END".to_string(),
                 SnapKind::Midpoint => "MID".to_string(),
+                SnapKind::Center => "CEN".to_string(),
             });
         }
         lines
@@ -4058,8 +5326,10 @@ impl AadtApp {
 
 impl eframe::App for AadtApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Keep OS title bar / border on the light theme (Windows can flip otherwise).
-        ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Light));
+        // Prefer light OS chrome; avoid spamming the viewport every frame.
+        if self.last_window_title.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Light));
+        }
         // Dynamic input: unless a text field is focused, keystrokes are typed at
         // the crosshair — a command token, a value, or edit/finish keys.
         if !ctx.wants_keyboard_input() {
@@ -4136,10 +5406,17 @@ impl eframe::App for AadtApp {
                                 }
                                 egui::Key::O => {
                                     if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("AADT / DXF", &["aadt", "dxf"])
+                                        .add_filter("AADT / DXF / DWG", &["aadt", "dxf", "dwg"])
+                                        .add_filter("DWG", &["dwg"])
+                                        .add_filter("DXF", &["dxf"])
+                                        .add_filter("AADT", &["aadt"])
                                         .pick_file()
                                     {
-                                        self.app_feed(&format!("OPEN {}", path.display()));
+                                        let fb =
+                                            self.app_feed(&format!("OPEN {}", path.display()));
+                                        if let Some(m) = fb.message() {
+                                            self.note = m.to_string();
+                                        }
                                         self.fitted = false;
                                         self.selection.clear();
                                     }
@@ -4168,12 +5445,10 @@ impl eframe::App for AadtApp {
                                 }
                                 egui::Key::V => {
                                     self.app_feed("PASTECLIP");
-                                    self.selection =
-                                        self.session.selection().to_vec();
+                                    self.selection = self.session.selection().to_vec();
                                 }
                                 egui::Key::P => {
-                                    self.props_edit =
-                                        self.session.document().properties().clone();
+                                    self.props_edit = self.session.document().properties().clone();
                                     self.seed_plot_dialog();
                                 }
                                 egui::Key::Num1 => {
@@ -4187,79 +5462,101 @@ impl eframe::App for AadtApp {
                             continue;
                         }
                         match key {
-                        egui::Key::Enter => self.apply_space_single(),
-                        egui::Key::Tab => {
-                            if self.expects_point_coords() {
-                                self.dyn_focus = match self.dyn_focus {
-                                    CoordFocus::X => CoordFocus::Y,
-                                    CoordFocus::Y => CoordFocus::X,
+                            egui::Key::Enter => self.apply_space_single(),
+                            egui::Key::Tab => {
+                                if self.expects_point_coords() {
+                                    self.dyn_focus = match self.dyn_focus {
+                                        CoordFocus::X => CoordFocus::Y,
+                                        CoordFocus::Y => CoordFocus::X,
+                                    };
+                                }
+                            }
+                            egui::Key::Backspace => {
+                                if self.palette_open {
+                                    self.palette_filter.pop();
+                                } else if matches!(self.tool, Tool::Select)
+                                    && !self.selection.is_empty()
+                                    && self.dyn_input.is_empty()
+                                    && self.dyn_x.is_empty()
+                                    && self.dyn_y.is_empty()
+                                {
+                                    self.erase_selection();
+                                } else {
+                                    self.pop_dyn_char();
+                                }
+                            }
+                            egui::Key::Delete => {
+                                if matches!(self.tool, Tool::Select) && !self.selection.is_empty()
+                                {
+                                    self.erase_selection();
+                                }
+                            }
+                            egui::Key::Escape => {
+                                self.dyn_input.clear();
+                                self.clear_dyn_coords();
+                                self.palette_open = false;
+                                self.engine.cancel();
+                                if self.drafting() {
+                                    self.tool = Tool::Select;
+                                } else {
+                                    self.selection.clear();
+                                }
+                            }
+                            egui::Key::F8 => {
+                                self.ortho = !self.ortho;
+                                self.persist_prefs();
+                                self.note = if self.ortho {
+                                    "Ortho ON (F8)".to_string()
+                                } else {
+                                    "Ortho OFF (F8)".to_string()
                                 };
                             }
-                        }
-                        egui::Key::Backspace => {
-                            if self.palette_open {
-                                self.palette_filter.pop();
-                            } else {
-                                self.pop_dyn_char();
+                            egui::Key::F3 => {
+                                self.osnap = !self.osnap;
+                                self.snap_hit = None;
+                                self.persist_prefs();
+                                self.note = if self.osnap {
+                                    "Object snap ON (F3) — endpoint / midpoint / center".to_string()
+                                } else {
+                                    "Object snap OFF (F3)".to_string()
+                                };
                             }
-                        }
-                        egui::Key::Escape => {
-                            self.dyn_input.clear();
-                            self.clear_dyn_coords();
-                            self.palette_open = false;
-                            self.engine.cancel();
-                            if self.drafting() {
-                                self.tool = Tool::Select;
-                            } else {
-                                self.selection.clear();
+                            egui::Key::F10 => {
+                                self.polar = !self.polar;
+                                self.persist_prefs();
+                                self.note = if self.polar {
+                                    "Polar tracking ON (F10) — 45° increments".into()
+                                } else {
+                                    "Polar tracking OFF (F10)".into()
+                                };
                             }
-                        }
-                        egui::Key::F8 => {
-                            self.ortho = !self.ortho;
-                            self.persist_prefs();
-                            self.note = if self.ortho {
-                                "Ortho ON (F8)".to_string()
-                            } else {
-                                "Ortho OFF (F8)".to_string()
-                            };
-                        }
-                        egui::Key::F3 => {
-                            self.osnap = !self.osnap;
-                            self.snap_hit = None;
-                            self.persist_prefs();
-                            self.note = if self.osnap {
-                                "Object snap ON (F3) — endpoint / midpoint".to_string()
-                            } else {
-                                "Object snap OFF (F3)".to_string()
-                            };
-                        }
-                        egui::Key::F10 => {
-                            self.polar = !self.polar;
-                            self.persist_prefs();
-                            self.note = if self.polar {
-                                "Polar tracking ON (F10)".into()
-                            } else {
-                                "Polar tracking OFF (F10)".into()
-                            };
-                        }
-                        egui::Key::F11 => {
-                            self.osnap_track = !self.osnap_track;
-                            if self.osnap_track {
-                                self.osnap = true;
-                                self.polar = true;
+                            egui::Key::F11 => {
+                                self.osnap_track = !self.osnap_track;
+                                if self.osnap_track {
+                                    self.osnap = true;
+                                    self.polar = true;
+                                }
+                                self.persist_prefs();
+                                self.note = if self.osnap_track {
+                                    "Object-snap tracking ON (F11)".into()
+                                } else {
+                                    "Object-snap tracking OFF (F11)".into()
+                                };
                             }
-                            self.persist_prefs();
-                            self.note = if self.osnap_track {
-                                "Object-snap tracking ON (F11)".into()
-                            } else {
-                                "Object-snap tracking OFF (F11)".into()
-                            };
+                            egui::Key::F12 => {
+                                self.dyn_mode = !self.dyn_mode;
+                                self.persist_prefs();
+                                self.note = if self.dyn_mode {
+                                    "Dynamic Input ON (F12)".into()
+                                } else {
+                                    "Dynamic Input OFF (F12)".into()
+                                };
+                            }
+                            egui::Key::F1 => {
+                                self.show_shortcuts = true;
+                            }
+                            _ => {}
                         }
-                        egui::Key::F1 => {
-                            self.show_shortcuts = true;
-                        }
-                        _ => {}
-                    }
                     }
                     _ => {}
                 }
@@ -4275,189 +5572,233 @@ impl eframe::App for AadtApp {
         self.draw_top_bar(ctx);
         self.draw_bottom_bar(ctx);
         self.draw_drawing_props_panel(ctx);
+        self.draw_left_panel(ctx);
         self.draw_right_panel(ctx);
         self.draw_plot_dialog(ctx);
+        self.draw_layer_map_dialog(ctx);
         self.draw_command_palette(ctx);
 
         // --- Central viewport (white paper = print preview) ---
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(theme::color::CANVAS))
             .show(ctx, |ui| {
-            let (rect, resp) =
-                ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
-            self.camera.viewport = (rect.width() as f64, rect.height() as f64);
+                let (rect, resp) =
+                    ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+                self.camera.viewport = (rect.width() as f64, rect.height() as f64);
 
-            if !self.fitted {
-                self.camera.fit_document(self.session.document(), 0.08);
-                self.fitted = true;
-            }
-
-            let to_world = |camera: &Camera, pos: egui::Pos2| {
-                camera.screen_to_world((pos.x - rect.min.x) as f64, (pos.y - rect.min.y) as f64)
-            };
-
-            // Pan (middle-drag) and zoom (scroll).
-            let (mid_down, delta) = ui.input(|i| (i.pointer.middle_down(), i.pointer.delta()));
-            if mid_down && resp.hovered() {
-                self.camera.center.x -= delta.x as f64 / self.camera.scale;
-                self.camera.center.y += delta.y as f64 / self.camera.scale;
-            }
-            handle_zoom(&mut self.camera, &resp, rect, ui);
-
-            self.cursor_screen = resp.hover_pos();
-            let shift = ui.input(|i| i.modifiers.shift);
-            let raw_cursor = resp.hover_pos().map(|pos| to_world(&self.camera, pos));
-            self.cursor = raw_cursor.map(|p| self.resolve_pick(p, shift));
-
-            // Brush samples while dragging.
-            if matches!(self.tool, Tool::Brush { .. }) && resp.dragged() {
-                if let Some(pos) = resp.hover_pos() {
-                    let world = to_world(&self.camera, pos);
-                    let p = self.resolve_pick(world, shift);
-                    self.on_pick(p);
+                if !self.fitted {
+                    self.camera.fit_document(self.session.document(), 0.08);
+                    self.fitted = true;
                 }
-            }
 
-            match self.tool {
-                Tool::Select => {
-                    // Box selection on a primary drag; a plain click picks.
-                    if resp.drag_started() {
-                        self.box_start = resp.interact_pointer_pos();
-                    }
-                    if resp.drag_stopped() {
-                        if let (Some(s), Some(e)) = (self.box_start, resp.interact_pointer_pos()) {
-                            self.finish_box(s, e, &to_world, ui);
-                        }
-                        self.box_start = None;
-                    }
-                    if resp.clicked() {
-                        if let Some(pos) = resp.interact_pointer_pos() {
-                            self.click_select(to_world(&self.camera, pos), ui);
-                        }
-                    }
+                let to_world = |camera: &Camera, pos: egui::Pos2| {
+                    camera.screen_to_world((pos.x - rect.min.x) as f64, (pos.y - rect.min.y) as f64)
+                };
+
+                // Pan (middle-drag) and zoom (scroll).
+                let (mid_down, delta) = ui.input(|i| (i.pointer.middle_down(), i.pointer.delta()));
+                if mid_down && resp.hovered() {
+                    self.camera.center.x -= delta.x as f64 / self.camera.scale;
+                    self.camera.center.y += delta.y as f64 / self.camera.scale;
                 }
-                _ => {
-                    if resp.secondary_clicked() {
-                        self.apply_space_single();
-                    }
-                    let place = if resp.clicked() || resp.drag_stopped() {
-                        resp.interact_pointer_pos()
-                    } else {
-                        None
-                    };
-                    if let Some(pos) = place {
+                handle_zoom(&mut self.camera, &resp, rect, ui);
+
+                self.cursor_screen = resp.hover_pos();
+                let shift = ui.input(|i| i.modifiers.shift);
+                self.pointer_shift = shift;
+                let raw_cursor = resp.hover_pos().map(|pos| to_world(&self.camera, pos));
+                self.cursor = raw_cursor.map(|p| self.resolve_pick(p, shift));
+
+                // Brush samples while dragging.
+                if matches!(self.tool, Tool::Brush { .. }) && resp.dragged() {
+                    if let Some(pos) = resp.hover_pos() {
                         let world = to_world(&self.camera, pos);
-                        match self.tool {
-                            Tool::Offset {
-                                dist: Some(_),
-                                entity: None,
-                            } => self.offset_pick_entity(world),
-                            Tool::Offset { dist: None, .. } => {
-                                self.note = "OFFSET — type the distance and Space first".into();
+                        let p = self.resolve_pick(world, shift);
+                        self.on_pick(p);
+                    }
+                }
+
+                match self.tool {
+                    Tool::Select => {
+                        // Box selection on a primary drag; a plain click picks.
+                        // Use press origin so window/crossing direction matches the
+                        // true drag (AutoCAD: L→R window, R→L crossing).
+                        if resp.drag_started() {
+                            self.box_start = ui
+                                .input(|i| i.pointer.press_origin())
+                                .or_else(|| resp.interact_pointer_pos());
+                        }
+                        let mut box_done = false;
+                        if resp.drag_stopped() {
+                            if let (Some(s), Some(e)) =
+                                (self.box_start, resp.interact_pointer_pos())
+                            {
+                                if (s - e).length() >= 3.0 {
+                                    self.finish_box(s, e, &to_world, ui);
+                                    box_done = true;
+                                }
                             }
-                            _ => {
-                                let p = self.resolve_pick(world, shift);
-                                self.on_pick(p);
+                            self.box_start = None;
+                        }
+                        // Skip click-select after a real box so release doesn't clear.
+                        if resp.clicked() && !box_done {
+                            if let Some(pos) = resp.interact_pointer_pos() {
+                                self.click_select(to_world(&self.camera, pos), ui);
+                            }
+                        }
+                    }
+                    _ => {
+                        if resp.secondary_clicked() {
+                            self.apply_space_single();
+                        }
+                        // One place per gesture: prefer click; accept micro-drag
+                        // release only (not both) so we don't double-fire on_pick.
+                        let place = if resp.clicked() {
+                            resp.interact_pointer_pos()
+                        } else if resp.drag_stopped() {
+                            let origin = ui.input(|i| i.pointer.press_origin());
+                            let end = resp.interact_pointer_pos();
+                            match (origin, end) {
+                                (Some(s), Some(e)) if (s - e).length() < PLACE_DRAG_PX => Some(e),
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+                        if let Some(pos) = place {
+                            let world = to_world(&self.camera, pos);
+                            match self.tool {
+                                Tool::Offset {
+                                    dist: Some(_),
+                                    entity: None,
+                                } => self.offset_pick_entity(world),
+                                Tool::Offset { dist: None, .. } => {
+                                    self.note = "OFFSET — type the distance and Space first".into();
+                                }
+                                _ => {
+                                    let p = self.resolve_pick(world, shift);
+                                    self.on_pick(p);
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            let list = self.session.drawlist().clone();
-            let painter = ui.painter_at(rect);
-            paint(
-                &painter,
-                rect,
-                &self.camera,
-                &list,
-                self.session.document(),
-                self.show_lweights,
-            );
-            paint_selection(
-                &painter,
-                rect,
-                &self.camera,
-                self.session.document(),
-                &self.selection,
-            );
-
-            // Rubber-band preview for the in-progress tool.
-            if let Some(pos) = self.cursor {
-                paint_preview(
+                self.session.refresh_draw_cache();
+                let list = self.session.cached_drawlist();
+                let painter = ui.painter_at(rect);
+                paint(
                     &painter,
                     rect,
                     &self.camera,
-                    &self.tool,
-                    pos,
+                    list,
+                    self.session.document(),
+                    self.show_lweights,
+                );
+                paint_selection(
+                    &painter,
+                    rect,
+                    &self.camera,
                     self.session.document(),
                     &self.selection,
                 );
-            }
-            // Object-snap marker at the acquired point.
-            if let Some((kind, sp)) = self.snap_hit {
-                paint_snap_marker(&painter, rect, &self.camera, kind, sp);
-            }
-            // The selection box while dragging.
-            if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {
-                paint_box(&painter, s, cur);
-            }
-            // UCS marker (bottom-left of viewport).
-            {
-                let origin = egui::pos2(rect.min.x + 28.0, rect.max.y - 28.0);
-                let x_end = origin + egui::vec2(36.0, 0.0);
-                let y_end = origin + egui::vec2(0.0, -36.0);
-                painter.arrow(
-                    origin,
-                    egui::vec2(36.0, 0.0),
-                    egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(200, 40, 40)),
-                );
-                painter.arrow(
-                    origin,
-                    egui::vec2(0.0, -36.0),
-                    egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(40, 160, 40)),
-                );
-                painter.text(
-                    x_end + egui::vec2(4.0, 0.0),
-                    egui::Align2::LEFT_CENTER,
-                    "X",
-                    egui::FontId::proportional(11.0),
-                    egui::Color32::from_rgb(200, 40, 40),
-                );
-                painter.text(
-                    y_end + egui::vec2(0.0, -4.0),
-                    egui::Align2::CENTER_BOTTOM,
-                    "Y",
-                    egui::FontId::proportional(11.0),
-                    egui::Color32::from_rgb(40, 160, 40),
-                );
-                let _ = x_end;
-            }
-            // AutoCAD-style cursor: 100×100 crosshair + pickbox; selection box
-            // while dragging a window/crossing. Hide the OS arrow over the canvas.
-            if resp.hovered() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-            }
-            if let Some(sp) = resp.hover_pos() {
-                if self.box_start.is_none() {
-                    paint_crosshair_and_pickbox(&painter, sp, self.drafting());
+
+                // Rubber-band preview for the in-progress tool.
+                if let Some(pos) = self.cursor {
+                    paint_preview(
+                        &painter,
+                        rect,
+                        &self.camera,
+                        &self.tool,
+                        pos,
+                        self.session.document(),
+                        &self.selection,
+                    );
                 }
-                paint_dyn_box(&painter, sp, &self.dyn_lines());
-            }
-            // Keep the crosshair / rubber-band live only when the pointer moved
-            // meaningfully, while drafting, or while Space is held (hold-palette).
-            let pointer_moved = resp.hover_pos().map_or(false, |p| {
-                self.last_pointer_screen
-                    .map(|prev| (prev - p).length() > 0.5)
-                    .unwrap_or(true)
+                // Object-snap marker at the acquired point.
+                if let Some((kind, sp)) = self.snap_hit {
+                    paint_snap_marker(&painter, rect, &self.camera, kind, sp);
+                }
+                // The selection box while dragging.
+                if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {
+                    paint_box(&painter, s, cur);
+                }
+                // UCS marker (bottom-left of viewport).
+                {
+                    let origin = egui::pos2(rect.min.x + 28.0, rect.max.y - 28.0);
+                    let x_end = origin + egui::vec2(36.0, 0.0);
+                    let y_end = origin + egui::vec2(0.0, -36.0);
+                    painter.arrow(
+                        origin,
+                        egui::vec2(36.0, 0.0),
+                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(200, 40, 40)),
+                    );
+                    painter.arrow(
+                        origin,
+                        egui::vec2(0.0, -36.0),
+                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(40, 160, 40)),
+                    );
+                    painter.text(
+                        x_end + egui::vec2(4.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        "X",
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::from_rgb(200, 40, 40),
+                    );
+                    painter.text(
+                        y_end + egui::vec2(0.0, -4.0),
+                        egui::Align2::CENTER_BOTTOM,
+                        "Y",
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::from_rgb(40, 160, 40),
+                    );
+                    let _ = x_end;
+                }
+                // Shared building reference origin (all floors share this XY).
+                {
+                    let o = self.session.document().reference_origin();
+                    let sp = world_to_screen(&self.camera, rect, o);
+                    let mark = egui::Color32::from_rgb(180, 80, 20);
+                    let stroke = egui::Stroke::new(1.5_f32, mark);
+                    painter.line_segment(
+                        [sp + egui::vec2(-8.0, 0.0), sp + egui::vec2(8.0, 0.0)],
+                        stroke,
+                    );
+                    painter.line_segment(
+                        [sp + egui::vec2(0.0, -8.0), sp + egui::vec2(0.0, 8.0)],
+                        stroke,
+                    );
+                    painter.circle_stroke(sp, 5.0, stroke);
+                }
+                // AutoCAD-style cursor: 100×100 crosshair + pickbox; selection box
+                // while dragging a window/crossing. Hide the OS arrow over the canvas.
+                if resp.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                }
+                if let Some(sp) = resp.hover_pos() {
+                    if self.box_start.is_none() {
+                        paint_crosshair_and_pickbox(&painter, sp, self.drafting());
+                    }
+                    if self.dyn_mode {
+                        paint_dyn_box(&painter, sp, &self.dyn_lines());
+                    }
+                }
+                // Keep the crosshair / rubber-band live when the pointer moves,
+                // a box is dragged, or Space is held. Idle drafting tools do not
+                // spin the CPU at display rate — throttle rubber-band updates.
+                let pointer_moved = resp.hover_pos().is_some_and(|p| {
+                    self.last_pointer_screen
+                        .is_none_or(|prev| (prev - p).length() > 0.5)
+                });
+                if let Some(p) = resp.hover_pos() {
+                    self.last_pointer_screen = Some(p);
+                }
+                if pointer_moved || self.box_start.is_some() {
+                    ctx.request_repaint();
+                } else if self.drafting() && self.cursor.is_some() {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                }
             });
-            if let Some(p) = resp.hover_pos() {
-                self.last_pointer_screen = Some(p);
-            }
-            if pointer_moved || self.drafting() || self.box_start.is_some() {
-                ctx.request_repaint();
-            }
-        });
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -4514,8 +5855,12 @@ impl AadtApp {
         }
     }
 
-    /// Finalise a box selection from screen anchor `s` to release `e`: left→right
-    /// is a window (encloses), right→left a crossing (touches). Shift adds.
+    /// Finalise a box selection from screen anchor `s` to release `e`.
+    ///
+    /// AutoCAD convention (screen space):
+    /// - left → right (top-left → bottom-right): **window** — fully inside only
+    /// - right → left (bottom-right → top-left): **crossing** — touching or inside
+    /// Shift adds to the current set.
     fn finish_box(
         &mut self,
         s: egui::Pos2,
@@ -4529,6 +5874,7 @@ impl AadtApp {
         let (ws, we) = (to_world(&self.camera, s), to_world(&self.camera, e));
         let lo = Point2::new(ws.x.min(we.x), ws.y.min(we.y));
         let hi = Point2::new(ws.x.max(we.x), ws.y.max(we.y));
+        // Direction is screen X only (AutoCAD); Y can go either way.
         let crossing = e.x < s.x;
         let hits = box_select(self.session.document(), lo, hi, crossing);
         if ui.input(|i| i.modifiers.shift) {
@@ -4540,6 +5886,12 @@ impl AadtApp {
         } else {
             self.selection = hits;
         }
+        let n = self.selection.len();
+        self.note = if crossing {
+            format!("Crossing: {n} selected")
+        } else {
+            format!("Window: {n} selected")
+        };
     }
 }
 
@@ -4563,8 +5915,36 @@ fn handle_zoom(camera: &mut Camera, resp: &egui::Response, rect: egui::Rect, ui:
 
 // --- Hit testing -------------------------------------------------------------
 
-/// Shortest distance from `p` to the entity's drawn geometry (world units).
-fn entity_distance(g: &Geometry, p: Point2) -> f64 {
+/// True when an entity may be picked / box-selected (visible + unlocked layer).
+fn entity_pickable(doc: &Document, layer: &str) -> bool {
+    if !doc.layer_shown(layer) {
+        return false;
+    }
+    !doc.layer(layer).map(|l| l.locked).unwrap_or(false)
+}
+
+/// Shortest distance from `p` to drawn geometry (inserts expand to block content).
+fn entity_distance(doc: &Document, g: &Geometry, p: Point2) -> f64 {
+    match g {
+        Geometry::Insert(_) => {
+            let geoms = selection_geometries(doc, g);
+            let mut best = f64::INFINITY;
+            for sg in &geoms {
+                best = best.min(entity_distance_primitive(sg, p));
+            }
+            if best.is_finite() {
+                best
+            } else if let Geometry::Insert(i) = g {
+                p.distance(i.position)
+            } else {
+                f64::INFINITY
+            }
+        }
+        other => entity_distance_primitive(other, p),
+    }
+}
+
+fn entity_distance_primitive(g: &Geometry, p: Point2) -> f64 {
     match g {
         Geometry::Line(s) => s.distance_to_point(p),
         Geometry::Polyline(pl) => pl
@@ -4585,11 +5965,15 @@ fn entity_distance(g: &Geometry, p: Point2) -> f64 {
     }
 }
 
-/// The nearest entity within `tol` of `p`, if any.
+/// The nearest entity within `tol` of `p` in the **active model space**, if any.
 fn pick_entity(doc: &Document, p: Point2, tol: f64) -> Option<EntityId> {
+    let active = doc.active_space();
     let mut best: Option<(f64, EntityId)> = None;
-    for e in doc.entities() {
-        let d = entity_distance(&e.geometry, p);
+    for e in doc.iter_entities_in_space(active) {
+        if !entity_pickable(doc, &e.layer) {
+            continue;
+        }
+        let d = entity_distance(doc, &e.geometry, p);
         if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
             best = Some((d, e.id));
         }
@@ -4597,8 +5981,29 @@ fn pick_entity(doc: &Document, p: Point2, tol: f64) -> Option<EntityId> {
     best.map(|(_, id)| id)
 }
 
-/// A bounding box around a geometry's defining points.
-fn entity_bbox(g: &Geometry) -> Option<Bbox> {
+/// A bounding box around a geometry's defining points (inserts expand to block).
+fn entity_bbox(doc: &Document, g: &Geometry) -> Option<Bbox> {
+    match g {
+        Geometry::Insert(_) => {
+            let mut pts = Vec::new();
+            for sg in selection_geometries(doc, g) {
+                if let Some(b) = entity_bbox_primitive(&sg) {
+                    pts.push(b.min);
+                    pts.push(b.max);
+                }
+            }
+            if pts.is_empty() {
+                if let Geometry::Insert(i) = g {
+                    return Bbox::of_points([i.position]);
+                }
+            }
+            Bbox::of_points(pts)
+        }
+        other => entity_bbox_primitive(other),
+    }
+}
+
+fn entity_bbox_primitive(g: &Geometry) -> Option<Bbox> {
     let pts: Vec<Point2> = match g {
         Geometry::Line(s) => vec![s.a, s.b],
         Geometry::Polyline(p) => p.vertices.clone(),
@@ -4616,17 +6021,185 @@ fn entity_bbox(g: &Geometry) -> Option<Bbox> {
     Bbox::of_points(pts)
 }
 
-/// Entities selected by a window (fully enclosed) or crossing (touching) box.
-fn box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<EntityId> {
-    doc.entities()
+fn point_in_sel(p: Point2, lo: Point2, hi: Point2) -> bool {
+    p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y
+}
+
+/// Selection-rectangle edges (world), for crossing tests.
+fn sel_edges(lo: Point2, hi: Point2) -> [Segment; 4] {
+    [
+        Segment::new(Point2::new(lo.x, lo.y), Point2::new(hi.x, lo.y)),
+        Segment::new(Point2::new(hi.x, lo.y), Point2::new(hi.x, hi.y)),
+        Segment::new(Point2::new(hi.x, hi.y), Point2::new(lo.x, hi.y)),
+        Segment::new(Point2::new(lo.x, hi.y), Point2::new(lo.x, lo.y)),
+    ]
+}
+
+fn segment_crosses_sel(s: Segment, lo: Point2, hi: Point2) -> bool {
+    if point_in_sel(s.a, lo, hi) || point_in_sel(s.b, lo, hi) {
+        return true;
+    }
+    sel_edges(lo, hi)
         .iter()
+        .any(|e| s.segment_intersection(*e).is_some())
+}
+
+fn circle_crosses_sel(center: Point2, radius: f64, lo: Point2, hi: Point2) -> bool {
+    if radius <= 0.0 {
+        return point_in_sel(center, lo, hi);
+    }
+    // Circumference intersects the window if any sample lies inside, or the
+    // circle crosses a selection edge (AutoCAD: interior-only window does not
+    // pick a surrounding circle).
+    const N: usize = 32;
+    for i in 0..N {
+        let ang = (i as f64) * std::f64::consts::TAU / (N as f64);
+        let p = Point2::new(
+            center.x + radius * ang.cos(),
+            center.y + radius * ang.sin(),
+        );
+        if point_in_sel(p, lo, hi) {
+            return true;
+        }
+    }
+    let circ = aadt_geometry::Circle::new(center, radius);
+    for edge in sel_edges(lo, hi) {
+        for p in circ.line_intersections(edge) {
+            let t = edge.project_param(p);
+            if (-1e-9..=1.0 + 1e-9).contains(&t) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn arc_crosses_sel(a: &aadt_geometry::Arc, lo: Point2, hi: Point2) -> bool {
+    if point_in_sel(a.start_point(), lo, hi) || point_in_sel(a.end_point(), lo, hi) {
+        return true;
+    }
+    const N: usize = 24;
+    for i in 0..=N {
+        let t = i as f64 / N as f64;
+        let p = a.point_at(t);
+        if point_in_sel(p, lo, hi) {
+            return true;
+        }
+    }
+    let circ = aadt_geometry::Circle::new(a.center, a.radius);
+    for edge in sel_edges(lo, hi) {
+        for p in circ.line_intersections(edge) {
+            let t = edge.project_param(p);
+            if (-1e-9..=1.0 + 1e-9).contains(&t) && a.contains_angle(a.angle_of(p)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// True when the entire entity lies inside the selection window (AutoCAD window).
+fn geometry_fully_inside(doc: &Document, g: &Geometry, lo: Point2, hi: Point2) -> bool {
+    match g {
+        Geometry::Insert(_) => {
+            let geoms = selection_geometries(doc, g);
+            if geoms.is_empty() {
+                if let Geometry::Insert(i) = g {
+                    return point_in_sel(i.position, lo, hi);
+                }
+            }
+            geoms
+                .iter()
+                .all(|sg| geometry_fully_inside_primitive(sg, lo, hi))
+        }
+        other => geometry_fully_inside_primitive(other, lo, hi),
+    }
+}
+
+fn geometry_fully_inside_primitive(g: &Geometry, lo: Point2, hi: Point2) -> bool {
+    match g {
+        Geometry::Line(s) => point_in_sel(s.a, lo, hi) && point_in_sel(s.b, lo, hi),
+        Geometry::Polyline(p) => {
+            !p.vertices.is_empty() && p.vertices.iter().all(|v| point_in_sel(*v, lo, hi))
+        }
+        Geometry::Circle(c) => {
+            // Circumscribed AABB of the circle must sit inside the window.
+            point_in_sel(
+                Point2::new(c.center.x - c.radius, c.center.y - c.radius),
+                lo,
+                hi,
+            ) && point_in_sel(
+                Point2::new(c.center.x + c.radius, c.center.y + c.radius),
+                lo,
+                hi,
+            )
+        }
+        Geometry::Arc(a) => {
+            const N: usize = 24;
+            (0..=N).all(|i| {
+                let t = i as f64 / N as f64;
+                point_in_sel(a.point_at(t), lo, hi)
+            })
+        }
+        Geometry::Text(t) => point_in_sel(t.position, lo, hi),
+        Geometry::Insert(i) => point_in_sel(i.position, lo, hi),
+    }
+}
+
+/// True when the entity touches or lies inside the selection area (AutoCAD crossing).
+fn geometry_touches_sel(doc: &Document, g: &Geometry, lo: Point2, hi: Point2) -> bool {
+    // Fast reject via AABB.
+    let Some(bb) = entity_bbox(doc, g) else {
+        return false;
+    };
+    if bb.max.x < lo.x || bb.min.x > hi.x || bb.max.y < lo.y || bb.min.y > hi.y {
+        return false;
+    }
+    match g {
+        Geometry::Insert(_) => {
+            let geoms = selection_geometries(doc, g);
+            if geoms.is_empty() {
+                if let Geometry::Insert(i) = g {
+                    return point_in_sel(i.position, lo, hi);
+                }
+            }
+            geoms
+                .iter()
+                .any(|sg| geometry_touches_sel_primitive(sg, lo, hi))
+        }
+        other => geometry_touches_sel_primitive(other, lo, hi),
+    }
+}
+
+fn geometry_touches_sel_primitive(g: &Geometry, lo: Point2, hi: Point2) -> bool {
+    match g {
+        Geometry::Line(s) => segment_crosses_sel(*s, lo, hi),
+        Geometry::Polyline(p) => p
+            .segments()
+            .iter()
+            .any(|s| segment_crosses_sel(*s, lo, hi)),
+        Geometry::Circle(c) => circle_crosses_sel(c.center, c.radius, lo, hi),
+        Geometry::Arc(a) => arc_crosses_sel(a, lo, hi),
+        Geometry::Text(t) => point_in_sel(t.position, lo, hi),
+        Geometry::Insert(i) => point_in_sel(i.position, lo, hi),
+    }
+}
+
+/// Entities selected by a window (fully enclosed) or crossing (touching) box.
+/// Only entities in the active model space on visible unlocked layers are selectable.
+fn box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<EntityId> {
+    let active = doc.active_space();
+    doc.iter_entities_in_space(active)
         .filter_map(|e| {
-            let bb = entity_bbox(&e.geometry)?;
-            let enclosed =
-                bb.min.x >= lo.x && bb.min.y >= lo.y && bb.max.x <= hi.x && bb.max.y <= hi.y;
-            let touches =
-                !(bb.max.x < lo.x || bb.min.x > hi.x || bb.max.y < lo.y || bb.min.y > hi.y);
-            ((crossing && touches) || (!crossing && enclosed)).then_some(e.id)
+            if !entity_pickable(doc, &e.layer) {
+                return None;
+            }
+            let hit = if crossing {
+                geometry_touches_sel(doc, &e.geometry, lo, hi)
+            } else {
+                geometry_fully_inside(doc, &e.geometry, lo, hi)
+            };
+            hit.then_some(e.id)
         })
         .collect()
 }
@@ -4670,7 +6243,11 @@ fn circle_from_3_points(a: Point2, b: Point2, c: Point2) -> Option<(Point2, f64)
 }
 
 /// Local copy of grip-move math for rubber-band preview (mirrors GRIPEDIT command).
-fn geometry_with_grip_moved_local(g: &Geometry, grip_idx: usize, new_pt: Point2) -> Option<Geometry> {
+fn geometry_with_grip_moved_local(
+    g: &Geometry,
+    grip_idx: usize,
+    new_pt: Point2,
+) -> Option<Geometry> {
     match g {
         Geometry::Line(s) => match grip_idx {
             0 => Some(Geometry::Line(aadt_geometry::Segment::new(new_pt, s.b))),
@@ -4697,12 +6274,13 @@ fn geometry_with_grip_moved_local(g: &Geometry, grip_idx: usize, new_pt: Point2)
             )))
         }
         Geometry::Circle(c) => match grip_idx {
-            0 => Some(Geometry::Circle(aadt_geometry::Circle::new(new_pt, c.radius))),
+            0 => Some(Geometry::Circle(aadt_geometry::Circle::new(
+                new_pt, c.radius,
+            ))),
             1..=4 => {
                 let r = c.center.distance(new_pt);
-                (r > f64::EPSILON).then_some(Geometry::Circle(aadt_geometry::Circle::new(
-                    c.center, r,
-                )))
+                (r > f64::EPSILON)
+                    .then_some(Geometry::Circle(aadt_geometry::Circle::new(c.center, r)))
             }
             _ => None,
         },
@@ -4747,7 +6325,7 @@ fn geometry_with_grip_moved_local(g: &Geometry, grip_idx: usize, new_pt: Point2)
 
 const GRIP_PICK_PIXELS: f64 = 8.0;
 
-/// Paint a small END (square) or MID (triangle) marker at the snap point.
+/// Paint a small END (square), MID (triangle), or CEN (circle) marker at the snap point.
 fn paint_snap_marker(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -4775,6 +6353,17 @@ fn paint_snap_marker(
             painter.line_segment([pts[1], pts[2]], stroke);
             painter.line_segment([pts[2], pts[0]], stroke);
         }
+        SnapKind::Center => {
+            painter.circle_stroke(c, 5.0, stroke);
+            painter.line_segment(
+                [c + egui::vec2(-3.0, 0.0), c + egui::vec2(3.0, 0.0)],
+                stroke,
+            );
+            painter.line_segment(
+                [c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)],
+                stroke,
+            );
+        }
     }
 }
 
@@ -4787,6 +6376,8 @@ fn world_to_screen(camera: &Camera, rect: egui::Rect, p: Point2) -> egui::Pos2 {
 
 /// Paint the draw list into `rect` with egui's 2-D painter using layer ACI
 /// colours and print lineweights scaled for the white-paper preview.
+/// Underlay commands (trace / other categories) are dimmed.
+/// Off-screen commands are skipped (viewport cull).
 fn paint(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -4795,9 +6386,84 @@ fn paint(
     doc: &Document,
     show_lweights: bool,
 ) {
-    for cmd in &list.commands {
-        let (color, stroke) = layer_stroke(doc, cmd.layer(), camera, show_lweights);
+    let view = world_view_bbox(camera).expanded(32.0 / camera.scale.max(1e-9));
+    let mut stroke_cache: std::collections::HashMap<String, (egui::Color32, egui::Stroke)> =
+        std::collections::HashMap::new();
+    for (i, cmd) in list.commands.iter().enumerate() {
+        if !cmd_intersects_view(cmd, view) {
+            continue;
+        }
+        let underlay = list.underlay.get(i).copied().unwrap_or(false);
+        let layer = cmd.layer();
+        let (mut color, mut stroke) = if let Some(cached) = stroke_cache.get(layer) {
+            *cached
+        } else {
+            let s = layer_stroke(doc, layer, camera, show_lweights);
+            stroke_cache.insert(layer.to_owned(), s);
+            s
+        };
+        if underlay {
+            color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 90);
+            stroke = egui::Stroke::new(stroke.width.max(0.6), color);
+        }
         draw_command(painter, rect, camera, cmd, stroke, color);
+    }
+}
+
+/// World AABB of the current camera viewport.
+fn world_view_bbox(camera: &Camera) -> Bbox {
+    let (w, h) = camera.viewport;
+    let a = camera.screen_to_world(0.0, 0.0);
+    let b = camera.screen_to_world(w, h);
+    Bbox::from_corners(a, b)
+}
+
+trait BboxExpand {
+    fn expanded(self, pad: f64) -> Bbox;
+}
+
+impl BboxExpand for Bbox {
+    fn expanded(self, pad: f64) -> Bbox {
+        Bbox {
+            min: Point2::new(self.min.x - pad, self.min.y - pad),
+            max: Point2::new(self.max.x + pad, self.max.y + pad),
+        }
+    }
+}
+
+fn cmd_intersects_view(cmd: &DrawCommand, view: Bbox) -> bool {
+    match cmd {
+        DrawCommand::Polyline { points, .. } | DrawCommand::Fill { points, .. } => {
+            Bbox::of_points(points.iter().copied())
+                .map(|b| b.intersects(view))
+                .unwrap_or(false)
+        }
+        DrawCommand::Circle { center, radius, .. } | DrawCommand::Arc { center, radius, .. } => {
+            let r = *radius;
+            Bbox {
+                min: Point2::new(center.x - r, center.y - r),
+                max: Point2::new(center.x + r, center.y + r),
+            }
+            .intersects(view)
+        }
+        DrawCommand::Text {
+            position, height, ..
+        } => {
+            let pad = height.max(0.1) * 8.0;
+            Bbox {
+                min: Point2::new(position.x - pad, position.y - pad),
+                max: Point2::new(position.x + pad, position.y + pad),
+            }
+            .intersects(view)
+        }
+        DrawCommand::Marker { position, .. } => {
+            let pad = 1.0;
+            Bbox {
+                min: Point2::new(position.x - pad, position.y - pad),
+                max: Point2::new(position.x + pad, position.y + pad),
+            }
+            .intersects(view)
+        }
     }
 }
 
@@ -4837,14 +6503,7 @@ fn paint_selection(
                 egui::Stroke::new(glow_w, glow),
                 glow,
             );
-            draw_geometry(
-                painter,
-                rect,
-                camera,
-                &g,
-                egui::Stroke::new(core_w, hi),
-                hi,
-            );
+            draw_geometry(painter, rect, camera, &g, egui::Stroke::new(core_w, hi), hi);
         }
 
         for gp in grip_points(&e.geometry) {
@@ -4935,11 +6594,8 @@ fn draw_geometry(
             let px = ((t.height * camera.scale) as f32).clamp(10.0, 36.0);
             // Highlight plate behind text so labels stay readable when selected.
             if color.r() < 80 && color.b() > 180 {
-                let galley = painter.layout_no_wrap(
-                    t.value.clone(),
-                    egui::FontId::proportional(px),
-                    color,
-                );
+                let galley =
+                    painter.layout_no_wrap(t.value.clone(), theme::drawing_font(px), color);
                 let pad = 3.0;
                 let r = egui::Rect::from_min_size(
                     pos - egui::vec2(pad, galley.size().y + pad),
@@ -4955,7 +6611,7 @@ fn draw_geometry(
                 pos,
                 egui::Align2::LEFT_BOTTOM,
                 &t.value,
-                egui::FontId::proportional(px),
+                theme::drawing_font(px),
                 color,
             );
         }
@@ -5023,17 +6679,17 @@ fn draw_command(
             value,
             ..
         } => {
-            let px = ((*height * camera.scale) as f32).clamp(8.0, 48.0);
-            let galley = painter.layout_no_wrap(
-                value.clone(),
-                egui::FontId::proportional(px),
-                color,
-            );
-            let mut text_shape = egui::epaint::TextShape::new(
-                to_screen(*position),
-                galley,
-                color,
-            );
+            if value.trim().is_empty() {
+                return;
+            }
+            // Keep labels readable at any zoom; CAD heights vary wildly.
+            let px = ((*height * camera.scale) as f32).clamp(8.0, 72.0);
+            let galley =
+                painter.layout_no_wrap(value.clone(), theme::drawing_font(px), color);
+            if galley.size().x <= 0.5 || galley.size().y <= 0.5 {
+                return;
+            }
+            let mut text_shape = egui::epaint::TextShape::new(to_screen(*position), galley, color);
             text_shape.angle = (*rotation as f32).to_radians();
             painter.add(text_shape);
         }
@@ -5042,6 +6698,24 @@ fn draw_command(
             let d = 4.0;
             painter.line_segment([c + egui::vec2(-d, 0.0), c + egui::vec2(d, 0.0)], stroke);
             painter.line_segment([c + egui::vec2(0.0, -d), c + egui::vec2(0.0, d)], stroke);
+        }
+        DrawCommand::Fill { points, .. } => {
+            if points.len() >= 3 {
+                let shape: Vec<egui::Pos2> = points.iter().map(|p| to_screen(*p)).collect();
+                // Path fill supports concave hatch boundaries; convex_polygon does not.
+                let fill = egui::Color32::from_rgba_unmultiplied(
+                    color.r(),
+                    color.g(),
+                    color.b(),
+                    96,
+                );
+                painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                    points: shape,
+                    closed: true,
+                    fill,
+                    stroke: egui::Stroke::NONE.into(),
+                }));
+            }
         }
     }
 }
@@ -5103,9 +6777,7 @@ fn paint_preview(
                 painter.line_segment([to_screen(last), to_screen(cursor)], stroke);
             }
         }
-        Tool::Brush {
-            points: Some(pts),
-        } => {
+        Tool::Brush { points: Some(pts) } => {
             for pair in pts.windows(2) {
                 painter.line_segment([to_screen(pair[0]), to_screen(pair[1])], stroke);
             }
@@ -5135,6 +6807,15 @@ fn paint_preview(
             ..
         } => {
             paint_box(painter, to_screen(*a), to_screen(cursor));
+        }
+        Tool::Stretch {
+            base: Some(b),
+            ..
+        } => {
+            painter.line_segment([to_screen(*b), to_screen(cursor)], stroke);
+        }
+        Tool::Dist { first: Some(a) } => {
+            painter.line_segment([to_screen(*a), to_screen(cursor)], stroke);
         }
         Tool::Circle {
             mode: CircleMode::Center,
@@ -5179,7 +6860,11 @@ fn paint_preview(
                 painter.circle_stroke(to_screen(c), (r * camera.scale) as f32, stroke);
             }
         }
-        Tool::GripEdit { origin, id, grip_idx } => {
+        Tool::GripEdit {
+            origin,
+            id,
+            grip_idx,
+        } => {
             painter.line_segment([to_screen(*origin), to_screen(cursor)], stroke);
             if let Some(e) = doc.get(*id) {
                 if let Some(g) = geometry_with_grip_moved_local(&e.geometry, *grip_idx, cursor) {
@@ -5194,11 +6879,7 @@ fn paint_preview(
                 }
             }
         }
-        Tool::Rectangle { first: Some(a), .. }
-        | Tool::RoomLabel {
-            first: Some(a),
-            ..
-        } => {
+        Tool::Rectangle { first: Some(a), .. } | Tool::RoomLabel { first: Some(a), .. } => {
             let corners = [
                 *a,
                 Point2::new(cursor.x, a.y),
@@ -5297,6 +6978,7 @@ fn paint_preview(
             b: None,
         }
         | Tool::ZoomWindow { first: Some(b) }
+        | Tool::PlotWindow { first: Some(b) }
         | Tool::SectionLine { first: Some(b) }
         | Tool::RevCloud { first: Some(b) } => {
             painter.line_segment([to_screen(*b), to_screen(cursor)], stroke);
@@ -5571,7 +7253,7 @@ pub(super) fn layer_stroke(
 
 #[cfg(test)]
 mod dyn_coord_tests {
-    use super::{parse_comma_xy, parse_dyn_xy};
+    use super::{parse_comma_xy, parse_dyn_xy, parse_relative_xy};
     use aadt_geometry::Point2;
 
     #[test]
@@ -5583,11 +7265,138 @@ mod dyn_coord_tests {
 
     #[test]
     fn parse_comma_xy_accepts_pair() {
-        assert_eq!(
-            parse_comma_xy("3,4"),
-            Some(Point2::new(3.0, 4.0))
-        );
+        assert_eq!(parse_comma_xy("3,4"), Some(Point2::new(3.0, 4.0)));
         assert!(parse_comma_xy("3").is_none());
         assert!(parse_comma_xy("a,b").is_none());
+    }
+
+    #[test]
+    fn parse_relative_xy_offsets_anchor() {
+        let a = Point2::new(10.0, 20.0);
+        assert_eq!(
+            parse_relative_xy("@3,4", a),
+            Some(Point2::new(13.0, 24.0))
+        );
+        assert!(parse_relative_xy("3,4", a).is_none());
+    }
+}
+
+#[cfg(test)]
+mod box_select_tests {
+    use super::{box_select, geometry_fully_inside, geometry_touches_sel};
+    use aadt_geometry::{Point2, Segment};
+    use aadt_model::{Document, EntityId, Geometry, Layer};
+
+    struct Sample {
+        doc: Document,
+        inside: EntityId,
+        crossing: EntityId,
+        outside: EntityId,
+    }
+
+    fn sample() -> Sample {
+        let mut doc = Document::new();
+        let inside = doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(1.0, 1.0), Point2::new(2.0, 2.0))),
+        );
+        let crossing = doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(-5.0, 5.0), Point2::new(15.0, 5.0))),
+        );
+        let outside = doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(20.0, 20.0), Point2::new(21.0, 21.0))),
+        );
+        Sample {
+            doc,
+            inside,
+            crossing,
+            outside,
+        }
+    }
+
+    #[test]
+    fn window_selects_only_fully_inside() {
+        let s = sample();
+        let lo = Point2::new(0.0, 0.0);
+        let hi = Point2::new(10.0, 10.0);
+        let hits = box_select(&s.doc, lo, hi, false);
+        assert_eq!(hits, vec![s.inside]);
+    }
+
+    #[test]
+    fn crossing_selects_inside_and_touching() {
+        let s = sample();
+        let lo = Point2::new(0.0, 0.0);
+        let hi = Point2::new(10.0, 10.0);
+        let hits = box_select(&s.doc, lo, hi, true);
+        assert_eq!(hits.len(), 2);
+        assert!(hits.contains(&s.inside));
+        assert!(hits.contains(&s.crossing));
+        assert!(!hits.contains(&s.outside));
+    }
+
+    #[test]
+    fn crossing_rejects_aabb_overlap_without_geometry_hit() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(-5.0, 15.0), Point2::new(15.0, 12.0))),
+        );
+        let lo = Point2::new(0.0, 0.0);
+        let hi = Point2::new(10.0, 10.0);
+        let g = Geometry::Line(Segment::new(Point2::new(-5.0, 15.0), Point2::new(15.0, 12.0)));
+        assert!(!geometry_touches_sel(&doc, &g, lo, hi));
+        assert!(box_select(&doc, lo, hi, true).is_empty());
+        assert!(box_select(&doc, lo, hi, false).is_empty());
+    }
+
+    #[test]
+    fn partial_line_not_in_window() {
+        let doc = Document::new();
+        let g = Geometry::Line(Segment::new(Point2::new(-5.0, 5.0), Point2::new(15.0, 5.0)));
+        let lo = Point2::new(0.0, 0.0);
+        let hi = Point2::new(10.0, 10.0);
+        assert!(!geometry_fully_inside(&doc, &g, lo, hi));
+        assert!(geometry_touches_sel(&doc, &g, lo, hi));
+    }
+
+    #[test]
+    fn off_layer_not_pickable() {
+        let mut doc = Document::new();
+        doc.transact("setup", |d| {
+            d.add_layer(Layer::new("HIDDEN"));
+            d.add_geometry(
+                "HIDDEN",
+                Geometry::Line(Segment::new(Point2::new(1.0, 1.0), Point2::new(2.0, 2.0))),
+            );
+            d.set_layer_visible("HIDDEN", false);
+        });
+        let lo = Point2::new(0.0, 0.0);
+        let hi = Point2::new(10.0, 10.0);
+        assert!(box_select(&doc, lo, hi, true).is_empty());
+        assert!(super::pick_entity(&doc, Point2::new(1.5, 1.5), 1.0).is_none());
+    }
+
+    #[test]
+    fn locked_layer_not_pickable() {
+        let mut doc = Document::new();
+        doc.transact("setup", |d| {
+            d.add_layer(Layer::new("LOCK"));
+            d.add_geometry(
+                "LOCK",
+                Geometry::Line(Segment::new(Point2::new(1.0, 1.0), Point2::new(2.0, 2.0))),
+            );
+            d.set_layer_locked("LOCK", true);
+        });
+        assert!(super::pick_entity(&doc, Point2::new(1.5, 1.5), 1.0).is_none());
+        assert!(box_select(
+            &doc,
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 10.0),
+            true
+        )
+        .is_empty());
     }
 }

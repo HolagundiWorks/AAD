@@ -1,0 +1,7 @@
+Creative Commons Zero v1.0 Universal (CC0)
+
+Blocks in this folder are curated from:
+https://github.com/GSStnb/dxfBlocks
+
+Original LICENSE: CC0 1.0 Universal — public domain dedication.
+AiADT imports these with scale 0.0254 (inches → metres).

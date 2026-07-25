@@ -114,10 +114,18 @@ fn ensure_room_layers(ctx: &mut Context) {
     let rect = ctx.room.rect_layer.clone();
     ctx.doc.transact("ROOM LAYERS", |d| {
         if d.layer(&label).is_none() {
-            d.add_layer(Layer::new(&label).with_color(3).with_lineweight_mm(ROOM_LABEL_LINEWEIGHT_MM));
+            d.add_layer(
+                Layer::new(&label)
+                    .with_color(3)
+                    .with_lineweight_mm(ROOM_LABEL_LINEWEIGHT_MM),
+            );
         }
         if d.layer(&rect).is_none() {
-            d.add_layer(Layer::new(&rect).with_color(8).with_lineweight_mm(ROOM_RECT_LINEWEIGHT_MM));
+            d.add_layer(
+                Layer::new(&rect)
+                    .with_color(8)
+                    .with_lineweight_mm(ROOM_RECT_LINEWEIGHT_MM),
+            );
         }
     });
 }
@@ -179,7 +187,10 @@ pub fn place_room_label(
         if ctx.room.floor_prefix.trim().is_empty() {
             base
         } else {
-            format!("{} {base}", ctx.room.floor_prefix.trim().to_ascii_uppercase())
+            format!(
+                "{} {base}",
+                ctx.room.floor_prefix.trim().to_ascii_uppercase()
+            )
         }
     };
     let dim_text = format_dim_pair(width, height, &units);
@@ -307,10 +318,7 @@ pub fn register_room(r: &mut Registry) {
         ("IGY", "Gym"),
         ("MGY", "Gym"),
     ] {
-        r.register(Box::new(FixedRoomCmd {
-            name: cmd,
-            label,
-        }));
+        r.register(Box::new(FixedRoomCmd { name: cmd, label }));
     }
 }
 
@@ -421,7 +429,9 @@ impl Command for IdoCmd {
             return place_room_label(ctx, name, a, b);
         }
         let name = args.join(" ");
-        Ok(format!("IDO {name} — pick first corner (or IDO {name} x1 y1 x2 y2)"))
+        Ok(format!(
+            "IDO {name} — pick first corner (or IDO {name} x1 y1 x2 y2)"
+        ))
     }
 }
 
@@ -459,11 +469,7 @@ impl Command for IhideRectCmd {
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
         ensure_room_layers(ctx);
         let layer = ctx.room.rect_layer.clone();
-        let frozen = ctx
-            .doc
-            .layer(&layer)
-            .map(|l| l.frozen)
-            .unwrap_or(false);
+        let frozen = ctx.doc.layer(&layer).map(|l| l.frozen).unwrap_or(false);
         let next = !frozen;
         ctx.doc.transact("IHIDERECT", |d| {
             d.set_layer_frozen(&layer, next);
@@ -521,10 +527,7 @@ impl Command for IlayerCmd {
         "ILAYER name — set room label layer"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let name = args
-            .first()
-            .cloned()
-            .ok_or("ILAYER: missing layer name")?;
+        let name = args.first().cloned().ok_or("ILAYER: missing layer name")?;
         ctx.room.label_layer = name.clone();
         ensure_room_layers(ctx);
         Ok(format!("Layer set to: {name}"))
@@ -582,7 +585,9 @@ impl Command for IarCmd {
         "IAR id — label area of a closed polyline/circle at its center"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let raw = args.first().ok_or("IAR: missing entity id (or pick in GUI)")?;
+        let raw = args
+            .first()
+            .ok_or("IAR: missing entity id (or pick in GUI)")?;
         let id = parse_entity_id(raw, "IAR")?;
         let entity = ctx
             .doc
@@ -590,9 +595,7 @@ impl Command for IarCmd {
             .ok_or_else(|| format!("IAR: no entity {}", id.0))?;
         let (area_model, center) = match &entity.geometry {
             Geometry::Polyline(p) if p.closed => {
-                let c = p
-                    .centroid()
-                    .ok_or("IAR: could not compute centroid")?;
+                let c = p.centroid().ok_or("IAR: could not compute centroid")?;
                 (p.area(), c)
             }
             Geometry::Circle(c) => {
@@ -735,10 +738,7 @@ mod tests {
     fn ibr_alias_places_bedroom() {
         let i = Interpreter::with_builtins();
         let mut ctx = Context::new();
-        let msg = i
-            .eval_line(&mut ctx, "IBR 0 0 144 120")
-            .unwrap()
-            .unwrap();
+        let msg = i.eval_line(&mut ctx, "IBR 0 0 144 120").unwrap().unwrap();
         assert!(msg.contains("BEDROOM"));
     }
 

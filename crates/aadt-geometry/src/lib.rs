@@ -130,6 +130,15 @@ impl Vec2 {
     pub fn perp(self) -> Vec2 {
         Vec2::new(-self.y, self.x)
     }
+
+    /// Direction angle in degrees (CCW from +x), or `None` for a near-zero vector.
+    pub fn angle_deg(self) -> Option<f64> {
+        if self.length() <= LENGTH_EPS {
+            None
+        } else {
+            Some(self.y.atan2(self.x).to_degrees())
+        }
+    }
 }
 
 impl std::ops::Mul<f64> for Vec2 {
@@ -196,6 +205,17 @@ impl Segment {
             Some(d) => self.a + d * t,
             None => self.a,
         }
+    }
+
+    /// Point and tangent angle (degrees) at arc-length `s` from `a` (clamped).
+    pub fn point_and_tangent_at(self, s: f64) -> Option<(Point2, f64)> {
+        let len = self.length();
+        if len <= LENGTH_EPS {
+            return None;
+        }
+        let s = s.clamp(0.0, len);
+        let ang = self.direction()?.angle_deg()?;
+        Some((self.point_at(s), ang))
     }
 
     /// Shortest distance from `p` to the segment itself, clamped to the
@@ -324,6 +344,29 @@ impl Circle {
         2.0 * std::f64::consts::PI * self.radius
     }
 
+    /// Point and CCW tangent angle (degrees) at arc-length `s` from angle 0
+    /// (clamped to one full lap).
+    pub fn point_and_tangent_at(self, s: f64) -> Option<(Point2, f64)> {
+        if self.radius <= LENGTH_EPS {
+            return None;
+        }
+        let circ = self.circumference();
+        let s = s.clamp(0.0, circ);
+        let t = if circ <= LENGTH_EPS {
+            0.0
+        } else {
+            s / circ
+        };
+        let ang = t * 360.0;
+        let rad = ang.to_radians();
+        let pt = Point2::new(
+            self.center.x + self.radius * rad.cos(),
+            self.center.y + self.radius * rad.sin(),
+        );
+        // CCW tangent is radial angle + 90°.
+        Some((pt, ang + 90.0))
+    }
+
     /// Where the *infinite* line through `seg` meets this circle: 0 points (miss),
     /// 1 (tangent), or 2 (secant), ordered along the segment's direction. The
     /// arc-aware TRIM/EXTEND build on this.
@@ -400,6 +443,19 @@ impl Arc {
             self.center.x + self.radius * a.cos(),
             self.center.y + self.radius * a.sin(),
         )
+    }
+
+    /// Point and CCW tangent angle (degrees) at arc-length `s` from the start
+    /// (clamped to the arc length).
+    pub fn point_and_tangent_at(self, s: f64) -> Option<(Point2, f64)> {
+        let len = self.length();
+        if len <= LENGTH_EPS || self.radius <= LENGTH_EPS {
+            return None;
+        }
+        let s = s.clamp(0.0, len);
+        let t = s / len;
+        let radial = self.start_angle + self.sweep() * t;
+        Some((self.point_at(t), radial + 90.0))
     }
 
     pub fn start_point(self) -> Point2 {
@@ -487,6 +543,14 @@ impl Bbox {
         p.x >= self.min.x && p.x <= self.max.x && p.y >= self.min.y && p.y <= self.max.y
     }
 
+    /// True when this box overlaps `other` (inclusive edges).
+    pub fn intersects(self, other: Bbox) -> bool {
+        self.min.x <= other.max.x
+            && self.max.x >= other.min.x
+            && self.min.y <= other.max.y
+            && self.max.y >= other.min.y
+    }
+
     /// Build from opposite corners (order-independent).
     pub fn from_corners(a: Point2, b: Point2) -> Self {
         Self {
@@ -494,6 +558,58 @@ impl Bbox {
             max: Point2::new(a.x.max(b.x), a.y.max(b.y)),
         }
     }
+}
+
+/// Sample points along a DXF bulge arc from `a` to `b` (inclusive).
+///
+/// Bulge = tan(included_angle / 4); positive = CCW. Used to densify filleted
+/// LWPOLYLINE / POLYLINE vertices into drawable chords.
+pub fn sample_bulge_arc(a: Point2, b: Point2, bulge: f64, segments: usize) -> Vec<Point2> {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let d = (dx * dx + dy * dy).sqrt();
+    if d <= LENGTH_EPS || bulge.abs() <= LENGTH_EPS {
+        return vec![a, b];
+    }
+    let b_sq = bulge * bulge;
+    let radius = d * (1.0 + b_sq) / (4.0 * bulge.abs());
+    let perp_offset = d * (1.0 - b_sq) / (4.0 * bulge);
+    let mx = (a.x + b.x) * 0.5;
+    let my = (a.y + b.y) * 0.5;
+    let px = -dy / d;
+    let py = dx / d;
+    let cx = mx + px * perp_offset;
+    let cy = my + py * perp_offset;
+    let ang_a = (a.y - cy).atan2(a.x - cx);
+    let ang_b = (b.y - cy).atan2(b.x - cx);
+    let tau = std::f64::consts::TAU;
+    let delta = if bulge > 0.0 {
+        let mut dlt = ang_b - ang_a;
+        while dlt <= 0.0 {
+            dlt += tau;
+        }
+        while dlt > tau {
+            dlt -= tau;
+        }
+        dlt
+    } else {
+        let mut dlt = ang_b - ang_a;
+        while dlt >= 0.0 {
+            dlt -= tau;
+        }
+        while dlt < -tau {
+            dlt += tau;
+        }
+        dlt
+    };
+    let steps = segments.max(2);
+    let mut out = Vec::with_capacity(steps + 1);
+    for i in 0..=steps {
+        let t = i as f64 / steps as f64;
+        let ang = ang_a + delta * t;
+        out.push(Point2::new(cx + radius * ang.cos(), cy + radius * ang.sin()));
+    }
+    out
 }
 
 /// An open or closed polyline (sequence of vertices).
@@ -527,6 +643,71 @@ impl Polyline {
     /// Total length along the polyline (includes the closing segment when closed).
     pub fn length(&self) -> f64 {
         self.segments().iter().map(|s| s.length()).sum()
+    }
+
+    /// Densify a DXF-style bulged polyline into sampled points.
+    ///
+    /// `bulges[i]` is the bulge from vertex `i` to the next (last→first when closed).
+    /// Zero bulge → chord; non-zero → circular arc samples (fillets, rounded walls).
+    pub fn densify_bulges(vertices: &[Point2], bulges: &[f64], closed: bool) -> Self {
+        if vertices.len() < 2 {
+            return Self::new(vertices.to_vec(), closed);
+        }
+        let n = vertices.len();
+        let seg_count = if closed { n } else { n - 1 };
+        let mut out = Vec::new();
+        for i in 0..seg_count {
+            let a = vertices[i];
+            let b = vertices[(i + 1) % n];
+            let bulge = bulges.get(i).copied().unwrap_or(0.0);
+            if i == 0 {
+                out.push(a);
+            }
+            if bulge.abs() <= LENGTH_EPS {
+                if !b.coincident(*out.last().unwrap_or(&a)) {
+                    out.push(b);
+                }
+                continue;
+            }
+            let samples = sample_bulge_arc(a, b, bulge, 16);
+            // skip first (already present) 
+            for p in samples.into_iter().skip(1) {
+                if out.last().map(|q| !q.coincident(p)).unwrap_or(true) {
+                    out.push(p);
+                }
+            }
+        }
+        if out.len() < 2 {
+            return Self::new(vertices.to_vec(), closed);
+        }
+        // Closed densified rings should not duplicate the closing point.
+        if closed && out.len() > 2 && out.first().unwrap().coincident(*out.last().unwrap()) {
+            out.pop();
+        }
+        Self::new(out, closed)
+    }
+
+    /// Point and tangent angle (degrees) at arc-length `s` from the start
+    /// (clamped to the polyline length).
+    pub fn point_and_tangent_at(&self, s: f64) -> Option<(Point2, f64)> {
+        let segs = self.segments();
+        if segs.is_empty() {
+            return None;
+        }
+        let total = self.length();
+        if total <= LENGTH_EPS {
+            return None;
+        }
+        let mut remaining = s.clamp(0.0, total);
+        let last = segs.len() - 1;
+        for (i, seg) in segs.into_iter().enumerate() {
+            let len = seg.length();
+            if remaining <= len + LENGTH_EPS || i == last {
+                return seg.point_and_tangent_at(remaining.min(len));
+            }
+            remaining -= len;
+        }
+        None
     }
 
     /// Signed area via the shoelace formula. Positive for counter-clockwise
@@ -824,6 +1005,33 @@ mod tests {
     }
 
     #[test]
+    fn polyline_point_and_tangent_at_midspan() {
+        let p = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 10.0),
+            ],
+            false,
+        );
+        let (pt, ang) = p.point_and_tangent_at(5.0).unwrap();
+        assert!((pt.x - 5.0).abs() < 1e-9 && pt.y.abs() < 1e-9);
+        assert!(ang.abs() < 1e-6);
+        let (pt2, ang2) = p.point_and_tangent_at(15.0).unwrap();
+        assert!((pt2.x - 10.0).abs() < 1e-9 && (pt2.y - 5.0).abs() < 1e-9);
+        assert!((ang2 - 90.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn circle_point_and_tangent_at_quarter() {
+        let c = Circle::new(Point2::new(0.0, 0.0), 10.0);
+        let quarter = c.circumference() * 0.25;
+        let (pt, ang) = c.point_and_tangent_at(quarter).unwrap();
+        assert!(pt.x.abs() < 1e-6 && (pt.y - 10.0).abs() < 1e-6);
+        assert!((ang - 180.0).abs() < 1e-6);
+    }
+
+    #[test]
     fn contains_point_inside_outside_and_concave() {
         let rect = Polyline::new(
             vec![
@@ -867,5 +1075,18 @@ mod tests {
             false,
         );
         assert!(!open.contains_point(Point2::new(3.0, 1.0)));
+    }
+
+    #[test]
+    fn densify_bulge_semicircle_adds_mid_points() {
+        // Bulge 1.0 = 180° arc from (0,0) to (2,0), bowing +Y.
+        let pl = Polyline::densify_bulges(
+            &[Point2::new(0.0, 0.0), Point2::new(2.0, 0.0)],
+            &[1.0],
+            false,
+        );
+        assert!(pl.vertices.len() > 2);
+        let mid_y = pl.vertices.iter().map(|p| p.y).fold(0.0_f64, f64::max);
+        assert!(mid_y > 0.5, "semicircle should rise above chord, got {mid_y}");
     }
 }

@@ -5,7 +5,7 @@
 //! (time machine), and **takeoff runs**. Session undo is still RAM-only.
 //!
 //! Geometry is stored as a compact text payload (no serde). Schema version is in
-//! the `meta` table; v4→v5 migrates in place on open.
+//! the `meta` table; older files migrate in place on open (currently through v6).
 
 mod codec;
 mod history;
@@ -17,11 +17,14 @@ use std::path::Path;
 use aadt_geometry::Point2;
 use aadt_model::{
     Block, BlockParam, BlockParamKind, Dimension, DimensionKind, Document, Entity, EntityId,
-    Geometry, Hatch, Layer, LineType, VisibilityState,
+    Floor, Hatch, Layer, LevelId, LineType, ModelSpace, ModelSpaceId, SpaceCategory,
+    VisibilityState,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::codec::{decode_geometry, encode_geometry};
+use crate::codec::{
+    decode_geometry, decode_hatch_boundaries, encode_geometry, encode_hatch_boundaries,
+};
 
 pub use history::{
     list_checkpoints, purge_auto_checkpoints, restore_checkpoint, save_named_checkpoint,
@@ -34,7 +37,7 @@ pub use takeoff_db::{
 };
 
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
@@ -78,7 +81,7 @@ pub fn save_path_with_checkpoint(
             .optional()?;
         if let Some(v) = ver {
             if v < SCHEMA_VERSION {
-                migrate_to_v5(&old, v)?;
+                migrate_schema(&old, v)?;
             }
             if v <= SCHEMA_VERSION {
                 prior = Some(old);
@@ -160,7 +163,7 @@ pub fn load_path(path: impl AsRef<Path>) -> Result<Document, StoreError> {
         std::fs::copy(path, &scratch)?;
         {
             let mig = Connection::open(&scratch)?;
-            migrate_to_v5(&mig, ver)?;
+            migrate_schema(&mig, ver)?;
         }
         let bak = path.with_extension("aadt.bak");
         if bak.exists() {
@@ -228,7 +231,8 @@ pub(crate) fn init_schema_tables(conn: &Connection) -> Result<(), StoreError> {
         CREATE TABLE entities (
             id INTEGER PRIMARY KEY NOT NULL,
             layer TEXT NOT NULL,
-            geom TEXT NOT NULL
+            geom TEXT NOT NULL,
+            space_id INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE entity_attrs (
             entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
@@ -241,7 +245,8 @@ pub(crate) fn init_schema_tables(conn: &Connection) -> Result<(), StoreError> {
             layer TEXT NOT NULL,
             pattern TEXT NOT NULL,
             solid INTEGER NOT NULL,
-            geom TEXT NOT NULL
+            geom TEXT NOT NULL,
+            space_id INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE dimensions (
             seq INTEGER PRIMARY KEY NOT NULL,
@@ -252,7 +257,20 @@ pub(crate) fn init_schema_tables(conn: &Connection) -> Result<(), StoreError> {
             vx REAL NOT NULL, vy REAL NOT NULL,
             tx REAL NOT NULL, ty REAL NOT NULL,
             text TEXT NOT NULL,
-            measurement REAL NOT NULL
+            measurement REAL NOT NULL,
+            space_id INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE floors (
+            id INTEGER PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            idx INTEGER NOT NULL,
+            elevation_m REAL NOT NULL
+        );
+        CREATE TABLE model_spaces (
+            id INTEGER PRIMARY KEY NOT NULL,
+            floor_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            name TEXT NOT NULL
         );
         ",
     )?;
@@ -337,13 +355,18 @@ pub(crate) fn ensure_extended_tables(conn: &Connection) -> Result<(), StoreError
     Ok(())
 }
 
-pub(crate) fn migrate_to_v5(conn: &Connection, from: i64) -> Result<(), StoreError> {
+pub(crate) fn migrate_schema(conn: &Connection, from: i64) -> Result<(), StoreError> {
     if from > SCHEMA_VERSION {
         return Err(StoreError::Format(format!(
             "cannot migrate from future schema {from}"
         )));
     }
-    ensure_extended_tables(conn)?;
+    if from < 5 {
+        migrate_to_v5(conn, from)?;
+    }
+    if from < 6 {
+        migrate_to_v6(conn)?;
+    }
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -352,6 +375,83 @@ pub(crate) fn migrate_to_v5(conn: &Connection, from: i64) -> Result<(), StoreErr
     Ok(())
 }
 
+pub(crate) fn migrate_to_v5(conn: &Connection, from: i64) -> Result<(), StoreError> {
+    if from > 5 {
+        return Err(StoreError::Format(format!(
+            "cannot migrate to v5 from future schema {from}"
+        )));
+    }
+    ensure_extended_tables(conn)?;
+    Ok(())
+}
+
+pub(crate) fn migrate_to_v6(conn: &Connection) -> Result<(), StoreError> {
+    // Additive columns / tables for floors + model spaces.
+    let _ = conn.execute_batch(
+        "
+        ALTER TABLE entities ADD COLUMN space_id INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE hatches ADD COLUMN space_id INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE dimensions ADD COLUMN space_id INTEGER NOT NULL DEFAULT 0;
+        ",
+    );
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS floors (
+            id INTEGER PRIMARY KEY NOT NULL,
+            name TEXT NOT NULL,
+            idx INTEGER NOT NULL,
+            elevation_m REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS model_spaces (
+            id INTEGER PRIMARY KEY NOT NULL,
+            floor_id INTEGER NOT NULL,
+            category TEXT NOT NULL,
+            name TEXT NOT NULL
+        );
+        ",
+    )?;
+    // Seed Ground + five spaces if empty; stamp entities to Walls.
+    let floor_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM floors", [], |r| r.get(0))?;
+    if floor_count == 0 {
+        conn.execute(
+            "INSERT INTO floors (id, name, idx, elevation_m) VALUES (1, 'Ground', 0, 0.0)",
+            [],
+        )?;
+        let cats = [
+            ("Walls", "Ground · Walls"),
+            ("Structural", "Ground · Structural"),
+            ("Lintel", "Ground · Lintel"),
+            ("BeamLayout", "Ground · BeamLayout"),
+            ("Furniture", "Ground · Furniture"),
+        ];
+        for (i, (cat, name)) in cats.iter().enumerate() {
+            conn.execute(
+                "INSERT INTO model_spaces (id, floor_id, category, name) VALUES (?1, 1, ?2, ?3)",
+                params![(i + 1) as i64, *cat, *name],
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('floors.active_space', '1')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('floors.next_floor_id', '2')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )?;
+        conn.execute(
+            "INSERT INTO meta (key, value) VALUES ('floors.next_space_id', '6')
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )?;
+        let _ = conn.execute("UPDATE entities SET space_id = 1 WHERE space_id = 0", []);
+        let _ = conn.execute("UPDATE hatches SET space_id = 1 WHERE space_id = 0", []);
+        let _ = conn.execute("UPDATE dimensions SET space_id = 1 WHERE space_id = 0", []);
+    }
+    Ok(())
+}
 
 pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
     let tx = conn.unchecked_transaction()?;
@@ -395,12 +495,7 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
                 ])?;
             }
             for p in &block.params {
-                pstmt.execute(params![
-                    block.name,
-                    p.name,
-                    p.default,
-                    p.kind.as_str()
-                ])?;
+                pstmt.execute(params![block.name, p.name, p.default, p.kind.as_str()])?;
             }
             for v in &block.visibilities {
                 let hidden = v
@@ -415,14 +510,16 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
     }
 
     {
-        let mut estmt = tx.prepare("INSERT INTO entities (id, layer, geom) VALUES (?1, ?2, ?3)")?;
+        let mut estmt =
+            tx.prepare("INSERT INTO entities (id, layer, geom, space_id) VALUES (?1, ?2, ?3, ?4)")?;
         let mut astmt =
             tx.prepare("INSERT INTO entity_attrs (entity_id, key, value) VALUES (?1, ?2, ?3)")?;
         for e in doc.entities() {
             estmt.execute(params![
                 e.id.0 as i64,
                 e.layer,
-                encode_geometry(&e.geometry)?
+                encode_geometry(&e.geometry)?,
+                e.space.0 as i64,
             ])?;
             let mut keys: Vec<_> = e.attributes.keys().collect();
             keys.sort();
@@ -436,24 +533,24 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
 
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO hatches (seq, layer, pattern, solid, geom) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO hatches (seq, layer, pattern, solid, geom, space_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
         for (i, h) in doc.hatches().iter().enumerate() {
-            let geom = Geometry::Polyline(h.boundary.clone());
             stmt.execute(params![
                 i as i64,
                 h.layer,
                 h.pattern,
                 i64::from(h.solid),
-                encode_geometry(&geom)?
+                encode_hatch_boundaries(&h.boundaries)?,
+                h.space.0 as i64,
             ])?;
         }
     }
 
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO dimensions (seq, layer, kind, p1x, p1y, p2x, p2y, vx, vy, tx, ty, text, measurement)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            "INSERT INTO dimensions (seq, layer, kind, p1x, p1y, p2x, p2y, vx, vy, tx, ty, text, measurement, space_id)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         )?;
         for (i, d) in doc.dimensions().iter().enumerate() {
             stmt.execute(params![
@@ -470,12 +567,65 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
                 d.text_anchor.y,
                 d.text,
                 d.measurement,
+                d.space.0 as i64,
             ])?;
         }
     }
 
+    {
+        let mut fstmt = tx.prepare(
+            "INSERT INTO floors (id, name, idx, elevation_m) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for f in doc.floors() {
+            fstmt.execute(params![
+                f.id.0 as i64,
+                f.name,
+                f.index as i64,
+                f.elevation_m
+            ])?;
+        }
+        let mut sstmt = tx.prepare(
+            "INSERT INTO model_spaces (id, floor_id, category, name) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for s in doc.model_spaces() {
+            sstmt.execute(params![
+                s.id.0 as i64,
+                s.floor.0 as i64,
+                s.category.as_str(),
+                s.name
+            ])?;
+        }
+        let o = doc.reference_origin();
+        let meta = [
+            ("floors.origin_x", o.x.to_string()),
+            ("floors.origin_y", o.y.to_string()),
+            ("floors.active_space", doc.active_space().0.to_string()),
+            (
+                "floors.trace_below",
+                if doc.trace_below() { "1" } else { "0" }.into(),
+            ),
+            (
+                "floors.trace_above",
+                if doc.trace_above() { "1" } else { "0" }.into(),
+            ),
+            ("floors.next_floor_id", doc.next_floor_id().to_string()),
+            ("floors.next_space_id", doc.next_space_id().to_string()),
+        ];
+        tx.execute("DELETE FROM meta WHERE key LIKE 'layermap.%'", [])?;
+        let mut mstmt = tx.prepare(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )?;
+        for (k, v) in meta {
+            mstmt.execute(params![k, v])?;
+        }
+        for (layer, cat) in doc.layer_space_map() {
+            mstmt.execute(params![format!("layermap.{layer}"), cat.as_str()])?;
+        }
+    }
+
     // Keep properties in the same SQLite transaction as geometry (atomic save).
-    write_properties(&*tx, doc.properties())?;
+    write_properties(&tx, doc.properties())?;
 
     tx.commit()?;
 
@@ -530,6 +680,8 @@ fn write_properties(
         ("prop.nameplate_preset", p.nameplate_preset.as_str()),
         ("prop.nameplate_block", p.nameplate_block.as_str()),
         ("prop.takeoff_live", p.takeoff_live.as_str()),
+        ("prop.floor_height", p.floor_height.as_str()),
+        ("prop.lintel_height", p.lintel_height.as_str()),
     ];
     let mut stmt = conn.prepare(
         "INSERT INTO meta (key, value) VALUES (?1, ?2)
@@ -592,6 +744,8 @@ fn read_properties(conn: &Connection) -> Result<aadt_model::DrawingProperties, S
             "prop.plot_include_notes" => p.plot_include_notes = v,
             "prop.nameplate_preset" => p.nameplate_preset = v,
             "prop.nameplate_block" => p.nameplate_block = v,
+            "prop.floor_height" => p.floor_height = v,
+            "prop.lintel_height" => p.lintel_height = v,
             "prop.takeoff_live" => p.takeoff_live = v,
             _ => {}
         }
@@ -711,16 +865,18 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
     }
 
     {
-        let mut stmt = conn.prepare("SELECT id, layer, geom FROM entities ORDER BY id")?;
+        let mut stmt =
+            conn.prepare("SELECT id, layer, geom, space_id FROM entities ORDER BY id")?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, i64>(0)? as u64,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)? as u64,
             ))
         })?;
         for row in rows {
-            let (id, layer, geom) = row?;
+            let (id, layer, geom, space) = row?;
             let mut attrs = HashMap::new();
             let mut astmt =
                 conn.prepare("SELECT key, value FROM entity_attrs WHERE entity_id = ?1")?;
@@ -734,6 +890,7 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
             doc.restore_entity(Entity {
                 id: EntityId(id),
                 layer,
+                space: ModelSpaceId(space),
                 geometry: decode_geometry(&geom)?,
                 attributes: attrs,
             });
@@ -741,24 +898,27 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
     }
 
     {
-        let mut stmt =
-            conn.prepare("SELECT layer, pattern, solid, geom FROM hatches ORDER BY seq")?;
+        let mut stmt = conn
+            .prepare("SELECT layer, pattern, solid, geom, space_id FROM hatches ORDER BY seq")?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, i64>(2)? != 0,
                 r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)? as u64,
             ))
         })?;
         for row in rows {
-            let (layer, pattern, solid, geom) = row?;
-            let Geometry::Polyline(boundary) = decode_geometry(&geom)? else {
-                return Err(StoreError::Format("hatch geom must be a polyline".into()));
-            };
+            let (layer, pattern, solid, geom, space) = row?;
+            let boundaries = decode_hatch_boundaries(&geom)?;
+            if boundaries.is_empty() {
+                return Err(StoreError::Format("hatch has no boundary paths".into()));
+            }
             doc.add_hatch(Hatch {
                 layer,
-                boundary,
+                space: ModelSpaceId(space),
+                boundaries,
                 pattern,
                 solid,
             });
@@ -767,7 +927,7 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
 
     {
         let mut stmt = conn.prepare(
-            "SELECT layer, kind, p1x, p1y, p2x, p2y, vx, vy, tx, ty, text, measurement
+            "SELECT layer, kind, p1x, p1y, p2x, p2y, vx, vy, tx, ty, text, measurement, space_id
              FROM dimensions ORDER BY seq",
         )?;
         let rows = stmt.query_map([], |r| {
@@ -780,11 +940,13 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
                 Point2::new(r.get(8)?, r.get(9)?),
                 r.get::<_, String>(10)?,
                 r.get::<_, f64>(11)?,
+                r.get::<_, i64>(12)? as u64,
             ))
         })?;
         for row in rows {
-            let (layer, kind, p1, p2, vertex, text_anchor, text, measurement) = row?;
+            let (layer, kind, p1, p2, vertex, text_anchor, text, measurement, space) = row?;
             doc.add_dimension(Dimension {
+                space: ModelSpaceId(space),
                 layer,
                 kind: parse_dim_kind(&kind)?,
                 p1,
@@ -794,6 +956,108 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
                 text,
                 measurement,
             });
+        }
+    }
+
+    // Floors / model spaces (schema v6); fall back to defaults + layer heuristic.
+    if let Ok(mut fstmt) =
+        conn.prepare("SELECT id, name, idx, elevation_m FROM floors ORDER BY idx, id")
+    {
+        let mut floors = Vec::new();
+        if let Ok(rows) = fstmt.query_map([], |r| {
+            Ok(Floor {
+                id: LevelId(r.get::<_, i64>(0)? as u64),
+                name: r.get(1)?,
+                index: r.get::<_, i64>(2)? as u32,
+                elevation_m: r.get(3)?,
+            })
+        }) {
+            for row in rows.flatten() {
+                floors.push(row);
+            }
+        }
+        let mut spaces = Vec::new();
+        if let Ok(mut sstmt) =
+            conn.prepare("SELECT id, floor_id, category, name FROM model_spaces ORDER BY id")
+        {
+            if let Ok(rows) = sstmt.query_map([], |r| {
+                let cat_s: String = r.get(2)?;
+                Ok(ModelSpace {
+                    id: ModelSpaceId(r.get::<_, i64>(0)? as u64),
+                    floor: LevelId(r.get::<_, i64>(1)? as u64),
+                    category: SpaceCategory::parse(&cat_s).unwrap_or(SpaceCategory::Walls),
+                    name: r.get(3)?,
+                })
+            }) {
+                for row in rows.flatten() {
+                    spaces.push(row);
+                }
+            }
+        }
+        if !floors.is_empty() && !spaces.is_empty() {
+            let meta = |key: &str| -> Option<String> {
+                conn.query_row(
+                    "SELECT value FROM meta WHERE key = ?1",
+                    params![key],
+                    |r| r.get(0),
+                )
+                .ok()
+            };
+            let ox: f64 = meta("floors.origin_x")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+            let oy: f64 = meta("floors.origin_y")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+            let active = meta("floors.active_space")
+                .and_then(|s| s.parse().ok())
+                .map(ModelSpaceId)
+                .unwrap_or(spaces[0].id);
+            let trace_below = meta("floors.trace_below").as_deref() == Some("1");
+            let trace_above = meta("floors.trace_above").as_deref() == Some("1");
+            let next_floor = meta("floors.next_floor_id")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| floors.iter().map(|f| f.id.0).max().unwrap_or(0) + 1);
+            let next_space = meta("floors.next_space_id")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| spaces.iter().map(|s| s.id.0).max().unwrap_or(0) + 1);
+            doc.restore_floors(
+                floors,
+                spaces,
+                active,
+                Point2::new(ox, oy),
+                trace_below,
+                trace_above,
+                next_floor,
+                next_space,
+            );
+        } else {
+            doc.assign_imported_by_layer();
+        }
+    } else {
+        doc.assign_imported_by_layer();
+    }
+
+    // Layer → space category map (optional; additive).
+    {
+        let mut map = std::collections::BTreeMap::new();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT key, value FROM meta WHERE key LIKE 'layermap.%'")
+        {
+            if let Ok(rows) = stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            }) {
+                for row in rows.flatten() {
+                    let (key, val) = row;
+                    let layer = key.strip_prefix("layermap.").unwrap_or(&key);
+                    if let Some(cat) = SpaceCategory::parse(&val) {
+                        map.insert(layer.to_string(), cat);
+                    }
+                }
+            }
+        }
+        if !map.is_empty() {
+            doc.restore_layer_space_map(map);
         }
     }
 
@@ -846,12 +1110,14 @@ mod tests {
                 .with_lineweight_mm(0.35),
         );
         doc.restore_entity(Entity {
+            space: Default::default(),
             id: EntityId(3),
             layer: "A-WALL".into(),
             geometry: Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
             attributes: HashMap::from([("height".into(), "2.7".into())]),
         });
         doc.restore_entity(Entity {
+            space: Default::default(),
             id: EntityId(5),
             layer: "A-WALL".into(),
             geometry: Geometry::Circle(Circle::new(Point2::new(1.0, 2.0), 0.5)),
@@ -924,6 +1190,32 @@ mod tests {
     }
 
     #[test]
+    fn save_does_not_mutate_source_before_replace() {
+        // Schema migrate runs on a scratch copy; original bytes stay until rename.
+        let dir = std::env::temp_dir().join("aadt-store-migrate-safe");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("v5.aadt");
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        save_path(&doc, &path).unwrap();
+        let before = std::fs::metadata(&path).unwrap().len();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 1.0), Point2::new(1.0, 1.0))),
+        );
+        save_path(&doc, &path).unwrap();
+        let after = std::fs::metadata(&path).unwrap().len();
+        assert!(after > 0 && before > 0);
+        let loaded = load_path(&path).unwrap();
+        assert_eq!(loaded.len(), 2);
+        let list = list_checkpoints(&path).unwrap();
+        assert!(!list.is_empty(), "auto checkpoint on save");
+    }
+
+    #[test]
     fn round_trip_blocks_hatches_dims() {
         let mut doc = Document::new();
         let mut block = Block::new("DOOR", Point2::new(0.0, 0.0));
@@ -933,12 +1225,14 @@ mod tests {
         );
         doc.add_block(block);
         doc.restore_entity(Entity {
+            space: Default::default(),
             id: EntityId(1),
             layer: "0".into(),
             geometry: Geometry::Insert(Insert::new("DOOR", Point2::new(5.0, 5.0), 90.0)),
             attributes: HashMap::new(),
         });
         doc.restore_entity(Entity {
+            space: Default::default(),
             id: EntityId(2),
             layer: "0".into(),
             geometry: Geometry::Text(Text::new("Room", Point2::new(0.0, 0.0), 0.25, 0.0)),
@@ -957,6 +1251,7 @@ mod tests {
             "SOLID",
         ));
         doc.add_dimension(Dimension {
+            space: Default::default(),
             layer: "0".into(),
             kind: DimensionKind::Aligned,
             p1: Point2::new(0.0, 0.0),

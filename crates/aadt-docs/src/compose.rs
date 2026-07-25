@@ -21,14 +21,27 @@ pub struct DrawingArea {
 }
 
 impl DrawingArea {
-    fn width(&self) -> f64 {
+    pub fn width(&self) -> f64 {
         self.max.x - self.min.x
     }
-    fn height(&self) -> f64 {
+    pub fn height(&self) -> f64 {
         self.max.y - self.min.y
     }
-    fn center(&self) -> Point2 {
+    pub fn center(&self) -> Point2 {
         self.min.midpoint(self.max)
+    }
+
+    /// Shrink the area by `fraction` of its width/height on **each** side
+    /// (e.g. `0.05` → 5% margin inside the border on all sides). Clamped to
+    /// `[0, 0.49]` so the rectangle cannot invert.
+    pub fn inset_fraction(self, fraction: f64) -> Self {
+        let f = fraction.clamp(0.0, 0.49);
+        let dx = self.width() * f;
+        let dy = self.height() * f;
+        DrawingArea {
+            min: Point2::new(self.min.x + dx, self.min.y + dy),
+            max: Point2::new(self.max.x - dx, self.max.y - dy),
+        }
     }
 }
 
@@ -78,9 +91,12 @@ impl Composed {
     }
 }
 
-/// Place `model`'s geometry into `sheet_doc`, scaled to fit `area` and centred,
+/// Place `model`'s geometry into `sheet_doc`, scaled to fit `area` and **centred**,
 /// as one undoable unit (`DRAWING`). Returns the fit scale and the placed ids.
 /// An empty model places nothing and reports scale `0`.
+///
+/// Callers that need padding inside the border (plot sheets) should pass an
+/// area already inset — see [`DrawingArea::inset_fraction`].
 pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingArea) -> Composed {
     let Some(bbox) = Bbox::of_points(model.points()) else {
         return Composed {
@@ -102,6 +118,17 @@ pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingA
     };
 
     let ids = sheet_doc.transact("DRAWING", |d| {
+        // Carry layers so hatch/entity colours survive the sheet.
+        for layer in model.layers() {
+            if d.layer(&layer.name).is_none() {
+                d.add_layer(layer.clone());
+            }
+        }
+        for block in model.blocks() {
+            if d.block(&block.name).is_none() {
+                d.add_block(block.clone());
+            }
+        }
         let mut ids = Vec::new();
         for e in model.entities() {
             ids.push(d.add_entity(
@@ -109,6 +136,30 @@ pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingA
                 transform(&e.geometry, &map, scale),
                 e.attributes.clone(),
             ));
+        }
+        for h in model.hatches() {
+            let mut boundaries = Vec::new();
+            for b in &h.boundaries {
+                boundaries.push(Polyline::new(
+                    b.vertices.iter().map(|v| map(*v)).collect(),
+                    true,
+                ));
+            }
+            if let Some(outer) = boundaries.first().cloned() {
+                let mut hatch = aadt_model::Hatch::new(h.layer.clone(), outer, h.pattern.clone());
+                for island in boundaries.into_iter().skip(1) {
+                    hatch.push_island(island);
+                }
+                d.add_hatch(hatch);
+            }
+        }
+        for dim in model.dimensions() {
+            let mut nd = dim.clone();
+            nd.p1 = map(dim.p1);
+            nd.p2 = map(dim.p2);
+            nd.vertex = map(dim.vertex);
+            nd.text_anchor = map(dim.text_anchor);
+            d.add_dimension(nd);
         }
         ids
     });
@@ -141,9 +192,9 @@ fn transform(geom: &Geometry, map: &impl Fn(Point2) -> Point2, scale: f64) -> Ge
             t.height * scale,
             t.rotation,
         )),
-        Geometry::Insert(i) => {
-            Geometry::Insert(Insert::new(i.name.clone(), map(i.position), i.rotation))
-        }
+        Geometry::Insert(i) => Geometry::Insert(
+            Insert::new(i.name.clone(), map(i.position), i.rotation).with_scale(i.scale_x, i.scale_y),
+        ),
     }
 }
 
@@ -243,6 +294,21 @@ mod tests {
             Geometry::Circle(Circle::new(Point2::new(5.0, 4.0), 0.5)),
         );
         doc
+    }
+
+    #[test]
+    fn inset_fraction_shrinks_each_side_by_five_percent() {
+        let area = DrawingArea {
+            min: Point2::new(0.0, 0.0),
+            max: Point2::new(100.0, 50.0),
+        };
+        let pad = area.inset_fraction(0.05);
+        assert!((pad.min.x - 5.0).abs() < 1e-9);
+        assert!((pad.min.y - 2.5).abs() < 1e-9);
+        assert!((pad.max.x - 95.0).abs() < 1e-9);
+        assert!((pad.max.y - 47.5).abs() < 1e-9);
+        let c = pad.center();
+        assert!((c.x - 50.0).abs() < 1e-9 && (c.y - 25.0).abs() < 1e-9);
     }
 
     #[test]
