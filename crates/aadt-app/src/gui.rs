@@ -920,25 +920,6 @@ struct AadtApp {
     table_cols: String,
     /// Takeoff publish sink spec (`none` / `csv:dir` / …).
     takeoff_sink_spec: String,
-    /// Natural-language ASK box (Foundry Local / local rules).
-    nl_ask: String,
-    /// Shared Foundry endpoint + model (edited by Controls, read by the probe).
-    foundry_cfg: std::sync::Arc<std::sync::Mutex<FoundryRuntimeCfg>>,
-    /// Foundry Local liveness, refreshed by a background probe thread.
-    foundry_status: std::sync::Arc<std::sync::Mutex<aadt_ai::FoundryStatus>>,
-    /// Cached aliases for the Load combo (refreshed from Controls).
-    foundry_cached_models: Vec<String>,
-    /// Last Foundry control action message.
-    foundry_note: String,
-    /// True while a Foundry CLI action is running in the background.
-    foundry_busy: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    /// Async CLI result channel (ok / err text).
-    foundry_job_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
-    /// Foundry Controls window open.
-    show_foundry_controls: bool,
-    /// Foundry endpoint (`host:port` / URL) and model alias mirrors for UI edits.
-    foundry_endpoint: String,
-    foundry_model: String,
     /// Label for HISTORY SAVE from the History panel.
     history_label: String,
     /// Spacebar-primary command engine.
@@ -983,254 +964,11 @@ struct AadtApp {
     pointer_shift: bool,
 }
 
-/// Endpoint + model shared between the UI and the background Foundry probe.
-#[derive(Debug, Clone)]
-struct FoundryRuntimeCfg {
-    endpoint: String,
-    model: String,
-}
-
-/// Spawn a background thread that keeps a shared Foundry Local status fresh by
-/// probing the configured endpoint every few seconds. When offline, tries CLI
-/// discovery and updates the shared config.
-fn spawn_foundry_probe(
-    cfg: std::sync::Arc<std::sync::Mutex<FoundryRuntimeCfg>>,
-) -> std::sync::Arc<std::sync::Mutex<aadt_ai::FoundryStatus>> {
-    use std::sync::{Arc, Mutex};
-    let status = Arc::new(Mutex::new(aadt_ai::FoundryStatus::Unknown));
-    let sink = status.clone();
-    std::thread::spawn(move || {
-        loop {
-            let (endpoint, model) = cfg
-                .lock()
-                .map(|g| (g.endpoint.clone(), g.model.clone()))
-                .unwrap_or_else(|_| {
-                    (
-                        aadt_ai::FOUNDRY_LOCAL_ENDPOINT.to_string(),
-                        aadt_ai::DEFAULT_FOUNDRY_MODEL.to_string(),
-                    )
-                });
-            let client = aadt_ai::FoundryLocalClient::from_endpoint(&endpoint, &model);
-            let mut s = client.probe(std::time::Duration::from_millis(400));
-            if !s.is_running() {
-                if let Some(url) = aadt_ai::discover_endpoint() {
-                    if let Ok(mut g) = cfg.lock() {
-                        g.endpoint = url.clone();
-                    }
-                    // Keep ASK / make_client in sync with the live daemon port.
-                    std::env::set_var("AADT_FOUNDRY_ENDPOINT", &url);
-                    let client = aadt_ai::FoundryLocalClient::from_endpoint(&url, &model);
-                    s = client.probe(std::time::Duration::from_millis(400));
-                }
-            } else {
-                // Ensure env matches the working cfg endpoint (prefs may lag).
-                std::env::set_var("AADT_FOUNDRY_ENDPOINT", &endpoint);
-            }
-            if let Ok(mut guard) = sink.lock() {
-                *guard = s;
-            }
-            std::thread::sleep(std::time::Duration::from_secs(3));
-        }
-    });
-    status
-}
-
 impl AadtApp {
-    /// The latest Foundry Local liveness from the background probe.
-    pub(crate) fn foundry_status(&self) -> aadt_ai::FoundryStatus {
-        self.foundry_status
-            .lock()
-            .map(|g| *g)
-            .unwrap_or(aadt_ai::FoundryStatus::Unknown)
-    }
-
-    /// Color + short label + hover tip for the Foundry status chip.
-    pub(crate) fn foundry_status_display(
-        &self,
-    ) -> (egui::Color32, &'static str, String) {
-        use aadt_ai::FoundryStatus;
-        use theme::color;
-        let status = self.foundry_status();
-        let (endpoint, model) = self
-            .foundry_cfg
-            .lock()
-            .map(|g| (g.endpoint.clone(), g.model.clone()))
-            .unwrap_or_else(|_| (self.foundry_endpoint.clone(), self.foundry_model.clone()));
-        let detail = format!("{endpoint} · {model}");
-        match status {
-            FoundryStatus::Active => (
-                color::SUCCESS,
-                "active",
-                format!(
-                    "Foundry Local active — service running, model ready ({detail}). Click for controls."
-                ),
-            ),
-            FoundryStatus::Running => (
-                color::WARNING,
-                "running",
-                format!(
-                    "Foundry Local running — service up, model not loaded yet ({detail}). Click for controls."
-                ),
-            ),
-            FoundryStatus::Offline => (
-                color::DANGER,
-                "offline",
-                format!(
-                    "Foundry Local offline — open Controls to start the service ({detail})."
-                ),
-            ),
-            FoundryStatus::Unknown => (
-                color::TEXT_SECONDARY,
-                "checking…",
-                format!("Checking Foundry Local ({detail})…"),
-            ),
-        }
-    }
-
-    /// Sync UI endpoint/model into the probe config + process env (ASK/infer).
-    pub(crate) fn apply_foundry_config(&mut self) {
-        let endpoint = self.foundry_endpoint.trim().trim_end_matches('/').to_string();
-        let model = if self.foundry_model.trim().is_empty() {
-            aadt_ai::DEFAULT_FOUNDRY_MODEL.to_string()
-        } else {
-            self.foundry_model.trim().to_string()
-        };
-        self.foundry_endpoint = if endpoint.is_empty() {
-            aadt_ai::FOUNDRY_LOCAL_ENDPOINT.to_string()
-        } else if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
-            endpoint
-        } else {
-            format!("http://{endpoint}")
-        };
-        self.foundry_model = model.clone();
-        if let Ok(mut g) = self.foundry_cfg.lock() {
-            g.endpoint = self.foundry_endpoint.clone();
-            g.model = model.clone();
-        }
-        std::env::set_var("AADT_FOUNDRY_ENDPOINT", &self.foundry_endpoint);
-        std::env::set_var("AADT_FOUNDRY_MODEL", &model);
-        self.persist_prefs();
-    }
-
-    /// Pull the live daemon URL into the endpoint field.
-    pub(crate) fn foundry_discover_endpoint(&mut self) {
-        match aadt_ai::server_status() {
-            Ok(info) => {
-                if let Some(url) = info.endpoint {
-                    self.foundry_endpoint = url;
-                    self.apply_foundry_config();
-                    self.foundry_note = format!(
-                        "Discovered {} (state={}, running={})",
-                        self.foundry_endpoint, info.state, info.running
-                    );
-                } else {
-                    self.foundry_note = format!(
-                        "Daemon state={} but no web URL yet",
-                        info.state
-                    );
-                }
-            }
-            Err(e) => self.foundry_note = e,
-        }
-    }
-
-    /// Refresh the cached-model combo from `foundry model list`.
-    pub(crate) fn foundry_refresh_models(&mut self) {
-        match aadt_ai::list_cached_aliases() {
-            Ok(list) => {
-                self.foundry_note = if list.is_empty() {
-                    "No cached models — Download first".into()
-                } else {
-                    format!("{} cached model(s)", list.len())
-                };
-                self.foundry_cached_models = list;
-            }
-            Err(e) => self.foundry_note = e,
-        }
-    }
-
-    /// Run a Foundry CLI action on a background thread; result lands in `foundry_note`.
-    pub(crate) fn foundry_spawn_job<F>(&mut self, label: &str, job: F)
-    where
-        F: FnOnce() -> Result<String, String> + Send + 'static,
-    {
-        if self
-            .foundry_busy
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            self.foundry_note = "Foundry busy — wait for the current action".into();
-            return;
-        }
-        self.foundry_busy
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        self.foundry_note = format!("{label}…");
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.foundry_job_rx = Some(rx);
-        let busy = self.foundry_busy.clone();
-        std::thread::spawn(move || {
-            let result = job();
-            let _ = tx.send(result);
-            busy.store(false, std::sync::atomic::Ordering::Relaxed);
-        });
-    }
-
-    /// Poll async Foundry job completion (call from update / window UI).
-    pub(crate) fn poll_foundry_jobs(&mut self) {
-        let Some(rx) = self.foundry_job_rx.as_ref() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(Ok(msg)) => {
-                self.foundry_note = msg;
-                self.foundry_job_rx = None;
-                // After start/load, rediscover endpoint and force a quick status refresh.
-                if let Some(url) = aadt_ai::discover_endpoint() {
-                    self.foundry_endpoint = url;
-                    self.apply_foundry_config();
-                } else if let Ok(g) = self.foundry_cfg.lock() {
-                    self.foundry_endpoint = g.endpoint.clone();
-                    self.foundry_model = g.model.clone();
-                }
-            }
-            Ok(Err(e)) => {
-                self.foundry_note = e;
-                self.foundry_job_rx = None;
-            }
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                self.foundry_job_rx = None;
-                self.foundry_busy
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
-            }
-        }
-    }
 
     fn from_session(session: Session) -> Self {
         let prefs = UserPrefs::load();
         let recovery_prompt = Self::detect_recovery(None);
-        let endpoint = if !prefs.foundry_endpoint.trim().is_empty() {
-            prefs.foundry_endpoint.trim().trim_end_matches('/').to_string()
-        } else {
-            aadt_ai::discover_endpoint()
-                .unwrap_or_else(|| aadt_ai::FOUNDRY_LOCAL_ENDPOINT.to_string())
-        };
-        let model = if !prefs.foundry_model.trim().is_empty() {
-            prefs.foundry_model.trim().to_string()
-        } else {
-            aadt_ai::DEFAULT_FOUNDRY_MODEL.to_string()
-        };
-        std::env::set_var("AADT_FOUNDRY_ENDPOINT", &endpoint);
-        std::env::set_var("AADT_FOUNDRY_MODEL", &model);
-        let foundry_cfg = std::sync::Arc::new(std::sync::Mutex::new(FoundryRuntimeCfg {
-            endpoint: endpoint.clone(),
-            model: model.clone(),
-        }));
-        let foundry_status = spawn_foundry_probe(foundry_cfg.clone());
-        let foundry_note = if aadt_ai::foundry_cli_available() {
-            String::new()
-        } else {
-            "Foundry CLI not on PATH — install Foundry Local".into()
-        };
         Self {
             session,
             command: String::new(),
@@ -1284,16 +1022,6 @@ impl AadtApp {
             table_rows: "5".into(),
             table_cols: "4".into(),
             takeoff_sink_spec: prefs.takeoff_sink.clone(),
-            nl_ask: String::new(),
-            foundry_cfg,
-            foundry_status,
-            foundry_cached_models: Vec::new(),
-            foundry_note,
-            foundry_busy: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            foundry_job_rx: None,
-            show_foundry_controls: false,
-            foundry_endpoint: endpoint,
-            foundry_model: model,
             history_label: String::new(),
             engine: CommandEngine::default(),
             space_gesture: SpaceGesture::default(),
@@ -1334,8 +1062,6 @@ impl AadtApp {
             left_panel_width: self.left_panel_width,
             autosave_secs: self.autosave_secs,
             takeoff_sink: self.takeoff_sink_spec.clone(),
-            foundry_endpoint: self.foundry_endpoint.clone(),
-            foundry_model: self.foundry_model.clone(),
         }
     }
 
@@ -1749,210 +1475,6 @@ impl AadtApp {
             });
     }
 
-    /// Built-in Foundry Local controls: start/stop daemon, load model, endpoint.
-    pub(super) fn draw_foundry_controls(&mut self, ctx: &egui::Context) {
-        if !self.show_foundry_controls {
-            return;
-        }
-        let mut open = self.show_foundry_controls;
-        egui::Window::new("Foundry Local")
-            .open(&mut open)
-            .default_width(460.0)
-            .resizable(true)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
-                    .rounding(theme::radius::DIALOG),
-            )
-            .show(ctx, |ui| {
-                let (dot, state, _) = self.foundry_status_display();
-                let running = self.foundry_status().is_running();
-                let active = self.foundry_status().is_active();
-                let busy = self
-                    .foundry_busy
-                    .load(std::sync::atomic::Ordering::Relaxed);
-                let cli_ok = aadt_ai::foundry_cli_available();
-
-                ui.horizontal(|ui| {
-                    ui.colored_label(dot, "●");
-                    ui.label(
-                        egui::RichText::new(format!("Status: {state}"))
-                            .strong()
-                            .color(dot),
-                    );
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "running={} · active={}",
-                            if running { "yes" } else { "no" },
-                            if active { "yes" } else { "no" },
-                        ))
-                        .small()
-                        .weak(),
-                    );
-                });
-                if !cli_ok {
-                    ui.colored_label(
-                        theme::color::DANGER,
-                        "Foundry CLI not found on PATH — install Microsoft Foundry Local.",
-                    );
-                }
-
-                ui.separator();
-                ui.label(egui::RichText::new("Service").small().strong());
-                ui.add_enabled_ui(!busy && cli_ok, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("Start").on_hover_text("foundry server start").clicked() {
-                            self.foundry_spawn_job("Starting Foundry", || {
-                                aadt_ai::server_start()?;
-                                let url =
-                                    aadt_ai::wait_for_endpoint(std::time::Duration::from_secs(20))
-                                        .unwrap_or_default();
-                                Ok(if url.is_empty() {
-                                    "Started".into()
-                                } else {
-                                    format!("Started · {url}")
-                                })
-                            });
-                        }
-                        if ui.button("Stop").on_hover_text("foundry server stop").clicked() {
-                            self.foundry_spawn_job("Stopping Foundry", || aadt_ai::server_stop());
-                        }
-                        if ui
-                            .button("Restart")
-                            .on_hover_text("foundry server restart")
-                            .clicked()
-                        {
-                            self.foundry_spawn_job("Restarting Foundry", || {
-                                aadt_ai::server_restart()?;
-                                let url =
-                                    aadt_ai::wait_for_endpoint(std::time::Duration::from_secs(20))
-                                        .unwrap_or_default();
-                                Ok(if url.is_empty() {
-                                    "Restarted".into()
-                                } else {
-                                    format!("Restarted · {url}")
-                                })
-                            });
-                        }
-                        if ui
-                            .button("Refresh status")
-                            .on_hover_text("Re-read daemon URL + probe")
-                            .clicked()
-                        {
-                            self.foundry_discover_endpoint();
-                        }
-                    });
-                });
-
-                ui.separator();
-                ui.label(egui::RichText::new("Endpoint").small().strong());
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.foundry_endpoint)
-                            .desired_width(280.0)
-                            .hint_text("http://127.0.0.1:PORT"),
-                    );
-                    if ui.button("Apply").clicked() {
-                        self.apply_foundry_config();
-                        self.foundry_note = format!("Using {}", self.foundry_endpoint);
-                    }
-                    if ui.button("Discover").clicked() {
-                        self.foundry_discover_endpoint();
-                    }
-                });
-
-                ui.separator();
-                ui.label(egui::RichText::new("Model").small().strong());
-                ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt("foundry_model_combo")
-                        .selected_text(&self.foundry_model)
-                        .width(220.0)
-                        .show_ui(ui, |ui| {
-                            let defaults = [
-                                aadt_ai::DEFAULT_FOUNDRY_MODEL,
-                                "phi-4-mini",
-                                "qwen2.5-coder-1.5b",
-                                "qwen2.5-1.5b",
-                            ];
-                            for m in defaults {
-                                ui.selectable_value(&mut self.foundry_model, m.to_string(), m);
-                            }
-                            for m in self.foundry_cached_models.clone() {
-                                if !defaults.contains(&m.as_str()) {
-                                    ui.selectable_value(&mut self.foundry_model, m.clone(), m);
-                                }
-                            }
-                        });
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.foundry_model)
-                            .desired_width(160.0)
-                            .hint_text("alias"),
-                    );
-                });
-                ui.add_enabled_ui(!busy && cli_ok, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("Load").on_hover_text("foundry model load").clicked() {
-                            self.apply_foundry_config();
-                            let model = self.foundry_model.clone();
-                            self.foundry_spawn_job("Loading model", move || {
-                                aadt_ai::model_load(&model)?;
-                                Ok(format!("Loaded {model}"))
-                            });
-                        }
-                        if ui.button("Unload").on_hover_text("foundry model unload").clicked() {
-                            let model = self.foundry_model.clone();
-                            self.foundry_spawn_job("Unloading model", move || {
-                                aadt_ai::model_unload(&model)?;
-                                Ok(format!("Unloaded {model}"))
-                            });
-                        }
-                        if ui
-                            .button("Download")
-                            .on_hover_text("foundry model download (can take a while)")
-                            .clicked()
-                        {
-                            let model = self.foundry_model.clone();
-                            self.foundry_spawn_job("Downloading model", move || {
-                                aadt_ai::model_download(&model)?;
-                                Ok(format!("Downloaded {model}"))
-                            });
-                        }
-                        if ui.button("List cached").clicked() {
-                            self.foundry_refresh_models();
-                        }
-                        if ui.button("Save prefs").clicked() {
-                            self.apply_foundry_config();
-                            self.foundry_note = "Foundry preferences saved".into();
-                        }
-                    });
-                });
-
-                if busy {
-                    ui.label(
-                        egui::RichText::new("Working…")
-                            .small()
-                            .color(theme::color::WARNING),
-                    );
-                }
-                if !self.foundry_note.is_empty() {
-                    ui.label(
-                        egui::RichText::new(&self.foundry_note)
-                            .small()
-                            .color(theme::color::TEXT_SECONDARY),
-                    );
-                }
-                ui.separator();
-                ui.label(
-                    egui::RichText::new(
-                        "Uses the Foundry Local CLI on PATH. Endpoint is auto-discovered when the daemon assigns a dynamic port.",
-                    )
-                    .small()
-                    .weak(),
-                );
-            });
-        self.show_foundry_controls = open;
-    }
 
     pub(super) fn draw_room_picker(&mut self, ctx: &egui::Context) {
         if !self.show_room_picker {
@@ -5808,16 +5330,7 @@ impl eframe::App for AadtApp {
         if self.last_window_title.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Light));
         }
-        // Poll the background Foundry probe so the status pill refreshes when idle.
-        self.poll_foundry_jobs();
-        if self
-            .foundry_busy
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
-            ctx.request_repaint_after(std::time::Duration::from_millis(250));
-        } else {
-            ctx.request_repaint_after(std::time::Duration::from_secs(2));
-        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(2));
         // Dynamic input: unless a text field is focused, keystrokes are typed at
         // the crosshair — a command token, a value, or edit/finish keys.
         if !ctx.wants_keyboard_input() {
@@ -6054,7 +5567,6 @@ impl eframe::App for AadtApp {
         self.tick_autosave();
         self.draw_recovery_prompt(ctx);
         self.draw_shortcuts_sheet(ctx);
-        self.draw_foundry_controls(ctx);
         self.draw_room_picker(ctx);
         self.draw_top_bar(ctx);
         self.draw_bottom_bar(ctx);

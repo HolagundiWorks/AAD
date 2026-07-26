@@ -21,10 +21,6 @@ pub struct UserPrefs {
     pub autosave_secs: u64,
     /// Takeoff publish sink: `none` | `csv:<dir>` | `json:<dir>` | `postgres:<file.sql>`.
     pub takeoff_sink: String,
-    /// Foundry Local OpenAI base URL (`http://host:port`). Empty → auto-discover.
-    pub foundry_endpoint: String,
-    /// Foundry model alias (e.g. `phi-3.5-mini`). Empty → default / env.
-    pub foundry_model: String,
 }
 
 impl Default for UserPrefs {
@@ -42,8 +38,6 @@ impl Default for UserPrefs {
             left_panel_width: 260.0,
             autosave_secs: 120,
             takeoff_sink: "none".into(),
-            foundry_endpoint: String::new(),
-            foundry_model: String::new(),
         }
     }
 }
@@ -94,7 +88,7 @@ impl UserPrefs {
 
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"ortho\": {},\n  \"osnap\": {},\n  \"polar\": {},\n  \"osnap_track\": {},\n  \"dyn_mode\": {},\n  \"show_layer_mgr\": {},\n  \"show_left_mgr\": {},\n  \"show_lweights\": {},\n  \"right_panel_width\": {},\n  \"left_panel_width\": {},\n  \"autosave_secs\": {},\n  \"takeoff_sink\": \"{}\",\n  \"foundry_endpoint\": \"{}\",\n  \"foundry_model\": \"{}\"\n}}\n",
+            "{{\n  \"ortho\": {},\n  \"osnap\": {},\n  \"polar\": {},\n  \"osnap_track\": {},\n  \"dyn_mode\": {},\n  \"show_layer_mgr\": {},\n  \"show_left_mgr\": {},\n  \"show_lweights\": {},\n  \"right_panel_width\": {},\n  \"left_panel_width\": {},\n  \"autosave_secs\": {},\n  \"takeoff_sink\": \"{}\"\n}}\n",
             bool_json(self.ortho),
             bool_json(self.osnap),
             bool_json(self.polar),
@@ -107,8 +101,6 @@ impl UserPrefs {
             self.left_panel_width,
             self.autosave_secs,
             escape_json_str(&self.takeoff_sink),
-            escape_json_str(&self.foundry_endpoint),
-            escape_json_str(&self.foundry_model),
         )
     }
 
@@ -152,12 +144,6 @@ impl UserPrefs {
         }
         if let Some(v) = parse_string(text, "takeoff_sink") {
             p.takeoff_sink = v;
-        }
-        if let Some(v) = parse_string(text, "foundry_endpoint") {
-            p.foundry_endpoint = v;
-        }
-        if let Some(v) = parse_string(text, "foundry_model") {
-            p.foundry_model = v;
         }
         Some(p)
     }
@@ -254,8 +240,6 @@ mod tests {
             left_panel_width: 260.0,
             autosave_secs: 60,
             takeoff_sink: "csv:C:\\out".into(),
-            foundry_endpoint: "http://127.0.0.1:55263".into(),
-            foundry_model: "phi-3.5-mini".into(),
         };
         let back = UserPrefs::from_json(&p.to_json()).unwrap();
         assert_eq!(back, p);

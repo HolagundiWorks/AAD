@@ -8,7 +8,6 @@ members = [
     "crates/aadt-takeoff",
     "crates/aadt-command",
     "crates/aadt-render",
-    "crates/aadt-ai",
     "crates/aadt-lisp",
     "crates/aadt-docs",
     "crates/aadt-pdf",
@@ -40,7 +39,6 @@ aadt-detect = { path = "crates/aadt-detect" }
 aadt-takeoff = { path = "crates/aadt-takeoff" }
 aadt-command = { path = "crates/aadt-command" }
 aadt-render = { path = "crates/aadt-render" }
-aadt-ai = { path = "crates/aadt-ai" }
 aadt-lisp = { path = "crates/aadt-lisp" }
 aadt-docs = { path = "crates/aadt-docs" }
 aadt-pdf = { path = "crates/aadt-pdf" }

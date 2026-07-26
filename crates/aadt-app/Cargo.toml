@@ -21,7 +21,6 @@ aadt-library.workspace = true
 aadt-docs.workspace = true
 aadt-pdf.workspace = true
 aadt-store.workspace = true
-aadt-ai.workspace = true
 
 # The egui desktop shell (ADR-0001). Optional so the headless Session core stays
 # dependency-free of windowing; enable with `--features gui`.
