@@ -23,11 +23,18 @@
 //! [`lifecycle`].
 
 pub mod foundry;
+pub mod foundry_ctl;
 pub mod lifecycle;
 pub mod nl;
 
 pub use foundry::{
-    resolved_endpoint, FoundryLocalClient, DEFAULT_FOUNDRY_MODEL, FOUNDRY_LOCAL_ENDPOINT,
+    resolved_endpoint, resolved_model, FoundryLocalClient, FoundryStatus, DEFAULT_FOUNDRY_MODEL,
+    FOUNDRY_LOCAL_ENDPOINT,
+};
+pub use foundry_ctl::{
+    cli_available as foundry_cli_available, discover_endpoint, list_cached_aliases, model_download,
+    model_list, model_load, model_unload, server_restart, server_start, server_status, server_stop,
+    wait_for_endpoint, FoundryModelInfo, FoundryServiceInfo,
 };
 pub use nl::{
     build_nl_prompt, extract_pair_size, extract_single_size, interpret_nl, parse_nl_response,
@@ -77,11 +84,7 @@ impl AiBackend {
 pub fn make_client(backend: AiBackend, model: &str) -> Box<dyn ModelClient> {
     match backend {
         AiBackend::FoundryLocal => {
-            let m = if model.is_empty() {
-                DEFAULT_FOUNDRY_MODEL.to_string()
-            } else {
-                model.to_string()
-            };
+            let m = resolved_model(model);
             Box::new(FoundryLocalClient::new(m))
         }
         AiBackend::Ollama => {

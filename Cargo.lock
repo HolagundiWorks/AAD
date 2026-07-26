@@ -15,6 +15,7 @@ dependencies = [
 name = "aadt-app"
 version = "0.0.0"
 dependencies = [
+ "aadt-ai",
  "aadt-command",
  "aadt-detect",
  "aadt-docs",

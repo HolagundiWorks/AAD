@@ -5,7 +5,11 @@ use aadt_standards::{aci_to_srgb, LayerSet};
 use eframe::egui;
 
 use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, Icon};
-use super::theme::{self, color, left_manager_title, nav_tabs, radius, right_manager_title, space};
+use super::theme::{
+    self, color, full_width_button, full_width_edit, left_manager_title, metric_row, panel_space,
+    panel_subtitle, panel_title, radius, right_manager_title, section_hint, section_label,
+    section_label_first, space, two_col_buttons, type_scale,
+};
 use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
     AadtApp, LayerMgrScope, Tool,
@@ -209,18 +213,20 @@ impl AadtApp {
     pub(super) fn ui_layer_manager(&mut self, ui: &mut egui::Ui) {
         let panel_w = lock_panel_width(ui);
         let narrow = panel_w < 300.0;
-        ui.label(
-            egui::RichText::new(
-                "Layer Manager is DXF/DWG visibility & import mapping. Draft with Floor + Space (QAT strip) — new draws use the active category’s shim layer.",
-            )
-            .small()
-            .color(color::TEXT_SECONDARY),
+        section_label_first(ui, "Scope");
+        section_hint(
+            ui,
+            "DXF/DWG visibility & import mapping. Draft with Floor + Space — new draws use the active category shim.",
         );
-        ui.separator();
         ui.horizontal_wrapped(|ui| {
             ui.set_max_width(panel_w);
             ui.spacing_mut().item_spacing.x = space::SM;
-            ui.label(egui::RichText::new("Show").small().strong());
+            ui.label(
+                egui::RichText::new("Show")
+                    .size(type_scale::CAPTION)
+                    .strong()
+                    .color(color::TEXT_SECONDARY),
+            );
             egui::ComboBox::from_id_salt("layer_scope")
                 .selected_text(self.layer_mgr_scope.label())
                 .width((panel_w * 0.38).clamp(80.0, 130.0))
@@ -949,30 +955,149 @@ impl AadtApp {
     }
 
     pub(super) fn ui_takeoff_panel(&mut self, ui: &mut egui::Ui) {
+        let panel_w = lock_panel_width(ui);
         let live = {
             let v = self.session.document().properties().takeoff_live.trim();
             v.is_empty() || v == "1" || v.eq_ignore_ascii_case("on")
         };
-        ui.horizontal(|ui| {
-            if live {
-                ui.colored_label(color::ACCENT, "Live");
-            } else {
-                ui.label("Manual");
+        let rev = self.session.document().revision();
+        let (
+            walls_n,
+            rooms_n,
+            openings_n,
+            wall_len,
+            wall_area,
+            room_area,
+            rollups,
+            boq_lines,
+        ) = {
+            let t = self.session.takeoff();
+            let mut lines: Vec<(String, String, String)> = Vec::new();
+            for w in &t.walls {
+                lines.push((
+                    "Wall".into(),
+                    format!("#{id}", id = w.id),
+                    format!("L={:.2}  {}", w.length, w.cost_code),
+                ));
             }
+            for o in &t.openings {
+                lines.push((
+                    o.kind.clone(),
+                    format!("#{n}", n = o.number),
+                    format!("A={:.2}  {}", o.area, o.cost_code),
+                ));
+            }
+            for r in &t.rooms {
+                lines.push((
+                    "Room".into(),
+                    format!("#{id}", id = r.id),
+                    format!("A={:.2}  {}", r.area, r.cost_code),
+                ));
+            }
+            for s in &t.structural {
+                lines.push((
+                    s.kind.clone(),
+                    format!("#{n}", n = s.number),
+                    s.cost_code.clone(),
+                ));
+            }
+            (
+                t.walls.len(),
+                t.rooms.len(),
+                t.openings.len(),
+                t.total_wall_length(),
+                t.total_wall_net_area(),
+                t.total_room_area(),
+                t.csi_division_rollups(),
+                lines,
+            )
+        };
+
+        section_label_first(ui, "Sketch");
+        section_hint(ui, "Plan preview for this BOQ / estimation");
+        self.session.refresh_draw_cache();
+        let sketch_h = (panel_w * 0.7).clamp(128.0, 220.0);
+        let (sketch_rect, _) = preview_frame(ui, egui::vec2(panel_w, sketch_h), false);
+        paint_document_sketch(
+            ui.painter(),
+            sketch_rect.shrink(6.0),
+            self.session.document(),
+            self.session.cached_drawlist(),
+        );
+
+        section_label(ui, "Summary");
+        ui.horizontal(|ui| {
+            let badge = if live { "Live" } else { "Manual" };
+            let badge_color = if live {
+                color::ACCENT
+            } else {
+                color::TEXT_SECONDARY
+            };
             ui.label(
-                egui::RichText::new(format!("rev {}", self.session.document().revision()))
-                    .small()
-                    .weak(),
+                egui::RichText::new(badge)
+                    .size(type_scale::CAPTION)
+                    .strong()
+                    .color(badge_color),
+            );
+            ui.label(
+                egui::RichText::new(format!("rev {rev}"))
+                    .size(type_scale::CAPTION)
+                    .color(color::TEXT_SECONDARY),
             );
         });
-        let t = self.session.takeoff();
-        ui.label(format!("Walls: {}", t.walls.len()));
-        ui.label(format!("Rooms: {}", t.rooms.len()));
-        ui.label(format!("Wall length: {:.3}", t.total_wall_length()));
-        ui.label(format!("Net wall area: {:.3}", t.total_wall_net_area()));
-        ui.label(format!("Room area: {:.3}", t.total_room_area()));
-        ui.separator();
-        if ui.button("Run TAKEOFF").clicked() {
+        ui.add_space(panel_space::ROW);
+        metric_row(ui, "Walls", walls_n);
+        metric_row(ui, "Rooms", rooms_n);
+        metric_row(ui, "Openings", openings_n);
+        metric_row(ui, "Wall length", format!("{wall_len:.3}"));
+        metric_row(ui, "Net wall area", format!("{wall_area:.3}"));
+        metric_row(ui, "Room area", format!("{room_area:.3}"));
+
+        section_label(ui, "BOQ / Estimation");
+        if rollups.is_empty() && boq_lines.is_empty() {
+            section_hint(ui, "Run TAKEOFF after drawing walls and rooms");
+        } else {
+            for (div, n) in &rollups {
+                metric_row(ui, &format!("CSI {div}"), *n);
+            }
+            if !boq_lines.is_empty() {
+                ui.add_space(panel_space::TIGHT);
+                egui::ScrollArea::vertical()
+                    .max_height(148.0)
+                    .id_salt("takeoff_boq_lines")
+                    .show(ui, |ui| {
+                        ui.set_min_width(panel_w - 8.0);
+                        for (kind, refer, qty) in &boq_lines {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(kind)
+                                        .size(type_scale::CAPTION)
+                                        .strong()
+                                        .color(color::TEXT),
+                                );
+                                ui.label(
+                                    egui::RichText::new(refer)
+                                        .size(type_scale::CAPTION)
+                                        .color(color::TEXT_SECONDARY),
+                                );
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            egui::RichText::new(qty)
+                                                .size(type_scale::CAPTION)
+                                                .color(color::TEXT_SECONDARY),
+                                        );
+                                    },
+                                );
+                            });
+                        }
+                    });
+            }
+        }
+
+        section_label(ui, "Actions");
+        if full_width_button(ui, "Run TAKEOFF").clicked() {
             self.app_feed("TAKEOFF");
             if let Some(fb) = self.session.transcript().last() {
                 if let Some(msg) = fb.message() {
@@ -980,7 +1105,8 @@ impl AadtApp {
                 }
             }
         }
-        if ui.button("Publish takeoff").clicked() {
+        ui.add_space(panel_space::TIGHT);
+        if full_width_button(ui, "Publish takeoff").clicked() {
             let sink = self.takeoff_sink_spec.clone();
             if sink.is_empty() || sink == "none" {
                 self.app_feed("TAKEOFF PUBLISH");
@@ -993,10 +1119,12 @@ impl AadtApp {
                 }
             }
         }
-        if ui.button("Place SCHEDULE").clicked() {
+        ui.add_space(panel_space::TIGHT);
+        let (place, refresh) = two_col_buttons(ui, "Place schedule", "Refresh schedule");
+        if place.clicked() {
             self.app_feed("SCHEDULE 0 0");
         }
-        if ui.button("Refresh SCHEDULE").clicked() {
+        if refresh.clicked() {
             self.app_feed("SCHEDULE REFRESH");
             if let Some(fb) = self.session.transcript().last() {
                 if let Some(msg) = fb.message() {
@@ -1004,37 +1132,101 @@ impl AadtApp {
                 }
             }
         }
-        ui.separator();
-        ui.label(egui::RichText::new("Publish sink").small().strong());
-        ui.add(
-            egui::TextEdit::singleline(&mut self.takeoff_sink_spec)
-                .desired_width(f32::INFINITY)
-                .hint_text("none | csv:C:\\out | json:… | postgres:out.sql"),
+
+        section_label(ui, "Publish sink");
+        section_hint(ui, "none · csv:dir · json:dir · postgres:file.sql");
+        let _ = full_width_edit(
+            ui,
+            &mut self.takeoff_sink_spec,
+            "none | csv:C:\\out | json:…",
         );
-        if ui.small_button("Save sink preference").clicked() {
+        ui.add_space(panel_space::TIGHT);
+        if full_width_button(ui, "Save sink preference").clicked() {
             self.persist_prefs();
             self.note = "Takeoff sink preference saved".into();
         }
-        ui.separator();
-        ui.label(
-            egui::RichText::new("Ask (natural language)")
-                .small()
-                .strong(),
-        );
-        ui.label(
-            egui::RichText::new(
-                "Local rules + Foundry Local (phi-3.5-mini). Examples: create a room of 12' x 16' · add a window of 5' to the selected wall",
-            )
-            .small()
-            .weak(),
+
+        section_label(ui, "Ask");
+        {
+            let (dot, state, tip) = self.foundry_status_display();
+            ui.horizontal(|ui| {
+                ui.colored_label(dot, "●").on_hover_text(tip.clone());
+                ui.label(
+                    egui::RichText::new(format!("Foundry · {state}"))
+                        .size(type_scale::CAPTION)
+                        .strong()
+                        .color(dot),
+                )
+                .on_hover_text(tip);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button("Controls")
+                        .on_hover_text("Open Foundry Local controls")
+                        .clicked()
+                    {
+                        self.show_foundry_controls = true;
+                        if self.foundry_cached_models.is_empty() {
+                            self.foundry_refresh_models();
+                        }
+                    }
+                });
+            });
+            ui.add_space(panel_space::TIGHT);
+            let busy = self
+                .foundry_busy
+                .load(std::sync::atomic::Ordering::Relaxed);
+            ui.add_enabled_ui(!busy, |ui| {
+                let (start, stop) = two_col_buttons(ui, "Start", "Stop");
+                if start.clicked() {
+                    self.foundry_spawn_job("Starting Foundry", || {
+                        aadt_ai::server_start()?;
+                        let url = aadt_ai::wait_for_endpoint(std::time::Duration::from_secs(15))
+                            .unwrap_or_default();
+                        Ok(if url.is_empty() {
+                            "Started (waiting for URL…)".into()
+                        } else {
+                            format!("Started · {url}")
+                        })
+                    });
+                }
+                if stop.clicked() {
+                    self.foundry_spawn_job("Stopping Foundry", || aadt_ai::server_stop());
+                }
+                ui.add_space(panel_space::TIGHT);
+                if full_width_button(ui, &format!("Load · {}", self.foundry_model)).clicked() {
+                    let model = self.foundry_model.clone();
+                    self.foundry_spawn_job("Loading model", move || {
+                        aadt_ai::model_load(&model)?;
+                        Ok(format!("Loaded {model}"))
+                    });
+                }
+            });
+            if !self.foundry_note.is_empty() {
+                ui.add_space(panel_space::TIGHT);
+                section_hint(ui, self.foundry_note.clone());
+            }
+        }
+        section_hint(
+            ui,
+            format!(
+                "Local rules + {}. Ex: create a room of 12' x 16'",
+                self.foundry_model
+            ),
         );
         ui.horizontal(|ui| {
+            let avail = ui.available_width();
+            let btn_w = 64.0;
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut self.nl_ask)
-                    .desired_width(ui.available_width() - 56.0)
+                    .desired_width((avail - btn_w - panel_space::ROW).max(80.0))
                     .hint_text("create a room of 12' x 16'"),
             );
-            let go = ui.button("Ask").clicked()
+            let go = ui
+                .add_sized(
+                    [btn_w, panel_space::CONTROL_H],
+                    egui::Button::new(egui::RichText::new("Ask").size(type_scale::BODY)),
+                )
+                .clicked()
                 || (resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
             if go && !self.nl_ask.trim().is_empty() {
                 self.sync_selection();
@@ -1046,138 +1238,128 @@ impl AadtApp {
                 self.nl_ask.clear();
             }
         });
-        ui.separator();
-        ui.label(egui::RichText::new("AI classify (local)").small().strong());
-        ui.label(
-            egui::RichText::new("Propose → review → freeze. Does not change geometry.")
-                .small()
-                .weak(),
-        );
-        ui.horizontal(|ui| {
-            if ui.button("Recognize").clicked() {
-                self.app_feed("RECOGNIZE");
-                if let Some(fb) = self.session.transcript().last() {
-                    if let Some(msg) = fb.message() {
-                        self.note = msg.to_string();
-                    }
+
+        section_label(ui, "Classify");
+        section_hint(ui, "Propose → review → freeze. Geometry unchanged.");
+        let (recognize, review) = two_col_buttons(ui, "Recognize", "Review");
+        if recognize.clicked() {
+            self.app_feed("RECOGNIZE");
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
                 }
             }
-            if ui.button("Review").clicked() {
-                self.app_feed("REVIEW");
-                if let Some(fb) = self.session.transcript().last() {
-                    if let Some(msg) = fb.message() {
-                        self.note = msg.to_string();
-                    }
+        }
+        if review.clicked() {
+            self.app_feed("REVIEW");
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
                 }
             }
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Accept selection").clicked() {
-                self.app_feed("ACCEPT SELECTION");
-            }
-            if ui.button("Freeze accepted").clicked() {
-                self.app_feed("FREEZE");
-            }
-        });
+        }
+        ui.add_space(panel_space::TIGHT);
+        let (accept, freeze) = two_col_buttons(ui, "Accept selection", "Freeze accepted");
+        if accept.clicked() {
+            self.app_feed("ACCEPT SELECTION");
+        }
+        if freeze.clicked() {
+            self.app_feed("FREEZE");
+        }
     }
 
     pub(super) fn ui_history_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label(
-            egui::RichText::new(
-                "File versions inside .aadt (not the same as UNDO — UNDO is a short drafting stack).",
-            )
-            .small()
-            .weak(),
+        let _ = lock_panel_width(ui);
+        section_label_first(ui, "Versions");
+        section_hint(
+            ui,
+            "File checkpoints inside .aadt — not the same as UNDO.",
         );
-        ui.horizontal(|ui| {
-            if ui.button("Save version…").clicked() {
-                self.history_label = if self.history_label.trim().is_empty() {
-                    "Named version".into()
-                } else {
-                    self.history_label.clone()
-                };
-                self.app_feed(&format!(
-                    "HISTORY SAVE {}",
-                    self.history_label.replace(' ', "_")
-                ));
-                if let Some(fb) = self.session.transcript().last() {
-                    if let Some(msg) = fb.message() {
-                        self.note = msg.to_string();
-                    }
+        let _ = full_width_edit(ui, &mut self.history_label, "Issued for construction");
+        ui.add_space(panel_space::TIGHT);
+        if full_width_button(ui, "Save version").clicked() {
+            self.history_label = if self.history_label.trim().is_empty() {
+                "Named version".into()
+            } else {
+                self.history_label.clone()
+            };
+            self.app_feed(&format!(
+                "HISTORY SAVE {}",
+                self.history_label.replace(' ', "_")
+            ));
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
                 }
             }
-            if ui.button("Refresh list").clicked() {
-                self.app_feed("HISTORY LIST");
-                if let Some(fb) = self.session.transcript().last() {
-                    if let Some(msg) = fb.message() {
-                        self.note = msg.to_string();
-                    }
+        }
+        ui.add_space(panel_space::TIGHT);
+        let (refresh, purge) = two_col_buttons(ui, "Refresh list", "Purge autos");
+        if refresh.clicked() {
+            self.app_feed("HISTORY LIST");
+            if let Some(fb) = self.session.transcript().last() {
+                if let Some(msg) = fb.message() {
+                    self.note = msg.to_string();
                 }
             }
-            if ui.small_button("Purge autos").clicked() {
-                self.app_feed("HISTORY PURGE");
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("Label");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.history_label)
-                    .desired_width(160.0)
-                    .hint_text("Issued for construction"),
-            );
-        });
-        ui.separator();
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            // Prefer store list when path is .aadt
-            if let Some(path) = &self.file_path {
-                if path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| e.eq_ignore_ascii_case("aadt"))
-                    .unwrap_or(false)
-                {
-                    match aadt_store::list_checkpoints(path) {
-                        Ok(list) => {
-                            if list.is_empty() {
-                                ui.label("No checkpoints yet — SAVE the drawing.");
-                            }
-                            for c in list.iter().take(40) {
-                                ui.horizontal(|ui| {
-                                    ui.label(format!("#{} [{}] {}", c.id, c.kind, c.label));
-                                    if ui.small_button("Restore").clicked() {
-                                        self.app_feed(&format!("HISTORY RESTORE {}", c.id));
-                                        self.fitted = false;
-                                        if let Some(fb) = self.session.transcript().last() {
-                                            if let Some(msg) = fb.message() {
-                                                self.note = msg.to_string();
-                                            }
-                                        }
-                                    }
-                                });
+        }
+        if purge.clicked() {
+            self.app_feed("HISTORY PURGE");
+        }
+
+        section_label(ui, "Checkpoints");
+        if let Some(path) = &self.file_path {
+            if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.eq_ignore_ascii_case("aadt"))
+                .unwrap_or(false)
+            {
+                match aadt_store::list_checkpoints(path) {
+                    Ok(list) => {
+                        if list.is_empty() {
+                            section_hint(ui, "No checkpoints yet — SAVE the drawing.");
+                        }
+                        for c in list.iter().take(40) {
+                            ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new(format!(
-                                        "  {} · rev {}",
-                                        c.change_summary, c.doc_revision
+                                        "#{} [{}] {}",
+                                        c.id, c.kind, c.label
                                     ))
-                                    .small()
-                                    .weak(),
+                                    .size(type_scale::CAPTION),
                                 );
-                            }
-                        }
-                        Err(e) => {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(160, 60, 60),
-                                format!("History: {e}"),
+                                if ui.small_button("Restore").clicked() {
+                                    self.app_feed(&format!("HISTORY RESTORE {}", c.id));
+                                    self.fitted = false;
+                                    if let Some(fb) = self.session.transcript().last() {
+                                        if let Some(msg) = fb.message() {
+                                            self.note = msg.to_string();
+                                        }
+                                    }
+                                }
+                            });
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} · rev {}",
+                                    c.change_summary, c.doc_revision
+                                ))
+                                .size(type_scale::CAPTION)
+                                .color(color::TEXT_SECONDARY),
                             );
+                            ui.add_space(panel_space::TIGHT);
                         }
                     }
-                } else {
-                    ui.label("Save as .aadt to enable the time machine.");
+                    Err(e) => {
+                        ui.colored_label(color::DANGER, format!("History: {e}"));
+                    }
                 }
             } else {
-                ui.label("OPEN or SAVE a .aadt drawing to use History.");
+                section_hint(ui, "Save as .aadt to enable the time machine.");
             }
-        });
+        } else {
+            section_hint(ui, "OPEN or SAVE a .aadt drawing to use History.");
+        }
     }
 
     /// Top quick-access bar — File / Edit / Plot.
@@ -1353,7 +1535,7 @@ impl AadtApp {
                     }
                     ui.separator();
 
-                    const STATUS_RESERVE: f32 = 420.0;
+                    const STATUS_RESERVE: f32 = 500.0;
                     let cmd_w = (ui.available_width() - STATUS_RESERVE).max(120.0);
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.command)
@@ -1403,6 +1585,35 @@ impl AadtApp {
                                     .small()
                                     .color(color::TEXT_SECONDARY),
                             );
+                        }
+                        // Foundry Local: always-visible running / active indicator (opens Controls).
+                        {
+                            let (dot, state, tip) = self.foundry_status_display();
+                            let active = self.foundry_status().is_active();
+                            let label = format!("FOUNDRY · {state}");
+                            let text = egui::RichText::new(label).small().strong().color(dot);
+                            let fill = if active {
+                                egui::Color32::from_rgb(220, 242, 226)
+                            } else if self.foundry_status().is_running() {
+                                egui::Color32::from_rgb(255, 244, 206)
+                            } else {
+                                color::CONTROL
+                            };
+                            if ui
+                                .add(
+                                    egui::Button::new(text)
+                                        .fill(fill)
+                                        .stroke(egui::Stroke::new(1.0_f32, dot))
+                                        .rounding(radius::CONTROL),
+                                )
+                                .on_hover_text(tip)
+                                .clicked()
+                            {
+                                self.show_foundry_controls = true;
+                                if self.foundry_cached_models.is_empty() {
+                                    self.foundry_refresh_models();
+                                }
+                            }
                         }
                         // RTL: add aids rightmost-first so they read ORTHO…LWT left-to-right.
                         let mut aids_changed = false;
@@ -1562,7 +1773,7 @@ impl AadtApp {
     pub(super) fn draw_left_panel(&mut self, ctx: &egui::Context) {
         if !self.show_left_mgr {
             egui::SidePanel::left("left_mgr_collapsed")
-                .exact_width(36.0)
+                .exact_width(panel_space::RAIL)
                 .resizable(false)
                 .frame(
                     egui::Frame::none()
@@ -1577,11 +1788,10 @@ impl AadtApp {
                             self.show_left_mgr = true;
                             self.persist_prefs();
                         }
-                        ui.add_space(space::SM);
-                        ui.separator();
-                        ui.add_space(space::XS);
+                        ui.add_space(space::MD);
                         for dest in theme::left_manager_nav() {
-                            if icon_btn_nav(ui, dest.icon, dest.tip, self.left_tab == dest.tab)
+                            let tip = format!("{} — {}", dest.label, dest.tip);
+                            if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab)
                                 .clicked()
                             {
                                 self.show_left_mgr = true;
@@ -1595,22 +1805,18 @@ impl AadtApp {
         }
         egui::SidePanel::left("left_mgr")
             .default_width(self.left_panel_width)
-            .min_width(180.0)
-            .max_width(520.0)
+            .min_width(200.0)
+            .max_width(480.0)
             .resizable(true)
             .frame(
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
-                    .inner_margin(egui::Margin::same(space::MD))
+                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
                     .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(left_manager_title(self.left_tab))
-                            .heading()
-                            .color(color::TEXT),
-                    );
+                    panel_title(ui, left_manager_title(self.left_tab));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
                             self.show_left_mgr = false;
@@ -1618,7 +1824,6 @@ impl AadtApp {
                         }
                     });
                 });
-                // Active space context (hierarchy).
                 {
                     let doc = self.session.document();
                     let cat = doc
@@ -1629,25 +1834,40 @@ impl AadtApp {
                         .active_floor_id()
                         .and_then(|fid| doc.floor(fid).map(|f| f.name.clone()))
                         .unwrap_or_else(|| "—".into());
-                    ui.label(
-                        egui::RichText::new(format!("{floor} · {}", cat.as_str()))
-                            .small()
-                            .color(color::TEXT_SECONDARY),
-                    );
+                    panel_subtitle(ui, format!("{floor} · {}", cat.as_str()));
                 }
-                ui.add_space(space::XS);
-                let _ = nav_tabs(ui, &mut self.left_tab, theme::left_manager_nav());
-                ui.add_space(space::SM);
+                ui.add_space(panel_space::TIGHT);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::SM;
+                    for dest in theme::left_manager_nav() {
+                        let tip = format!("{} — {}", dest.label, dest.tip);
+                        if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked()
+                        {
+                            self.left_tab = dest.tab;
+                            self.persist_prefs();
+                        }
+                        ui.label(
+                            egui::RichText::new(dest.label)
+                                .size(type_scale::CAPTION)
+                                .strong()
+                                .color(if self.left_tab == dest.tab {
+                                    color::ACCENT
+                                } else {
+                                    color::TEXT_SECONDARY
+                                }),
+                        );
+                    }
+                });
+                ui.add_space(panel_space::ROW);
                 ui.separator();
-                ui.add_space(space::SM);
+                ui.add_space(panel_space::ROW);
                 match self.left_tab {
                     1 => self.ui_blocks_manager(ui),
                     _ => self.ui_layer_manager(ui),
                 }
-                let w = ui.max_rect().width().clamp(180.0, 520.0);
-                if (w - self.left_panel_width).abs() > 2.0 {
+                let w = ui.max_rect().width().clamp(200.0, 480.0);
+                if (w - self.left_panel_width).abs() > 4.0 {
                     self.left_panel_width = w;
-                    self.persist_prefs();
                 }
             });
     }
@@ -1655,7 +1875,7 @@ impl AadtApp {
     pub(super) fn draw_right_panel(&mut self, ctx: &egui::Context) {
         if !self.show_layer_mgr {
             egui::SidePanel::right("layer_mgr_collapsed")
-                .exact_width(36.0)
+                .exact_width(panel_space::RAIL)
                 .resizable(false)
                 .frame(
                     egui::Frame::none()
@@ -1669,11 +1889,10 @@ impl AadtApp {
                             self.show_layer_mgr = true;
                             self.persist_prefs();
                         }
-                        ui.add_space(space::SM);
-                        ui.separator();
-                        ui.add_space(space::XS);
+                        ui.add_space(space::MD);
                         for dest in theme::right_manager_nav() {
-                            if icon_btn_nav(ui, dest.icon, dest.tip, self.right_tab == dest.tab)
+                            let tip = format!("{} — {}", dest.label, dest.tip);
+                            if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab)
                                 .clicked()
                             {
                                 self.show_layer_mgr = true;
@@ -1690,22 +1909,18 @@ impl AadtApp {
         }
         egui::SidePanel::right("layer_mgr")
             .default_width(self.right_panel_width)
-            .min_width(200.0)
-            .max_width(640.0)
+            .min_width(220.0)
+            .max_width(520.0)
             .resizable(true)
             .frame(
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
-                    .inner_margin(egui::Margin::same(space::MD))
+                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
                     .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(right_manager_title(self.right_tab))
-                            .heading()
-                            .color(color::TEXT),
-                    );
+                    panel_title(ui, right_manager_title(self.right_tab));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
                             self.show_layer_mgr = false;
@@ -1713,15 +1928,39 @@ impl AadtApp {
                         }
                     });
                 });
-                ui.add_space(space::XS);
-                if nav_tabs(ui, &mut self.right_tab, theme::right_manager_nav())
-                    && matches!(self.right_tab, 4 | 5)
-                {
-                    self.props_edit = self.session.document().properties().clone();
-                }
-                ui.add_space(space::SM);
+                panel_subtitle(
+                    ui,
+                    match self.right_tab {
+                        0 => "Quantities, publish, Ask, classify",
+                        1 => "Hatch patterns",
+                        2 => "Tables, leaders, tags",
+                        3 => "Nameplate template layers",
+                        4 => "Drawing units",
+                        5 => "Dimension styles",
+                        6 => "Drawing checkpoints",
+                        7 => "Selection properties",
+                        _ => "",
+                    },
+                );
+                ui.add_space(panel_space::TIGHT);
+                // Compact icon pivot — one row, no wrap soup.
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
+                    for dest in theme::right_manager_nav() {
+                        let tip = format!("{} — {}", dest.label, dest.tip);
+                        if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked()
+                        {
+                            self.right_tab = dest.tab;
+                            if matches!(dest.tab, 4 | 5) {
+                                self.props_edit = self.session.document().properties().clone();
+                            }
+                            self.persist_prefs();
+                        }
+                    }
+                });
+                ui.add_space(panel_space::ROW);
                 ui.separator();
-                ui.add_space(space::SM);
+                ui.add_space(panel_space::ROW);
                 match self.right_tab {
                     1 => self.ui_hatch_manager(ui),
                     2 => self.ui_annotate_panel(ui),
@@ -1732,10 +1971,9 @@ impl AadtApp {
                     7 => self.ui_selection_properties(ui),
                     _ => self.ui_takeoff_panel(ui),
                 }
-                let w = ui.max_rect().width().clamp(200.0, 640.0);
-                if (w - self.right_panel_width).abs() > 2.0 {
+                let w = ui.max_rect().width().clamp(220.0, 520.0);
+                if (w - self.right_panel_width).abs() > 4.0 {
                     self.right_panel_width = w;
-                    self.persist_prefs();
                 }
             });
     }
@@ -3349,6 +3587,132 @@ fn paint_library_glyph(painter: &egui::Painter, r: egui::Rect, path: &std::path:
         );
     } else {
         paint_placeholder_block(painter, r);
+    }
+}
+
+fn paint_document_sketch(
+    painter: &egui::Painter,
+    r: egui::Rect,
+    doc: &aadt_model::Document,
+    list: &aadt_render::DrawList,
+) {
+    use aadt_geometry::{Bbox, Point2};
+    use aadt_render::{Camera, DrawCommand};
+    use aadt_standards::aci_to_srgb;
+
+    if list.is_empty() {
+        painter.text(
+            r.center(),
+            egui::Align2::CENTER_CENTER,
+            "No sketch yet — draw walls / rooms",
+            theme::drawing_font(11.0),
+            color::TEXT_SECONDARY,
+        );
+        return;
+    }
+
+    let Some(bbox) = Bbox::of_points(doc.points()).or_else(|| {
+        let mut pts = Vec::new();
+        for cmd in &list.commands {
+            match cmd {
+                DrawCommand::Polyline { points, .. } | DrawCommand::Fill { points, .. } => {
+                    pts.extend(points.iter().copied());
+                }
+                DrawCommand::Circle { center, radius, .. }
+                | DrawCommand::Arc { center, radius, .. } => {
+                    pts.push(Point2::new(center.x - radius, center.y - radius));
+                    pts.push(Point2::new(center.x + radius, center.y + radius));
+                }
+                DrawCommand::Text { position, .. } | DrawCommand::Marker { position, .. } => {
+                    pts.push(*position);
+                }
+            }
+        }
+        Bbox::of_points(pts)
+    }) else {
+        painter.text(
+            r.center(),
+            egui::Align2::CENTER_CENTER,
+            "No sketch yet — draw walls / rooms",
+            theme::drawing_font(11.0),
+            color::TEXT_SECONDARY,
+        );
+        return;
+    };
+
+    let mut cam = Camera::new((r.width() as f64, r.height() as f64));
+    cam.fit(bbox, 0.06);
+    let to_screen = |p: Point2| {
+        let (sx, sy) = cam.world_to_screen(p);
+        egui::pos2(r.min.x + sx as f32, r.min.y + sy as f32)
+    };
+
+    for cmd in &list.commands {
+        let layer = cmd.layer();
+        let aci = doc.layer(layer).map(|l| l.color).unwrap_or(7);
+        let (cr, cg, cb) = aci_to_srgb(aci);
+        let ink = egui::Color32::from_rgb(cr, cg, cb);
+        let stroke = egui::Stroke::new(1.0_f32, ink);
+        match cmd {
+            DrawCommand::Polyline { points, closed, .. } => {
+                for w in points.windows(2) {
+                    painter.line_segment([to_screen(w[0]), to_screen(w[1])], stroke);
+                }
+                if *closed && points.len() > 2 {
+                    painter.line_segment(
+                        [to_screen(*points.last().unwrap()), to_screen(points[0])],
+                        stroke,
+                    );
+                }
+            }
+            DrawCommand::Fill { points, .. } => {
+                if points.len() >= 3 {
+                    let shape: Vec<_> = points.iter().map(|p| to_screen(*p)).collect();
+                    painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                        points: shape,
+                        closed: true,
+                        fill: egui::Color32::from_rgba_unmultiplied(ink.r(), ink.g(), ink.b(), 48),
+                        stroke: egui::Stroke::NONE.into(),
+                    }));
+                }
+            }
+            DrawCommand::Circle { center, radius, .. } => {
+                painter.circle_stroke(to_screen(*center), (*radius * cam.scale) as f32, stroke);
+            }
+            DrawCommand::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                ..
+            } => {
+                let mut sweep = end_angle - start_angle;
+                while sweep <= 0.0 {
+                    sweep += 360.0;
+                }
+                let steps = ((sweep / 360.0 * 24.0).ceil() as usize).max(2);
+                let mut prev = None;
+                for i in 0..=steps {
+                    let ang = (start_angle + sweep * i as f64 / steps as f64).to_radians();
+                    let p = to_screen(Point2::new(
+                        center.x + radius * ang.cos(),
+                        center.y + radius * ang.sin(),
+                    ));
+                    if let Some(q) = prev {
+                        painter.line_segment([q, p], stroke);
+                    }
+                    prev = Some(p);
+                }
+            }
+            DrawCommand::Text { position, .. } => {
+                painter.circle_filled(to_screen(*position), 1.6, ink);
+            }
+            DrawCommand::Marker { position, .. } => {
+                let c = to_screen(*position);
+                painter.line_segment([c + egui::vec2(-3.0, 0.0), c + egui::vec2(3.0, 0.0)], stroke);
+                painter.line_segment([c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)], stroke);
+            }
+        }
     }
 }
 

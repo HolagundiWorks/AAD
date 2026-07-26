@@ -242,7 +242,7 @@ pub fn extract_pair_size(text: &str, units: UnitSystem) -> Option<(f64, f64)> {
     // Normalize separators.
     let t = text.replace('×', "x").replace(" by ", " x ");
     // Find patterns like 12' x 16' or 12x16 or 3.6m x 4.8m
-    let re_parts: Vec<&str> = t.split(|c: char| c == 'x' || c == 'X').collect();
+    let re_parts: Vec<&str> = t.split(['x', 'X']).collect();
     if re_parts.len() < 2 {
         return None;
     }

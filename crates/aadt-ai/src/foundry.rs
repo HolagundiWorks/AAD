@@ -55,6 +55,92 @@ impl Default for FoundryLocalClient {
     }
 }
 
+/// Liveness of a Foundry Local endpoint, for a status indicator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FoundryStatus {
+    /// Not probed yet this session.
+    Unknown,
+    /// Nothing is listening — the service is not started.
+    Offline,
+    /// The endpoint accepted a TCP connection, but no model is confirmed loaded.
+    Running,
+    /// The service is up **and** a model is loaded / listed — ready for AI calls.
+    Active,
+}
+
+impl FoundryStatus {
+    /// A short label for a status pill.
+    pub fn label(self) -> &'static str {
+        match self {
+            FoundryStatus::Unknown => "checking…",
+            FoundryStatus::Offline => "offline",
+            FoundryStatus::Running => "running (no model)",
+            FoundryStatus::Active => "active (model ready)",
+        }
+    }
+
+    /// Whether the service is reachable at all (running or active).
+    pub fn is_running(self) -> bool {
+        matches!(self, FoundryStatus::Running | FoundryStatus::Active)
+    }
+
+    /// Whether a model is loaded and the service is ready for AI calls.
+    pub fn is_active(self) -> bool {
+        matches!(self, FoundryStatus::Active)
+    }
+}
+
+impl FoundryLocalClient {
+    /// The `host:port` endpoint this client targets, for display.
+    pub fn endpoint(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    /// Probe the endpoint within `timeout`: a TCP connect answers "running", and a
+    /// quick `GET /v1/models` answers "active" (a model is loaded). Cheap enough
+    /// to poll behind a status indicator; confirms reachability, not correctness.
+    pub fn probe(&self, timeout: std::time::Duration) -> FoundryStatus {
+        use std::net::ToSocketAddrs;
+        let Some(addr) = (self.host.as_str(), self.port)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut it| it.next())
+        else {
+            return FoundryStatus::Offline;
+        };
+        let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
+            return FoundryStatus::Offline;
+        };
+        // Reachable — now see whether a model is loaded via the models list.
+        let _ = stream.set_read_timeout(Some(timeout));
+        let _ = stream.set_write_timeout(Some(timeout));
+        let path = if self.base_path.is_empty() {
+            "/v1/models".to_string()
+        } else {
+            format!("{}/v1/models", self.base_path.trim_end_matches('/'))
+        };
+        let request = format!(
+            "GET {path} HTTP/1.1\r\nHost: {}:{}\r\nConnection: close\r\n\r\n",
+            self.host, self.port
+        );
+        if stream.write_all(request.as_bytes()).is_err() {
+            return FoundryStatus::Running;
+        }
+        let mut raw = String::new();
+        if stream.read_to_string(&mut raw).is_err() || raw.is_empty() {
+            return FoundryStatus::Running;
+        }
+        // A 200 response whose body lists a model id → a model is loaded.
+        let ok = raw.starts_with("HTTP/1.1 200") || raw.starts_with("HTTP/1.0 200");
+        let has_model = raw.contains("\"id\"") || raw.contains(&self.model);
+        if ok && has_model {
+            FoundryStatus::Active
+        } else {
+            FoundryStatus::Running
+        }
+    }
+}
+
 impl ModelClient for FoundryLocalClient {
     fn generate(&self, prompt: &str) -> Result<String, AiError> {
         let path = if self.base_path.is_empty() {
@@ -89,12 +175,30 @@ Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len(),
         );
 
-        let mut stream = TcpStream::connect((self.host.as_str(), self.port)).map_err(|e| {
+        let mut stream = TcpStream::connect_timeout(
+            &{
+                use std::net::ToSocketAddrs;
+                (self.host.as_str(), self.port)
+                    .to_socket_addrs()
+                    .ok()
+                    .and_then(|mut it| it.next())
+                    .ok_or_else(|| {
+                        AiError::Unavailable(format!(
+                            "Foundry Local at {}:{} — cannot resolve address",
+                            self.host, self.port
+                        ))
+                    })?
+            },
+            std::time::Duration::from_secs(2),
+        )
+        .map_err(|e| {
             AiError::Unavailable(format!(
-                "Foundry Local at {}:{} — {e} (is the service running?)",
+                "Foundry Local at {}:{} — {e} (is the service running? tip: open Foundry Controls → Discover)",
                 self.host, self.port
             ))
         })?;
+        let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(60)));
+        let _ = stream.set_write_timeout(Some(std::time::Duration::from_secs(10)));
         stream
             .write_all(request.as_bytes())
             .map_err(|e| AiError::Unavailable(e.to_string()))?;
@@ -112,9 +216,46 @@ Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
     }
 }
 
-/// Resolve endpoint: `AADT_FOUNDRY_ENDPOINT` env, else [`FOUNDRY_LOCAL_ENDPOINT`].
+/// Resolve endpoint: `AADT_FOUNDRY_ENDPOINT` env (if still reachable), else live
+/// CLI discovery, else [`FOUNDRY_LOCAL_ENDPOINT`].
+///
+/// Foundry Local often binds a **new** port after restart. A stale env URL must
+/// not win forever — that freezes ASK on an unreachable TCP connect.
 pub fn resolved_endpoint() -> String {
-    std::env::var("AADT_FOUNDRY_ENDPOINT").unwrap_or_else(|_| FOUNDRY_LOCAL_ENDPOINT.to_string())
+    if let Ok(env) = std::env::var("AADT_FOUNDRY_ENDPOINT") {
+        let env = env.trim().to_string();
+        if !env.is_empty() && endpoint_reachable(&env, std::time::Duration::from_millis(300)) {
+            return env;
+        }
+    }
+    if let Some(url) = crate::foundry_ctl::discover_endpoint() {
+        std::env::set_var("AADT_FOUNDRY_ENDPOINT", &url);
+        return url;
+    }
+    FOUNDRY_LOCAL_ENDPOINT.to_string()
+}
+
+/// Resolve model alias: non-empty `preferred`, else `AADT_FOUNDRY_MODEL`, else
+/// [`DEFAULT_FOUNDRY_MODEL`].
+pub fn resolved_model(preferred: &str) -> String {
+    let p = preferred.trim();
+    if !p.is_empty() {
+        return p.to_string();
+    }
+    std::env::var("AADT_FOUNDRY_MODEL").unwrap_or_else(|_| DEFAULT_FOUNDRY_MODEL.to_string())
+}
+
+/// Quick TCP check — does not issue an HTTP request.
+fn endpoint_reachable(endpoint: &str, timeout: std::time::Duration) -> bool {
+    use std::net::ToSocketAddrs;
+    let (host, port, _) = parse_http_endpoint(endpoint);
+    let Ok(mut addrs) = (host.as_str(), port).to_socket_addrs() else {
+        return false;
+    };
+    let Some(addr) = addrs.next() else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, timeout).is_ok()
 }
 
 /// Parse `http://host:port/optional/path` into (host, port, path).
@@ -168,6 +309,17 @@ mod tests {
         assert_eq!(h, "127.0.0.1");
         assert_eq!(p, 55588);
         assert_eq!(path, "/openai");
+    }
+
+    #[test]
+    fn probe_reports_offline_for_a_dead_port() {
+        // Port 1 is reserved and never listening → Offline, quickly.
+        let c = FoundryLocalClient::from_endpoint("http://127.0.0.1:1", "phi-3.5-mini");
+        assert_eq!(
+            c.probe(std::time::Duration::from_millis(200)),
+            FoundryStatus::Offline
+        );
+        assert_eq!(c.endpoint(), "127.0.0.1:1");
     }
 
     #[test]

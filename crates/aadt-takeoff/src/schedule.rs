@@ -15,7 +15,7 @@
 //! update itself when the drawing changes. [`LiveTakeoff`](crate::LiveTakeoff)
 //! is the live path; re-inserting is the in-drawing one.
 
-use aadt_geometry::{Point2, Segment};
+use aadt_geometry::{Bbox, Point2, Polyline, Segment};
 use aadt_model::{Document, EntityId, Geometry, Text};
 
 use crate::xlsx::Cell;
@@ -88,8 +88,12 @@ impl TakeoffTable {
         let grid = ScheduleGrid::new(&sheet.rows, style);
         let origin = style.origin;
         let run = run_id.to_string();
+        // Capture plan geometry before we mutate the document with the table.
+        let sketch_segs = plan_sketch_segments(doc);
+        let sketch_w = grid.total_width.max(style.text_height * 12.0);
         doc.transact("SCHEDULE", |d| {
-            let ids = grid.emit(d, &sheet.rows, style);
+            let mut ids = emit_plan_sketch(d, &sketch_segs, origin, sketch_w, &style.grid_layer);
+            ids.extend(grid.emit(d, &sheet.rows, style));
             for (i, &id) in ids.iter().enumerate() {
                 if i == 0 {
                     d.set_attribute(id, "AADT-SCHEDULE", "1");
@@ -146,6 +150,144 @@ impl TakeoffTable {
         }
         Ok(n)
     }
+}
+
+/// Max line segments in an embedded plan sketch (keeps schedules lean).
+const PLAN_SKETCH_MAX_SEGS: usize = 160;
+
+/// Collect line-like geometry from the model (excluding existing schedules).
+fn plan_sketch_segments(doc: &Document) -> Vec<Segment> {
+    let mut segs = Vec::new();
+    for e in doc.entities() {
+        if e.attribute("AADT-SCHEDULE").is_some() || e.attribute("AADT-SCHEDULE-PART").is_some() {
+            continue;
+        }
+        match &e.geometry {
+            Geometry::Line(s) => segs.push(*s),
+            Geometry::Polyline(p) => {
+                for s in p.segments() {
+                    segs.push(s);
+                    if segs.len() >= PLAN_SKETCH_MAX_SEGS {
+                        return segs;
+                    }
+                }
+            }
+            Geometry::Circle(c) => {
+                let n = 16usize;
+                for i in 0..n {
+                    let a0 = (i as f64 / n as f64) * std::f64::consts::TAU;
+                    let a1 = ((i + 1) as f64 / n as f64) * std::f64::consts::TAU;
+                    segs.push(Segment::new(
+                        Point2::new(
+                            c.center.x + c.radius * a0.cos(),
+                            c.center.y + c.radius * a0.sin(),
+                        ),
+                        Point2::new(
+                            c.center.x + c.radius * a1.cos(),
+                            c.center.y + c.radius * a1.sin(),
+                        ),
+                    ));
+                    if segs.len() >= PLAN_SKETCH_MAX_SEGS {
+                        return segs;
+                    }
+                }
+            }
+            Geometry::Arc(a) => {
+                let mut sweep = a.end_angle - a.start_angle;
+                while sweep <= 0.0 {
+                    sweep += 360.0;
+                }
+                let steps = ((sweep / 360.0 * 16.0).ceil() as usize).max(2);
+                for i in 0..steps {
+                    let t0 = a.start_angle + sweep * i as f64 / steps as f64;
+                    let t1 = a.start_angle + sweep * (i + 1) as f64 / steps as f64;
+                    let r0 = t0.to_radians();
+                    let r1 = t1.to_radians();
+                    segs.push(Segment::new(
+                        Point2::new(
+                            a.center.x + a.radius * r0.cos(),
+                            a.center.y + a.radius * r0.sin(),
+                        ),
+                        Point2::new(
+                            a.center.x + a.radius * r1.cos(),
+                            a.center.y + a.radius * r1.sin(),
+                        ),
+                    ));
+                    if segs.len() >= PLAN_SKETCH_MAX_SEGS {
+                        return segs;
+                    }
+                }
+            }
+            _ => {}
+        }
+        if segs.len() >= PLAN_SKETCH_MAX_SEGS {
+            break;
+        }
+    }
+    segs
+}
+
+/// Place a fitted plan miniature above the schedule origin (same undo unit).
+fn emit_plan_sketch(
+    doc: &mut Document,
+    segs: &[Segment],
+    origin: Point2,
+    frame_w: f64,
+    layer: &str,
+) -> Vec<EntityId> {
+    if segs.is_empty() || frame_w <= 1e-9 {
+        return Vec::new();
+    }
+    let pts: Vec<Point2> = segs.iter().flat_map(|s| [s.a, s.b]).collect();
+    let Some(bb) = Bbox::of_points(pts) else {
+        return Vec::new();
+    };
+    let frame_h = (frame_w * 0.62).max(2.0);
+    let gap = 0.4;
+    let title_h = 0.22;
+    let frame_bottom = origin.y + gap;
+    let frame_top = frame_bottom + frame_h;
+
+    let bw = bb.width().max(1e-6);
+    let bh = bb.height().max(1e-6);
+    let scale = (frame_w / bw).min(frame_h / bh) * 0.88;
+    let cx = (bb.min.x + bb.max.x) * 0.5;
+    let cy = (bb.min.y + bb.max.y) * 0.5;
+    let fcx = origin.x + frame_w * 0.5;
+    let fcy = frame_bottom + frame_h * 0.5;
+    let map = |p: Point2| {
+        Point2::new(fcx + (p.x - cx) * scale, fcy + (p.y - cy) * scale)
+    };
+
+    let mut ids = Vec::new();
+    ids.push(doc.add_geometry(
+        layer,
+        Geometry::Text(Text::new(
+            "PLAN SKETCH",
+            Point2::new(origin.x, frame_top + title_h * 0.2),
+            title_h,
+            0.0,
+        )),
+    ));
+    ids.push(doc.add_geometry(
+        layer,
+        Geometry::Polyline(Polyline::new(
+            vec![
+                Point2::new(origin.x, frame_bottom),
+                Point2::new(origin.x + frame_w, frame_bottom),
+                Point2::new(origin.x + frame_w, frame_top),
+                Point2::new(origin.x, frame_top),
+            ],
+            true,
+        )),
+    ));
+    for s in segs {
+        ids.push(doc.add_geometry(
+            layer,
+            Geometry::Line(Segment::new(map(s.a), map(s.b))),
+        ));
+    }
+    ids
 }
 
 /// Resolved geometry of the table: column widths and overall extent.

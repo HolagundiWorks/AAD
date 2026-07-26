@@ -643,18 +643,39 @@ impl Geometry {
                 p.closed,
             )),
             Geometry::Circle(c) => Geometry::Circle(Circle::new(sc(c.center), c.radius * fr)),
-            Geometry::Arc(a) => Geometry::Arc(Arc::new(
-                sc(a.center),
-                a.radius * fr,
-                a.start_angle,
-                a.end_angle,
-            )),
-            Geometry::Text(t) => Geometry::Text(Text::new(
-                t.value.clone(),
-                sc(t.position),
-                t.height * fr,
-                t.rotation,
-            )),
+            Geometry::Arc(a) => {
+                // Negative scales reverse orientation (AutoCAD mirror insert).
+                // Reflect angles about the flipped axis and swap start/end so the
+                // CCW sweep still tracks the transformed endpoints.
+                let mut start = a.start_angle;
+                let mut end = a.end_angle;
+                if scale_x < 0.0 {
+                    start = 180.0 - start;
+                    end = 180.0 - end;
+                    std::mem::swap(&mut start, &mut end);
+                }
+                if scale_y < 0.0 {
+                    start = -start;
+                    end = -end;
+                    std::mem::swap(&mut start, &mut end);
+                }
+                Geometry::Arc(Arc::new(sc(a.center), a.radius * fr, start, end))
+            }
+            Geometry::Text(t) => {
+                let mut rot = t.rotation;
+                if scale_x < 0.0 {
+                    rot = 180.0 - rot;
+                }
+                if scale_y < 0.0 {
+                    rot = -rot;
+                }
+                Geometry::Text(Text::new(
+                    t.value.clone(),
+                    sc(t.position),
+                    t.height * fr,
+                    rot,
+                ))
+            }
             Geometry::Insert(i) => Geometry::Insert(
                 i.at(sc(i.position), i.rotation)
                     .with_scale(i.scale_x * scale_x, i.scale_y * scale_y),
@@ -2683,6 +2704,21 @@ mod tests {
         } else {
             panic!("expected line");
         }
+    }
+
+    #[test]
+    fn negative_x_scale_flips_arc_sweep() {
+        // 0°→90° quarter-circle under sx=-1 becomes 90°→180° (CCW after X-flip).
+        let g = Geometry::Arc(Arc::new(Point2::new(0.0, 0.0), 1.0, 0.0, 90.0));
+        let Geometry::Arc(a) = g.scaled_xy(Point2::new(0.0, 0.0), -1.0, 1.0) else {
+            panic!("expected arc");
+        };
+        assert!((a.start_angle - 90.0).abs() < 1e-9, "got {}", a.start_angle);
+        assert!((a.end_angle - 180.0).abs() < 1e-9, "got {}", a.end_angle);
+        let s = a.start_point();
+        let e = a.end_point();
+        assert!(s.distance(Point2::new(0.0, 1.0)) < 1e-9, "start {s:?}");
+        assert!(e.distance(Point2::new(-1.0, 0.0)) < 1e-9, "end {e:?}");
     }
 
     #[test]

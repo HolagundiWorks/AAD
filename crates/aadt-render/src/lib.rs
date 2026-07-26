@@ -293,39 +293,105 @@ fn pattern_hatch_lines(hatch: &Hatch, outer: &aadt_geometry::Polyline) -> Vec<Dr
         return Vec::new();
     };
     let span = (max_x - min_x).max(max_y - min_y).max(1.0);
-    let step = (span / 18.0).clamp(0.05, span);
+    let (angle_deg, density) = hatch_pattern_params(&hatch.pattern);
+    let step = (span / density).clamp(0.05, span);
+    let angle = angle_deg.to_radians();
+    let (dir_x, dir_y) = (angle.cos(), angle.sin());
+    let (nx, ny) = (-dir_y, dir_x);
     let mut cmds = Vec::new();
-    let mut x = min_x - span;
-    while x < max_x + span {
-        // Sample the diagonal and keep only segments whose midpoints lie inside.
-        let a = Point2::new(x, min_y - span * 0.1);
-        let b = Point2::new(x + (max_y - min_y) + span * 0.2, max_y + span * 0.1);
-        let mut run: Vec<Point2> = Vec::new();
-        let samples = 48;
-        for i in 0..=samples {
-            let t = i as f64 / samples as f64;
-            let p = Point2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-            if outer.contains_point(p) {
-                run.push(p);
-            } else if run.len() >= 2 {
-                cmds.push(DrawCommand::Polyline {
-                    layer: hatch.layer.clone(),
-                    points: std::mem::take(&mut run),
-                    closed: false,
-                });
-                run.clear();
-            } else {
-                run.clear();
-            }
+    let mid_x = (min_x + max_x) * 0.5;
+    let mid_y = (min_y + max_y) * 0.5;
+    // Offset primary family lines along the normal through the AABB extent.
+    let mut o = -span * 1.5;
+    while o < span * 1.5 {
+        let cx = mid_x + nx * o;
+        let cy = mid_y + ny * o;
+        let a = Point2::new(cx - dir_x * span * 2.0, cy - dir_y * span * 2.0);
+        let b = Point2::new(cx + dir_x * span * 2.0, cy + dir_y * span * 2.0);
+        cmds.extend(clipped_hatch_run(hatch, outer, a, b));
+        o += step;
+    }
+    // Cross/grid: second family offset independently along `dir` (not the same
+    // normal offsets — otherwise every perpendicular stroke collapses).
+    if hatch_pattern_is_cross(&hatch.pattern) {
+        let mut o2 = -span * 1.5;
+        while o2 < span * 1.5 {
+            let cx = mid_x + dir_x * o2;
+            let cy = mid_y + dir_y * o2;
+            let a2 = Point2::new(cx - nx * span * 2.0, cy - ny * span * 2.0);
+            let b2 = Point2::new(cx + nx * span * 2.0, cy + ny * span * 2.0);
+            cmds.extend(clipped_hatch_run(hatch, outer, a2, b2));
+            o2 += step;
         }
-        if run.len() >= 2 {
+    }
+    cmds
+}
+
+fn hatch_pattern_params(name: &str) -> (f64, f64) {
+    let n = name.trim().to_ascii_uppercase();
+    match n.as_str() {
+        "ANSI31" | "ANSI37" => (45.0, 18.0),
+        "ANSI32" | "STEEL" => (45.0, 12.0),
+        "ANSI33" => (0.0, 16.0),
+        "ANSI34" | "BRICK" => (0.0, 10.0),
+        "AR-SAND" | "DOTS" | "GRAVEL" => (45.0, 28.0),
+        "EARTH" | "GRASS" => (60.0, 14.0),
+        "CROSS" | "ANSI38" | "NET" | "GRID" => (0.0, 14.0),
+        "DASH" | "DASHED" => (0.0, 12.0),
+        _ => (45.0, 18.0),
+    }
+}
+
+fn hatch_pattern_is_cross(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_uppercase().as_str(),
+        "CROSS" | "ANSI38" | "NET" | "GRID"
+    )
+}
+
+fn point_in_hatch_fill(hatch: &Hatch, outer: &aadt_geometry::Polyline, p: Point2) -> bool {
+    if !outer.contains_point(p) {
+        return false;
+    }
+    // Punch out islands (boundaries after the outer loop).
+    !hatch
+        .boundaries
+        .iter()
+        .skip(1)
+        .any(|island| island.contains_point(p))
+}
+
+fn clipped_hatch_run(
+    hatch: &Hatch,
+    outer: &aadt_geometry::Polyline,
+    a: Point2,
+    b: Point2,
+) -> Vec<DrawCommand> {
+    let mut cmds = Vec::new();
+    let mut run: Vec<Point2> = Vec::new();
+    let samples = 48;
+    for i in 0..=samples {
+        let t = i as f64 / samples as f64;
+        let p = Point2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+        if point_in_hatch_fill(hatch, outer, p) {
+            run.push(p);
+        } else if run.len() >= 2 {
             cmds.push(DrawCommand::Polyline {
                 layer: hatch.layer.clone(),
-                points: run,
+                points: std::mem::take(&mut run),
                 closed: false,
             });
+            run.clear();
+        } else {
+            run.clear();
         }
-        x += step;
+    }
+    if run.len() >= 2 {
+        cmds.push(DrawCommand::Polyline {
+            layer: hatch.layer.clone(),
+            points: run,
+            closed: false,
+        });
     }
     cmds
 }
@@ -1106,6 +1172,60 @@ mod tests {
             Some("10\""),
             "empty override → formatted measurement (default ft-in inches)"
         );
+    }
+
+    #[test]
+    fn cross_hatch_emits_both_stroke_families() {
+        let mut doc = Document::new();
+        doc.add_hatch(Hatch::new(
+            "A-FLOR",
+            Polyline::new(
+                vec![
+                    Point2::new(0.0, 0.0),
+                    Point2::new(10.0, 0.0),
+                    Point2::new(10.0, 10.0),
+                    Point2::new(0.0, 10.0),
+                ],
+                true,
+            ),
+            "CROSS",
+        ));
+        let list = build_drawlist(&doc);
+        let strokes: Vec<_> = list
+            .commands
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c,
+                    DrawCommand::Polyline {
+                        layer,
+                        closed: false,
+                        points,
+                        ..
+                    } if layer == "A-FLOR" && points.len() >= 2
+                )
+            })
+            .collect();
+        assert!(
+            strokes.len() >= 4,
+            "CROSS should emit multiple H and V strokes, got {}",
+            strokes.len()
+        );
+        let mut has_h = false;
+        let mut has_v = false;
+        for c in &strokes {
+            if let DrawCommand::Polyline { points, .. } = c {
+                let dx = (points[1].x - points[0].x).abs();
+                let dy = (points[1].y - points[0].y).abs();
+                if dy < 1e-6 && dx > 1e-6 {
+                    has_h = true;
+                }
+                if dx < 1e-6 && dy > 1e-6 {
+                    has_v = true;
+                }
+            }
+        }
+        assert!(has_h && has_v, "CROSS needs both horizontal and vertical runs");
     }
 
     #[test]

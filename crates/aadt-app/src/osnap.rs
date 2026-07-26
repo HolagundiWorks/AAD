@@ -197,7 +197,7 @@ pub fn find_osnap_in_spaces(
     let mut best: Option<(f64, u8, SnapKind, Point2)> = None;
     let entities = doc.iter_entities().filter(|e| {
         spaces
-            .map(|ss| ss.iter().any(|s| *s == e.space))
+            .map(|ss| ss.contains(&e.space))
             .unwrap_or(true)
     });
     for e in entities {

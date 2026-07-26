@@ -131,7 +131,6 @@ impl Command for SpaceAddCmd {
             .active_floor_id()
             .ok_or_else(|| "no active floor".to_string())?;
         let id = {
-            let floor = floor;
             let label = label.clone();
             ctx.doc.transact("SPACEADD", |d| {
                 let id = d.add_custom_space(floor, label)?;

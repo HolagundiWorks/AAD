@@ -1210,10 +1210,22 @@ fn trim_geometry(
         Geometry::Line(s) => trim_line(*s, cutters, pick),
         Geometry::Arc(a) => trim_arc(*a, cutters, pick),
         Geometry::Polyline(p) => {
-            if p.closed {
-                return Err("TRIM: closed polylines are not supported".into());
+            // Closed loops: open the ring (duplicate first vertex) so the
+            // closing edge participates in cut detection and path params.
+            if p.closed && p.vertices.len() >= 3 {
+                let mut ring = p.vertices.clone();
+                let needs_close = ring
+                    .first()
+                    .zip(ring.last())
+                    .map(|(a, b)| a.distance(*b) > HIT_EPS)
+                    .unwrap_or(true);
+                if needs_close {
+                    ring.push(ring[0]);
+                }
+                trim_polyline(&Polyline::new(ring, false), cutters, pick)
+            } else {
+                trim_polyline(p, cutters, pick)
             }
-            trim_polyline(p, cutters, pick)
         }
         _ => Err("TRIM: entity must be a line, arc, or polyline".into()),
     }
@@ -2477,11 +2489,7 @@ fn geometry_with_grip_moved(g: &Geometry, grip_idx: usize, new_pt: Point2) -> Op
             t.height,
             t.rotation,
         ))),
-        Geometry::Insert(i) => Some(Geometry::Insert(Insert::new(
-            i.name.clone(),
-            new_pt,
-            i.rotation,
-        ))),
+        Geometry::Insert(i) => Some(Geometry::Insert(i.at(new_pt, i.rotation))),
     }
 }
 
@@ -3466,6 +3474,34 @@ mod tests {
         // A cutter that does not cross is rejected.
         interp.eval_line(&mut ctx, "LINE 40 -5 40 5").unwrap(); // id 2, far away
         assert!(interp.eval_line(&mut ctx, "TRIM 0 2 5 0").is_err());
+    }
+
+    #[test]
+    fn trim_closed_polyline_uses_closing_edge() {
+        // Rectangle: cutter crosses the bottom edge and the closing (left) edge.
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "RECTANGLE 0 0 10 10")
+            .unwrap(); // id 0 closed poly
+        interp.eval_line(&mut ctx, "LINE 5 -2 5 2").unwrap(); // id 1 crosses bottom
+        // Quick mode: id px py (cutter = every other entity). Pick on bottom edge.
+        interp
+            .eval_line(&mut ctx, "TRIM 0 2 0")
+            .expect("closed poly trim should succeed");
+        // Target is no longer a closed rectangle (opened by trim).
+        let e = ctx
+            .doc
+            .get(EntityId(0))
+            .expect("trimmed entity should remain");
+        match &e.geometry {
+            Geometry::Polyline(p) => {
+                assert!(!p.closed, "trim opens the loop");
+                assert!(p.vertices.len() >= 2);
+            }
+            Geometry::Line(_) => {}
+            other => panic!("unexpected geometry after closed trim: {other:?}"),
+        }
     }
 
     #[test]

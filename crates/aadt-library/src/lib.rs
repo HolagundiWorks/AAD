@@ -261,16 +261,27 @@ fn import_dxf_block(
             .to_string()
     });
 
-    if let Some(existing) = src.blocks().into_iter().next() {
+    // Prefer a real named BLOCK with geometry. Many library DXFs put the drawing
+    // in ENTITIES and only empty `*Model_Space` / `*Paper_Space` in the BLOCKS
+    // table — taking `.next()` used to import an empty definition.
+    let named = src
+        .blocks()
+        .into_iter()
+        .filter(|b| !b.name.starts_with('*') && !b.entities.is_empty())
+        .max_by_key(|b| b.entities.len());
+    if let Some(existing) = named {
         let mut b = Block::new(block_name.clone(), existing.base);
         b.entities = existing.entities.clone();
         doc.add_block(b);
         return Ok(block_name);
     }
 
-    // No BLOCK table — wrap model-space entities as a definition.
+    // No usable BLOCK table entry — wrap model-space entities as a definition.
     let mut b = Block::new(block_name.clone(), Point2::new(0.0, 0.0));
     for e in src.entities() {
+        if matches!(e.geometry, Geometry::Insert(_)) {
+            continue;
+        }
         b.entities.push(BlockEntity {
             layer: e.layer.clone(),
             geometry: e.geometry.clone(),

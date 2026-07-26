@@ -35,14 +35,10 @@ fn seed_door_single(doc: &mut Document) {
             "A-DOOR",
             Geometry::Line(Segment::new(Point2::new(0.9, 0.0), Point2::new(0.9, 0.05))),
         );
+        // Arc angles are degrees (DXF convention), not radians.
         b.push(
             "A-DOOR",
-            Geometry::Arc(aadt_geometry::Arc::new(
-                Point2::new(0.0, 0.0),
-                0.9,
-                0.0,
-                std::f64::consts::FRAC_PI_2,
-            )),
+            Geometry::Arc(aadt_geometry::Arc::new(Point2::new(0.0, 0.0), 0.9, 0.0, 90.0)),
         );
     });
 }
@@ -59,7 +55,7 @@ fn seed_door_double(doc: &mut Document) {
                 Point2::new(-0.9, 0.0),
                 0.9,
                 0.0,
-                std::f64::consts::FRAC_PI_2,
+                90.0,
             )),
         );
         b.push(
@@ -67,8 +63,8 @@ fn seed_door_double(doc: &mut Document) {
             Geometry::Arc(aadt_geometry::Arc::new(
                 Point2::new(0.9, 0.0),
                 0.9,
-                std::f64::consts::FRAC_PI_2,
-                std::f64::consts::PI,
+                90.0,
+                180.0,
             )),
         );
     });
@@ -315,7 +311,14 @@ fn seed_toilet(doc: &mut Document) {
 }
 
 fn seed(doc: &mut Document, name: &str, width_m: f64, f: impl FnOnce(&mut Block)) {
-    if doc.block(name).is_some() {
+    // Door arcs were briefly seeded in radians; refresh those defs in place.
+    if let Some(existing) = doc.block_mut(name) {
+        if name == "DOOR-SINGLE" || name == "DOOR-DOUBLE" {
+            existing.entities.clear();
+            f(existing);
+            existing.set_param("WIDTH", format!("{width_m:.3}"), BlockParamKind::Number);
+            existing.set_param("UNITS", "m", BlockParamKind::String);
+        }
         return;
     }
     let mut block = Block::new(name, Point2::new(0.0, 0.0));
