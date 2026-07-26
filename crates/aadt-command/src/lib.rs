@@ -3297,6 +3297,38 @@ mod tests {
     }
 
     #[test]
+    fn rectang_adds_a_closed_four_corner_polyline() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp
+            .eval_line(&mut ctx, "RECTANG 0 0 4 3 A-ROOM")
+            .unwrap();
+        assert_eq!(ctx.doc.len(), 1);
+        match &ctx.doc.entities()[0].geometry {
+            Geometry::Polyline(p) => {
+                assert!(p.closed);
+                assert_eq!(
+                    p.vertices,
+                    vec![
+                        Point2::new(0.0, 0.0),
+                        Point2::new(4.0, 0.0),
+                        Point2::new(4.0, 3.0),
+                        Point2::new(0.0, 3.0),
+                    ]
+                );
+            }
+            other => panic!("expected polyline, got {other:?}"),
+        }
+        assert_eq!(ctx.doc.entities()[0].layer, "A-ROOM");
+        // A degenerate rectangle is rejected and leaves no entity.
+        assert!(interp.eval_line(&mut ctx, "RECTANG 0 0 4 0").is_err());
+        assert_eq!(ctx.doc.len(), 1);
+        // The alias resolves.
+        interp.eval_line(&mut ctx, "REC 0 0 1 1").unwrap();
+        assert_eq!(ctx.doc.len(), 2);
+    }
+
+    #[test]
     fn move_keeps_the_id_and_is_undoable() {
         let interp = Interpreter::with_builtins();
         let mut ctx = Context::new();
