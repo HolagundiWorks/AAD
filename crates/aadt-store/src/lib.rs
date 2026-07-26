@@ -16,9 +16,8 @@ use std::path::Path;
 
 use aadt_geometry::Point2;
 use aadt_model::{
-    Block, BlockParam, BlockParamKind, Dimension, DimensionKind, Document, Entity, EntityId,
-    Floor, Hatch, Layer, LevelId, LineType, ModelSpace, ModelSpaceId, SpaceCategory,
-    VisibilityState,
+    Block, BlockParam, BlockParamKind, Dimension, DimensionKind, Document, Entity, EntityId, Floor,
+    Hatch, Layer, LevelId, LineType, ModelSpace, ModelSpaceId, SpaceCategory, VisibilityState,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -411,8 +410,7 @@ pub(crate) fn migrate_to_v6(conn: &Connection) -> Result<(), StoreError> {
         ",
     )?;
     // Seed Ground + five spaces if empty; stamp entities to Walls.
-    let floor_count: i64 =
-        conn.query_row("SELECT COUNT(*) FROM floors", [], |r| r.get(0))?;
+    let floor_count: i64 = conn.query_row("SELECT COUNT(*) FROM floors", [], |r| r.get(0))?;
     if floor_count == 0 {
         conn.execute(
             "INSERT INTO floors (id, name, idx, elevation_m) VALUES (1, 'Ground', 0, 0.0)",
@@ -573,9 +571,8 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
     }
 
     {
-        let mut fstmt = tx.prepare(
-            "INSERT INTO floors (id, name, idx, elevation_m) VALUES (?1, ?2, ?3, ?4)",
-        )?;
+        let mut fstmt =
+            tx.prepare("INSERT INTO floors (id, name, idx, elevation_m) VALUES (?1, ?2, ?3, ?4)")?;
         for f in doc.floors() {
             fstmt.execute(params![
                 f.id.0 as i64,
@@ -898,8 +895,8 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
     }
 
     {
-        let mut stmt = conn
-            .prepare("SELECT layer, pattern, solid, geom, space_id FROM hatches ORDER BY seq")?;
+        let mut stmt =
+            conn.prepare("SELECT layer, pattern, solid, geom, space_id FROM hatches ORDER BY seq")?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -996,11 +993,9 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
         }
         if !floors.is_empty() && !spaces.is_empty() {
             let meta = |key: &str| -> Option<String> {
-                conn.query_row(
-                    "SELECT value FROM meta WHERE key = ?1",
-                    params![key],
-                    |r| r.get(0),
-                )
+                conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                    r.get(0)
+                })
                 .ok()
             };
             let ox: f64 = meta("floors.origin_x")
@@ -1044,9 +1039,9 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
         if let Ok(mut stmt) =
             conn.prepare("SELECT key, value FROM meta WHERE key LIKE 'layermap.%'")
         {
-            if let Ok(rows) = stmt.query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            }) {
+            if let Ok(rows) =
+                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            {
                 for row in rows.flatten() {
                     let (key, val) = row;
                     let layer = key.strip_prefix("layermap.").unwrap_or(&key);
@@ -1098,7 +1093,7 @@ fn parse_dim_kind(s: &str) -> Result<DimensionKind, StoreError> {
 mod tests {
     use super::*;
     use aadt_geometry::{Circle, Point2, Polyline, Segment};
-    use aadt_model::{Insert, Text};
+    use aadt_model::{Geometry, Insert, Text};
 
     #[test]
     fn round_trip_entities_layers_and_attrs() {

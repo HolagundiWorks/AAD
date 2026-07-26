@@ -115,7 +115,10 @@ fn seed_window_sliding(doc: &mut Document) {
         );
         b.push(
             "A-GLAZ",
-            Geometry::Line(Segment::new(Point2::new(0.15, 0.06), Point2::new(0.75, 0.06))),
+            Geometry::Line(Segment::new(
+                Point2::new(0.15, 0.06),
+                Point2::new(0.75, 0.06),
+            )),
         );
     });
 }
@@ -214,7 +217,10 @@ fn seed_chair(doc: &mut Document) {
         );
         b.push(
             "A-FURN",
-            Geometry::Line(Segment::new(Point2::new(-0.25, 0.25), Point2::new(0.25, 0.25))),
+            Geometry::Line(Segment::new(
+                Point2::new(-0.25, 0.25),
+                Point2::new(0.25, 0.25),
+            )),
         );
     });
 }

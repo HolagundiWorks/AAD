@@ -50,14 +50,7 @@ impl OsnapState {
         now: Instant,
     ) -> Option<(SnapKind, Point2)> {
         let spaces = space.map(|s| vec![s]);
-        self.resolve_in_spaces(
-            doc,
-            spaces.as_deref(),
-            raw,
-            snap_tol,
-            move_tol,
-            now,
-        )
+        self.resolve_in_spaces(doc, spaces.as_deref(), raw, snap_tol, move_tol, now)
     }
 
     /// Resolve snap across multiple model spaces (active + TRACE / underlay).
@@ -330,7 +323,9 @@ mod tests {
         let mut doc = Document::new();
         let ground = doc.active_floor_id().unwrap();
         let walls = doc.space_on_floor(ground, SpaceCategory::Walls).unwrap();
-        let furn = doc.space_on_floor(ground, SpaceCategory::Furniture).unwrap();
+        let furn = doc
+            .space_on_floor(ground, SpaceCategory::Furniture)
+            .unwrap();
         let id = doc.add_geometry(
             "A-FURN",
             Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
@@ -338,8 +333,14 @@ mod tests {
         doc.set_entity_space(id, furn);
         let _ = doc.set_active_space(walls);
         // Active-only: miss underlay furniture line.
-        assert!(find_osnap_in_space(&doc, Some(walls), Point2::new(0.1, 0.0), 0.5, &mut Vec::new())
-            .is_none());
+        assert!(find_osnap_in_space(
+            &doc,
+            Some(walls),
+            Point2::new(0.1, 0.0),
+            0.5,
+            &mut Vec::new()
+        )
+        .is_none());
         // Snap candidates include underlay.
         let spaces = doc.snap_candidate_spaces();
         let hit = find_osnap_in_spaces(

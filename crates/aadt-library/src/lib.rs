@@ -177,7 +177,11 @@ pub fn import_block_scaled(
             if let Some(bb) = block_bbox(block) {
                 let w = (bb.max.x - bb.min.x).max(0.0);
                 if w > 1e-9 {
-                    block.set_param("WIDTH", format!("{w:.4}"), aadt_model::BlockParamKind::String);
+                    block.set_param(
+                        "WIDTH",
+                        format!("{w:.4}"),
+                        aadt_model::BlockParamKind::String,
+                    );
                 }
             }
             block.set_param("UNITS", "m", aadt_model::BlockParamKind::String);
@@ -187,7 +191,11 @@ pub fn import_block_scaled(
             if let Some(bb) = block_bbox(block) {
                 let w = (bb.max.x - bb.min.x).max(0.0);
                 if w > 1e-9 {
-                    block.set_param("WIDTH", format!("{w:.4}"), aadt_model::BlockParamKind::String);
+                    block.set_param(
+                        "WIDTH",
+                        format!("{w:.4}"),
+                        aadt_model::BlockParamKind::String,
+                    );
                 }
             }
         }
@@ -726,7 +734,10 @@ pub fn list_fonts(root: &Path) -> Result<Vec<FontEntry>, LibraryError> {
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     // Prefer Source Sans 3 as the canonical drawing face.
-    if let Some(i) = out.iter().position(|f| f.name.starts_with("SourceSans3-Regular")) {
+    if let Some(i) = out
+        .iter()
+        .position(|f| f.name.starts_with("SourceSans3-Regular"))
+    {
         let preferred = out.remove(i);
         out.insert(0, preferred);
     }

@@ -98,12 +98,8 @@ pub fn decode_op(line: &str) -> Option<Op> {
 pub fn decode_presence(line: &str) -> Option<PresenceMsg> {
     let f: Vec<&str> = line.split('\t').collect();
     match *f.first()? {
-        "J" if f.len() == 2 => Some(PresenceMsg::Join {
-            site: unesc(f[1]),
-        }),
-        "L" if f.len() == 2 => Some(PresenceMsg::Leave {
-            site: unesc(f[1]),
-        }),
+        "J" if f.len() == 2 => Some(PresenceMsg::Join { site: unesc(f[1]) }),
+        "L" if f.len() == 2 => Some(PresenceMsg::Leave { site: unesc(f[1]) }),
         "P" if f.len() == 4 => Some(PresenceMsg::Cursor {
             site: unesc(f[1]),
             at: Point2::new(f[2].parse().ok()?, f[3].parse().ok()?),

@@ -7,9 +7,7 @@
 
 use aadt_model::{parse_length, primary_from_props, UnitSystem, METERS_PER_INCH};
 
-use crate::{
-    json_string, string_field, AiError, AuditLog, ModelClient,
-};
+use crate::{json_string, string_field, AiError, AuditLog, ModelClient};
 
 /// Default block width for the seeded `WINDOW` definition (metres).
 const WINDOW_BLOCK_M: f64 = 1.2;
@@ -56,9 +54,9 @@ impl NlContext {
 
     /// First selected line with endpoints, if any.
     pub fn first_line(&self) -> Option<&NlSelectionFact> {
-        self.selection.iter().find(|s| {
-            s.kind.eq_ignore_ascii_case("LINE") && s.a.is_some() && s.b.is_some()
-        })
+        self.selection
+            .iter()
+            .find(|s| s.kind.eq_ignore_ascii_case("LINE") && s.a.is_some() && s.b.is_some())
     }
 }
 
@@ -145,9 +143,7 @@ pub fn try_parse_nl_local(utterance: &str, ctx: &NlContext) -> Option<NlPlan> {
             let my = (ay + by) * 0.5;
             let ang = (by - ay).atan2(bx - ax).to_degrees();
             let scale = opening_scale(width, units, WINDOW_BLOCK_M);
-            let cmd = format!(
-                "INSERT WINDOW {mx} {my} {ang:.4} A-GLAZ {scale:.6}"
-            );
+            let cmd = format!("INSERT WINDOW {mx} {my} {ang:.4} A-GLAZ {scale:.6}");
             return Some(NlPlan {
                 source: NlSource::Local,
                 note: format!("window width {width:.3} on entity {}", line_ent.id),
@@ -166,9 +162,7 @@ pub fn try_parse_nl_local(utterance: &str, ctx: &NlContext) -> Option<NlPlan> {
             let my = (ay + by) * 0.5;
             let ang = (by - ay).atan2(bx - ax).to_degrees();
             let scale = opening_scale(width, units, DOOR_BLOCK_M);
-            let cmd = format!(
-                "INSERT DOOR-SINGLE {mx} {my} {ang:.4} A-DOOR {scale:.6}"
-            );
+            let cmd = format!("INSERT DOOR-SINGLE {mx} {my} {ang:.4} A-DOOR {scale:.6}");
             return Some(NlPlan {
                 source: NlSource::Local,
                 note: format!("door width {width:.3} on entity {}", line_ent.id),
@@ -340,9 +334,7 @@ pub fn build_nl_prompt(utterance: &str, ctx: &NlContext) -> String {
         }
         let ends = match (s.a, s.b) {
             (Some((ax, ay)), Some((bx, by))) => {
-                format!(
-                    ",\"a\":[{ax:.3},{ay:.3}],\"b\":[{bx:.3},{by:.3}]"
-                )
+                format!(",\"a\":[{ax:.3},{ay:.3}],\"b\":[{bx:.3},{by:.3}]")
             }
             _ => String::new(),
         };
@@ -480,8 +472,8 @@ mod tests {
 
     #[test]
     fn local_door_on_selected_wall() {
-        let plan = try_parse_nl_local("place a door of 3' on the selected wall", &wall_ctx())
-            .unwrap();
+        let plan =
+            try_parse_nl_local("place a door of 3' on the selected wall", &wall_ctx()).unwrap();
         assert!(plan.commands[0].contains("DOOR-SINGLE"));
     }
 

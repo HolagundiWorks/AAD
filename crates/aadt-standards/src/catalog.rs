@@ -251,7 +251,9 @@ mod tests {
     #[test]
     fn apply_seeds_missing_only() {
         let mut doc = aadt_model::Document::new();
-        doc.add_layer(Layer::new("A-WALL").with_color(3));
+        // Force an existing user value (a fresh document may already seed A-WALL,
+        // so `add_layer` would no-op) to prove `apply` leaves it untouched.
+        doc.restore_layer(Layer::new("A-WALL").with_color(3));
         let n = apply_standard_layers(&mut doc);
         assert!(n >= 80);
         assert_eq!(doc.layer("A-WALL").unwrap().color, 3, "existing preserved");

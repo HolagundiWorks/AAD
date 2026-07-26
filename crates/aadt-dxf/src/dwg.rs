@@ -3,9 +3,7 @@
 use std::path::Path;
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{
-    Block, Dimension, DimensionKind, Document, Geometry, Hatch, Insert, Layer, Text,
-};
+use aadt_model::{Block, Dimension, DimensionKind, Document, Geometry, Hatch, Insert, Layer, Text};
 use acadrust::entities::{
     Arc as AcadArc, Circle as AcadCircle, EntityCommon, EntityType, Insert as AcadInsert,
     Line as AcadLine, LwPolyline, Text as AcadText,
@@ -89,10 +87,7 @@ fn from_cad_document(cad: &CadDocument) -> Document {
         if name.starts_with('*') {
             continue;
         }
-        let mut block = Block::new(
-            name,
-            Point2::new(br.base_point.x, br.base_point.y),
-        );
+        let mut block = Block::new(name, Point2::new(br.base_point.x, br.base_point.y));
         for h in &br.entity_handles {
             let Some(ent) = cad.get_entity(*h) else {
                 continue;
@@ -226,10 +221,12 @@ fn geometry_to_entity(layer: &str, g: &Geometry) -> Option<EntityType> {
             Some(EntityType::LwPolyline(pl))
         }
         Geometry::Text(t) => {
-            let mut text =
-                AcadText::with_value(t.value.clone(), Vector3::new(t.position.x, t.position.y, 0.0))
-                    .with_height(t.height.max(0.01))
-                    .with_rotation(t.rotation.to_radians());
+            let mut text = AcadText::with_value(
+                t.value.clone(),
+                Vector3::new(t.position.x, t.position.y, 0.0),
+            )
+            .with_height(t.height.max(0.01))
+            .with_rotation(t.rotation.to_radians());
             text.common = with_layer(EntityCommon::new(), layer);
             Some(EntityType::Text(text))
         }

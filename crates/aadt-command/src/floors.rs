@@ -40,7 +40,15 @@ impl Command for FloorCmd {
                 .map(|f| f.id)
                 .ok_or_else(|| format!("no floor with index {idx}"))?;
             ctx.doc.transact("FLOOR", |d| d.set_active_floor(id))?;
-            return Ok(format!("active floor → {}", ctx.doc.floors().iter().find(|f| f.id == id).map(|f| f.name.as_str()).unwrap_or("?")));
+            return Ok(format!(
+                "active floor → {}",
+                ctx.doc
+                    .floors()
+                    .iter()
+                    .find(|f| f.id == id)
+                    .map(|f| f.name.as_str())
+                    .unwrap_or("?")
+            ));
         }
         let id = ctx
             .doc
@@ -49,7 +57,11 @@ impl Command for FloorCmd {
             .find(|f| f.name.eq_ignore_ascii_case(&key))
             .map(|f| f.id)
             .ok_or_else(|| format!("unknown floor {key:?}"))?;
-        let name = ctx.doc.floor(id).map(|f| f.name.clone()).unwrap_or_default();
+        let name = ctx
+            .doc
+            .floor(id)
+            .map(|f| f.name.clone())
+            .unwrap_or_default();
         ctx.doc.transact("FLOOR", |d| d.set_active_floor(id))?;
         Ok(format!("active floor → {name}"))
     }
@@ -70,7 +82,8 @@ impl Command for FloorAddCmd {
         if args.is_empty() {
             return Err("FLOORADD needs a name".into());
         }
-        let default_step = parse_height_metres(ctx.doc.properties().floor_height.trim()).unwrap_or(3.0);
+        let default_step =
+            parse_height_metres(ctx.doc.properties().floor_height.trim()).unwrap_or(3.0);
         let elev = args
             .last()
             .and_then(|s| s.parse::<f64>().ok())
@@ -86,7 +99,9 @@ impl Command for FloorAddCmd {
         } else {
             args.join(" ")
         };
-        let id = ctx.doc.transact("FLOORADD", |d| d.add_floor(name.clone(), elev));
+        let id = ctx
+            .doc
+            .transact("FLOORADD", |d| d.add_floor(name.clone(), elev));
         let _ = ctx.doc.set_active_floor(id);
         Ok(format!(
             "added floor {name} (elev {elev:.3} m) with Walls/Structural/Lintel/BeamLayout/Furniture"
@@ -178,9 +193,11 @@ impl Command for CategoryCmd {
                 ms.category.default_layer()
             ));
         }
-        let cat = SpaceCategory::parse(&args.join(" "))
-            .ok_or_else(|| "unknown category; try Walls Structural Lintel BeamLayout Furniture".to_string())?;
-        ctx.doc.transact("CATEGORY", |d| d.set_active_category(cat))?;
+        let cat = SpaceCategory::parse(&args.join(" ")).ok_or_else(|| {
+            "unknown category; try Walls Structural Lintel BeamLayout Furniture".to_string()
+        })?;
+        ctx.doc
+            .transact("CATEGORY", |d| d.set_active_category(cat))?;
         let ms = ctx.doc.active_model_space().unwrap();
         Ok(format!(
             "active model space → {} (writes as {})",
@@ -211,11 +228,7 @@ impl Command for TraceCmd {
             "ABOVE" | "UP" => (false, true),
             "BOTH" | "ON" => (true, true),
             "OFF" | "NONE" => (false, false),
-            other => {
-                return Err(format!(
-                    "TRACE {other:?}: use BELOW, ABOVE, BOTH, or OFF"
-                ))
-            }
+            other => return Err(format!("TRACE {other:?}: use BELOW, ABOVE, BOTH, or OFF")),
         };
         ctx.doc.transact("TRACE", |d| d.set_trace(below, above));
         Ok(format!(

@@ -193,7 +193,8 @@ fn transform(geom: &Geometry, map: &impl Fn(Point2) -> Point2, scale: f64) -> Ge
             t.rotation,
         )),
         Geometry::Insert(i) => Geometry::Insert(
-            Insert::new(i.name.clone(), map(i.position), i.rotation).with_scale(i.scale_x, i.scale_y),
+            Insert::new(i.name.clone(), map(i.position), i.rotation)
+                .with_scale(i.scale_x, i.scale_y),
         ),
     }
 }

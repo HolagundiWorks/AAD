@@ -703,7 +703,9 @@ fn import_layer(doc: &mut Document, rec: &Record) {
             layer.lineweight_mm = w as f32 / 100.0;
         }
     }
-    doc.add_layer(layer);
+    // The LAYER table is authoritative: overwrite any placeholder a referencing
+    // entity created first, so colour / linetype / lineweight survive the trip.
+    doc.restore_layer(layer);
 }
 
 /// Write a TABLES section with the LAYER table — but only for layers whose state
@@ -754,10 +756,7 @@ fn write_hatch(out: &mut String, h: &aadt_model::Hatch) {
     ));
     for path in &h.boundaries {
         // 92 = polyline path; 93 = vertex count; 72 = closed.
-        out.push_str(&format!(
-            "92\n1\n93\n{}\n72\n1\n",
-            path.vertices.len()
-        ));
+        out.push_str(&format!("92\n1\n93\n{}\n72\n1\n", path.vertices.len()));
         for v in &path.vertices {
             out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
         }

@@ -161,16 +161,8 @@ impl Insert {
     }
 
     pub fn with_scale(mut self, scale_x: f64, scale_y: f64) -> Self {
-        self.scale_x = if scale_x.abs() < 1e-12 {
-            1.0
-        } else {
-            scale_x
-        };
-        self.scale_y = if scale_y.abs() < 1e-12 {
-            1.0
-        } else {
-            scale_y
-        };
+        self.scale_x = if scale_x.abs() < 1e-12 { 1.0 } else { scale_x };
+        self.scale_y = if scale_y.abs() < 1e-12 { 1.0 } else { scale_y };
         self
     }
 
@@ -209,8 +201,8 @@ pub fn sanitize_display_text(s: &str) -> String {
                 '\\' | '{' | '}' => out.push(cmd),
                 // Font / height / width / tracking / oblique / color / align / stack:
                 // consume through the terminating `;`.
-                'F' | 'f' | 'H' | 'h' | 'W' | 'w' | 'T' | 't' | 'Q' | 'q' | 'C' | 'c'
-                | 'A' | 'a' | 'S' | 's' => {
+                'F' | 'f' | 'H' | 'h' | 'W' | 'w' | 'T' | 't' | 'Q' | 'q' | 'C' | 'c' | 'A'
+                | 'a' | 'S' | 's' => {
                     while i < chars.len() && chars[i] != ';' {
                         i += 1;
                     }
@@ -941,10 +933,7 @@ enum Op {
         after_above: bool,
     },
     /// Shared reference origin changed.
-    SetReferenceOrigin {
-        before: Point2,
-        after: Point2,
-    },
+    SetReferenceOrigin { before: Point2, after: Point2 },
     /// A floor was added (undo removes it and its spaces).
     AddFloor {
         floor: Floor,
@@ -1147,7 +1136,7 @@ impl Default for Document {
             active_space: ModelSpaceId(0),
             trace_below: false,
             trace_above: false,
-            next_id: 1,
+            next_id: 0,
             next_floor_id: 1,
             next_space_id: 1,
             open: None,
@@ -1331,10 +1320,7 @@ impl Document {
         }
         let before = self.active_space;
         self.active_space = id;
-        self.record(Op::SetActiveSpace {
-            before,
-            after: id,
-        });
+        self.record(Op::SetActiveSpace { before, after: id });
         self.revision += 1;
         Ok(())
     }
@@ -1665,7 +1651,11 @@ impl Document {
     }
 
     pub fn entities_in_space(&self, space: ModelSpaceId) -> Vec<&Entity> {
-        let mut v: Vec<&Entity> = self.entities.values().filter(|e| e.space == space).collect();
+        let mut v: Vec<&Entity> = self
+            .entities
+            .values()
+            .filter(|e| e.space == space)
+            .collect();
         v.sort_by_key(|e| e.id);
         v
     }
@@ -2440,8 +2430,7 @@ impl Document {
     /// entity / hatch / dim / block-content layer references. Call **before**
     /// seeding AIA layers so imported CAD layers stay intact and distinct.
     pub fn retag_imported_layers(&mut self) {
-        let mut names: std::collections::HashSet<String> =
-            self.layers.keys().cloned().collect();
+        let mut names: std::collections::HashSet<String> = self.layers.keys().cloned().collect();
         for e in self.entities.values() {
             names.insert(e.layer.clone());
         }
@@ -2565,10 +2554,7 @@ impl Document {
     }
 
     /// Unordered entities in one model space (no alloc / sort).
-    pub fn iter_entities_in_space(
-        &self,
-        space: ModelSpaceId,
-    ) -> impl Iterator<Item = &Entity> {
+    pub fn iter_entities_in_space(&self, space: ModelSpaceId) -> impl Iterator<Item = &Entity> {
         self.entities.values().filter(move |e| e.space == space)
     }
 
@@ -3315,7 +3301,9 @@ mod tests {
         doc.set_layer_category("ORG-DWG_LAYER-MISC", SpaceCategory::Furniture);
         let ground = doc.active_floor_id().unwrap();
         doc.reassign_by_layer_map(ground);
-        let furn = doc.space_on_floor(ground, SpaceCategory::Furniture).unwrap();
+        let furn = doc
+            .space_on_floor(ground, SpaceCategory::Furniture)
+            .unwrap();
         assert_eq!(doc.get(id).unwrap().space, furn);
         assert!(doc
             .layers_related_to_space(furn)
@@ -3351,10 +3339,7 @@ mod tests {
     fn sanitize_display_text_strips_mtext_font_and_size() {
         let raw = r"{\fArial|b0|i0|c0|p34;\H2.5000;ROOM 101}";
         assert_eq!(sanitize_display_text(raw), "ROOM 101");
-        assert_eq!(
-            sanitize_display_text(r"Line A\PLine B"),
-            "Line A\nLine B"
-        );
+        assert_eq!(sanitize_display_text(r"Line A\PLine B"), "Line A\nLine B");
         let t = Text::new(raw, Point2::new(0.0, 0.0), 2.5, 0.0);
         assert_eq!(t.value, "ROOM 101");
     }

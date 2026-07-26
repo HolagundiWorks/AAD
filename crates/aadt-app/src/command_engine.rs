@@ -485,11 +485,9 @@ const XLINE_STEPS: &[StepKind] = &[
     },
 ];
 
-const TRIM_STEPS: &[StepKind] = &[
-    StepKind::Entity {
-        prompt: "TRIM — select object to trim or [C]utting edges (Space finishes)",
-    },
-];
+const TRIM_STEPS: &[StepKind] = &[StepKind::Entity {
+    prompt: "TRIM — select object to trim or [C]utting edges (Space finishes)",
+}];
 
 const CIRCLE_STEPS: &[StepKind] = &[
     StepKind::Point {

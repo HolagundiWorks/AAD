@@ -921,9 +921,7 @@ impl Command for AskCmd {
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         if args.is_empty() {
-            return Err(
-                "ASK needs a phrase — try: ASK create a room of 12' x 16'".into(),
-            );
+            return Err("ASK needs a phrase — try: ASK create a room of 12' x 16'".into());
         }
         let utterance = args.join(" ");
         let nl_ctx = nl_context_from(ctx);
@@ -969,11 +967,7 @@ fn nl_context_from(ctx: &Context) -> aadt_ai::NlContext {
             continue;
         };
         let (kind, a, b) = match &e.geometry {
-            Geometry::Line(s) => (
-                "LINE".into(),
-                Some((s.a.x, s.a.y)),
-                Some((s.b.x, s.b.y)),
-            ),
+            Geometry::Line(s) => ("LINE".into(), Some((s.a.x, s.a.y)), Some((s.b.x, s.b.y))),
             Geometry::Polyline(_) => ("POLYLINE".into(), None, None),
             Geometry::Circle(_) => ("CIRCLE".into(), None, None),
             Geometry::Arc(_) => ("ARC".into(), None, None),

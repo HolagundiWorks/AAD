@@ -84,10 +84,7 @@ pub enum DrawCommand {
         label: String,
     },
     /// Filled closed polygon (solid hatch). Drawn under strokes by backends.
-    Fill {
-        layer: String,
-        points: Vec<Point2>,
-    },
+    Fill { layer: String, points: Vec<Point2> },
 }
 
 impl DrawCommand {

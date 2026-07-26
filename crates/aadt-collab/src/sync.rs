@@ -193,9 +193,7 @@ impl Client {
         writeln!(
             stream,
             "{}",
-            wire::encode_presence(&PresenceMsg::Join {
-                site: site.clone()
-            })
+            wire::encode_presence(&PresenceMsg::Join { site: site.clone() })
         )?;
         stream.flush()?;
 

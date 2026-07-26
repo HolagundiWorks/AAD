@@ -352,11 +352,7 @@ impl Circle {
         }
         let circ = self.circumference();
         let s = s.clamp(0.0, circ);
-        let t = if circ <= LENGTH_EPS {
-            0.0
-        } else {
-            s / circ
-        };
+        let t = if circ <= LENGTH_EPS { 0.0 } else { s / circ };
         let ang = t * 360.0;
         let rad = ang.to_radians();
         let pt = Point2::new(
@@ -573,7 +569,11 @@ pub fn sample_bulge_arc(a: Point2, b: Point2, bulge: f64, segments: usize) -> Ve
     }
     let b_sq = bulge * bulge;
     let radius = d * (1.0 + b_sq) / (4.0 * bulge.abs());
-    let perp_offset = d * (1.0 - b_sq) / (4.0 * bulge);
+    // Centre sits on the side opposite the bow. A positive bulge bows to the left
+    // of a→b (the DXF / CCW convention, +Y for a rightward chord), so the centre
+    // and the sampled sweep are reflected across the chord relative to the naive
+    // placement.
+    let perp_offset = -d * (1.0 - b_sq) / (4.0 * bulge);
     let mx = (a.x + b.x) * 0.5;
     let my = (a.y + b.y) * 0.5;
     let px = -dy / d;
@@ -585,20 +585,20 @@ pub fn sample_bulge_arc(a: Point2, b: Point2, bulge: f64, segments: usize) -> Ve
     let tau = std::f64::consts::TAU;
     let delta = if bulge > 0.0 {
         let mut dlt = ang_b - ang_a;
-        while dlt <= 0.0 {
-            dlt += tau;
-        }
-        while dlt > tau {
-            dlt -= tau;
-        }
-        dlt
-    } else {
-        let mut dlt = ang_b - ang_a;
         while dlt >= 0.0 {
             dlt -= tau;
         }
         while dlt < -tau {
             dlt += tau;
+        }
+        dlt
+    } else {
+        let mut dlt = ang_b - ang_a;
+        while dlt <= 0.0 {
+            dlt += tau;
+        }
+        while dlt > tau {
+            dlt -= tau;
         }
         dlt
     };
@@ -607,7 +607,10 @@ pub fn sample_bulge_arc(a: Point2, b: Point2, bulge: f64, segments: usize) -> Ve
     for i in 0..=steps {
         let t = i as f64 / steps as f64;
         let ang = ang_a + delta * t;
-        out.push(Point2::new(cx + radius * ang.cos(), cy + radius * ang.sin()));
+        out.push(Point2::new(
+            cx + radius * ang.cos(),
+            cy + radius * ang.sin(),
+        ));
     }
     out
 }
@@ -670,7 +673,7 @@ impl Polyline {
                 continue;
             }
             let samples = sample_bulge_arc(a, b, bulge, 16);
-            // skip first (already present) 
+            // skip first (already present)
             for p in samples.into_iter().skip(1) {
                 if out.last().map(|q| !q.coincident(p)).unwrap_or(true) {
                     out.push(p);
@@ -1087,6 +1090,9 @@ mod tests {
         );
         assert!(pl.vertices.len() > 2);
         let mid_y = pl.vertices.iter().map(|p| p.y).fold(0.0_f64, f64::max);
-        assert!(mid_y > 0.5, "semicircle should rise above chord, got {mid_y}");
+        assert!(
+            mid_y > 0.5,
+            "semicircle should rise above chord, got {mid_y}"
+        );
     }
 }

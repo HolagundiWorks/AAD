@@ -5,9 +5,7 @@ use aadt_standards::{aci_to_srgb, LayerSet};
 use eframe::egui;
 
 use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, Icon};
-use super::theme::{
-    self, color, left_manager_title, nav_tabs, radius, right_manager_title, space,
-};
+use super::theme::{self, color, left_manager_title, nav_tabs, radius, right_manager_title, space};
 use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
     AadtApp, LayerMgrScope, Tool,
@@ -523,7 +521,9 @@ impl AadtApp {
             }
         });
         ui.separator();
-        ui.small(format!("{scope_label}: {total} layers · active {space_hint}"));
+        ui.small(format!(
+            "{scope_label}: {total} layers · active {space_hint}"
+        ));
     }
 
     pub(super) fn ui_blocks_manager(&mut self, ui: &mut egui::Ui) {
@@ -664,10 +664,7 @@ impl AadtApp {
                                 selected,
                                 tile,
                             );
-                            if resp
-                                .on_hover_text(format!("INSERT {name}"))
-                                .clicked()
-                            {
+                            if resp.on_hover_text(format!("INSERT {name}")).clicked() {
                                 self.insert_block = name.clone();
                                 self.tool = Tool::Insert { name: name.clone() };
                                 self.note =
@@ -679,32 +676,32 @@ impl AadtApp {
 
                 // Selected INSERT editor (compact).
                 if let Some(id) = self.selection.first().copied() {
-                    let insert_info = self
-                        .session
-                        .document()
-                        .get(id)
-                        .and_then(|e| match &e.geometry {
-                            aadt_model::Geometry::Insert(ins) => {
-                                let attrs: Vec<(String, String)> = e
-                                    .attributes
-                                    .iter()
-                                    .map(|(k, v)| (k.clone(), v.clone()))
-                                    .collect();
-                                let states = self
-                                    .session
-                                    .document()
-                                    .block(&ins.name)
-                                    .map(|b| {
-                                        b.visibilities
-                                            .iter()
-                                            .map(|v| v.name.clone())
-                                            .collect::<Vec<_>>()
-                                    })
-                                    .unwrap_or_default();
-                                Some((ins.name.clone(), attrs, states))
-                            }
-                            _ => None,
-                        });
+                    let insert_info =
+                        self.session
+                            .document()
+                            .get(id)
+                            .and_then(|e| match &e.geometry {
+                                aadt_model::Geometry::Insert(ins) => {
+                                    let attrs: Vec<(String, String)> = e
+                                        .attributes
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect();
+                                    let states = self
+                                        .session
+                                        .document()
+                                        .block(&ins.name)
+                                        .map(|b| {
+                                            b.visibilities
+                                                .iter()
+                                                .map(|v| v.name.clone())
+                                                .collect::<Vec<_>>()
+                                        })
+                                        .unwrap_or_default();
+                                    Some((ins.name.clone(), attrs, states))
+                                }
+                                _ => None,
+                            });
                     if let Some((ins_name, attrs, states)) = insert_info {
                         ui.add_space(space::SM);
                         ui.separator();
@@ -840,19 +837,14 @@ impl AadtApp {
                             } else {
                                 library_preview_tile(ui, name, path, selected, tile)
                             };
-                            if resp
-                                .on_hover_text(path.display().to_string())
-                                .clicked()
-                            {
+                            if resp.on_hover_text(path.display().to_string()).clicked() {
                                 let p = path.display().to_string();
                                 let fb = self.session.feed(&format!("BLOCKLIB import {p} {name}"));
                                 if let Some(m) = fb.message() {
                                     self.note = m.to_string();
                                 }
                                 self.insert_block = name.clone();
-                                self.tool = Tool::Insert {
-                                    name: name.clone(),
-                                };
+                                self.tool = Tool::Insert { name: name.clone() };
                                 self.blocks_cache.clear();
                                 self.blocks_cache_rev = None;
                             }
@@ -1024,7 +1016,11 @@ impl AadtApp {
             self.note = "Takeoff sink preference saved".into();
         }
         ui.separator();
-        ui.label(egui::RichText::new("Ask (natural language)").small().strong());
+        ui.label(
+            egui::RichText::new("Ask (natural language)")
+                .small()
+                .strong(),
+        );
         ui.label(
             egui::RichText::new(
                 "Local rules + Foundry Local (phi-3.5-mini). Examples: create a room of 12' x 16' · add a window of 5' to the selected wall",
@@ -1416,11 +1412,7 @@ impl AadtApp {
                                 "LWT",
                                 "Lineweights display (click to toggle)",
                             ),
-                            (
-                                self.dyn_mode,
-                                "DYN",
-                                "Dynamic Input F12 (click to toggle)",
-                            ),
+                            (self.dyn_mode, "DYN", "Dynamic Input F12 (click to toggle)"),
                             (
                                 self.osnap_track,
                                 "OTRACK",
@@ -1431,11 +1423,7 @@ impl AadtApp {
                                 "POLAR",
                                 "Polar tracking F10 — 45° (click to toggle)",
                             ),
-                            (
-                                self.osnap,
-                                "OSNAP",
-                                "Object snap F3 (click to toggle)",
-                            ),
+                            (self.osnap, "OSNAP", "Object snap F3 (click to toggle)"),
                             (self.ortho, "ORTHO", "Ortho F8 (click to toggle)"),
                         ] {
                             let text = if on {
@@ -2619,7 +2607,9 @@ impl AadtApp {
             )
             .show(ctx, |ui| {
                 ui.label("Always exports a vector PDF (no direct print).");
-                ui.label("Choose what to place on the sheet: full extents, selection, or a window.");
+                ui.label(
+                    "Choose what to place on the sheet: full extents, selection, or a window.",
+                );
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("Plot area");
@@ -2631,7 +2621,9 @@ impl AadtApp {
                     }
                     if ui
                         .selectable_label(self.plot_area_mode == 1, "Selection")
-                        .on_hover_text("Uses the current selection (falls back to extents if empty)")
+                        .on_hover_text(
+                            "Uses the current selection (falls back to extents if empty)",
+                        )
                         .clicked()
                     {
                         self.plot_area_mode = 1;
@@ -2682,10 +2674,7 @@ impl AadtApp {
                         .selected_text(&self.plot_paper)
                         .show_ui(ui, |ui| {
                             for name in ["A4", "A3", "A2", "A1", "A0", "ANSI-D", "ARCH-D"] {
-                                if ui
-                                    .selectable_label(self.plot_paper == name, name)
-                                    .clicked()
-                                {
+                                if ui.selectable_label(self.plot_paper == name, name).clicked() {
                                     self.plot_paper = name.to_string();
                                 }
                             }
@@ -2773,9 +2762,8 @@ impl AadtApp {
                         let props = self.session.document().properties().clone();
                         let floors = self.session.document().floors();
                         self.plot_notes = aadt_docs::notes_to_text(
-                            &aadt_docs::NotesLibrary::standard().suggest_for_drawing(
-                                &det, &props, &floors,
-                            ),
+                            &aadt_docs::NotesLibrary::standard()
+                                .suggest_for_drawing(&det, &props, &floors),
                         );
                     }
                 });
@@ -2833,12 +2821,8 @@ impl AadtApp {
             },
             _ => aadt_docs::PlotContent::Extents,
         };
-        let (mut sheet_doc, sheet, composed) = aadt_docs::compose_plot_sheet_for_area(
-            self.session.document(),
-            paper,
-            &tb,
-            content,
-        );
+        let (mut sheet_doc, sheet, composed) =
+            aadt_docs::compose_plot_sheet_for_area(self.session.document(), paper, &tb, content);
 
         if self.plot_include_notes {
             let notes = aadt_docs::notes_from_text(&self.plot_notes);
@@ -3100,10 +3084,8 @@ fn paint_hatch_swatch(painter: &egui::Painter, r: egui::Rect, name: &str) {
             let offset = if odd { 10.0 } else { 0.0 };
             let mut x = r.min.x - offset;
             while x < r.max.x {
-                let brick = egui::Rect::from_min_size(
-                    egui::pos2(x, y),
-                    egui::vec2(18.0, row_h - 1.0),
-                );
+                let brick =
+                    egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(18.0, row_h - 1.0));
                 if brick.intersects(r) {
                     painter.rect_stroke(brick.intersect(r), 0.0, stroke);
                 }
@@ -3285,7 +3267,13 @@ fn library_preview_tile(
 fn paint_placeholder_block(painter: &egui::Painter, r: egui::Rect) {
     let stroke = egui::Stroke::new(1.2_f32, color::TEXT_SECONDARY);
     painter.rect_stroke(r.shrink(4.0), 0.0, stroke);
-    painter.line_segment([r.left_top() + egui::vec2(8.0, 8.0), r.right_bottom() - egui::vec2(8.0, 8.0)], stroke);
+    painter.line_segment(
+        [
+            r.left_top() + egui::vec2(8.0, 8.0),
+            r.right_bottom() - egui::vec2(8.0, 8.0),
+        ],
+        stroke,
+    );
 }
 
 fn paint_library_glyph(painter: &egui::Painter, r: egui::Rect, path: &std::path::Path) {
@@ -3297,24 +3285,59 @@ fn paint_library_glyph(painter: &egui::Painter, r: egui::Rect, path: &std::path:
             egui::pos2(r.max.x - 4.0, r.max.y - 4.0),
         );
         painter.rect_stroke(leaf, 0.0, stroke);
-        painter.circle_filled(egui::pos2(leaf.min.x + 5.0, leaf.center().y), 1.5, color::TEXT);
+        painter.circle_filled(
+            egui::pos2(leaf.min.x + 5.0, leaf.center().y),
+            1.5,
+            color::TEXT,
+        );
         // swing arc
-        painter.circle_stroke(egui::pos2(leaf.min.x, leaf.max.y), leaf.height() * 0.55, stroke);
+        painter.circle_stroke(
+            egui::pos2(leaf.min.x, leaf.max.y),
+            leaf.height() * 0.55,
+            stroke,
+        );
     } else if s.contains("window") {
         painter.rect_stroke(r.shrink(2.0), 0.0, stroke);
-        painter.line_segment([egui::pos2(r.center().x, r.min.y + 2.0), egui::pos2(r.center().x, r.max.y - 2.0)], stroke);
-        painter.line_segment([egui::pos2(r.min.x + 2.0, r.center().y), egui::pos2(r.max.x - 2.0, r.center().y)], stroke);
-    } else if s.contains("tree") || s.contains("shrub") {
-        painter.circle_stroke(r.center(), r.width() * 0.35, stroke);
-        painter.line_segment([r.center(), egui::pos2(r.center().x, r.max.y - 2.0)], stroke);
-    } else if s.contains("furn") || s.contains("chair") || s.contains("sofa") || s.contains("bed") || s.contains("desk") || s.contains("table") {
-        painter.rect_stroke(r.shrink(6.0), 0.0, stroke);
         painter.line_segment(
-            [egui::pos2(r.min.x + 8.0, r.max.y - 6.0), egui::pos2(r.min.x + 8.0, r.max.y - 2.0)],
+            [
+                egui::pos2(r.center().x, r.min.y + 2.0),
+                egui::pos2(r.center().x, r.max.y - 2.0),
+            ],
             stroke,
         );
         painter.line_segment(
-            [egui::pos2(r.max.x - 8.0, r.max.y - 6.0), egui::pos2(r.max.x - 8.0, r.max.y - 2.0)],
+            [
+                egui::pos2(r.min.x + 2.0, r.center().y),
+                egui::pos2(r.max.x - 2.0, r.center().y),
+            ],
+            stroke,
+        );
+    } else if s.contains("tree") || s.contains("shrub") {
+        painter.circle_stroke(r.center(), r.width() * 0.35, stroke);
+        painter.line_segment(
+            [r.center(), egui::pos2(r.center().x, r.max.y - 2.0)],
+            stroke,
+        );
+    } else if s.contains("furn")
+        || s.contains("chair")
+        || s.contains("sofa")
+        || s.contains("bed")
+        || s.contains("desk")
+        || s.contains("table")
+    {
+        painter.rect_stroke(r.shrink(6.0), 0.0, stroke);
+        painter.line_segment(
+            [
+                egui::pos2(r.min.x + 8.0, r.max.y - 6.0),
+                egui::pos2(r.min.x + 8.0, r.max.y - 2.0),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                egui::pos2(r.max.x - 8.0, r.max.y - 6.0),
+                egui::pos2(r.max.x - 8.0, r.max.y - 2.0),
+            ],
             stroke,
         );
     } else if s.contains("fixture") || s.contains("toilet") || s.contains("sink") {
@@ -3389,11 +3412,7 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
                 }
             }
             Geometry::Circle(c) => {
-                painter.circle_stroke(
-                    to_screen(c.center),
-                    (c.radius * scale) as f32,
-                    stroke,
-                );
+                painter.circle_stroke(to_screen(c.center), (c.radius * scale) as f32, stroke);
             }
             Geometry::Arc(a) => {
                 let sweep = {
@@ -3422,8 +3441,14 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
             }
             Geometry::Insert(i) => {
                 let c = to_screen(i.position);
-                painter.line_segment([c + egui::vec2(-3.0, 0.0), c + egui::vec2(3.0, 0.0)], stroke);
-                painter.line_segment([c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)], stroke);
+                painter.line_segment(
+                    [c + egui::vec2(-3.0, 0.0), c + egui::vec2(3.0, 0.0)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)],
+                    stroke,
+                );
             }
         }
     }

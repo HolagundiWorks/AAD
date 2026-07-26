@@ -218,10 +218,7 @@ pub fn install_drawing_fonts(ctx: &egui::Context) {
     {
         if let Some(windir) = std::env::var_os("WINDIR") {
             let fonts_dir = std::path::PathBuf::from(windir).join("Fonts");
-            for (name, file) in [
-                ("SegoeUI", "segoeui.ttf"),
-                ("SegoeUIBold", "segoeuib.ttf"),
-            ] {
+            for (name, file) in [("SegoeUI", "segoeui.ttf"), ("SegoeUIBold", "segoeuib.ttf")] {
                 let path = fonts_dir.join(file);
                 if let Ok(bytes) = std::fs::read(&path) {
                     fonts
@@ -247,9 +244,7 @@ pub fn install_drawing_fonts(ctx: &egui::Context) {
     }
     prop.push("SourceSans3".to_owned());
     prop.push("SourceSans3Bold".to_owned());
-    fonts
-        .families
-        .insert(egui::FontFamily::Proportional, prop);
+    fonts.families.insert(egui::FontFamily::Proportional, prop);
 
     if let Some(mono) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
         mono.push("SourceSans3".to_owned());
