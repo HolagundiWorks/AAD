@@ -7,20 +7,34 @@
 
 use std::time::{Duration, Instant};
 
-use aadt_geometry::{Arc, Bbox, Point2, Segment};
+use aadt_geometry::{Arc, Bbox, Circle, Point2, Segment};
 use aadt_model::{Document, Geometry};
 
 /// Kind of object snap acquired under the cursor.
 ///
 /// Discriminant order encodes AutoCAD-style priority on a distance tie
-/// (earlier wins): Endpoint > Midpoint > Center > Quadrant > Nearest.
+/// (earlier wins): Endpoint > Intersection > Midpoint > Center > Quadrant >
+/// Nearest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapKind {
     Endpoint,
+    Intersection,
     Midpoint,
     Center,
     Quadrant,
     Nearest,
+}
+
+/// Priority rank (lower wins on a distance tie).
+fn snap_rank(kind: SnapKind) -> u8 {
+    match kind {
+        SnapKind::Endpoint => 0,
+        SnapKind::Intersection => 1,
+        SnapKind::Midpoint => 2,
+        SnapKind::Center => 3,
+        SnapKind::Quadrant => 4,
+        SnapKind::Nearest => 9,
+    }
 }
 
 /// Reusable buffers + throttle state for hover osnap.
@@ -229,6 +243,83 @@ fn nearest_on_segment(s: Segment, p: Point2) -> Point2 {
     s.a + (s.b - s.a) * t
 }
 
+/// Line-like segments of a geometry (empty for circles / arcs / points).
+fn segments_of(g: &Geometry) -> Vec<Segment> {
+    match g {
+        Geometry::Line(s) => vec![*s],
+        Geometry::Polyline(p) => {
+            let mut v: Vec<Segment> = p.vertices.windows(2).map(|w| Segment::new(w[0], w[1])).collect();
+            if p.closed && p.vertices.len() >= 2 {
+                v.push(Segment::new(
+                    p.vertices[p.vertices.len() - 1],
+                    p.vertices[0],
+                ));
+            }
+            v
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The circle (and, for arcs, the bounding arc for sweep filtering) of a
+/// geometry. `None` for line-like / points-only geometries.
+fn circle_of(g: &Geometry) -> Option<(Circle, Option<Arc>)> {
+    match g {
+        Geometry::Circle(c) => Some((*c, None)),
+        Geometry::Arc(a) => Some((
+            Circle {
+                center: a.center,
+                radius: a.radius,
+            },
+            Some(*a),
+        )),
+        _ => None,
+    }
+}
+
+/// Real intersection points between two geometries (INT snap), appended to
+/// `out`. Covers segment×segment and segment×circle/arc; circle×circle is
+/// deferred (rare in 2D drafting) — see M9.1.
+fn intersections_between(a: &Geometry, b: &Geometry, out: &mut Vec<Point2>) {
+    let segs_a = segments_of(a);
+    let segs_b = segments_of(b);
+    for sa in &segs_a {
+        for sb in &segs_b {
+            if let Some(p) = sa.segment_intersection(*sb) {
+                out.push(p);
+            }
+        }
+    }
+    if let Some((circ, arc)) = circle_of(b) {
+        for sa in &segs_a {
+            push_seg_circle(*sa, circ, arc, out);
+        }
+    }
+    if let Some((circ, arc)) = circle_of(a) {
+        for sb in &segs_b {
+            push_seg_circle(*sb, circ, arc, out);
+        }
+    }
+}
+
+/// Intersections of a finite segment with a circle/arc, filtered to points that
+/// lie on the segment and (for arcs) within the sweep.
+fn push_seg_circle(seg: Segment, circ: Circle, arc: Option<Arc>, out: &mut Vec<Point2>) {
+    for p in circ.line_intersections(seg) {
+        let t = seg.project_param(p);
+        if !(-1e-9..=1.0 + 1e-9).contains(&t) {
+            continue; // on the infinite line but past the segment ends
+        }
+        if let Some(a) = arc {
+            let deg = (p.y - circ.center.y).atan2(p.x - circ.center.x).to_degrees();
+            if !angle_in_arc(&a, deg) {
+                continue;
+            }
+        }
+        out.push(p);
+    }
+}
+
 /// Endpoint, midpoint, and center candidates for object snap on one geometry.
 pub fn snap_candidates(g: &Geometry) -> Vec<(SnapKind, Point2)> {
     let mut out = Vec::new();
@@ -271,6 +362,9 @@ pub fn find_osnap_in_spaces(
     let mut best: Option<(f64, u8, SnapKind, Point2)> = None;
     // NEA (nearest-on-object) fallback, used only when no discrete snap is found.
     let mut best_near: Option<(f64, Point2)> = None;
+    // Geometries near the cursor, for the pairwise INT pass.
+    let mut near: Vec<&Geometry> = Vec::new();
+
     let entities = doc.iter_entities().filter(|e| {
         spaces
             .map(|ss| ss.contains(&e.space))
@@ -286,41 +380,62 @@ pub fn find_osnap_in_spaces(
         if !bbox_near(bbox, p) {
             continue;
         }
+        // Discrete candidates (END / MID / CEN / QUA).
         scratch.clear();
         snap_candidates_into(&e.geometry, scratch);
         for &(kind, sp) in scratch.iter() {
-            let d = p.distance(sp);
-            if d > tol {
-                continue;
-            }
-            let rank = match kind {
-                SnapKind::Endpoint => 0u8,
-                SnapKind::Midpoint => 1u8,
-                SnapKind::Center => 2u8,
-                SnapKind::Quadrant => 3u8,
-                SnapKind::Nearest => 9u8,
-            };
-            let better = match best {
-                None => true,
-                Some((bd, br, _, _)) => {
-                    d < bd - f64::EPSILON || ((d - bd).abs() <= f64::EPSILON && rank < br)
-                }
-            };
-            if better {
-                best = Some((d, rank, kind, sp));
-            }
+            consider(&mut best, p, tol, kind, sp);
         }
+        // NEA fallback candidate.
         if let Some(np) = nearest_on_geometry(&e.geometry, p) {
             let d = p.distance(np);
             if d <= tol && best_near.map(|(bd, _)| d < bd).unwrap_or(true) {
                 best_near = Some((d, np));
             }
         }
+        near.push(&e.geometry);
     }
-    // Discrete snaps (END/MID/CEN/QUA) always win over NEA when present.
+
+    // INT: intersections among the near geometries.
+    let mut ipts: Vec<Point2> = Vec::new();
+    for i in 0..near.len() {
+        for j in (i + 1)..near.len() {
+            ipts.clear();
+            intersections_between(near[i], near[j], &mut ipts);
+            for &ip in &ipts {
+                consider(&mut best, p, tol, SnapKind::Intersection, ip);
+            }
+        }
+    }
+
+    // Discrete/INT snaps always win over NEA when present.
     match best {
         Some((_, _, k, sp)) => Some((k, sp)),
         None => best_near.map(|(_, np)| (SnapKind::Nearest, np)),
+    }
+}
+
+/// Fold one candidate into `best` (distance-primary, rank-on-tie).
+fn consider(
+    best: &mut Option<(f64, u8, SnapKind, Point2)>,
+    p: Point2,
+    tol: f64,
+    kind: SnapKind,
+    sp: Point2,
+) {
+    let d = p.distance(sp);
+    if d > tol {
+        return;
+    }
+    let rank = snap_rank(kind);
+    let better = match *best {
+        None => true,
+        Some((bd, br, _, _)) => {
+            d < bd - f64::EPSILON || ((d - bd).abs() <= f64::EPSILON && rank < br)
+        }
+    };
+    if better {
+        *best = Some((d, rank, kind, sp));
     }
 }
 
@@ -432,6 +547,50 @@ mod tests {
         // Near the endpoint: the discrete END snap must win over NEA.
         let hit = find_osnap(&doc, Point2::new(0.1, 0.05), 0.5).unwrap();
         assert_eq!(hit.0, SnapKind::Endpoint);
+    }
+
+    #[test]
+    fn finds_intersection_of_two_crossing_lines() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+            );
+            // Crosses the first line at (2, 0); its own midpoint is elsewhere (2, 1).
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(2.0, -3.0), Point2::new(2.0, 5.0))),
+            );
+        });
+        let hit = find_osnap(&doc, Point2::new(2.1, 0.05), 0.5).unwrap();
+        assert_eq!(hit.0, SnapKind::Intersection);
+        assert!((hit.1.x - 2.0).abs() < 1e-9 && hit.1.y.abs() < 1e-9);
+    }
+
+    #[test]
+    fn finds_intersection_of_line_and_circle() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            // Diagonal line through the origin, crossing the circle off the quadrants.
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(-5.0, -5.0), Point2::new(5.0, 5.0))),
+            );
+            d.add_geometry(
+                "0",
+                Geometry::Circle(Circle {
+                    center: Point2::new(0.0, 0.0),
+                    radius: 3.0,
+                }),
+            );
+        });
+        // Near the upper-right crossing at (3/√2, 3/√2) ≈ (2.121, 2.121).
+        let hit = find_osnap(&doc, Point2::new(2.2, 2.05), 0.5).unwrap();
+        assert_eq!(hit.0, SnapKind::Intersection);
+        // On the circle (radius 3) and on the y = x diagonal.
+        assert!((hit.1.x.hypot(hit.1.y) - 3.0).abs() < 1e-6);
+        assert!((hit.1.x - hit.1.y).abs() < 1e-6);
     }
 
     #[test]

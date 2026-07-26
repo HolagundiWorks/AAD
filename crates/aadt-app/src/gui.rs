@@ -5316,6 +5316,7 @@ impl AadtApp {
         if let Some((kind, _)) = self.snap_hit {
             lines.push(match kind {
                 SnapKind::Endpoint => "END".to_string(),
+                SnapKind::Intersection => "INT".to_string(),
                 SnapKind::Midpoint => "MID".to_string(),
                 SnapKind::Center => "CEN".to_string(),
                 SnapKind::Quadrant => "QUA".to_string(),
@@ -6354,6 +6355,12 @@ fn paint_snap_marker(
                 [c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)],
                 stroke,
             );
+        }
+        SnapKind::Intersection => {
+            // X cross (AutoCAD intersection marker).
+            let s = 5.0_f32;
+            painter.line_segment([c + egui::vec2(-s, -s), c + egui::vec2(s, s)], stroke);
+            painter.line_segment([c + egui::vec2(-s, s), c + egui::vec2(s, -s)], stroke);
         }
         SnapKind::Quadrant => {
             // Diamond (AutoCAD quadrant marker).
