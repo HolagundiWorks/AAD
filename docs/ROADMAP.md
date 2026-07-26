@@ -201,7 +201,7 @@ impact.
 
 | # | Item | Spec § | Status | Notes |
 |---|------|--------|--------|-------|
-| M9.1 | Object snaps: Intersection / Perpendicular / Tangent / Quadrant / Nearest, plus `END/MID/INT/PER/TAN` keyword overrides and the SHIFT+right-click snap menu | §17 | 🚧 in progress | Extends `SnapKind` in [`osnap.rs`](../crates/aadt-app/src/osnap.rs); pure geometry, headless-testable |
+| M9.1 | Object snaps: Quadrant ✅ · Nearest ✅ · Intersection ✅ running snaps. **Remaining:** Perpendicular / Tangent (need the drag-anchor base point) and `END/MID/INT/PER/TAN` keyword overrides + SHIFT+right-click snap menu | §17 | 🚧 in progress | QUA/NEA/INT in [`osnap.rs`](../crates/aadt-app/src/osnap.rs), headless-tested. PER/TAN don't fit the cursor-proximity running-snap model — they belong to the override mechanism |
 | M9.2 | Selection: Fence, WPolygon/CPolygon, Lasso | §12 | ☐ | New selection-geometry pipeline atop existing Window/Crossing |
 | M9.3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror cycled with Space on a hot grip) | §14 | ☐ | Builds on `Tool::GripEdit` |
 | M9.4 | Single auto-type `DIM` (infers linear/angular/radius/diameter/aligned from picked geometry) | §22 | ☐ | Wraps DIMLINEAR/QDIM/autodim with type inference |
