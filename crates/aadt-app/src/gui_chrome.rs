@@ -8,7 +8,7 @@ use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, 
 use super::theme::{
     self, color, full_width_button, full_width_edit, left_manager_title, metric_row, panel_space,
     panel_subtitle, panel_title, radius, right_manager_title, section_hint, section_label,
-    section_label_first, space, two_col_buttons, type_scale,
+    section_label_first, space, stroke, two_col_buttons, type_scale,
 };
 use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
@@ -390,7 +390,7 @@ impl AadtApp {
                     .unwrap_or_else(|| aadt_model::SpaceCategory::from_layer_name(&name));
                 ui.horizontal_wrapped(|ui| {
                     ui.set_max_width(panel_w);
-                    ui.spacing_mut().item_spacing.x = 2.0;
+                    ui.spacing_mut().item_spacing.x = space::XS;
                     if is_current {
                         ui.colored_label(color::ACCENT, "●");
                     } else {
@@ -420,7 +420,7 @@ impl AadtApp {
                     ui.painter().rect_stroke(
                         sw.rect,
                         radius::SMALL,
-                        egui::Stroke::new(1.0_f32, color::STROKE),
+                        egui::Stroke::new(stroke::THIN, color::STROKE),
                     );
                     let display = name
                         .strip_prefix(aadt_model::IMPORTED_LAYER_PREFIX)
@@ -1250,7 +1250,7 @@ impl AadtApp {
                 egui::Frame::none()
                     .fill(color::LAYER_BASE)
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1309,7 +1309,7 @@ impl AadtApp {
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
             )
             .show(ctx, |ui| {
                 self.ui_levels_strip(ui);
@@ -1334,7 +1334,7 @@ impl AadtApp {
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
                     .inner_margin(egui::Margin::same(space::MD))
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1373,7 +1373,7 @@ impl AadtApp {
                 egui::Frame::none()
                     .fill(color::LAYER_BASE)
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
             )
             .show(ctx, |ui| {
                 // Row 1: command + status (status reserved on the right so text never collides).
@@ -1387,7 +1387,7 @@ impl AadtApp {
                                 .color(color::ACCENT),
                         )
                         .fill(color::ACCENT_SOFT)
-                        .stroke(egui::Stroke::new(1.0_f32, color::ACCENT))
+                        .stroke(egui::Stroke::new(stroke::THIN, color::ACCENT))
                         .rounding(radius::CONTROL),
                     );
                     if units_chip
@@ -1629,7 +1629,7 @@ impl AadtApp {
                 .frame(
                     egui::Frame::none()
                         .fill(color::LAYER_BASE)
-                        .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                        .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
                 )
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
@@ -1663,7 +1663,7 @@ impl AadtApp {
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
                     .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1731,7 +1731,7 @@ impl AadtApp {
                 .frame(
                     egui::Frame::none()
                         .fill(color::LAYER_BASE)
-                        .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                        .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
                 )
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
@@ -1767,7 +1767,7 @@ impl AadtApp {
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
                     .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -2691,7 +2691,7 @@ impl AadtApp {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER))
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER))
                     .rounding(radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -2977,7 +2977,7 @@ impl AadtApp {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, color::BORDER))
+                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER))
                     .rounding(radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -3113,9 +3113,9 @@ fn preview_frame(
         color::CANVAS
     };
     let edge = if selected {
-        egui::Stroke::new(2.0_f32, color::ACCENT)
+        egui::Stroke::new(stroke::THICK, color::ACCENT)
     } else {
-        egui::Stroke::new(1.0_f32, color::BORDER)
+        egui::Stroke::new(stroke::THIN, color::BORDER)
     };
     painter.rect_filled(rect, radius::CONTROL, bg);
     painter.rect_stroke(rect, radius::CONTROL, edge);

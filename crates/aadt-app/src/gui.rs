@@ -1398,7 +1398,7 @@ impl AadtApp {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
+                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
                     .rounding(theme::radius::DIALOG),
             )
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -1431,7 +1431,7 @@ impl AadtApp {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
+                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -1490,7 +1490,7 @@ impl AadtApp {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
+                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -3039,7 +3039,7 @@ impl AadtApp {
             .frame(
                 egui::Frame::window(&ctx.style())
                     .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(1.0_f32, theme::color::BORDER))
+                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
