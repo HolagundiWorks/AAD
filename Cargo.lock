@@ -3,19 +3,9 @@
 version = 4
 
 [[package]]
-name = "aadt-ai"
-version = "0.0.0"
-dependencies = [
- "aadt-detect",
- "aadt-geometry",
- "aadt-model",
-]
-
-[[package]]
 name = "aadt-app"
 version = "0.0.0"
 dependencies = [
- "aadt-ai",
  "aadt-command",
  "aadt-detect",
  "aadt-docs",
@@ -38,7 +28,6 @@ dependencies = [
 name = "aadt-cli"
 version = "0.0.0"
 dependencies = [
- "aadt-ai",
  "aadt-app",
  "aadt-collab",
  "aadt-command",

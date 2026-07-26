@@ -1,19 +1,26 @@
-//! Endpoint / midpoint / center object snap — pure geometry over a [`Document`].
+//! Object snap — pure geometry over a [`Document`].
 //!
 //! Used by the egui viewport; kept out of the `gui` feature so it is unit-tested
-//! headlessly. Lean set: **END**, **MID**, and **CEN** (no quadrant/intersection).
+//! headlessly. Snap set: **END**, **MID**, **CEN**, **QUA** (quadrant), and
+//! **NEA** (nearest-on-object, last resort). Intersection / perpendicular /
+//! tangent need cross-entity or drag-base context and are tracked in M9.1.
 
 use std::time::{Duration, Instant};
 
-use aadt_geometry::{Bbox, Point2};
+use aadt_geometry::{Arc, Bbox, Point2, Segment};
 use aadt_model::{Document, Geometry};
 
 /// Kind of object snap acquired under the cursor.
+///
+/// Discriminant order encodes AutoCAD-style priority on a distance tie
+/// (earlier wins): Endpoint > Midpoint > Center > Quadrant > Nearest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapKind {
     Endpoint,
     Midpoint,
     Center,
+    Quadrant,
+    Nearest,
 }
 
 /// Reusable buffers + throttle state for hover osnap.
@@ -147,12 +154,79 @@ pub fn snap_candidates_into(g: &Geometry, out: &mut Vec<(SnapKind, Point2)>) {
             out.push((SnapKind::Endpoint, a.end_point()));
             out.push((SnapKind::Midpoint, a.point_at(0.5)));
             out.push((SnapKind::Center, a.center));
+            // Quadrants that actually lie on the arc sweep.
+            for deg in [0.0, 90.0, 180.0, 270.0] {
+                if angle_in_arc(a, deg) {
+                    out.push((SnapKind::Quadrant, point_on_circle(a.center, a.radius, deg)));
+                }
+            }
         }
         Geometry::Circle(c) => {
             out.push((SnapKind::Center, c.center));
+            for deg in [0.0, 90.0, 180.0, 270.0] {
+                out.push((SnapKind::Quadrant, point_on_circle(c.center, c.radius, deg)));
+            }
         }
         Geometry::Text(_) | Geometry::Insert(_) => {}
     }
+}
+
+/// Point on a circle of `radius` about `center` at `deg` degrees CCW from +X.
+fn point_on_circle(center: Point2, radius: f64, deg: f64) -> Point2 {
+    let r = deg.to_radians();
+    Point2::new(center.x + radius * r.cos(), center.y + radius * r.sin())
+}
+
+/// Whether `deg` (CCW from +X) falls within an arc's start→end sweep.
+fn angle_in_arc(a: &Arc, deg: f64) -> bool {
+    let rel = (deg - a.start_angle).rem_euclid(360.0);
+    rel <= a.sweep() + 1e-9
+}
+
+/// Nearest point *on* a geometry to `p` (NEA snap). `None` for points-only
+/// geometries (text / inserts) that offer no continuous curve.
+fn nearest_on_geometry(g: &Geometry, p: Point2) -> Option<Point2> {
+    match g {
+        Geometry::Line(s) => Some(nearest_on_segment(*s, p)),
+        Geometry::Polyline(poly) => {
+            let mut best: Option<(f64, Point2)> = None;
+            let mut consider = |seg: Segment| {
+                let np = nearest_on_segment(seg, p);
+                let d = p.distance(np);
+                if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                    best = Some((d, np));
+                }
+            };
+            for w in poly.vertices.windows(2) {
+                consider(Segment::new(w[0], w[1]));
+            }
+            if poly.closed && poly.vertices.len() >= 2 {
+                consider(Segment::new(
+                    poly.vertices[poly.vertices.len() - 1],
+                    poly.vertices[0],
+                ));
+            }
+            best.map(|(_, np)| np)
+        }
+        Geometry::Circle(c) => (p - c.center).normalized().map(|u| c.center + u * c.radius),
+        Geometry::Arc(a) => {
+            let v = p - a.center;
+            let deg = v.y.atan2(v.x).to_degrees();
+            if angle_in_arc(a, deg) {
+                v.normalized().map(|u| a.center + u * a.radius)
+            } else {
+                let (sp, ep) = (a.start_point(), a.end_point());
+                Some(if p.distance(sp) <= p.distance(ep) { sp } else { ep })
+            }
+        }
+        Geometry::Text(_) | Geometry::Insert(_) => None,
+    }
+}
+
+/// Nearest point on a finite segment (clamped to its ends).
+fn nearest_on_segment(s: Segment, p: Point2) -> Point2 {
+    let t = s.project_param(p).clamp(0.0, 1.0);
+    s.a + (s.b - s.a) * t
 }
 
 /// Endpoint, midpoint, and center candidates for object snap on one geometry.
@@ -195,6 +269,8 @@ pub fn find_osnap_in_spaces(
     scratch: &mut Vec<(SnapKind, Point2)>,
 ) -> Option<(SnapKind, Point2)> {
     let mut best: Option<(f64, u8, SnapKind, Point2)> = None;
+    // NEA (nearest-on-object) fallback, used only when no discrete snap is found.
+    let mut best_near: Option<(f64, Point2)> = None;
     let entities = doc.iter_entities().filter(|e| {
         spaces
             .map(|ss| ss.contains(&e.space))
@@ -221,6 +297,8 @@ pub fn find_osnap_in_spaces(
                 SnapKind::Endpoint => 0u8,
                 SnapKind::Midpoint => 1u8,
                 SnapKind::Center => 2u8,
+                SnapKind::Quadrant => 3u8,
+                SnapKind::Nearest => 9u8,
             };
             let better = match best {
                 None => true,
@@ -232,8 +310,18 @@ pub fn find_osnap_in_spaces(
                 best = Some((d, rank, kind, sp));
             }
         }
+        if let Some(np) = nearest_on_geometry(&e.geometry, p) {
+            let d = p.distance(np);
+            if d <= tol && best_near.map(|(bd, _)| d < bd).unwrap_or(true) {
+                best_near = Some((d, np));
+            }
+        }
     }
-    best.map(|(_, _, k, sp)| (k, sp))
+    // Discrete snaps (END/MID/CEN/QUA) always win over NEA when present.
+    match best {
+        Some((_, _, k, sp)) => Some((k, sp)),
+        None => best_near.map(|(_, np)| (SnapKind::Nearest, np)),
+    }
 }
 
 /// Nearest snap within `tol` of `p`. Endpoint beats midpoint/center on a
@@ -260,15 +348,90 @@ mod tests {
     }
 
     #[test]
-    fn circle_offers_center() {
+    fn circle_offers_center_and_four_quadrants() {
         let g = Geometry::Circle(Circle {
             center: Point2::new(3.0, 4.0),
             radius: 2.0,
         });
         let c = snap_candidates(&g);
-        assert_eq!(c.len(), 1);
-        assert_eq!(c[0].0, SnapKind::Center);
-        assert!((c[0].1.x - 3.0).abs() < 1e-9 && (c[0].1.y - 4.0).abs() < 1e-9);
+        assert_eq!(c.len(), 5); // center + 4 quadrants
+        assert!(c
+            .iter()
+            .any(|(k, p)| *k == SnapKind::Center && (p.x - 3.0).abs() < 1e-9 && (p.y - 4.0).abs() < 1e-9));
+        assert_eq!(
+            c.iter().filter(|(k, _)| *k == SnapKind::Quadrant).count(),
+            4
+        );
+        // East quadrant is center + (radius, 0).
+        assert!(c
+            .iter()
+            .any(|(k, p)| *k == SnapKind::Quadrant && (p.x - 5.0).abs() < 1e-9 && (p.y - 4.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn finds_quadrant_on_circle() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Circle(Circle {
+                    center: Point2::new(3.0, 4.0),
+                    radius: 2.0,
+                }),
+            );
+        });
+        // Just inside the east quadrant point (5, 4).
+        let hit = find_osnap(&doc, Point2::new(4.9, 4.0), 0.5).unwrap();
+        assert_eq!(hit.0, SnapKind::Quadrant);
+        assert!((hit.1.x - 5.0).abs() < 1e-9 && (hit.1.y - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn arc_quadrant_only_within_sweep() {
+        // Half-circle sweeping -45°→135°: 0° and 90° are interior quadrants;
+        // 180° and 270° are off the arc.
+        let g = Geometry::Arc(aadt_geometry::Arc::new(Point2::new(0.0, 0.0), 1.0, -45.0, 135.0));
+        let quads: Vec<_> = snap_candidates(&g)
+            .into_iter()
+            .filter(|(k, _)| *k == SnapKind::Quadrant)
+            .collect();
+        assert_eq!(quads.len(), 2);
+        assert!(quads
+            .iter()
+            .any(|(_, p)| (p.x - 1.0).abs() < 1e-9 && p.y.abs() < 1e-9)); // 0°
+        assert!(quads
+            .iter()
+            .any(|(_, p)| p.x.abs() < 1e-9 && (p.y - 1.0).abs() < 1e-9)); // 90°
+        assert!(!quads.iter().any(|(_, p)| (p.x + 1.0).abs() < 1e-9)); // no 180°
+    }
+
+    #[test]
+    fn nearest_on_line_when_no_vertex_snap() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+            );
+        });
+        // (3, 0.2): far from both ends and the midpoint, but 0.2 above the line.
+        let hit = find_osnap(&doc, Point2::new(3.0, 0.2), 0.5).unwrap();
+        assert_eq!(hit.0, SnapKind::Nearest);
+        assert!((hit.1.x - 3.0).abs() < 1e-9 && hit.1.y.abs() < 1e-9);
+    }
+
+    #[test]
+    fn endpoint_beats_nearest_at_same_spot() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+            );
+        });
+        // Near the endpoint: the discrete END snap must win over NEA.
+        let hit = find_osnap(&doc, Point2::new(0.1, 0.05), 0.5).unwrap();
+        assert_eq!(hit.0, SnapKind::Endpoint);
     }
 
     #[test]

@@ -5318,6 +5318,8 @@ impl AadtApp {
                 SnapKind::Endpoint => "END".to_string(),
                 SnapKind::Midpoint => "MID".to_string(),
                 SnapKind::Center => "CEN".to_string(),
+                SnapKind::Quadrant => "QUA".to_string(),
+                SnapKind::Nearest => "NEA".to_string(),
             });
         }
         lines
@@ -6352,6 +6354,32 @@ fn paint_snap_marker(
                 [c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)],
                 stroke,
             );
+        }
+        SnapKind::Quadrant => {
+            // Diamond (AutoCAD quadrant marker).
+            let s = 6.0_f32;
+            let pts = [
+                c + egui::vec2(0.0, -s),
+                c + egui::vec2(s, 0.0),
+                c + egui::vec2(0.0, s),
+                c + egui::vec2(-s, 0.0),
+            ];
+            painter.line_segment([pts[0], pts[1]], stroke);
+            painter.line_segment([pts[1], pts[2]], stroke);
+            painter.line_segment([pts[2], pts[3]], stroke);
+            painter.line_segment([pts[3], pts[0]], stroke);
+        }
+        SnapKind::Nearest => {
+            // Hourglass / bowtie (AutoCAD nearest marker).
+            let s = 5.0_f32;
+            let tl = c + egui::vec2(-s, -s);
+            let tr = c + egui::vec2(s, -s);
+            let bl = c + egui::vec2(-s, s);
+            let br = c + egui::vec2(s, s);
+            painter.line_segment([tl, tr], stroke);
+            painter.line_segment([bl, br], stroke);
+            painter.line_segment([tl, br], stroke);
+            painter.line_segment([tr, bl], stroke);
         }
     }
 }

@@ -129,13 +129,14 @@ export, in-drawing `SCHEDULE` tables.
 
 ---
 
-## M4 — AI Orchestration Layer ✅ (core)
+## M4 — AI Orchestration Layer ⛔ removed
 
-Structured extraction, wall-type inference, graceful `Unavailable`, audit log,
-**Foundry Local** as default inbuilt AI (`FoundryLocalClient`), optional
-`OllamaClient`, process lifecycle, `apply_wall_types` as undoable ops, CLI
-`infer --backend foundry-local|ollama`. **Remaining:** AI schedule formatting /
-notes suggestion (optional accelerants — never gates).
+Implemented (Foundry Local / Ollama clients, wall-type inference, NL
+interpretation, audit log, lifecycle) and then **removed in full** (commit
+`e4d93e7`, "Remove all AI features"): the `aadt-ai` crate, the `infer` command,
+the RECOGNIZE/REVIEW/ACCEPT/REJECT/FREEZE/ASK command family, and the Foundry
+control panel. Deterministic detection/takeoff (`aadt-detect`) is unaffected.
+Any reintroduction (see M9 §35 note) is a product decision, not scheduled work.
 
 ---
 
@@ -189,6 +190,32 @@ ArchiCAD-style **floors** with a shared **reference origin**, and per-floor
 **model spaces** that *are* the element categories (Walls / Structural / Lintel /
 BeamLayout / Furniture)—not layer filters. `TRACE` ghosts adjacent floors;
 Levels strip + `FLOOR` / `CATEGORY` / `ORIGIN` commands; `.aadt` schema v6.
+
+## M9 — Drafting Workflow Parity (BricsCAD audit) 🚧
+
+Closes the interaction gaps found in the
+[BricsCAD workflow conformance audit](ux/bricscad-conformance-audit.md). The
+command lifecycle, spacebar semantics, command line, and modify flow already
+conform; M9 is **breadth** on top of that core. Sequenced by daily-drafting
+impact.
+
+| # | Item | Spec § | Status | Notes |
+|---|------|--------|--------|-------|
+| M9.1 | Object snaps: Intersection / Perpendicular / Tangent / Quadrant / Nearest, plus `END/MID/INT/PER/TAN` keyword overrides and the SHIFT+right-click snap menu | §17 | 🚧 in progress | Extends `SnapKind` in [`osnap.rs`](../crates/aadt-app/src/osnap.rs); pure geometry, headless-testable |
+| M9.2 | Selection: Fence, WPolygon/CPolygon, Lasso | §12 | ☐ | New selection-geometry pipeline atop existing Window/Crossing |
+| M9.3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror cycled with Space on a hot grip) | §14 | ☐ | Builds on `Tool::GripEdit` |
+| M9.4 | Single auto-type `DIM` (infers linear/angular/radius/diameter/aligned from picked geometry) | §22 | ☐ | Wraps DIMLINEAR/QDIM/autodim with type inference |
+| M9.5 | Live hatch preview on internal-point pick | §21 | ☐ | Verify current behavior first |
+| M9.6 | Docking: floating panels + auto-hide | §28 | ☐ | Assess egui docking feasibility |
+| M9.7 | Per-command capability trait (`CanUndo`/`SupportsPreview`/`SupportsSnap`/`SupportsDynamicInput`/`SupportsCommandLine`/`SupportsSelectionPreview`) | §33 | ☐ | Formalizes behavior the engine already provides uniformly |
+| M9.8 | Per-command QA harness asserting the §34 checklist across every command | §34 | ☐ | Test infrastructure |
+| M9.9 | Frame-time / latency telemetry to validate the §31 performance budgets | §31 | ☐ | Currently unmeasured |
+
+**§35 conflict (product lock):** the spec's "Future Extensions" list (AI command
+suggestions, AI takeoff, PDF recognition, auto layer assignment) reintroduces the
+AI removed in M4. **Not scheduled** — resolve product direction first.
+
+**Out of scope for M9:** Ribbon (command-driven by design), View Cube (spec-optional).
 
 ## Post-1.0
 
