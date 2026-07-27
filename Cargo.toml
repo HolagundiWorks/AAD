@@ -5,13 +5,11 @@ members = [
     "crates/aadt-model",
     "crates/aadt-dxf",
     "crates/aadt-detect",
-    "crates/aadt-takeoff",
     "crates/aadt-command",
     "crates/aadt-render",
     "crates/aadt-lisp",
     "crates/aadt-docs",
     "crates/aadt-pdf",
-    "crates/aadt-collab",
     "crates/aadt-app",
     "crates/aadt-ffi",
     "crates/aadt-store",
@@ -36,13 +34,11 @@ aadt-geometry = { path = "crates/aadt-geometry" }
 aadt-model = { path = "crates/aadt-model" }
 aadt-dxf = { path = "crates/aadt-dxf" }
 aadt-detect = { path = "crates/aadt-detect" }
-aadt-takeoff = { path = "crates/aadt-takeoff" }
 aadt-command = { path = "crates/aadt-command" }
 aadt-render = { path = "crates/aadt-render" }
 aadt-lisp = { path = "crates/aadt-lisp" }
 aadt-docs = { path = "crates/aadt-docs" }
 aadt-pdf = { path = "crates/aadt-pdf" }
-aadt-collab = { path = "crates/aadt-collab" }
 aadt-app = { path = "crates/aadt-app" }
 aadt-ffi = { path = "crates/aadt-ffi" }
 aadt-store = { path = "crates/aadt-store" }

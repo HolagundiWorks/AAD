@@ -1,10 +1,8 @@
-# Open the sample plan and take off quantities
+# Open the sample plan
 OPEN fixtures/sample-floorplan.dxf
-TAKEOFF
-# Draw an extra partition (two faces) and re-take off
+# Draw an extra partition (two faces)
 LINE 2 1 2 7 A-WALL
 LINE 2.2 1 2.2 7 A-WALL
-TAKEOFF
 # Undo the last face, then list what remains
 UNDO
 LIST

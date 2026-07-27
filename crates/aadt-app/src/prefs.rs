@@ -19,8 +19,6 @@ pub struct UserPrefs {
     pub right_panel_width: f32,
     pub left_panel_width: f32,
     pub autosave_secs: u64,
-    /// Takeoff publish sink: `none` | `csv:<dir>` | `json:<dir>` | `postgres:<file.sql>`.
-    pub takeoff_sink: String,
 }
 
 impl Default for UserPrefs {
@@ -37,7 +35,6 @@ impl Default for UserPrefs {
             right_panel_width: 280.0,
             left_panel_width: 260.0,
             autosave_secs: 120,
-            takeoff_sink: "none".into(),
         }
     }
 }
@@ -88,7 +85,7 @@ impl UserPrefs {
 
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"ortho\": {},\n  \"osnap\": {},\n  \"polar\": {},\n  \"osnap_track\": {},\n  \"dyn_mode\": {},\n  \"show_layer_mgr\": {},\n  \"show_left_mgr\": {},\n  \"show_lweights\": {},\n  \"right_panel_width\": {},\n  \"left_panel_width\": {},\n  \"autosave_secs\": {},\n  \"takeoff_sink\": \"{}\"\n}}\n",
+            "{{\n  \"ortho\": {},\n  \"osnap\": {},\n  \"polar\": {},\n  \"osnap_track\": {},\n  \"dyn_mode\": {},\n  \"show_layer_mgr\": {},\n  \"show_left_mgr\": {},\n  \"show_lweights\": {},\n  \"right_panel_width\": {},\n  \"left_panel_width\": {},\n  \"autosave_secs\": {}\n}}\n",
             bool_json(self.ortho),
             bool_json(self.osnap),
             bool_json(self.polar),
@@ -100,7 +97,6 @@ impl UserPrefs {
             self.right_panel_width,
             self.left_panel_width,
             self.autosave_secs,
-            escape_json_str(&self.takeoff_sink),
         )
     }
 
@@ -142,40 +138,8 @@ impl UserPrefs {
         if let Some(v) = parse_u64(text, "autosave_secs") {
             p.autosave_secs = v;
         }
-        if let Some(v) = parse_string(text, "takeoff_sink") {
-            p.takeoff_sink = v;
-        }
         Some(p)
     }
-}
-
-fn escape_json_str(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-fn parse_string(text: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let i = text.find(&needle)?;
-    let after = &text[i + needle.len()..];
-    let colon = after.find(':')?;
-    let rest = after[colon + 1..].trim_start();
-    if !rest.starts_with('"') {
-        return None;
-    }
-    let mut out = String::new();
-    let mut chars = rest[1..].chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                if let Some(n) = chars.next() {
-                    out.push(n);
-                }
-            }
-            '"' => break,
-            other => out.push(other),
-        }
-    }
-    Some(out)
 }
 
 fn bool_json(v: bool) -> &'static str {
@@ -239,7 +203,6 @@ mod tests {
             right_panel_width: 280.5,
             left_panel_width: 260.0,
             autosave_secs: 60,
-            takeoff_sink: "csv:C:\\out".into(),
         };
         let back = UserPrefs::from_json(&p.to_json()).unwrap();
         assert_eq!(back, p);

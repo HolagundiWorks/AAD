@@ -865,7 +865,7 @@ struct AadtApp {
     layer_set: String,
     /// Left-dock tab: Layers / Blocks.
     left_tab: usize,
-    /// Right-dock tab: Takeoff / Hatches / Annotate / Templates / Units / Dims / History / Properties.
+    /// Right-dock tab: Hatches / Annotate / Templates / Units / Dims / History / Properties.
     right_tab: usize,
     /// Block name queued for INSERT from the Blocks Manager.
     insert_block: String,
@@ -918,8 +918,6 @@ struct AadtApp {
     /// Table size for TABLE place tool.
     table_rows: String,
     table_cols: String,
-    /// Takeoff publish sink spec (`none` / `csv:dir` / …).
-    takeoff_sink_spec: String,
     /// Label for HISTORY SAVE from the History panel.
     history_label: String,
     /// Spacebar-primary command engine.
@@ -993,7 +991,7 @@ impl AadtApp {
             snap_hit: None,
             layer_set: "CONSTRUCTION".to_string(),
             left_tab: 0,
-            right_tab: 0,
+            right_tab: 1,
             insert_block: String::new(),
             layer_filter: String::new(),
             layer_mgr_scope: LayerMgrScope::ActiveSpace,
@@ -1021,7 +1019,6 @@ impl AadtApp {
             autonum_start: "1".into(),
             table_rows: "5".into(),
             table_cols: "4".into(),
-            takeoff_sink_spec: prefs.takeoff_sink.clone(),
             history_label: String::new(),
             engine: CommandEngine::default(),
             space_gesture: SpaceGesture::default(),
@@ -1061,7 +1058,6 @@ impl AadtApp {
             right_panel_width: self.right_panel_width,
             left_panel_width: self.left_panel_width,
             autosave_secs: self.autosave_secs,
-            takeoff_sink: self.takeoff_sink_spec.clone(),
         }
     }
 

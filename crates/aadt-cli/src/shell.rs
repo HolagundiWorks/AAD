@@ -4,7 +4,7 @@
 //! the reusable, GUI-agnostic core (it owns the interpreter, document, and
 //! completion); this module is just *one* driver of it, exactly as a future
 //! egui/`wgpu` front-end would be. It registers the same file-I/O and engine
-//! commands (`OPEN`/`SAVE`/`TAKEOFF`/`SCHEDULE`) the batch `run` path uses, so the
+//! commands (`OPEN`/`SAVE`/`SECTION`/`STANDARDS`) the batch `run` path uses, so the
 //! prompt and scripts share one command set.
 //!
 //! Meta-commands (prefixed `:`, so they never clash with drawing commands):
@@ -138,11 +138,11 @@ mod tests {
 
     #[test]
     fn meta_help_lists_engine_commands_too() {
-        // OPEN/SAVE/TAKEOFF are registered by the CLI, proving the shell shares
+        // OPEN/SAVE/SECTION are registered by the CLI, proving the shell shares
         // the full command set with the batch `run` path.
         let out = transcript(":help\n");
         assert!(out.contains("OPEN"), "engine commands present: {out}");
-        assert!(out.contains("TAKEOFF"), "engine commands present: {out}");
+        assert!(out.contains("SAVE"), "engine commands present: {out}");
     }
 
     #[test]

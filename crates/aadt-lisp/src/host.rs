@@ -13,7 +13,6 @@ use std::rc::Rc;
 use aadt_detect::{detect, DetectionConfig};
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
 use aadt_model::{Document, EntityId, Geometry, Text};
-use aadt_takeoff::TakeoffTable;
 
 use crate::eval::{define, Env};
 use crate::value::{LispError, Native, Value};
@@ -24,9 +23,6 @@ use crate::value::{LispError, Native, Value};
 /// |---|---|
 /// | `(aadt-entity-count)` | entities in the document |
 /// | `(aadt-wall-count)` / `(aadt-room-count)` / `(aadt-opening-count)` | detected element counts |
-/// | `(aadt-wall-length)` | total wall length |
-/// | `(aadt-net-wall-area)` | wall area net of openings |
-/// | `(aadt-room-area)` | total room floor area |
 pub fn install_document(env: &Env, doc: Rc<RefCell<Document>>) {
     let d = doc.clone();
     define(
@@ -52,22 +48,6 @@ pub fn install_document(env: &Env, doc: Rc<RefCell<Document>>) {
         );
     }
 
-    // Takeoff-derived totals.
-    for (name, f) in [
-        (
-            "aadt-wall-length",
-            total_wall_length as fn(&Document) -> f64,
-        ),
-        ("aadt-net-wall-area", total_net_wall_area),
-        ("aadt-room-area", total_room_area),
-    ] {
-        let d = doc.clone();
-        define(
-            env,
-            name,
-            Native::new(name, move |_| Ok(Value::Real(f(&d.borrow())))),
-        );
-    }
 
     install_edits(env, doc);
 }
@@ -376,18 +356,6 @@ fn count_structural(doc: &Document) -> i64 {
     detection(doc).structural.len() as i64
 }
 
-fn takeoff(doc: &Document) -> TakeoffTable {
-    TakeoffTable::from_detection(&detection(doc))
-}
-fn total_wall_length(doc: &Document) -> f64 {
-    takeoff(doc).total_wall_length()
-}
-fn total_net_wall_area(doc: &Document) -> f64 {
-    takeoff(doc).total_wall_net_area()
-}
-fn total_room_area(doc: &Document) -> f64 {
-    takeoff(doc).total_room_area()
-}
 
 #[cfg(test)]
 mod tests {
@@ -438,21 +406,6 @@ mod tests {
         );
         assert_eq!(lisp.eval_str("(aadt-wall-count)").unwrap().to_string(), "1");
         assert_eq!(lisp.eval_str("(aadt-room-count)").unwrap().to_string(), "1");
-        assert_eq!(
-            lisp.eval_str("(aadt-wall-length)").unwrap().to_string(),
-            "10"
-        );
-        assert_eq!(lisp.eval_str("(aadt-room-area)").unwrap().to_string(), "12");
-    }
-
-    #[test]
-    fn engine_queries_compose_with_lisp() {
-        // A real macro: total wall length plus room area.
-        let mut lisp = interp_with(sample_doc());
-        let out = lisp
-            .eval_str("(+ (aadt-wall-length) (aadt-room-area))")
-            .unwrap();
-        assert_eq!(out.to_string(), "22");
     }
 
     #[test]
@@ -527,10 +480,6 @@ mod tests {
         )
         .unwrap();
         assert_eq!(lisp.eval_str("(aadt-wall-count)").unwrap().to_string(), "1");
-        assert_eq!(
-            lisp.eval_str("(aadt-wall-length)").unwrap().to_string(),
-            "10"
-        );
     }
 
     #[test]

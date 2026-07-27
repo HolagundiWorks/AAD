@@ -292,12 +292,6 @@ pub fn right_manager_nav() -> &'static [NavDest] {
     use super::icons::Icon;
     &[
         NavDest {
-            tab: 0,
-            label: "Takeoff",
-            tip: "Quantities",
-            icon: Icon::Takeoff,
-        },
-        NavDest {
             tab: 1,
             label: "Hatches",
             tip: "Hatch patterns",
@@ -358,7 +352,7 @@ pub fn right_manager_title(tab: usize) -> &'static str {
         5 => "Dimensions",
         6 => "History",
         7 => "Properties",
-        _ => "Takeoff / BOQ",
+        _ => "Hatches",
     }
 }
 
@@ -491,25 +485,6 @@ pub fn section_rule(ui: &mut egui::Ui) {
         egui::Stroke::new(stroke::THIN, color::DIVIDER),
     );
     ui.add_space(panel_space::ROW);
-}
-
-/// Key / value row on one baseline (metrics, status).
-pub fn metric_row(ui: &mut egui::Ui, key: &str, value: impl std::fmt::Display) {
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(key)
-                .size(type_scale::BODY)
-                .color(color::TEXT_SECONDARY),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                egui::RichText::new(format!("{value}"))
-                    .size(type_scale::BODY)
-                    .strong()
-                    .color(color::TEXT),
-            );
-        });
-    });
 }
 
 /// Full-width action button (primary stack).

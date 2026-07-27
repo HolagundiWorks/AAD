@@ -13,7 +13,6 @@ aadt-model.workspace = true
 aadt-command.workspace = true
 aadt-render.workspace = true
 aadt-detect.workspace = true
-aadt-takeoff.workspace = true
 aadt-geometry.workspace = true
 aadt-lisp.workspace = true
 aadt-standards.workspace = true

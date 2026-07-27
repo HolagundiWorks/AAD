@@ -36,8 +36,6 @@ pub enum Icon {
     Lock,
     /// Layer unlocked.
     Unlock,
-    /// Takeoff / quantities.
-    Takeoff,
     /// Dimension manager.
     Dims,
     /// Drawing history / versions.
@@ -79,7 +77,6 @@ impl Icon {
             }
             Icon::Lock => egui::include_image!("../assets/fluent/lock_closed_24_regular.svg"),
             Icon::Unlock => egui::include_image!("../assets/fluent/lock_open_24_regular.svg"),
-            Icon::Takeoff => egui::include_image!("../assets/fluent/calculator_24_regular.svg"),
             Icon::Dims => egui::include_image!("../assets/fluent/ruler_24_regular.svg"),
             Icon::History => egui::include_image!("../assets/fluent/history_24_regular.svg"),
             Icon::Templates => egui::include_image!("../assets/fluent/slide_text_24_regular.svg"),
@@ -105,7 +102,7 @@ pub fn brand_mark_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
             .fit_to_exact_size(egui::vec2(size, size))
             .sense(egui::Sense::hover()),
     )
-    .on_hover_text("AADT — AI-Aided Architecture Design and Takeoff")
+    .on_hover_text("AADT — 2D architectural drafting")
 }
 
 /// Clickable Fluent icon button — compact toolbar (Cursor-like).

@@ -17,8 +17,7 @@
 //!   ([`present`], `AADT-PRESENT`) — an overall plan plus an enlarged detail, or
 //!   two revisions side by side.
 //!
-//! The placement APIs mirror the takeoff schedule table
-//! ([`aadt_takeoff::schedule`]): each draws ordinary geometry through
+//! The placement APIs draw ordinary geometry through
 //! [`Document::transact`](aadt_model::Document::transact), so a title block or a
 //! notes block is a single undoable, DXF-round-trippable object — not a special
 //! entity type.

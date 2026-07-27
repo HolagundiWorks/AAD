@@ -24,7 +24,6 @@ use std::rc::Rc;
 use aadt_command::{Context, Interpreter};
 use aadt_model::Document;
 use aadt_render::{build_drawlist, DrawList};
-use aadt_takeoff::{LiveTakeoff, TakeoffTable};
 
 /// Persistent LISP host: one interpreter for the session so `defun`s stick, with
 /// a shared document cell swapped with [`Context::doc`] around each eval.
@@ -83,13 +82,9 @@ pub struct Session {
     interp: Interpreter,
     ctx: Context,
     transcript: Vec<Feedback>,
-    /// The live takeoff panel's data source. Owned here, recomputed lazily and
-    /// only when the document's revision changes — the session neither reruns
-    /// detection eagerly nor reimplements the takeoff.
-    live: LiveTakeoff,
     /// Lazily created on first `LISP` / `(…)` / `LISPLOAD`.
     lisp: Option<LispHost>,
-    /// Cached drawlist keyed by document revision (same pattern as [`LiveTakeoff`]).
+    /// Cached drawlist keyed by document revision.
     draw_cache: Option<(u64, DrawList)>,
 }
 
@@ -116,7 +111,6 @@ impl Session {
             interp,
             ctx,
             transcript: Vec::new(),
-            live: LiveTakeoff::new(),
             lisp: None,
             draw_cache: None,
         }
@@ -298,27 +292,6 @@ impl Session {
             .unwrap_or(false)
     }
 
-    /// The current takeoff table for the live panel. Backed by [`LiveTakeoff`],
-    /// so this recomputes detection + takeoff **only** when the document has
-    /// changed since the last call; an unchanged document returns the cached
-    /// table for free. A panel driver calls this to render quantities and can
-    /// call it every frame without cost.
-    ///
-    /// Takes `&mut self` because the cache lives in the session; it does not
-    /// mutate the document.
-    pub fn takeoff(&mut self) -> &TakeoffTable {
-        self.live.table(&self.ctx.doc)
-    }
-
-    /// Whether the cached takeoff already matches the document — i.e. the next
-    /// [`takeoff`](Session::takeoff) would answer without recomputing. Exposed so
-    /// a driver (and the tests) can confirm the revision-gated caching holds:
-    /// `true` after a `takeoff()` with no intervening edit, `false` once an edit
-    /// bumps the document revision.
-    pub fn takeoff_is_current(&self) -> bool {
-        self.live.is_current(&self.ctx.doc)
-    }
-
     /// The command history recorded by the interpreter (successful, non-comment
     /// lines), oldest first.
     pub fn history(&self) -> &[String] {
@@ -452,62 +425,6 @@ mod tests {
         assert_eq!(s.feed("PING"), Feedback::Ok("pong".to_string()));
         // And it shows up in completion.
         assert!(s.complete("pi").contains(&"PING".to_string()));
-    }
-
-    /// Draw a wall (two parallel faces 0.2 apart) and a 4x3 closed room through
-    /// the session's command loop — the same inputs `aadt-takeoff`'s own tests use.
-    fn draw_wall_and_room(s: &mut Session) {
-        s.feed("LINE 0 0 10 0 A-WALL");
-        s.feed("LINE 0 0.2 10 0.2 A-WALL");
-        s.feed("POLYLINE 0 0 4 0 4 3 0 3 CLOSED A-ROOM");
-    }
-
-    #[test]
-    fn takeoff_panel_reports_totals_and_reflects_edits() {
-        let mut s = Session::with_builtins();
-        draw_wall_and_room(&mut s);
-
-        // The panel computes quantities from the current document.
-        let walls = s.takeoff().walls.len();
-        let area0 = s.takeoff().total_room_area();
-        assert_eq!(walls, 1, "one wall detected from the two faces");
-        assert!((area0 - 12.0).abs() < 1e-6, "4x3 room = 12, got {area0}");
-
-        // Mutating the document changes the numbers on the next read.
-        s.feed("POLYLINE 20 0 22 0 22 2 20 2 CLOSED A-ROOM");
-        let area1 = s.takeoff().total_room_area();
-        assert!(
-            area1 > area0 + 1e-6,
-            "adding a room increases area: {area0} -> {area1}"
-        );
-    }
-
-    #[test]
-    fn takeoff_is_revision_gated_not_recomputed_on_a_pure_query() {
-        let mut s = Session::with_builtins();
-
-        // Before the first read there is no cached table.
-        assert!(!s.takeoff_is_current(), "nothing computed yet");
-
-        draw_wall_and_room(&mut s);
-        assert!(!s.takeoff_is_current(), "edits left the panel stale");
-
-        // First read populates the cache; it is then current.
-        let _ = s.takeoff();
-        assert!(s.takeoff_is_current(), "current right after a read");
-
-        // Pure queries must not invalidate the cache — the whole point of the
-        // revision gate is that reading the panel every frame is free.
-        let _ = s.drawlist();
-        let _ = s.complete("li");
-        let _ = s.document().len();
-        assert!(s.takeoff_is_current(), "queries do not force a recompute");
-
-        // The next edit bumps the document revision and marks it stale again.
-        s.feed("LINE 5 5 6 6 A-MISC");
-        assert!(!s.takeoff_is_current(), "an edit invalidates the cache");
-        let _ = s.takeoff();
-        assert!(s.takeoff_is_current(), "recomputed and current once more");
     }
 
     #[test]

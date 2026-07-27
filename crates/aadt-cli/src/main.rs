@@ -1,21 +1,18 @@
 //! # aadt — command-line driver (spec §2 principle 2, §6.2)
 //!
 //! The headless entry point for AADT. The interactive, command-line-first desktop
-//! shell (`aadt-app`) grows from M1; until then this binary drives the pipeline:
+//! shell (`aadt-app`) grows from M1; this binary drives the same command core:
 //!
 //! ```text
-//! aadt takeoff <input.dxf> [--csv <out.csv>] [--xlsx <out.xlsx>]
-//!                                                 # one-shot deterministic takeoff
-//!              [--min-thickness <n>] [--max-thickness <n>] [--min-overlap <n>]
 //! aadt run <script.aadt>                          # execute a command script
 //! aadt shell                                      # interactive command prompt
 //! ```
 //!
 //! `run` executes a script through the command interpreter (`aadt-command`) with the
-//! drawing built-ins plus `OPEN`/`SAVE`/`TAKEOFF`, mirroring the CAD command-line
-//! convention users already trust (spec §4.2, §4.3, §6.2). `shell` drives the same
-//! command set interactively through [`aadt_app::Session`] — the GUI-agnostic core a
-//! future desktop front-end will share (see `shell.rs`).
+//! drawing built-ins plus `OPEN`/`SAVE`, mirroring the CAD command-line convention
+//! users already trust. `shell` drives the same command set interactively through
+//! [`aadt_app::Session`] — the GUI-agnostic core a future desktop front-end will
+//! share (see `shell.rs`).
 
 mod commands;
 mod shell;
@@ -23,12 +20,10 @@ mod shell;
 use std::process::ExitCode;
 
 use aadt_command::Interpreter;
-use aadt_detect::anomaly::{AnomalyConfig, Severity};
 use aadt_detect::{detect, DetectionConfig};
 use aadt_docs::{
     NotesLibrary, NotesStyle, Orientation, PaperSize, QaSeverity, Sheet, SheetReview, TitleBlock,
 };
-use aadt_takeoff::{TakeoffTable, TAKEOFF_SCHEMA_VERSION};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -46,7 +41,6 @@ fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("no command given\n\n{USAGE}"));
     };
     match command.as_str() {
-        "takeoff" => cmd_takeoff(rest),
         "run" => cmd_run(rest),
         "shell" | "repl" => shell::run(),
         "render" => cmd_render(rest),
@@ -55,7 +49,6 @@ fn run(args: &[String]) -> Result<(), String> {
         "lisp" => cmd_lisp(rest),
         "pdf" => cmd_pdf(rest),
         "compare" => cmd_compare(rest),
-        "collab" => cmd_collab(rest),
         "app" => cmd_app(rest),
         "present" => cmd_present(rest),
         "help" | "--help" | "-h" => {
@@ -63,11 +56,7 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         "--version" | "-V" | "version" => {
-            println!(
-                "aadt {} (takeoff schema {})",
-                env!("CARGO_PKG_VERSION"),
-                TAKEOFF_SCHEMA_VERSION
-            );
+            println!("aadt {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),
@@ -401,112 +390,6 @@ fn cmd_compare(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Demonstrate the collaboration model: two offline editors mark up a drawing,
-/// then sync, and both converge to the same markup set (spec §11). By default no
-/// network is involved — `merge` is the sync primitive. With `--net`, the same
-/// scenario runs over a real loopback TCP relay ([`aadt_collab::sync`]).
-fn cmd_collab(args: &[String]) -> Result<(), String> {
-    if args.iter().any(|a| a == "--net") {
-        return cmd_collab_net();
-    }
-    use aadt_collab::Replica;
-    use aadt_geometry::Point2;
-    use aadt_pdf::{Markup, MarkupKind};
-
-    let cloud = |a: &str, n: &str| Markup::new(MarkupKind::Cloud, Point2::new(0.0, 0.0), a, n);
-
-    let mut alice = Replica::new("alice");
-    let mut bob = Replica::new("bob");
-
-    // Both edit while offline.
-    let a1 = alice.add_markup(cloud("alice", "clarify north arrow"));
-    alice.add_markup(cloud("alice", "dimension the stair"));
-    bob.add_markup(cloud("bob", "confirm door swing"));
-
-    println!("Before sync:");
-    println!(
-        "  alice sees {} markup(s), bob sees {}",
-        alice.markups().len(),
-        bob.markups().len()
-    );
-
-    // Sync: exchange operations both ways.
-    let (asnap, bsnap) = (alice.clone(), bob.clone());
-    alice.merge(&bsnap);
-    bob.merge(&asnap);
-
-    // Bob, now seeing alice's markup, resolves one of hers.
-    bob.remove(a1);
-    alice.merge(&bob);
-
-    println!("\nAfter sync (and bob resolving one of alice's notes):");
-    for (who, r) in [("alice", &alice), ("bob", &bob)] {
-        let notes: Vec<&str> = r.markups().iter().map(|(_, m)| m.note.as_str()).collect();
-        println!("  {who}: {:?}", notes);
-    }
-    let converged = alice.markups().len() == bob.markups().len();
-    println!("\nParticipants: {:?}", alice.participants());
-    println!("Converged: {converged}");
-    Ok(())
-}
-
-/// The same convergence demo, but driven over a real TCP relay on loopback: a
-/// relay server plus two clients, each edit shipped as an operation and merged
-/// on arrival. Proves the transport, not just the CRDT.
-fn cmd_collab_net() -> Result<(), String> {
-    use std::time::{Duration, Instant};
-
-    use aadt_collab::{Client, RelayServer};
-    use aadt_geometry::Point2;
-    use aadt_pdf::{Markup, MarkupKind};
-
-    let cloud = |a: &str, n: &str| Markup::new(MarkupKind::Cloud, Point2::new(0.0, 0.0), a, n);
-
-    let server = RelayServer::start("127.0.0.1:0").map_err(|e| e.to_string())?;
-    println!("Relay listening on {}", server.addr());
-
-    let mut alice = Client::connect(server.addr(), "alice").map_err(|e| e.to_string())?;
-    let mut bob = Client::connect(server.addr(), "bob").map_err(|e| e.to_string())?;
-
-    let a1 = alice
-        .add_markup(cloud("alice", "clarify north arrow"))
-        .map_err(|e| e.to_string())?;
-    bob.add_markup(cloud("bob", "confirm door swing"))
-        .map_err(|e| e.to_string())?;
-
-    // Wait (bounded) for both ops to fan out to both clients.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline && !(alice.markups().len() == 2 && bob.markups().len() == 2) {
-        std::thread::sleep(Duration::from_millis(5));
-    }
-
-    let show = |who: &str, c: &Client| {
-        let notes: Vec<String> = c.markups().iter().map(|(_, m)| m.note.clone()).collect();
-        println!("  {who}: {notes:?}");
-    };
-    println!("\nAfter both edits fan out over TCP:");
-    show("alice", &alice);
-    show("bob", &bob);
-
-    // Bob resolves one of alice's notes; the remove propagates back.
-    bob.remove(a1).map_err(|e| e.to_string())?;
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < deadline && alice.markups().len() != 1 {
-        std::thread::sleep(Duration::from_millis(5));
-    }
-
-    println!("\nAfter bob resolves one of alice's notes:");
-    show("alice", &alice);
-    show("bob", &bob);
-
-    let a = alice.snapshot();
-    let b = bob.snapshot();
-    let converged = a.markups().len() == b.markups().len();
-    println!("\nParticipants: {:?}", a.participants());
-    println!("Converged over the network: {converged}");
-    Ok(())
-}
-
 /// Launch the egui desktop shell (ADR-0001). Built only with `--features app`.
 #[cfg(feature = "app")]
 fn cmd_app(args: &[String]) -> Result<(), String> {
@@ -539,10 +422,9 @@ fn cmd_app(_args: &[String]) -> Result<(), String> {
 }
 
 const USAGE: &str = "\
-AADT — AI-Aided Architecture Design and Takeoff
+AADT — 2D architectural drafting
 
 Usage:
-  aadt takeoff <input.dxf> [options]     One-shot deterministic takeoff
   aadt run <script.aadt>                 Execute a command script
   aadt shell                             Interactive command prompt (read from stdin)
   aadt render <input.dxf> --png <out>    Render to a PNG via the GPU canvas (needs --features gpu)
@@ -555,22 +437,14 @@ Usage:
                                           Run a LISP script; aadt-* can query and draw into the drawing
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
-  aadt collab [--net]                     Demonstrate convergent multi-user markup sync
-                                          (--net runs it over a real loopback TCP relay)
   aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
 
-Takeoff options:
-  --csv <path>             Write the takeoff CSV to <path> (default: stdout)
-  --xlsx <path>            Write the takeoff as an .xlsx workbook to <path>
-  --json <path>            Write the takeoff as machine-readable JSON to <path>
-  --min-thickness <n>      Minimum wall face offset (default 0.05)
-  --max-thickness <n>      Maximum wall face offset (default 1.0)
-  --min-overlap <n>        Minimum wall run overlap (default 0.1)
+Options:
   -h, --help               Show this help
-  -V, --version            Print the engine and takeoff-schema version
+  -V, --version            Print the version
 
 Script commands: LINE, POLYLINE, CIRCLE, ARC, TEXT, INSERT, MOVE, COPY, ERASE,
-LAYER, LAYERS, UNDO, REDO, LIST, OPEN, SAVE, TAKEOFF, SCHEDULE, LISP / (…), LISPLOAD (and aliases).
+LAYER, LAYERS, UNDO, REDO, LIST, OPEN, SAVE, LISP / (…), LISPLOAD (and aliases).
 Lines starting with # or ; are comments. In `shell`, :help / :complete / :quit
 are meta-commands.";
 
@@ -596,112 +470,17 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn cmd_takeoff(args: &[String]) -> Result<(), String> {
-    let mut input: Option<String> = None;
-    let mut csv_out: Option<String> = None;
-    let mut xlsx_out: Option<String> = None;
-    let mut json_out: Option<String> = None;
-    let mut cfg = DetectionConfig::default();
-
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
-        match arg.as_str() {
-            "--csv" => csv_out = Some(expect_value(&mut it, "--csv")?),
-            "--xlsx" => xlsx_out = Some(expect_value(&mut it, "--xlsx")?),
-            "--json" => json_out = Some(expect_value(&mut it, "--json")?),
-            "--min-thickness" => cfg.min_thickness = parse_num(&mut it, "--min-thickness")?,
-            "--max-thickness" => cfg.max_thickness = parse_num(&mut it, "--max-thickness")?,
-            "--min-overlap" => cfg.min_overlap = parse_num(&mut it, "--min-overlap")?,
-            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
-            other => {
-                if input.replace(other.to_string()).is_some() {
-                    return Err("more than one input file given".to_string());
-                }
-            }
-        }
-    }
-
-    let input = input.ok_or_else(|| format!("takeoff needs an input DXF\n\n{USAGE}"))?;
-
-    let doc = aadt_dxf::import_path(&input).map_err(|e| e.to_string())?;
-    println!("Loaded {} ({} entities)", input, doc.len());
-
-    let detection = detect(&doc, &cfg);
-    println!(
-        "Analyzed: {} walls, {} openings, {} rooms, {} structural, {} graph nodes",
-        detection.walls.len(),
-        detection.openings.len(),
-        detection.rooms.len(),
-        detection.structural.len(),
-        detection.graph.nodes.len()
-    );
-
-    let table = TakeoffTable::from_detection(&detection);
-    let csv = table.to_csv();
-
-    match &csv_out {
-        Some(path) => {
-            std::fs::write(path, &csv).map_err(|e| format!("writing {path}: {e}"))?;
-            println!("Wrote takeoff to {path}");
-        }
-        // Only fall back to stdout when no file output at all was requested,
-        // so `--xlsx`/`--json` alone do not also dump the CSV to the terminal.
-        None if xlsx_out.is_none() && json_out.is_none() => {
-            print!("\n{csv}");
-        }
-        None => {}
-    }
-
-    if let Some(path) = &xlsx_out {
-        std::fs::write(path, table.to_xlsx()).map_err(|e| format!("writing {path}: {e}"))?;
-        println!("Wrote takeoff workbook to {path}");
-    }
-
-    if let Some(path) = &json_out {
-        std::fs::write(path, table.to_json()).map_err(|e| format!("writing {path}: {e}"))?;
-        println!("Wrote takeoff JSON to {path}");
-    }
-
-    println!(
-        "Totals: wall length {:.3}, net wall area {:.3}, room area {:.3}",
-        table.total_wall_length(),
-        table.total_wall_net_area(),
-        table.total_room_area()
-    );
-
-    // Advisory only — printed after the numbers so the quantities stay the
-    // headline, but printed at all because a silently wrong takeoff is this
-    // product's worst failure.
-    let flags = detection.anomalies(&AnomalyConfig::default());
-    if !flags.is_empty() {
-        println!("\n{} anomal{} found:", flags.len(), plural(flags.len()));
-        for f in &flags {
-            let mark = match f.severity {
-                Severity::Warning => "warning",
-                Severity::Info => "info",
-            };
-            println!("  [{mark}] {}: {}", f.kind.as_token(), f.message);
-        }
-    }
-    Ok(())
-}
-
-fn plural(n: usize) -> &'static str {
-    if n == 1 {
-        "y"
-    } else {
-        "ies"
-    }
-}
-
 fn expect_value(it: &mut std::slice::Iter<'_, String>, flag: &str) -> Result<String, String> {
     it.next()
         .cloned()
         .ok_or_else(|| format!("{flag} needs a value"))
 }
 
+// Used by the `render` command (feature "gpu"); unused in the default build.
+#[cfg_attr(not(feature = "gpu"), allow(dead_code))]
 fn parse_num(it: &mut std::slice::Iter<'_, String>, flag: &str) -> Result<f64, String> {
     let raw = expect_value(it, flag)?;
     raw.parse::<f64>()
         .map_err(|_| format!("{flag} expects a number, got {raw:?}"))
 }
+

@@ -7,8 +7,7 @@
 //!
 //! All exported functions are `extern "C"`. Callers must:
 //! - Treat [`AadtSession`] handles as opaque.
-//! - Free strings returned by `aadt_last_feedback` / `aadt_takeoff_summary` with
-//!   [`aadt_string_free`].
+//! - Free strings returned by `aadt_last_feedback` with [`aadt_string_free`].
 //! - Not use a handle after [`aadt_session_free`].
 
 use std::ffi::{CStr, CString};
@@ -123,34 +122,10 @@ pub unsafe extern "C" fn aadt_drawlist_len(session: *mut AadtSession) -> u64 {
     (*session).inner.drawlist().len() as u64
 }
 
-/// Allocate a short takeoff summary string. Caller must free with
-/// [`aadt_string_free`].
+/// Free a string returned by this ABI (e.g. [`aadt_last_feedback`]).
 ///
 /// # Safety
-/// `session` must be valid.
-#[no_mangle]
-pub unsafe extern "C" fn aadt_takeoff_summary(session: *mut AadtSession) -> *mut c_char {
-    if session.is_null() {
-        return ptr::null_mut();
-    }
-    let s = &mut *session;
-    let t = s.inner.takeoff();
-    let text = format!(
-        "walls={} rooms={} wall_len={:.3} room_area={:.3}",
-        t.walls.len(),
-        t.rooms.len(),
-        t.total_wall_length(),
-        t.total_room_area()
-    );
-    CString::new(text.replace('\0', ""))
-        .map(|c| c.into_raw())
-        .unwrap_or(ptr::null_mut())
-}
-
-/// Free a string returned by [`aadt_takeoff_summary`].
-///
-/// # Safety
-/// `s` must be null or a pointer from [`aadt_takeoff_summary`].
+/// `s` must be null or a pointer previously returned by this library.
 #[no_mangle]
 pub unsafe extern "C" fn aadt_string_free(s: *mut c_char) {
     if !s.is_null() {
@@ -172,9 +147,6 @@ mod tests {
             assert_eq!(aadt_session_feed(session, line.as_ptr()), 0);
             assert_eq!(aadt_entity_count(session), 1);
             assert!(aadt_drawlist_len(session) >= 1);
-            let summary = aadt_takeoff_summary(session);
-            assert!(!summary.is_null());
-            aadt_string_free(summary);
             aadt_session_free(session);
         }
     }

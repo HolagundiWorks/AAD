@@ -1,9 +1,11 @@
 # AADT Roadmap
 
-This roadmap sequences AADT from a proven deterministic takeoff slice up to the
-full product. It reorders the spec's suggested phases (§10) so the **element
-detection and takeoff pipeline — the product's reason for existing — is proven
-first**, on the minimum substrate it needs, rather than after a full CAD core.
+This roadmap records how AADT was built as a lean **2D architectural drafting
+tool**. Early milestones proved a deterministic detection/takeoff pipeline on a
+minimal substrate; the **takeoff/quantity engine (M0/M3), the AI layer (M4), and
+cloud collaboration (M8) have since been removed** (see those sections), leaving
+a keyboard-first CAD drafting core with DXF/DWG, PDF plotting, LISP, and sheet
+production.
 
 Each milestone is a shippable, verifiable increment.
 
@@ -56,7 +58,7 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
 | Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
-| AADT | `TAKEOFF` `SCHEDULE` `SECTION` `STANDARDS` `BLOCKLIB` |
+| AADT | `SECTION` `STANDARDS` `BLOCKLIB` |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
 
 **Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
@@ -78,12 +80,13 @@ vector brush.
 
 ---
 
-## M0 — Deterministic Takeoff Vertical Slice ✅
+## M0 — Deterministic Takeoff Vertical Slice ⛔ removed
 
-`DXF import → wall/room detection → deterministic takeoff → CSV export`.
+Shipped `DXF import → wall/room detection → deterministic takeoff → CSV export`,
+then **removed** with the takeoff module (see below). DXF import and wall/room
+detection (`aadt-detect`) remain; quantity takeoff and CSV/XLSX export are gone.
 
-Verify: `cargo test --workspace`,
-`cargo run -p aadt-cli -- takeoff fixtures/sample-floorplan.dxf --csv out.csv`.
+Verify: `cargo test --workspace`.
 
 ---
 
@@ -94,11 +97,11 @@ curated band above, selection sets, dimensions (full DXF set), hatch, layer
 state, DXF round-trip, drawlist/camera seam.
 
 **Interactive surface — ✅ (egui):**
-- Command-first shell with live takeoff panel, pick/box select, click-to-draw
+- Command-first shell with pick/box select, click-to-draw
   (`L`/`C`/`REC`/`A`/`XL`), noun-verb **and** verb-noun `M`/`CO`/`RO`/`SC`/`MI`/`E`,
   AutoCAD-like keywords (`[U]`/`[C]`/`[D]`/`[R]`), dynamic input, Ortho (F8),
   native file dialogs (`rfd`), Units/Dims managers, 3-point `DIM`.
-- `OPEN`/`SAVE`/`TAKEOFF`/`SCHEDULE`/`LISP`/`LISPLOAD` on the same `Session` the
+- `OPEN`/`SAVE`/`LISP`/`LISPLOAD` on the same `Session` the
   CLI shell uses; bare `(…)` evaluates AutoLISP against the live document.
 - Thin `aadt-ffi` cdylib for future chrome (e.g. WinUI) without engine rewrite.
 - Interaction docs: [`docs/ux/`](ux/README.md).
@@ -132,10 +135,14 @@ angle + spacing) via an embedded library, instead of the old name→angle map;
 legacy builtins keep the simple model as a fallback. Dash arrays are parsed
 but drawn solid for now (approximation).
 
-## M3 — Takeoff & Quantity Engine ✅
+## M3 — Takeoff & Quantity Engine ⛔ removed
 
-Wall area/volume, opening subtraction, CSI cost codes, `LiveTakeoff`, `.xlsx`
-export, in-drawing `SCHEDULE` tables.
+Implemented (wall area/volume, opening subtraction, CSI cost codes,
+`LiveTakeoff`, `.xlsx` export, in-drawing `SCHEDULE` tables) and then
+**removed in full**: the `aadt-takeoff` crate, the `TAKEOFF`/`SCHEDULE`
+commands, the `takeoff` CLI command, the GUI Takeoff/BOQ dock, and the
+takeoff LISP query functions. `aadt-store` keeps its run tables (unused).
+The app is now a 2D drafting tool without quantity takeoff.
 
 ---
 
@@ -172,11 +179,11 @@ UI):** interactive viewing, freehand/stamps, on-PDF measure, raster diff.
 
 ---
 
-## M8 — Cloud Collaboration ✅ (engine)
+## M8 — Cloud Collaboration ⛔ removed
 
-Convergent op log + TCP relay (`aadt collab --net`) + **local presence**
-(`J`/`L`/`P` cursor lines on the same relay). **Post-1.0:** hosted session
-service (auth, discovery, persistence).
+Implemented (convergent op log + TCP relay via `aadt collab --net`, local
+presence cursors) and then **removed in full**: the `aadt-collab` crate and
+the `collab` CLI command. No collaboration/sync in the app.
 
 ---
 
@@ -229,10 +236,8 @@ AI removed in M4. **Not scheduled** — resolve product direction first.
 
 ## Post-1.0
 
-- Hosted collab session service (beyond local TCP relay).
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;
   transparent mid-command `'ZOOM` / grip-edit.
 - M7 PDF viewer UI: interactive viewing, freehand/stamps, on-PDF measure, raster diff.
-- Optional: WinUI over `aadt-ffi`, live Postgres, AI schedule/notes formatting
-  (never gates takeoff).
+- Optional: WinUI over `aadt-ffi`.
 - DWG: Autodesk-certified fidelity / hatch+dim DWG mapping; hatch arc/ellipse edges.
