@@ -1,6 +1,10 @@
 # ADR-0003 — Default local AI model & delivery
 
-- **Status:** Accepted (M4; Foundry Local, 2026-07)
+> ⛔ **Superseded (2026-07): all AI features were removed.** The `aadt-ai` crate,
+> the `infer` command, and the Foundry/Ollama integration no longer exist. AADT
+> ships no bundled model. Retained as historical record.
+
+- **Status:** Superseded — AI removed (was: Accepted, M4; Foundry Local, 2026-07)
 - **Context:** Spec §3.1 / §11 #3 — default bundled model size/quality tradeoff
   vs. a first-run download. AADT runs AI **locally, on demand**. Deterministic
   drafting/takeoff must never depend on the model being present.

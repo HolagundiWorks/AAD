@@ -1,6 +1,6 @@
 # AADT brand guidelines
 
-**Product:** AADT — AI-Aided Architecture Design and Takeoff  
+**Product:** AADT — 2D Architectural Drafting  
 **Voice:** Command-first, local-first, calm Fluent chrome with a bold orange identity.  
 **Primary brand color:** Orange (`#E85D04`)
 
@@ -41,9 +41,9 @@ Do **not** use Windows blue (`#005FB8`) for brand. Keep Fluent System Icons tint
 ## Voice & naming
 
 - Short name: **AADT**
-- Full: **AI-Aided Architecture Design and Takeoff**
+- Full: **AADT — 2D Architectural Drafting** (AADT is the product name, not an acronym)
 - Window title: `AADT`
-- Tagline (optional): *Draft the way you always have. Let AADT handle the takeoff.*
+- Tagline (optional): *Draft the way you always have — fast, predictable, out of your way.*
 
 ---
 

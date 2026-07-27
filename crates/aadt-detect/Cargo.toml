@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Element detection & classification: deterministic wall pairing, wall graph, room extraction. Openings/structural/furniture + AI wall-typing in later milestones."
+description = "Element detection: deterministic wall pairing, wall graph, room extraction, openings/structural/furniture."
 
 [dependencies]
 aadt-geometry.workspace = true

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Scope reset — drafting-first (2026-07)
+
+- **Removed all AI features:** the `aadt-ai` crate, the `infer` command, the
+  RECOGNIZE/REVIEW/ACCEPT/REJECT/FREEZE/ASK command family, and the Foundry
+  Local control panel.
+- **Dropped the takeoff module:** the `aadt-takeoff` crate, `TAKEOFF`/`SCHEDULE`
+  commands, the `aadt takeoff` CLI, the GUI Takeoff/BOQ dock, `.xlsx`/CSV
+  export, and the takeoff LISP queries. `aadt-store` keeps its (now unused) run
+  tables.
+- **Dropped cloud collaboration:** the `aadt-collab` crate and `aadt collab` CLI.
+- **Rebranded** from "AI-Aided Architecture Design and Takeoff" to a 2D
+  architectural drafting tool (README, NOTICE, branding, architecture overview;
+  affected ADRs marked superseded).
+
+### Object snaps (M9.1)
+
+- Added Quadrant, Nearest, and Intersection running snaps (AutoCAD-style
+  priority), with markers and labels. Perpendicular/Tangent + keyword overrides
+  remain.
+
+### Hatch pattern library
+
+- Internalised 28 architectural/floor `.pat` patterns; `aadt-render` now parses
+  and renders `.pat` line families faithfully (multi-family, native spacing).
+
 ### ROADMAP Next complete
 
 - **DWG write:** `export_dwg_path` via `acadrust`; `SAVE` / Save-As accept `.dwg`

@@ -1,6 +1,10 @@
 # ADR-0007 — Propose → Review → Freeze (classification)
 
-- **Status:** Accepted (walls-first, 2026-07)
+> ⛔ **Superseded (2026-07): the AI classification workflow was removed** along
+> with the AI layer — RECOGNIZE/REVIEW/ACCEPT/REJECT/FREEZE and wall-type
+> inference no longer exist. Retained as historical record.
+
+- **Status:** Superseded — AI classification removed (was: Accepted, walls-first, 2026-07)
 - **Extends:** [ADR-0003](0003-bundled-ai-model.md)
 - **Context:** AI wall typing previously wrote `AADT-WALL-TYPE` with no confidence,
   status, or drafter gate. That invited silent “rewrites” of meaning even when

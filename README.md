@@ -1,40 +1,39 @@
-# AADT — AI-Aided Architecture Design and Takeoff
+# AADT — 2D Architectural Drafting
 
 <p align="left">
   <img src="crates/aadt-app/assets/branding/aadt_mark.svg" alt="" height="28" />
   <strong>AADT</strong>
 </p>
 
-AADT is an **AI-aided architecture design and takeoff platform** built on a
-native, command-line-first **2D CAD** core. The CAD engine is the substrate; the
-product is what sits on top — deterministic quantity takeoff, documentation,
-sheet production, and optional on-demand local AI — all running locally.
+AADT is a lean, **keyboard-first 2D CAD drafting tool** for architecture, built
+on a native command-line-first core. Drafting speed comes first: the command
+line is the primary interaction engine, the mouse assists, and the canvas stays
+the focus. Everything runs locally.
 
-> **Positioning:** "Draft the way you always have. Let AADT handle the takeoff,
-> the notes, and the paperwork you hate."
+> **Positioning:** "Draft the way you always have — fast, predictable, and out
+> of your way."
 
 See [`docs/`](docs/) for engineering docs:
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestones, curated command band, product locks.
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — layers and data flow.
 - [`docs/audit/2026-07-industry-standards-audit.md`](docs/audit/2026-07-industry-standards-audit.md) — industry grade + gap register.
-- [`docs/takeoff/`](docs/takeoff/README.md) — BOQ standards + Bluebeam case study.
-- [`docs/plans/2026-07-gap-closure.md`](docs/plans/2026-07-gap-closure.md) — completed gap-closure plan.
-- [`docs/ux/`](docs/ux/README.md) — AutoCAD-like command interaction research + workflows.
+- [`docs/ux/`](docs/ux/README.md) — AutoCAD/BricsCAD-like command interaction research + workflows.
 - [`docs/adr/`](docs/adr/) — Architecture Decision Records.
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — recent changes.
 
 ## Status
 
-**M0–M8 cores are implemented** at the engine level: DXF → detect → takeoff
-(CSV/JSON/XLSX/schedules), CAD commands with undo, native `.aadt` SQLite
-(schema v5 with history checkpoints + takeoff runs), AI infer/apply, docs/sheets,
-LISP, PDF, and collab relay. See the [roadmap](docs/ROADMAP.md) and
-[industry audit](docs/audit/2026-07-industry-standards-audit.md).
+The CAD core is implemented: DXF/DWG import + native `.aadt` SQLite (with
+history checkpoints), CAD commands with atomic undo/redo, wall/room/opening
+**detection**, AIA/NCS standards layers, block/hatch libraries, PDF plotting +
+markup, sheet/title-block production, and an AutoLISP-flavoured engine. See the
+[roadmap](docs/ROADMAP.md) and [industry audit](docs/audit/2026-07-industry-standards-audit.md).
 
-**Interactive shell (egui)** is the live product surface: command-first drafting,
-live takeoff panel, History manager, pick/draw tools, Ortho/Osnap, and
-`OPEN`/`SAVE`/`TAKEOFF` for `.dxf` / `.aadt`. True wgpu-at-100k and DWG remain later work for advanced scale / ODA fidelity;
-open-source DWG import via `acadrust` is available now (`OPEN file.dwg`).
+**Interactive shell (egui)** is the live product surface: command-first
+drafting, History manager, pick/draw/modify tools, Ortho/Osnap/Polar, dynamic
+input, docked Layers/Properties, and `OPEN`/`SAVE` for `.dxf` / `.dwg` /
+`.aadt`. Open-source DWG import via `acadrust` works now (`OPEN file.dwg`); true
+wgpu-at-100k and ODA-grade DWG fidelity remain later work.
 
 ```sh
 # Drive AADT with a command script
@@ -50,19 +49,16 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 |---|---|
 | `aadt-geometry` | 2D geometry kernel |
 | `aadt-model` | Document model, layers, undo/redo |
-| `aadt-dxf` | DXF import/export |
-| `aadt-store` | Native `.aadt` SQLite (history + takeoff DB) |
+| `aadt-dxf` | DXF/DWG import/export |
+| `aadt-store` | Native `.aadt` SQLite (history checkpoints) |
 | `aadt-detect` | Wall/room/opening detection, anomalies |
-| `aadt-takeoff` | Quantities, cost codes, CSV/JSON/XLSX, schedules, sinks |
 | `aadt-command` | Command interpreter (daily band + firm suites) |
 | `aadt-standards` | AIA/NCS layers, layer sets, WCAG helpers |
 | `aadt-library` | Block/hatch library (DXF/SVG) |
 | `aadt-render` | Drawlist, camera; optional GPU/window backends |
-| `aadt-ai` | On-demand local AI (Foundry Local default; Ollama optional) |
 | `aadt-docs` | Sheets, title blocks, present |
 | `aadt-lisp` | AutoLISP-flavoured engine + `aadt-*` bridge |
 | `aadt-pdf` | PDF plot, markup, compare |
-| `aadt-collab` | CRDT markup sync + TCP relay |
 | `aadt-app` | `Session` + egui desktop shell |
 | `aadt-ffi` | Thin C ABI over `Session` (future chrome) |
 | `aadt-cli` | `aadt` binary |
@@ -75,44 +71,17 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
-cargo run -p aadt-cli -- takeoff fixtures/sample-floorplan.dxf --csv out.csv
-cargo run -p aadt-cli -- takeoff fixtures/sample-floorplan.dxf --json out.json
+cargo run -p aadt-cli -- run fixtures/demo.aadt
 cargo run -p aadt-cli -- --version
 ```
 
-Golden takeoff: `fixtures/expected-takeoff.csv` via `crates/aadt-cli/tests/golden.rs`.
-
-### Local AI (Foundry Local)
-
-Inbuilt AI defaults to **[Microsoft Foundry Local](https://learn.microsoft.com/azure/ai-foundry/foundry-local/)**
-(`phi-3.5-mini` over the OpenAI-compatible API). Start Foundry Local, load the
-model, then:
-
-```sh
-cargo run -p aadt-cli -- infer fixtures/sample-floorplan.dxf --save typed.dxf
-# optional: AADT_FOUNDRY_ENDPOINT=http://127.0.0.1:55588
-# optional: --backend ollama --model llama3
-```
-
-**Natural-language drafting** (`ASK` / Takeoff panel “Ask” box) turns simple
-English into commands. Common phrases are handled **offline** (no model):
-
-```text
-ASK create a room of 12' x 16'
-ASK make a bedroom of 10' x 12'
-ASK add a window of 5' to the selected wall
-ASK place a door of 3' on the selected wall
-```
-
-Other phrases call Foundry Local and expect JSON `{"commands":["…"]}`.
-
 ## Principles
 
-1. The CAD core is a **substrate**, not the product — **2D only**.
+1. **Keyboard-first, mouse-assisted** — the command line is the interaction engine.
 2. **Command-first, always** — lean daily commands; **LISP for depth**.
-3. Curated core commands, deep AADT capability (takeoff, docs) — no bloat.
-4. **Local-first, on-demand AI** — nothing runs in the background.
-5. **Deterministic core, AI as accelerant** — quantities auditable without AI.
+3. **2D only** — plan/elevation/section drafting; no 3D, solids, or BIM.
+4. Curated core commands, no bloat — depth goes into LISP, not command-count.
+5. **Deterministic core** — geometry, numbering, and detection are reproducible.
 
 ## License
 

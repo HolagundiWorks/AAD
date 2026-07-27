@@ -1,6 +1,11 @@
 # ADR-0008 — Drawing time machine & takeoff DB in `.aadt`
 
-- **Status:** Accepted
+> ⚠️ **Partly superseded (2026-07): the takeoff module was removed.** The
+> `.aadt` history / time-machine (checkpoints) remains; the takeoff-run tables
+> in `aadt-store` still exist but are now unused (no writer). The takeoff-DB
+> rationale below is historical.
+
+- **Status:** History kept · takeoff DB unused (was: Accepted)
 - **Context:** Architectural QS / drafting pain points (revision breaks takeoff;
   RevA/RevB file copies; siloed Excel quantities). ADR-0004 already chose SQLite
   `.aadt` and mentioned takeoff links; session UNDO is RAM-only and title-block
