@@ -30,6 +30,9 @@ pub mod interact;
 #[cfg(feature = "gui")]
 pub mod view;
 
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 use aadt_geometry::{Bbox, Point2};
 use aadt_model::{Dimension, DimensionKind, Document, Geometry, Hatch};
 
@@ -293,6 +296,10 @@ fn pattern_hatch_lines(hatch: &Hatch, outer: &aadt_geometry::Polyline) -> Vec<Dr
         return Vec::new();
     };
     let span = (max_x - min_x).max(max_y - min_y).max(1.0);
+    // Faithful multi-family rendering for embedded .pat library patterns.
+    if let Some(families) = embedded_pattern(&hatch.pattern) {
+        return render_pat_families(hatch, outer, families, min_x, max_x, min_y, max_y);
+    }
     let (angle_deg, density) = hatch_pattern_params(&hatch.pattern);
     let step = (span / density).clamp(0.05, span);
     let angle = angle_deg.to_radians();
@@ -347,6 +354,115 @@ fn hatch_pattern_is_cross(name: &str) -> bool {
         name.trim().to_ascii_uppercase().as_str(),
         "CROSS" | "ANSI38" | "NET" | "GRID"
     )
+}
+
+// --- Embedded .pat pattern library ------------------------------------------
+
+/// One line family of a hatch pattern (AutoCAD `.pat` semantics): a set of
+/// parallel lines at `angle_deg`, offset by `delta_perp` perpendicular spacing
+/// and `delta_along` stagger along the line. Dash arrays are parsed but not yet
+/// rendered (solid approximation — see M9 hatch notes).
+#[derive(Debug, Clone)]
+struct PatFamily {
+    angle_deg: f64,
+    delta_along: f64,
+    delta_perp: f64,
+}
+
+/// Parse a `.pat` text (possibly many `*NAME` blocks) into families by name.
+fn parse_pat_families(text: &str) -> HashMap<String, Vec<PatFamily>> {
+    let mut map = HashMap::new();
+    let mut current: Option<(String, Vec<PatFamily>)> = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with(';') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('*') {
+            if let Some((name, fams)) = current.take() {
+                map.insert(name, fams);
+            }
+            let name = rest
+                .split(',')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_uppercase();
+            current = Some((name, Vec::new()));
+        } else if let Some((_, fams)) = current.as_mut() {
+            let nums: Vec<f64> = line
+                .split(',')
+                .filter_map(|s| s.trim().parse::<f64>().ok())
+                .collect();
+            // angle, x-base, y-base, delta-x, delta-y [, dashes...]
+            if nums.len() >= 5 {
+                fams.push(PatFamily {
+                    angle_deg: nums[0],
+                    delta_along: nums[3],
+                    delta_perp: nums[4],
+                });
+            }
+        }
+    }
+    if let Some((name, fams)) = current.take() {
+        map.insert(name, fams);
+    }
+    map
+}
+
+/// The embedded pattern library (parsed once). Source: `libraries/hatches/*.pat`.
+static PATTERN_LIB: LazyLock<HashMap<String, Vec<PatFamily>>> =
+    LazyLock::new(|| parse_pat_families(include_str!("hatch_patterns.pat")));
+
+/// Line families for a named pattern, if it is in the embedded library.
+fn embedded_pattern(name: &str) -> Option<&'static [PatFamily]> {
+    PATTERN_LIB
+        .get(name.trim().to_ascii_uppercase().as_str())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.as_slice())
+}
+
+/// Render each `.pat` family as parallel lines at its native spacing, clipped to
+/// the boundary. Perpendicular spacing is `|delta_perp|`; line count is capped so
+/// dense patterns over large regions stay bounded.
+fn render_pat_families(
+    hatch: &Hatch,
+    outer: &aadt_geometry::Polyline,
+    families: &[PatFamily],
+    min_x: f64,
+    max_x: f64,
+    min_y: f64,
+    max_y: f64,
+) -> Vec<DrawCommand> {
+    const MAX_LINES_PER_FAMILY: f64 = 600.0;
+    let diag = ((max_x - min_x).powi(2) + (max_y - min_y).powi(2))
+        .sqrt()
+        .max(1.0);
+    let mid = Point2::new((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
+    let mut cmds = Vec::new();
+    for fam in families {
+        let mut spacing = fam.delta_perp.abs();
+        if spacing < 1e-6 {
+            continue; // degenerate family (coincident lines)
+        }
+        // Keep the line count bounded by widening spacing if needed.
+        if diag / spacing > MAX_LINES_PER_FAMILY {
+            spacing = diag / MAX_LINES_PER_FAMILY;
+        }
+        let a = fam.angle_deg.to_radians();
+        let (dx, dy) = (a.cos(), a.sin());
+        let (nx, ny) = (-dy, dx);
+        let half = (diag / spacing).ceil() as i64 + 2;
+        for k in -half..=half {
+            let step = k as f64;
+            let ox = mid.x + nx * (step * spacing) + dx * (step * fam.delta_along);
+            let oy = mid.y + ny * (step * spacing) + dy * (step * fam.delta_along);
+            let pa = Point2::new(ox - dx * diag, oy - dy * diag);
+            let pb = Point2::new(ox + dx * diag, oy + dy * diag);
+            cmds.extend(clipped_hatch_run(hatch, outer, pa, pb));
+        }
+    }
+    cmds
 }
 
 fn point_in_hatch_fill(hatch: &Hatch, outer: &aadt_geometry::Polyline, p: Point2) -> bool {
@@ -1368,5 +1484,45 @@ mod tests {
         );
         let list = build_drawlist(&doc);
         assert_eq!(list.len(), 1, "one of two block ents hidden");
+    }
+
+    #[test]
+    fn embedded_pat_library_parses_expected_patterns() {
+        // Two-family grid at 0°/90°, 600 mm spacing.
+        let grid = embedded_pattern("FLOOR-600-GRID").expect("grid pattern present");
+        assert_eq!(grid.len(), 2);
+        assert!(grid.iter().any(|f| f.angle_deg == 0.0 && (f.delta_perp - 600.0).abs() < 1e-9));
+        assert!(grid.iter().any(|f| f.angle_deg == 90.0));
+        // Crosshatch at 45°/135°.
+        let block = embedded_pattern("ar-conc-block").expect("case-insensitive lookup");
+        assert_eq!(block.len(), 2);
+        assert!(block.iter().any(|f| f.angle_deg == 45.0));
+        assert!(block.iter().any(|f| f.angle_deg == 135.0));
+        // Single-family diagonal.
+        assert_eq!(embedded_pattern("AR-METAL-LINES").unwrap().len(), 1);
+        // Unknown name falls through to the legacy param model.
+        assert!(embedded_pattern("NOT-A-PATTERN").is_none());
+    }
+
+    #[test]
+    fn pat_pattern_renders_multiple_families() {
+        // 3 m square region hatched with the 600 mm grid → several strokes per family.
+        let outer = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(3000.0, 0.0),
+                Point2::new(3000.0, 3000.0),
+                Point2::new(0.0, 3000.0),
+            ],
+            true,
+        );
+        let hatch = Hatch::new("0", outer.clone(), "FLOOR-600-GRID");
+        let cmds = pattern_hatch_lines(&hatch, &outer);
+        let lines = cmds
+            .iter()
+            .filter(|c| matches!(c, DrawCommand::Polyline { .. }))
+            .count();
+        // Two families of ~5 lines across 3 m at 600 mm spacing.
+        assert!(lines >= 6, "expected grid pattern lines, got {lines}");
     }
 }

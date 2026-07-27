@@ -55,7 +55,7 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 | Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
 | Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
-| Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` |
+| Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
 | AADT | `TAKEOFF` `SCHEDULE` `SECTION` `STANDARDS` `BLOCKLIB` |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
 
@@ -121,6 +121,16 @@ Openings, structural, furniture classification; tags; room-from-wall-graph;
 on-canvas block placement polish.
 
 ---
+
+### Hatch pattern library ✅ (expanded)
+
+28 architectural/floor `.pat` patterns internalised under
+[`libraries/hatches/`](../libraries/hatches/) (brick, block, stone, tile,
+insulation, metal, floor grids/staggers, …). `aadt-render` now **parses the
+`.pat` line families** and renders them faithfully (multi-family, native
+angle + spacing) via an embedded library, instead of the old name→angle map;
+legacy builtins keep the simple model as a fallback. Dash arrays are parsed
+but drawn solid for now (approximation).
 
 ## M3 — Takeoff & Quantity Engine ✅
 
