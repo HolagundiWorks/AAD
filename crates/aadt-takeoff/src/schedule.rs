@@ -44,6 +44,8 @@ pub struct ScheduleStyle {
     pub grid_layer: String,
     /// Whether to draw the ruling lines around cells.
     pub draw_grid: bool,
+    /// Whether to place the fitted plan miniature above the table.
+    pub draw_plan_sketch: bool,
 }
 
 impl Default for ScheduleStyle {
@@ -56,6 +58,7 @@ impl Default for ScheduleStyle {
             text_layer: "A-ANNO-TABL".to_string(),
             grid_layer: "A-ANNO-TABL".to_string(),
             draw_grid: true,
+            draw_plan_sketch: true,
         }
     }
 }
@@ -92,7 +95,11 @@ impl TakeoffTable {
         let sketch_segs = plan_sketch_segments(doc);
         let sketch_w = grid.total_width.max(style.text_height * 12.0);
         doc.transact("SCHEDULE", |d| {
-            let mut ids = emit_plan_sketch(d, &sketch_segs, origin, sketch_w, &style.grid_layer);
+            let mut ids = if style.draw_plan_sketch {
+                emit_plan_sketch(d, &sketch_segs, origin, sketch_w, &style.grid_layer)
+            } else {
+                Vec::new()
+            };
             ids.extend(grid.emit(d, &sheet.rows, style));
             for (i, &id) in ids.iter().enumerate() {
                 if i == 0 {
@@ -501,6 +508,7 @@ mod tests {
         let table = takeoff_of(&doc);
         let style = ScheduleStyle {
             origin: Point2::new(100.0, 50.0),
+            draw_plan_sketch: false,
             ..Default::default()
         };
         table.insert_schedule(&mut doc, &style);
@@ -551,6 +559,7 @@ mod tests {
         let wall_lines = doc.len();
         let style = ScheduleStyle {
             draw_grid: false,
+            draw_plan_sketch: false,
             ..Default::default()
         };
         let ids = table.insert_schedule(&mut doc, &style);
