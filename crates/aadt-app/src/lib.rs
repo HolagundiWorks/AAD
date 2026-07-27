@@ -17,6 +17,7 @@
 pub mod gui;
 pub mod osnap;
 pub mod prefs;
+pub mod selection;
 
 use std::cell::RefCell;
 use std::rc::Rc;
