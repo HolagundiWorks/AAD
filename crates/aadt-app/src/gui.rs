@@ -888,6 +888,12 @@ struct AadtApp {
     zoom_prev: Option<Camera>,
     /// Active snap under the cursor (for the marker), if any.
     snap_hit: Option<(SnapKind, Point2)>,
+    /// One-shot snap override (typed `PER`/`TAN`/… or the SHIFT+right-click
+    /// menu): forces a single kind for the next pick, then clears. Works even
+    /// with running osnap (F3) off, and supplies PER/TAN via the drag anchor.
+    snap_override: Option<SnapKind>,
+    /// Screen position of the SHIFT+right-click snap menu while it is open.
+    snap_menu_at: Option<egui::Pos2>,
     /// Active layer-set name for the side panel.
     layer_set: String,
     /// Left-dock tab: Layers / Blocks.
@@ -1017,6 +1023,8 @@ impl AadtApp {
             dyn_mode: prefs.dyn_mode,
             zoom_prev: None,
             snap_hit: None,
+            snap_override: None,
+            snap_menu_at: None,
             layer_set: "CONSTRUCTION".to_string(),
             left_tab: 0,
             right_tab: 1,
@@ -1470,7 +1478,8 @@ impl AadtApp {
                 ui.separator();
                 ui.label(egui::RichText::new("Modes & file").strong());
                 ui.label("F1 — this sheet");
-                ui.label("F3 — object snap (END/MID/CEN) · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
+                ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
+                ui.label("Snap override — type END/MID/INT/CEN/QUA/NEA/PER/TAN at a point, or SHIFT+right-click");
                 ui.label("Delete / Backspace — erase selection · W — WBLOCK · WA — WALL");
                 ui.label("Z Enter — ZOOM · A Enter — All (extents) · W — Window · P — Previous");
                 ui.label("Ctrl+S — quick save · Ctrl+Shift+S — Save As");
@@ -1724,6 +1733,30 @@ impl AadtApp {
     fn resolve_pick(&mut self, raw: Point2, shift: bool) -> Point2 {
         let mut p = raw;
         self.snap_hit = None;
+        // One-shot override (PER/TAN or a forced running kind) wins over the
+        // running snap and ignores Ortho/Polar for that pick, like AutoCAD.
+        if let Some(kind) = self.snap_override {
+            let tol = SNAP_PIXELS / self.camera.scale;
+            let base = self.tool_anchor();
+            let spaces = self.session.document().snap_candidate_spaces();
+            if let Some(sp) = crate::osnap::find_override_in_spaces(
+                self.session.document(),
+                Some(spaces.as_slice()),
+                kind,
+                base,
+                raw,
+                tol,
+            ) {
+                self.snap_hit = Some((kind, sp));
+                return sp;
+            }
+            // No qualifying object under the aperture: fall back to raw + Ortho.
+            return if self.drafting() {
+                self.constrain_pick(raw, shift)
+            } else {
+                raw
+            };
+        }
         if self.osnap {
             let tol = SNAP_PIXELS / self.camera.scale;
             let move_tol = 2.0 / self.camera.scale;
@@ -1746,6 +1779,90 @@ impl AadtApp {
             self.constrain_pick(p, shift)
         } else {
             p
+        }
+    }
+
+    /// If a point is expected and `token` is a snap-override keyword (`PER`,
+    /// `END`, `MID`, `INT`, `TAN`, …), arm the one-shot override and return
+    /// `true` so the caller stops treating the token as a command.
+    fn try_snap_override(&mut self, token: &str) -> bool {
+        if !self.expects_point_coords() {
+            return false;
+        }
+        let Some(kind) = crate::osnap::parse_snap_keyword(token) else {
+            return false;
+        };
+        self.arm_snap_override(kind);
+        true
+    }
+
+    /// Arm a one-shot snap override for the next pick (from a keyword or the
+    /// SHIFT+right-click menu) and describe it in the status note.
+    fn arm_snap_override(&mut self, kind: SnapKind) {
+        self.snap_override = Some(kind);
+        let label = crate::osnap::snap_label(kind);
+        let needs_base = matches!(kind, SnapKind::Perpendicular | SnapKind::Tangent);
+        self.note = if needs_base && self.tool_anchor().is_none() {
+            format!("Snap override {label} — set a start point first")
+        } else {
+            format!("Snap override {label} — pick object for the next point")
+        };
+    }
+
+    /// Render the SHIFT+right-click object-snap override menu while
+    /// [`Self::snap_menu_at`] is set. A choice arms a one-shot override; a click
+    /// outside, Escape, or "None" dismisses it.
+    fn show_snap_menu(&mut self, ctx: &egui::Context) {
+        let Some(pos) = self.snap_menu_at else {
+            return;
+        };
+        const ITEMS: &[(&str, SnapKind)] = &[
+            ("Endpoint", SnapKind::Endpoint),
+            ("Midpoint", SnapKind::Midpoint),
+            ("Center", SnapKind::Center),
+            ("Quadrant", SnapKind::Quadrant),
+            ("Intersection", SnapKind::Intersection),
+            ("Perpendicular", SnapKind::Perpendicular),
+            ("Tangent", SnapKind::Tangent),
+            ("Nearest", SnapKind::Nearest),
+        ];
+        let mut chosen: Option<SnapKind> = None;
+        let mut clear = false;
+        let area = egui::Area::new(egui::Id::new("snap_override_menu"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(160.0);
+                    ui.label(egui::RichText::new("Object Snap").small().weak());
+                    for &(label, kind) in ITEMS {
+                        let tag = crate::osnap::snap_label(kind);
+                        if ui.button(format!("{label}  ({tag})")).clicked() {
+                            chosen = Some(kind);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("None").clicked() {
+                        clear = true;
+                    }
+                });
+            });
+        if let Some(kind) = chosen {
+            self.arm_snap_override(kind);
+            self.snap_menu_at = None;
+            return;
+        }
+        if clear {
+            self.snap_override = None;
+            self.note = "Snap override cleared".into();
+            self.snap_menu_at = None;
+            return;
+        }
+        // Dismiss on Escape or a press outside the menu.
+        let dismissed = ctx.input(|i| i.key_pressed(egui::Key::Escape))
+            || (ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer());
+        if dismissed {
+            self.snap_menu_at = None;
         }
     }
 
@@ -1902,6 +2019,11 @@ impl AadtApp {
             return;
         }
         let up = text.to_ascii_uppercase();
+        // Snap-override keyword typed at the crosshair (PER/END/MID/INT/TAN/…):
+        // arm the one-shot override for the next pick, then stop.
+        if self.try_snap_override(&text) {
+            return;
+        }
         // TRIM — AutoCAD [C]utting edges option (Standard mode).
         if matches!(
             self.tool,
@@ -3327,6 +3449,11 @@ impl AadtApp {
     /// selection; anything else → feed to the session.
     fn dispatch(&mut self, line: &str) {
         self.note.clear();
+        // Snap-override keyword typed at a point prompt (PER/END/MID/INT/TAN/…):
+        // arm the one-shot override instead of dispatching a command.
+        if !line.contains(' ') && self.try_snap_override(line) {
+            return;
+        }
         // While ZOOM is active, A/E/W/P/S are options — not new commands (A≠ARC).
         if matches!(self.tool, Tool::ZoomWindow { first: None }) && !line.contains(' ') {
             let up = line.to_ascii_uppercase();
@@ -3553,6 +3680,9 @@ impl AadtApp {
 
     /// Advance the active tool with a picked world point.
     fn on_pick(&mut self, p: Point2) {
+        // A one-shot snap override applies to exactly this pick; consume it now
+        // (`p` already reflects it via `resolve_pick`).
+        self.snap_override = None;
         if self.tool_is_collecting() {
             self.collect_selection_pick(p);
             return;
@@ -5384,14 +5514,7 @@ impl AadtApp {
             lines.push(format!("len {d:.2}   ang {ang:.1}°"));
         }
         if let Some((kind, _)) = self.snap_hit {
-            lines.push(match kind {
-                SnapKind::Endpoint => "END".to_string(),
-                SnapKind::Intersection => "INT".to_string(),
-                SnapKind::Midpoint => "MID".to_string(),
-                SnapKind::Center => "CEN".to_string(),
-                SnapKind::Quadrant => "QUA".to_string(),
-                SnapKind::Nearest => "NEA".to_string(),
-            });
+            lines.push(crate::osnap::snap_label(kind).to_string());
         }
         lines
     }
@@ -5567,6 +5690,8 @@ impl eframe::App for AadtApp {
                                 self.dyn_input.clear();
                                 self.clear_dyn_coords();
                                 self.palette_open = false;
+                                self.snap_override = None;
+                                self.snap_menu_at = None;
                                 self.engine.cancel();
                                 if self.drafting() {
                                     self.tool = Tool::Select;
@@ -5588,7 +5713,7 @@ impl eframe::App for AadtApp {
                                 self.snap_hit = None;
                                 self.persist_prefs();
                                 self.note = if self.osnap {
-                                    "Object snap ON (F3) — endpoint / midpoint / center".to_string()
+                                    "Object snap ON (F3) — END/MID/CEN/QUA/INT/NEA (SHIFT+right-click for PER/TAN)".to_string()
                                 } else {
                                     "Object snap OFF (F3)".to_string()
                                 };
@@ -5743,7 +5868,15 @@ impl eframe::App for AadtApp {
                     }
                     _ => {
                         if resp.secondary_clicked() {
-                            self.apply_space_single();
+                            // SHIFT+right-click opens the object-snap override menu
+                            // (AutoCAD); plain right-click stays Enter/confirm.
+                            if shift {
+                                self.snap_menu_at = resp
+                                    .interact_pointer_pos()
+                                    .or(self.cursor_screen);
+                            } else {
+                                self.apply_space_single();
+                            }
                         }
                         // One place per gesture: prefer click; accept micro-drag
                         // release only (not both) so we don't double-fire on_pick.
@@ -5910,6 +6043,8 @@ impl eframe::App for AadtApp {
                     ctx.request_repaint_after(std::time::Duration::from_millis(50));
                 }
             });
+        // SHIFT+right-click object-snap override menu (floats over the viewport).
+        self.show_snap_menu(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -6544,6 +6679,24 @@ fn paint_snap_marker(
             painter.line_segment([pts[1], pts[2]], stroke);
             painter.line_segment([pts[2], pts[3]], stroke);
             painter.line_segment([pts[3], pts[0]], stroke);
+        }
+        SnapKind::Perpendicular => {
+            // Perpendicular tack ⊥ (AutoCAD perpendicular marker).
+            let s = 6.0_f32;
+            painter.line_segment([c + egui::vec2(-s, s), c + egui::vec2(s, s)], stroke);
+            painter.line_segment([c + egui::vec2(0.0, s), c + egui::vec2(0.0, -s)], stroke);
+            // Small square at the foot to read as a right angle.
+            painter.line_segment([c + egui::vec2(0.0, s * 0.4), c + egui::vec2(s * 0.4, s * 0.4)], stroke);
+            painter.line_segment([c + egui::vec2(s * 0.4, s * 0.4), c + egui::vec2(s * 0.4, s)], stroke);
+        }
+        SnapKind::Tangent => {
+            // Circle with a tangent line across the top (AutoCAD tangent marker).
+            let r = 4.5_f32;
+            painter.circle_stroke(c, r, stroke);
+            painter.line_segment(
+                [c + egui::vec2(-r - 1.5, -r), c + egui::vec2(r + 1.5, -r)],
+                stroke,
+            );
         }
         SnapKind::Nearest => {
             // Hourglass / bowtie (AutoCAD nearest marker).

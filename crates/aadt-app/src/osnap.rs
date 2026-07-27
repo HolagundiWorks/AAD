@@ -1,9 +1,12 @@
 //! Object snap — pure geometry over a [`Document`].
 //!
 //! Used by the egui viewport; kept out of the `gui` feature so it is unit-tested
-//! headlessly. Snap set: **END**, **MID**, **CEN**, **QUA** (quadrant), and
-//! **NEA** (nearest-on-object, last resort). Intersection / perpendicular /
-//! tangent need cross-entity or drag-base context and are tracked in M9.1.
+//! headlessly. Running snaps (acquired under the cursor): **END**, **MID**,
+//! **CEN**, **QUA** (quadrant), **INT** (intersection), and **NEA**
+//! (nearest-on-object, last resort). **PER** (perpendicular) and **TAN**
+//! (tangent) need the drag base point and are acquired only via the one-shot
+//! *override* mechanism ([`find_override_in_spaces`] + [`parse_snap_keyword`]);
+//! that same path also lets any running kind be forced for a single pick.
 
 use std::time::{Duration, Instant};
 
@@ -14,7 +17,8 @@ use aadt_model::{Document, Geometry};
 ///
 /// Discriminant order encodes AutoCAD-style priority on a distance tie
 /// (earlier wins): Endpoint > Intersection > Midpoint > Center > Quadrant >
-/// Nearest.
+/// Nearest. Perpendicular / Tangent are override-only (never produced by the
+/// running-snap search) and rank between Quadrant and Nearest for completeness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnapKind {
     Endpoint,
@@ -22,6 +26,8 @@ pub enum SnapKind {
     Midpoint,
     Center,
     Quadrant,
+    Perpendicular,
+    Tangent,
     Nearest,
 }
 
@@ -33,7 +39,42 @@ fn snap_rank(kind: SnapKind) -> u8 {
         SnapKind::Midpoint => 2,
         SnapKind::Center => 3,
         SnapKind::Quadrant => 4,
+        SnapKind::Perpendicular => 5,
+        SnapKind::Tangent => 6,
         SnapKind::Nearest => 9,
+    }
+}
+
+/// Short AutoCAD label for a snap kind (used for markers / tooltips).
+pub fn snap_label(kind: SnapKind) -> &'static str {
+    match kind {
+        SnapKind::Endpoint => "END",
+        SnapKind::Intersection => "INT",
+        SnapKind::Midpoint => "MID",
+        SnapKind::Center => "CEN",
+        SnapKind::Quadrant => "QUA",
+        SnapKind::Perpendicular => "PER",
+        SnapKind::Tangent => "TAN",
+        SnapKind::Nearest => "NEA",
+    }
+}
+
+/// Parse a typed snap-override keyword (`END`, `MID`, `INT`, `CEN`, `QUA`,
+/// `NEA`, `PER`, `TAN`, plus common long forms) into a [`SnapKind`].
+///
+/// Only the 3+ letter AutoCAD abbreviations are accepted so single letters stay
+/// free for command/tool keywords (`C` = Close, etc.).
+pub fn parse_snap_keyword(s: &str) -> Option<SnapKind> {
+    match s.trim().to_ascii_uppercase().as_str() {
+        "END" | "ENDP" | "ENDPOINT" => Some(SnapKind::Endpoint),
+        "MID" | "MIDPOINT" => Some(SnapKind::Midpoint),
+        "INT" | "INTERSECTION" => Some(SnapKind::Intersection),
+        "CEN" | "CENTER" | "CENTRE" => Some(SnapKind::Center),
+        "QUA" | "QUAD" | "QUADRANT" => Some(SnapKind::Quadrant),
+        "NEA" | "NEAR" | "NEAREST" => Some(SnapKind::Nearest),
+        "PER" | "PERP" | "PERPENDICULAR" => Some(SnapKind::Perpendicular),
+        "TAN" | "TANGENT" => Some(SnapKind::Tangent),
+        _ => None,
     }
 }
 
@@ -446,6 +487,196 @@ pub fn find_osnap(doc: &Document, p: Point2, tol: f64) -> Option<(SnapKind, Poin
     find_osnap_into(doc, p, tol, &mut scratch)
 }
 
+// --- One-shot overrides (PER / TAN + forced running kinds) -------------------
+
+/// Perpendicular feet from `base` onto a geometry, appended to `out`.
+///
+/// A standalone line uses the **infinite-line** foot (AutoCAD deferred
+/// perpendicular can land on an extension); polyline segments use the foot only
+/// where it lands on the finite segment. Circles/arcs give the two radial points
+/// (a radius is perpendicular to the tangent), arcs filtered to the sweep.
+pub fn perp_feet_on(g: &Geometry, base: Point2, out: &mut Vec<Point2>) {
+    match g {
+        Geometry::Line(s) => {
+            let t = s.project_param(base);
+            out.push(s.a + (s.b - s.a) * t);
+        }
+        Geometry::Polyline(_) => {
+            for seg in segments_of(g) {
+                let t = seg.project_param(base);
+                if (0.0..=1.0).contains(&t) {
+                    out.push(seg.a + (seg.b - seg.a) * t);
+                }
+            }
+        }
+        Geometry::Circle(c) => {
+            if let Some(u) = (base - c.center).normalized() {
+                out.push(c.center + u * c.radius);
+                out.push(c.center + u * -c.radius);
+            }
+        }
+        Geometry::Arc(a) => {
+            if let Some(u) = (base - a.center).normalized() {
+                for pt in [a.center + u * a.radius, a.center + u * -a.radius] {
+                    push_arc_filtered(pt, a, out);
+                }
+            }
+        }
+        Geometry::Text(_) | Geometry::Insert(_) => {}
+    }
+}
+
+/// Tangent points from `base` to a circle/arc, appended to `out`. Empty for
+/// line-like or points-only geometries (a straight line is its own tangent).
+/// `base` inside the circle yields no tangent; `base` on the circle yields the
+/// touch point itself. Arc results are filtered to the sweep.
+pub fn tangent_points_on(g: &Geometry, base: Point2, out: &mut Vec<Point2>) {
+    let (center, radius, arc) = match g {
+        Geometry::Circle(c) => (c.center, c.radius, None),
+        Geometry::Arc(a) => (a.center, a.radius, Some(a)),
+        _ => return,
+    };
+    let d = base.distance(center);
+    if d < radius - 1e-9 {
+        return; // base inside: no tangent line touches the circle
+    }
+    if (d - radius).abs() <= 1e-9 {
+        // base sits on the circle: the tangent touches at base itself.
+        push_maybe_arc(base, center, arc, out);
+        return;
+    }
+    let base_ang = (base.y - center.y).atan2(base.x - center.x);
+    let alpha = (radius / d).clamp(-1.0, 1.0).acos();
+    for s in [alpha, -alpha] {
+        let ang = base_ang + s;
+        let pt = Point2::new(center.x + radius * ang.cos(), center.y + radius * ang.sin());
+        push_maybe_arc(pt, center, arc, out);
+    }
+}
+
+/// Push `pt` only if it lies within the arc's sweep.
+fn push_arc_filtered(pt: Point2, a: &Arc, out: &mut Vec<Point2>) {
+    let deg = (pt.y - a.center.y).atan2(pt.x - a.center.x).to_degrees();
+    if angle_in_arc(a, deg) {
+        out.push(pt);
+    }
+}
+
+/// Push `pt`, applying the arc sweep filter when `arc` is `Some` (circles pass).
+fn push_maybe_arc(pt: Point2, _center: Point2, arc: Option<&Arc>, out: &mut Vec<Point2>) {
+    match arc {
+        Some(a) => push_arc_filtered(pt, a, out),
+        None => out.push(pt),
+    }
+}
+
+/// Resolve a **one-shot snap override** of a single `want` kind near `cursor`.
+///
+/// Unlike the running snap, the override is not gated by cursor proximity to the
+/// snap *point*: any object whose curve passes under the aperture (`tol`) is a
+/// candidate, and the qualifying point nearest the cursor wins. `base` (the live
+/// drag anchor) is required for `Perpendicular` / `Tangent` and ignored
+/// otherwise. Returns `None` when nothing under the aperture offers `want`.
+pub fn find_override_in_spaces(
+    doc: &Document,
+    spaces: Option<&[aadt_model::ModelSpaceId]>,
+    want: SnapKind,
+    base: Option<Point2>,
+    cursor: Point2,
+    tol: f64,
+) -> Option<Point2> {
+    // Objects under the aperture. `on_curve` = the object's curve passes within
+    // `tol` of the cursor (the precise "I'm pointing at this" test used for
+    // PER/TAN/NEA/INT); discrete kinds also accept a bbox-near object so CEN can
+    // be forced from inside a circle.
+    let mut near: Vec<(&Geometry, bool)> = Vec::new();
+    let entities = doc
+        .iter_entities()
+        .filter(|e| spaces.map(|ss| ss.contains(&e.space)).unwrap_or(true));
+    for e in entities {
+        if !doc.layer_shown(&e.layer) {
+            continue;
+        }
+        let on_curve = nearest_on_geometry(&e.geometry, cursor)
+            .map(|np| cursor.distance(np) <= tol)
+            .unwrap_or(false);
+        let bbox_ok = snap_bbox(&e.geometry, tol).is_some_and(|b| bbox_near(b, cursor));
+        if on_curve || bbox_ok {
+            near.push((&e.geometry, on_curve));
+        }
+    }
+
+    let mut best: Option<(f64, Point2)> = None;
+    let mut consider = |pt: Point2| {
+        let d = cursor.distance(pt);
+        if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+            best = Some((d, pt));
+        }
+    };
+    let mut buf: Vec<Point2> = Vec::new();
+    let mut cbuf: Vec<(SnapKind, Point2)> = Vec::new();
+    match want {
+        SnapKind::Perpendicular => {
+            if let Some(b) = base {
+                for (g, on_curve) in &near {
+                    if !on_curve {
+                        continue;
+                    }
+                    buf.clear();
+                    perp_feet_on(g, b, &mut buf);
+                    buf.iter().for_each(|&p| consider(p));
+                }
+            }
+        }
+        SnapKind::Tangent => {
+            if let Some(b) = base {
+                for (g, on_curve) in &near {
+                    if !on_curve {
+                        continue;
+                    }
+                    buf.clear();
+                    tangent_points_on(g, b, &mut buf);
+                    buf.iter().for_each(|&p| consider(p));
+                }
+            }
+        }
+        SnapKind::Intersection => {
+            let curves: Vec<&Geometry> =
+                near.iter().filter(|(_, oc)| *oc).map(|(g, _)| *g).collect();
+            for i in 0..curves.len() {
+                for j in (i + 1)..curves.len() {
+                    buf.clear();
+                    intersections_between(curves[i], curves[j], &mut buf);
+                    buf.iter().for_each(|&p| consider(p));
+                }
+            }
+        }
+        SnapKind::Nearest => {
+            for (g, on_curve) in &near {
+                if !on_curve {
+                    continue;
+                }
+                if let Some(np) = nearest_on_geometry(g, cursor) {
+                    consider(np);
+                }
+            }
+        }
+        // Discrete kinds: END / MID / CEN / QUA — filter the running candidates.
+        _ => {
+            for (g, _) in &near {
+                cbuf.clear();
+                snap_candidates_into(g, &mut cbuf);
+                for &(k, p) in cbuf.iter() {
+                    if k == want {
+                        consider(p);
+                    }
+                }
+            }
+        }
+    }
+    best.map(|(_, p)| p)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,5 +970,134 @@ mod tests {
         let a = st.resolve(&doc, Point2::new(0.1, 0.0), 0.5, 0.01, t0);
         let b = st.resolve(&doc, Point2::new(0.105, 0.0), 0.5, 0.01, t0);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn parse_snap_keyword_maps_abbrevs() {
+        assert_eq!(parse_snap_keyword("per"), Some(SnapKind::Perpendicular));
+        assert_eq!(parse_snap_keyword("TANGENT"), Some(SnapKind::Tangent));
+        assert_eq!(parse_snap_keyword(" end "), Some(SnapKind::Endpoint));
+        assert_eq!(parse_snap_keyword("Int"), Some(SnapKind::Intersection));
+        assert_eq!(parse_snap_keyword("cen"), Some(SnapKind::Center));
+        // Single letters stay free for command/tool keywords.
+        assert_eq!(parse_snap_keyword("c"), None);
+        assert_eq!(parse_snap_keyword("xyz"), None);
+    }
+
+    #[test]
+    fn perp_foot_on_line_uses_infinite_line() {
+        // Base above the segment: foot drops straight down onto the line, and may
+        // sit past the segment ends (deferred perpendicular).
+        let g = Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)));
+        let mut out = Vec::new();
+        perp_feet_on(&g, Point2::new(3.0, 5.0), &mut out);
+        assert_eq!(out.len(), 1);
+        assert!((out[0].x - 3.0).abs() < 1e-9 && out[0].y.abs() < 1e-9);
+
+        out.clear();
+        perp_feet_on(&g, Point2::new(-4.0, 2.0), &mut out);
+        assert!((out[0].x + 4.0).abs() < 1e-9 && out[0].y.abs() < 1e-9); // x = -4, off the ends
+    }
+
+    #[test]
+    fn perp_override_on_circle_is_radial() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Circle(Circle {
+                    center: Point2::new(0.0, 0.0),
+                    radius: 2.0,
+                }),
+            );
+        });
+        // From base (5,0), perpendicular to the circle is radial → the east point.
+        let hit = find_override_in_spaces(
+            &doc,
+            None,
+            SnapKind::Perpendicular,
+            Some(Point2::new(5.0, 0.0)),
+            Point2::new(2.1, 0.0),
+            0.5,
+        )
+        .unwrap();
+        assert!((hit.x - 2.0).abs() < 1e-9 && hit.y.abs() < 1e-9);
+    }
+
+    #[test]
+    fn tangent_override_from_external_point() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Circle(Circle {
+                    center: Point2::new(0.0, 0.0),
+                    radius: 1.0,
+                }),
+            );
+        });
+        // Base (2,0), unit circle → tangent touch points at (0.5, ±√3/2).
+        let hit = find_override_in_spaces(
+            &doc,
+            None,
+            SnapKind::Tangent,
+            Some(Point2::new(2.0, 0.0)),
+            Point2::new(0.5, 0.9),
+            0.5,
+        )
+        .unwrap();
+        assert!((hit.x - 0.5).abs() < 1e-6);
+        assert!((hit.y - 3.0_f64.sqrt() / 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn override_end_picks_nearest_endpoint_even_off_aperture() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+            );
+        });
+        // Cursor over the line near the far end: END override snaps the endpoint
+        // (10,0), even though the point sits outside the small aperture.
+        let hit = find_override_in_spaces(
+            &doc,
+            None,
+            SnapKind::Endpoint,
+            None,
+            Point2::new(9.0, 0.3),
+            0.5,
+        )
+        .unwrap();
+        assert!((hit.x - 10.0).abs() < 1e-9 && hit.y.abs() < 1e-9);
+    }
+
+    #[test]
+    fn perp_override_needs_a_base_point() {
+        let mut doc = Document::new();
+        doc.transact("t", |d| {
+            d.add_geometry(
+                "0",
+                Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+            );
+        });
+        assert!(find_override_in_spaces(
+            &doc,
+            None,
+            SnapKind::Perpendicular,
+            None,
+            Point2::new(3.0, 0.2),
+            0.5,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn tangent_override_ignores_lines() {
+        let g = Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)));
+        let mut out = Vec::new();
+        tangent_points_on(&g, Point2::new(3.0, 5.0), &mut out);
+        assert!(out.is_empty());
     }
 }

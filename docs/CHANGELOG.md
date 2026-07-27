@@ -16,11 +16,16 @@
   architectural drafting tool (README, NOTICE, branding, architecture overview;
   affected ADRs marked superseded).
 
-### Object snaps (M9.1)
+### Object snaps (M9.1) ✅
 
 - Added Quadrant, Nearest, and Intersection running snaps (AutoCAD-style
-  priority), with markers and labels. Perpendicular/Tangent + keyword overrides
-  remain.
+  priority), with markers and labels.
+- **Perpendicular / Tangent** snaps and one-shot **snap overrides**
+  (`END`/`MID`/`INT`/`CEN`/`QUA`/`NEA`/`PER`/`TAN`): type the keyword at a point
+  prompt or pick it from the **SHIFT+right-click** menu. An override forces a
+  single kind for the next pick — even with running osnap (F3) off — and derives
+  PER/TAN from the live drag anchor. Headless geometry + `find_override_in_spaces`
+  / `parse_snap_keyword` resolver in `osnap.rs`; PER/TAN markers in the viewport.
 
 ### Hatch pattern library
 
