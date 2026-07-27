@@ -219,7 +219,7 @@ impact.
 | # | Item | Spec § | Status | Notes |
 |---|------|--------|--------|-------|
 | M9.1 | Object snaps: Quadrant ✅ · Nearest ✅ · Intersection ✅ running snaps. **Remaining:** Perpendicular / Tangent (need the drag-anchor base point) and `END/MID/INT/PER/TAN` keyword overrides + SHIFT+right-click snap menu | §17 | 🚧 in progress | QUA/NEA/INT in [`osnap.rs`](../crates/aadt-app/src/osnap.rs), headless-tested. PER/TAN don't fit the cursor-proximity running-snap model — they belong to the override mechanism |
-| M9.2 | Selection: Fence, WPolygon/CPolygon, Lasso | §12 | 🚧 core done | Headless region-select (window/crossing polygon + fence) in [`selection.rs`](../crates/aadt-app/src/selection.rs), unit-tested. **Remaining:** GUI wiring (draw the polygon/fence/lasso interactively) |
+| M9.2 | Selection: Fence, WPolygon/CPolygon, Lasso | §12 | ✅ (lasso pending) | Headless region-select in [`selection.rs`](../crates/aadt-app/src/selection.rs) (unit-tested) + GUI `WP`/`CP`/`FENCE` tools (click corners → Space selects, rubber-band preview). **Remaining:** free-drag lasso |
 | M9.3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror cycled with Space on a hot grip) | §14 | ☐ | Builds on `Tool::GripEdit` |
 | M9.4 | Single auto-type `DIM` — `DIM <id>` infers the type from the entity (line→aligned, circle→diameter, arc→radius); coordinate form kept | §22 | ✅ command-level | [`aadt-command`](../crates/aadt-command/src/lib.rs), headless-tested. **Remaining:** GUI hover-to-auto-dim and angular-from-two-lines |
 | M9.5 | Live hatch preview on internal-point pick | §21 | ☐ | Verify current behavior first |

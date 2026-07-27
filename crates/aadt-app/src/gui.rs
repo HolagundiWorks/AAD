@@ -25,6 +25,7 @@ use aadt_standards::aci_to_srgb;
 use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
+use crate::selection::{select_by_fence, select_in_polygon, RegionMode};
 use crate::prefs::UserPrefs;
 use crate::{Feedback, Session};
 
@@ -271,6 +272,14 @@ pub(super) enum Tool {
     /// Open polyline: click vertices; Enter finishes.
     Polyline {
         points: Vec<Point2>,
+    },
+    /// Region selection: click region corners (or a fence chain); Space selects.
+    /// `crossing` picks window vs crossing membership; `fence` uses the open
+    /// poly-line "crosses" rule instead of a closed polygon.
+    RegionSelect {
+        points: Vec<Point2>,
+        crossing: bool,
+        fence: bool,
     },
     /// Hatch: click a closed polyline or circle.
     Hatch,
@@ -648,6 +657,21 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             ang_deg: None,
         }),
         "PL" | "PLINE" | "POLYLINE" => Some(Tool::Polyline { points: Vec::new() }),
+        "WP" | "WPOLYGON" => Some(Tool::RegionSelect {
+            points: Vec::new(),
+            crossing: false,
+            fence: false,
+        }),
+        "CP" | "CPOLYGON" => Some(Tool::RegionSelect {
+            points: Vec::new(),
+            crossing: true,
+            fence: false,
+        }),
+        "FEN" | "FENCE" => Some(Tool::RegionSelect {
+            points: Vec::new(),
+            crossing: true,
+            fence: true,
+        }),
         "H" | "HATCH" => Some(Tool::Hatch),
         "TR" | "TRIM" => Some(Tool::Trim {
             cutters: Vec::new(),
@@ -1531,6 +1555,7 @@ impl AadtApp {
     fn tool_anchor(&self) -> Option<Point2> {
         match &self.tool {
             Tool::Line { points } => points.last().copied(),
+            Tool::RegionSelect { points, .. } => points.last().copied(),
             Tool::Circle { p1, p2, .. } => p2.or(*p1),
             Tool::Arc { center, start } => start.or(*center),
             Tool::GripEdit { origin, .. } => Some(*origin),
@@ -2806,6 +2831,28 @@ impl AadtApp {
                     .collect();
                 self.session
                     .feed(&format!("POLYLINE {} {}", coords.join(" "), layer));
+            }
+            Tool::RegionSelect {
+                points,
+                crossing,
+                fence,
+            } => {
+                let doc = self.session.document();
+                let hits = if *fence {
+                    select_by_fence(doc, points)
+                } else {
+                    let mode = if *crossing {
+                        RegionMode::Crossing
+                    } else {
+                        RegionMode::Window
+                    };
+                    select_in_polygon(doc, points, mode)
+                };
+                let n = hits.len();
+                self.selection = hits;
+                self.sync_selection();
+                self.note = format!("{n} object(s) selected");
+                self.tool = Tool::Select;
             }
             Tool::Brush { points: Some(pts) } if pts.len() >= 2 => {
                 let coords: Vec<String> = pts
@@ -4091,6 +4138,26 @@ impl AadtApp {
                 self.engine.accept_point();
                 self.note = "POLYLINE — click next vertex (Space finishes)".into();
             }
+            Tool::RegionSelect {
+                mut points,
+                crossing,
+                fence,
+            } => {
+                points.push(p);
+                let n = points.len();
+                self.tool = Tool::RegionSelect {
+                    points,
+                    crossing,
+                    fence,
+                };
+                self.engine.accept_point();
+                self.note = if fence {
+                    format!("FENCE — click next point ({n}); Space selects")
+                } else {
+                    format!("{} — click next corner ({n}); Space selects",
+                        if crossing { "CPOLYGON" } else { "WPOLYGON" })
+                };
+            }
             Tool::Wall {
                 thickness: None, ..
             } => {
@@ -5083,6 +5150,9 @@ impl AadtApp {
                 ..
             } => "WBLOCK — pick base point",
             Tool::Polyline { .. } => "POLYLINE — click vertices (Space finishes)",
+            Tool::RegionSelect { fence: true, .. } => "FENCE — click points; Space selects crossings",
+            Tool::RegionSelect { crossing: true, .. } => "CPOLYGON — click corners; Space selects (crossing)",
+            Tool::RegionSelect { .. } => "WPOLYGON — click corners; Space selects (enclosed)",
             Tool::Wall {
                 thickness: None, ..
             } => "WALL — type thickness and Space",
@@ -6789,6 +6859,20 @@ fn paint_preview(
                 painter.line_segment([to_screen(last), to_screen(cursor)], stroke);
             }
         }
+        Tool::RegionSelect { points, fence, .. } if !points.is_empty() => {
+            for pair in points.windows(2) {
+                painter.line_segment([to_screen(pair[0]), to_screen(pair[1])], stroke);
+            }
+            if let Some(&last) = points.last() {
+                painter.line_segment([to_screen(last), to_screen(cursor)], stroke);
+            }
+            // Polygon: hint the closing edge back to the first corner.
+            if !*fence {
+                if let Some(&first) = points.first() {
+                    painter.line_segment([to_screen(cursor), to_screen(first)], stroke);
+                }
+            }
+        }
         Tool::Wall { points, .. } if !points.is_empty() => {
             for pair in points.windows(2) {
                 painter.line_segment([to_screen(pair[0]), to_screen(pair[1])], stroke);
@@ -7128,6 +7212,20 @@ fn paint_preview(
             }
             if let Some(&last) = points.last() {
                 painter.line_segment([to_screen(last), to_screen(cursor)], stroke);
+            }
+        }
+        Tool::RegionSelect { points, fence, .. } if !points.is_empty() => {
+            for pair in points.windows(2) {
+                painter.line_segment([to_screen(pair[0]), to_screen(pair[1])], stroke);
+            }
+            if let Some(&last) = points.last() {
+                painter.line_segment([to_screen(last), to_screen(cursor)], stroke);
+            }
+            // Polygon: hint the closing edge back to the first corner.
+            if !*fence {
+                if let Some(&first) = points.first() {
+                    painter.line_segment([to_screen(cursor), to_screen(first)], stroke);
+                }
             }
         }
         _ => {}
