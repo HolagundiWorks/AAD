@@ -23,7 +23,7 @@ version = "0.0.0"
 edition = "2021"
 rust-version = "1.90"
 license = "Apache-2.0"
-repository = "https://github.com/holagundiworks/aiadt"
+repository = "https://github.com/holagundiworks/aadt"
 authors = ["HolagundiWorks"]
 
 # AADT M0 is deliberately dependency-free (std only) to keep the build hermetic
