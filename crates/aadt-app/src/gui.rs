@@ -860,6 +860,9 @@ struct AadtApp {
     current_layer: String,
     /// Screen anchor of an in-progress box selection.
     box_start: Option<egui::Pos2>,
+    /// Screen path of an in-progress drag select; a near-straight drag is a box,
+    /// a meandering one is a lasso (free-drag region select).
+    drag_path: Vec<egui::Pos2>,
     /// Cursor position in world coordinates, for the readout.
     cursor: Option<Point2>,
     /// Cursor position in screen pixels, for the crosshair and dynamic-input box.
@@ -1000,6 +1003,7 @@ impl AadtApp {
             selection: Vec::new(),
             current_layer: "A-WALL".to_string(),
             box_start: None,
+            drag_path: Vec::new(),
             cursor: None,
             cursor_screen: None,
             dyn_input: String::new(),
@@ -5692,21 +5696,43 @@ impl eframe::App for AadtApp {
                         // Use press origin so window/crossing direction matches the
                         // true drag (AutoCAD: L→R window, R→L crossing).
                         if resp.drag_started() {
-                            self.box_start = ui
+                            let start = ui
                                 .input(|i| i.pointer.press_origin())
                                 .or_else(|| resp.interact_pointer_pos());
+                            self.box_start = start;
+                            self.drag_path.clear();
+                            if let Some(p) = start {
+                                self.drag_path.push(p);
+                            }
+                        }
+                        // Trail the drag so a curved gesture reads as a lasso.
+                        if resp.dragged() && self.box_start.is_some() {
+                            if let Some(pos) = resp.interact_pointer_pos() {
+                                if self
+                                    .drag_path
+                                    .last()
+                                    .map(|p| (*p - pos).length() > 2.0)
+                                    .unwrap_or(true)
+                                {
+                                    self.drag_path.push(pos);
+                                }
+                            }
                         }
                         let mut box_done = false;
                         if resp.drag_stopped() {
                             if let (Some(s), Some(e)) =
                                 (self.box_start, resp.interact_pointer_pos())
                             {
-                                if (s - e).length() >= 3.0 {
+                                if drag_is_lasso(&self.drag_path) {
+                                    self.finish_lasso(&to_world, ui);
+                                    box_done = true;
+                                } else if (s - e).length() >= 3.0 {
                                     self.finish_box(s, e, &to_world, ui);
                                     box_done = true;
                                 }
                             }
                             self.box_start = None;
+                            self.drag_path.clear();
                         }
                         // Skip click-select after a real box so release doesn't clear.
                         if resp.clicked() && !box_done {
@@ -5787,9 +5813,26 @@ impl eframe::App for AadtApp {
                 if let Some((kind, sp)) = self.snap_hit {
                     paint_snap_marker(&painter, rect, &self.camera, kind, sp);
                 }
-                // The selection box while dragging.
+                // The selection box (straight drag) or lasso trail (curved drag).
                 if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {
-                    paint_box(&painter, s, cur);
+                    if drag_is_lasso(&self.drag_path) {
+                        let col = if self.drag_path.first().map(|p| cur.x < p.x).unwrap_or(false) {
+                            egui::Color32::from_rgb(90, 160, 90) // crossing (green)
+                        } else {
+                            egui::Color32::from_rgb(80, 130, 200) // window (blue)
+                        };
+                        let lstroke = egui::Stroke::new(1.0_f32, col);
+                        for pair in self.drag_path.windows(2) {
+                            painter.line_segment([pair[0], pair[1]], lstroke);
+                        }
+                        if let (Some(&first), Some(&last)) =
+                            (self.drag_path.first(), self.drag_path.last())
+                        {
+                            painter.line_segment([last, first], lstroke);
+                        }
+                    } else {
+                        paint_box(&painter, s, cur);
+                    }
                 }
                 // UCS marker (bottom-left of viewport).
                 {
@@ -5961,6 +6004,66 @@ impl AadtApp {
             format!("Window: {n} selected")
         };
     }
+
+    /// Free-drag lasso select: the drag path is the region polygon. Direction
+    /// (screen L→R vs R→L) picks window vs crossing, like the box.
+    fn finish_lasso(
+        &mut self,
+        to_world: &impl Fn(&Camera, egui::Pos2) -> Point2,
+        ui: &egui::Ui,
+    ) {
+        if self.drag_path.len() < 3 {
+            return;
+        }
+        let polygon: Vec<Point2> = self
+            .drag_path
+            .iter()
+            .map(|p| to_world(&self.camera, *p))
+            .collect();
+        let (a, b) = (self.drag_path[0], self.drag_path[self.drag_path.len() - 1]);
+        let crossing = b.x < a.x;
+        let mode = if crossing {
+            RegionMode::Crossing
+        } else {
+            RegionMode::Window
+        };
+        let hits = select_in_polygon(self.session.document(), &polygon, mode);
+        if ui.input(|i| i.modifiers.shift) {
+            for id in hits {
+                if !self.selection.contains(&id) {
+                    self.selection.push(id);
+                }
+            }
+        } else {
+            self.selection = hits;
+        }
+        self.sync_selection();
+        let n = self.selection.len();
+        self.note = format!(
+            "Lasso {}: {n} selected",
+            if crossing { "crossing" } else { "window" }
+        );
+    }
+}
+
+/// True when a drag path curves enough to be a lasso rather than a box: some
+/// point lies well off the straight line from start to end (or it loops back).
+fn drag_is_lasso(path: &[egui::Pos2]) -> bool {
+    if path.len() < 4 {
+        return false;
+    }
+    let (a, b) = (path[0], path[path.len() - 1]);
+    let ab = b - a;
+    let len = ab.length();
+    if len < 6.0 {
+        return true; // returned near the start → a loop, not a box
+    }
+    let normal = egui::vec2(-ab.y, ab.x) / len;
+    let max_dev = path
+        .iter()
+        .map(|p| (*p - a).dot(normal).abs())
+        .fold(0.0_f32, f32::max);
+    max_dev > 12.0
 }
 
 /// Zoom about the cursor on scroll.
