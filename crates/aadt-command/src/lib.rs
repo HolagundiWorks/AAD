@@ -2560,6 +2560,71 @@ fn circle_polygon(c: Circle, segments: usize) -> Polyline {
     Polyline::new(verts, true)
 }
 
+fn dim_kind_label(kind: DimensionKind) -> &'static str {
+    match kind {
+        DimensionKind::Aligned => "aligned",
+        DimensionKind::Linear => "linear",
+        DimensionKind::Angular => "angular",
+        DimensionKind::Radius => "radius",
+        DimensionKind::Diameter => "diameter",
+        DimensionKind::OrdinateX => "ordinate-x",
+        DimensionKind::OrdinateY => "ordinate-y",
+    }
+}
+
+/// Infer a dimension from a single entity's geometry (AutoCAD-style auto `DIM`):
+/// line/polyline → aligned, circle → diameter, arc → radius. `None` for
+/// geometries with nothing to measure (text / inserts).
+fn auto_dimension_for(geom: &Geometry, offset: f64, layer: String) -> Option<Dimension> {
+    let aligned = |a: Point2, b: Point2| Dimension {
+        space: Default::default(),
+        layer: layer.clone(),
+        kind: DimensionKind::Aligned,
+        p1: a,
+        p2: b,
+        vertex: a,
+        text_anchor: continue_text_anchor(a, b, offset),
+        text: String::new(),
+        measurement: a.distance(b),
+    };
+    match geom {
+        Geometry::Line(s) => Some(aligned(s.a, s.b)),
+        Geometry::Polyline(p) if p.vertices.len() >= 2 => {
+            Some(aligned(p.vertices[0], p.vertices[1]))
+        }
+        Geometry::Circle(c) => {
+            let p1 = Point2::new(c.center.x - c.radius, c.center.y);
+            let p2 = Point2::new(c.center.x + c.radius, c.center.y);
+            Some(Dimension {
+                space: Default::default(),
+                layer,
+                kind: DimensionKind::Diameter,
+                p1,
+                p2,
+                vertex: c.center,
+                text_anchor: Point2::new(c.center.x, c.center.y + offset),
+                text: String::new(),
+                measurement: c.radius * 2.0,
+            })
+        }
+        Geometry::Arc(a) => {
+            let on = a.point_at(0.5);
+            Some(Dimension {
+                space: Default::default(),
+                layer,
+                kind: DimensionKind::Radius,
+                p1: on,
+                p2: on,
+                vertex: a.center,
+                text_anchor: on,
+                text: String::new(),
+                measurement: a.radius,
+            })
+        }
+        _ => None,
+    }
+}
+
 struct DimCmd;
 impl Command for DimCmd {
     fn name(&self) -> &str {
@@ -2569,9 +2634,32 @@ impl Command for DimCmd {
         &["DIMLINEAR"]
     }
     fn help(&self) -> &str {
-        "DIM x1 y1 x2 y2 [tx ty] [layer] — aligned dimension; optional text/dim-line point (undoable)"
+        "DIM <id> [offset] — auto dimension an entity (line→aligned, circle→diameter, \
+         arc→radius); or DIM x1 y1 x2 y2 [tx ty] [layer] — explicit aligned dimension"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        // Auto-type form: DIM <id> [offset] — infer the dimension from the
+        // referenced entity's geometry. Distinguished from the coordinate form by
+        // having fewer than the 4 tokens an aligned dimension needs.
+        if args.len() < 4 {
+            if let Some(id) = args.first().and_then(|s| s.parse::<u64>().ok()).map(EntityId) {
+                if let Some(ent) = ctx.doc.get(id) {
+                    let offset = args.get(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                    let geom = ent.geometry.clone();
+                    let Some(dim) =
+                        auto_dimension_for(&geom, offset, DEFAULT_DIM_LAYER.to_string())
+                    else {
+                        return Err(format!(
+                            "DIM: entity {} has no dimensionable geometry (need a line, polyline, circle, or arc)",
+                            id.0
+                        ));
+                    };
+                    let (label, m) = (dim_kind_label(dim.kind), dim.measurement);
+                    ctx.doc.transact("DIM", |d| d.add_dimension(dim));
+                    return Ok(format!("added {label} dimension measuring {m:.3}"));
+                }
+            }
+        }
         let p1 = Point2::new(parse_f64(args, 0, "DIM")?, parse_f64(args, 1, "DIM")?);
         let p2 = Point2::new(parse_f64(args, 2, "DIM")?, parse_f64(args, 3, "DIM")?);
         if p1.coincident(p2) {
@@ -4424,5 +4512,55 @@ mod tests {
         // No match yields an empty list; empty prefix lists everything.
         assert!(reg.complete("zzz").is_empty());
         assert!(reg.complete("").len() >= 14);
+    }
+
+    #[test]
+    fn dim_auto_types_from_entity_geometry() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+
+        // Circle → diameter.
+        interp.eval_line(&mut ctx, "CIRCLE 5 5 3").unwrap();
+        let cid = ctx.doc.entities()[0].id.0;
+        interp.eval_line(&mut ctx, &format!("DIM {cid}")).unwrap();
+        // Arc (radius 2) → radius.
+        interp.eval_line(&mut ctx, "ARC 0 0 2 0 90").unwrap();
+        let aid = ctx.doc.entities()[1].id.0;
+        interp.eval_line(&mut ctx, &format!("DIM {aid}")).unwrap();
+        // Line → aligned.
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL").unwrap();
+        let lid = ctx.doc.entities()[2].id.0;
+        interp.eval_line(&mut ctx, &format!("DIM {lid}")).unwrap();
+
+        let dims = ctx.doc.dimensions();
+        assert_eq!(dims.len(), 3);
+        assert_eq!(dims[0].kind, DimensionKind::Diameter);
+        assert!((dims[0].measurement - 6.0).abs() < 1e-9, "diameter of r=3");
+        assert_eq!(dims[1].kind, DimensionKind::Radius);
+        assert!((dims[1].measurement - 2.0).abs() < 1e-9, "radius");
+        assert_eq!(dims[2].kind, DimensionKind::Aligned);
+        assert!((dims[2].measurement - 10.0).abs() < 1e-9, "aligned length");
+    }
+
+    #[test]
+    fn dim_coordinate_form_survives_when_entity_zero_exists() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Entity id 0 exists, but the 4-coord form must stay coordinate-based.
+        interp.eval_line(&mut ctx, "CIRCLE 5 5 3").unwrap();
+        interp.eval_line(&mut ctx, "DIM 0 0 10 0").unwrap();
+        let dims = ctx.doc.dimensions();
+        assert_eq!(dims.len(), 1);
+        assert_eq!(dims[0].kind, DimensionKind::Aligned);
+        assert!((dims[0].measurement - 10.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dim_rejects_undimensionable_entity() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "TEXT 0 0 1 hello").unwrap();
+        let tid = ctx.doc.entities()[0].id.0;
+        assert!(interp.eval_line(&mut ctx, &format!("DIM {tid}")).is_err());
     }
 }
