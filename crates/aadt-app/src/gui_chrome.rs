@@ -533,6 +533,10 @@ impl AadtApp {
     }
 
     pub(super) fn ui_blocks_manager(&mut self, ui: &mut egui::Ui) {
+        if std::env::var("AADT_DEBUG_BLOCKS_STUB").is_ok() {
+            ui.label("blocks stub");
+            return;
+        }
         self.ensure_blocks_cache();
         let cat = {
             let doc = self.session.document();
@@ -1462,8 +1466,8 @@ impl AadtApp {
         }
         egui::SidePanel::left("left_mgr")
             .default_width(self.left_panel_width)
-            .min_width(200.0)
-            .max_width(480.0)
+            .min_width(180.0)
+            .max_width(260.0)
             .resizable(true)
             .frame(
                 egui::Frame::none()
@@ -1566,8 +1570,8 @@ impl AadtApp {
         }
         egui::SidePanel::right("layer_mgr")
             .default_width(self.right_panel_width)
-            .min_width(220.0)
-            .max_width(520.0)
+            .min_width(200.0)
+            .max_width(340.0)
             .resizable(true)
             .frame(
                 egui::Frame::none()
@@ -1768,6 +1772,18 @@ impl AadtApp {
                 self.hatch_pattern
             );
         }
+        // Edit: retarget the pattern of the selected hatch(es) to the active one.
+        let sel = self.selected_hatches.len();
+        if sel > 0 {
+            let label = format!(
+                "Set {sel} selected hatch{} to {}",
+                if sel == 1 { "" } else { "es" },
+                self.hatch_pattern
+            );
+            if ui.add_sized([panel_w, 24.0], egui::Button::new(label)).clicked() {
+                self.apply_pattern_to_selected_hatches();
+            }
+        }
         ui.separator();
         let root = aadt_library::default_library_root();
         let patterns = aadt_library::list_hatch_patterns(&root)
@@ -1775,22 +1791,28 @@ impl AadtApp {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let w = lock_panel_width(ui);
-                let tile = fit_tile_size(w, 48.0, 88.0, space::SM);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                    ui.set_max_width(w);
-                    for pat in &patterns {
-                        let selected = self.hatch_pattern.eq_ignore_ascii_case(&pat.name);
-                        let tip = format!("{} — {}", pat.name, pat.description);
-                        if hatch_preview_tile(ui, &pat.name, selected, tile)
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            self.hatch_pattern = pat.name.clone();
+                let gap = space::SM;
+                let avail = lock_panel_width(ui);
+                let tile = fit_tile_size(avail, 48.0, 88.0, gap);
+                // Explicit rows: `horizontal_wrapped` under-wraps inside a scroll
+                // area (tiles overflow the panel edge instead of flowing down), so
+                // chunk into a fixed column count derived from the real width.
+                let cols = (((avail + gap) / (tile + gap)).floor() as usize).clamp(1, 5);
+                for chunk in patterns.chunks(cols) {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+                        for pat in chunk {
+                            let selected = self.hatch_pattern.eq_ignore_ascii_case(&pat.name);
+                            let tip = format!("{} — {}", pat.name, pat.description);
+                            if hatch_preview_tile(ui, &pat.name, selected, tile)
+                                .on_hover_text(tip)
+                                .clicked()
+                            {
+                                self.hatch_pattern = pat.name.clone();
+                            }
                         }
-                    }
-                });
+                    });
+                }
             });
     }
 
@@ -2953,6 +2975,10 @@ fn paint_hatch_swatch(painter: &egui::Painter, r: egui::Rect, name: &str) {
     let stroke = egui::Stroke::new(1.0_f32, ink);
     let u = name.to_ascii_uppercase();
     painter.rect_stroke(r, 0.0, egui::Stroke::new(0.5_f32, color::STROKE));
+    // Clip every pattern to the swatch box: several families (diagonals, tri/net,
+    // zigzag) intentionally over-draw the rect and rely on this clip to stay
+    // inside their tile instead of bleeding across the panel.
+    let painter = painter.with_clip_rect(r);
 
     if u == "SOLID" {
         painter.rect_filled(r, 0.0, egui::Color32::from_rgb(90, 90, 90));

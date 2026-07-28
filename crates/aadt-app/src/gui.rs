@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use aadt_geometry::{Bbox, Point2, Segment};
-use aadt_model::{Document, EntityId, Geometry, DEFAULT_LINEWEIGHT_MM};
+use aadt_model::{Document, EntityId, Geometry, Hatch, DEFAULT_LINEWEIGHT_MM};
 use aadt_render::{Camera, DrawCommand, DrawList};
 use aadt_standards::aci_to_srgb;
 use eframe::egui;
@@ -662,7 +662,7 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             crossing: false,
             fence: false,
         }),
-        "CP" | "CPOLYGON" => Some(Tool::RegionSelect {
+        "CPOLYGON" => Some(Tool::RegionSelect {
             points: Vec::new(),
             crossing: true,
             fence: false,
@@ -856,6 +856,9 @@ struct AadtApp {
     /// Entities highlighted in the viewport; mirrored into the session's
     /// `SELECTION` before a noun-verb edit runs.
     selection: Vec<EntityId>,
+    /// Selected hatches, by index into `document().hatches()`. Held apart from
+    /// `selection` because hatches live in their own table (no `EntityId`).
+    selected_hatches: Vec<usize>,
     /// Layer new interactive geometry is drawn on.
     current_layer: String,
     /// Screen anchor of an in-progress box selection.
@@ -1007,6 +1010,7 @@ impl AadtApp {
             fitted: false,
             tool: Tool::Select,
             selection: Vec::new(),
+            selected_hatches: Vec::new(),
             current_layer: "A-WALL".to_string(),
             box_start: None,
             drag_path: Vec::new(),
@@ -1068,8 +1072,8 @@ impl AadtApp {
             show_shortcuts: false,
             show_room_picker: false,
             osnap_state: OsnapState::default(),
-            right_panel_width: prefs.right_panel_width.clamp(200.0, 640.0),
-            left_panel_width: prefs.left_panel_width.clamp(180.0, 520.0),
+            right_panel_width: prefs.right_panel_width.clamp(200.0, 340.0),
+            left_panel_width: prefs.left_panel_width.clamp(180.0, 260.0),
             layer_rows_cache: None,
             blocks_cache_rev: None,
             blocks_cache: Vec::new(),
@@ -3487,7 +3491,9 @@ impl AadtApp {
         }
         if !line.contains(' ') {
             let up = line.to_ascii_uppercase();
-            if matches!(up.as_str(), "E" | "ERASE") && !self.selection.is_empty() {
+            if matches!(up.as_str(), "E" | "ERASE")
+                && !(self.selection.is_empty() && self.selected_hatches.is_empty())
+            {
                 self.erase_selection();
                 return;
             }
@@ -3669,13 +3675,49 @@ impl AadtApp {
     }
 
     fn erase_selection(&mut self) {
-        if self.selection.is_empty() {
+        if self.selection.is_empty() && self.selected_hatches.is_empty() {
             self.note = "Select objects first, then E.".to_string();
             return;
         }
-        self.sync_selection();
-        self.app_feed("ERASE SELECTION");
-        self.selection.clear();
+        if !self.selection.is_empty() {
+            self.sync_selection();
+            self.app_feed("ERASE SELECTION");
+            self.selection.clear();
+        }
+        if !self.selected_hatches.is_empty() {
+            // Remove by descending index so earlier removals don't shift later
+            // ones; one transaction so a single UNDO restores every hatch.
+            let mut idxs = std::mem::take(&mut self.selected_hatches);
+            idxs.sort_unstable();
+            idxs.dedup();
+            let n = idxs.len();
+            self.session.document_mut().transact("Erase hatch", |d| {
+                for &i in idxs.iter().rev() {
+                    d.remove_hatch(i);
+                }
+            });
+            self.note = format!("Erased {n} hatch{}", if n == 1 { "" } else { "es" });
+        }
+    }
+
+    /// Apply the current Hatches-dock pattern to every selected hatch (the
+    /// hatch "edit" flow: pick a hatch, choose a pattern, apply). Undoable.
+    pub(super) fn apply_pattern_to_selected_hatches(&mut self) {
+        if self.selected_hatches.is_empty() {
+            self.note = "Select a hatch first (click inside its fill).".into();
+            return;
+        }
+        let pattern = self.hatch_pattern.clone();
+        let idxs = self.selected_hatches.clone();
+        let mut changed = 0;
+        self.session.document_mut().transact("Edit hatch", |d| {
+            for &i in &idxs {
+                if d.set_hatch_pattern(i, pattern.clone()) {
+                    changed += 1;
+                }
+            }
+        });
+        self.note = format!("Set {changed} hatch{} to {pattern}", if changed == 1 { "" } else { "es" });
     }
 
     /// Advance the active tool with a picked world point.
@@ -5682,7 +5724,10 @@ impl eframe::App for AadtApp {
                                 }
                             }
                             egui::Key::Delete => {
-                                if matches!(self.tool, Tool::Select) && !self.selection.is_empty() {
+                                if matches!(self.tool, Tool::Select)
+                                    && !(self.selection.is_empty()
+                                        && self.selected_hatches.is_empty())
+                                {
                                     self.erase_selection();
                                 }
                             }
@@ -5697,6 +5742,7 @@ impl eframe::App for AadtApp {
                                     self.tool = Tool::Select;
                                 } else {
                                     self.selection.clear();
+                                    self.selected_hatches.clear();
                                 }
                             }
                             egui::Key::F8 => {
@@ -5782,6 +5828,12 @@ impl eframe::App for AadtApp {
                 let (rect, resp) =
                     ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
                 self.camera.viewport = (rect.width() as f64, rect.height() as f64);
+
+                // Paint the paper background over the whole viewport explicitly.
+                // The CentralPanel frame fill does not always clear the entire
+                // rect on some GPU backends, leaving an uncleared (black) region.
+                ui.painter_at(rect)
+                    .rect_filled(rect, 0.0, theme::color::CANVAS);
 
                 if !self.fitted {
                     self.camera.fit_document(self.session.document(), 0.08);
@@ -5928,6 +5980,13 @@ impl eframe::App for AadtApp {
                     &self.camera,
                     self.session.document(),
                     &self.selection,
+                );
+                paint_selected_hatches(
+                    &painter,
+                    rect,
+                    &self.camera,
+                    self.session.document(),
+                    &self.selected_hatches,
                 );
 
                 // Rubber-band preview for the in-progress tool.
@@ -6081,23 +6140,39 @@ impl AadtApp {
             }
         }
         let tol = PICK_PIXELS / self.camera.scale;
-        match pick_entity(self.session.document(), world, tol) {
-            Some(id) => {
-                if shift {
-                    if let Some(i) = self.selection.iter().position(|&x| x == id) {
-                        self.selection.remove(i);
-                    } else {
-                        self.selection.push(id);
-                    }
+        // Entities (incl. hatch boundary polylines) win on a direct hit.
+        if let Some(id) = pick_entity(self.session.document(), world, tol) {
+            if shift {
+                if let Some(i) = self.selection.iter().position(|&x| x == id) {
+                    self.selection.remove(i);
                 } else {
-                    self.selection = vec![id];
+                    self.selection.push(id);
                 }
+            } else {
+                self.selection = vec![id];
+                self.selected_hatches.clear();
             }
-            None => {
-                if !shift {
-                    self.selection.clear();
+            return;
+        }
+        // No entity under the cursor: a click inside a fill selects the hatch.
+        if let Some(hi) = pick_hatch(self.session.document(), world) {
+            if shift {
+                if let Some(i) = self.selected_hatches.iter().position(|&x| x == hi) {
+                    self.selected_hatches.remove(i);
+                } else {
+                    self.selected_hatches.push(hi);
                 }
+            } else {
+                self.selected_hatches = vec![hi];
+                self.selection.clear();
             }
+            self.note = "Hatch selected — Del/E to erase, or apply a pattern in Hatches".into();
+            return;
+        }
+        // Empty click clears both sets (Shift keeps the current selection).
+        if !shift {
+            self.selection.clear();
+            self.selected_hatches.clear();
         }
     }
 
@@ -6131,6 +6206,7 @@ impl AadtApp {
             }
         } else {
             self.selection = hits;
+            self.selected_hatches.clear();
         }
         let n = self.selection.len();
         self.note = if crossing {
@@ -6171,6 +6247,7 @@ impl AadtApp {
             }
         } else {
             self.selection = hits;
+            self.selected_hatches.clear();
         }
         self.sync_selection();
         let n = self.selection.len();
@@ -6285,6 +6362,23 @@ fn pick_entity(doc: &Document, p: Point2, tol: f64) -> Option<EntityId> {
         }
     }
     best.map(|(_, id)| id)
+}
+
+/// Topmost hatch in the active space whose fill contains `p` (later-drawn wins).
+/// Hatches have no `EntityId`, so this returns an index into `doc.hatches()`.
+fn pick_hatch(doc: &Document, p: Point2) -> Option<usize> {
+    let active = doc.active_space();
+    doc.hatches()
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, h)| h.space == active && entity_pickable(doc, &h.layer) && hatch_contains(h, p))
+        .map(|(i, _)| i)
+}
+
+/// Point-in-hatch: inside the outer boundary and outside every island (hole).
+fn hatch_contains(h: &Hatch, p: Point2) -> bool {
+    h.outer().contains_point(p) && !h.boundaries.iter().skip(1).any(|isl| isl.contains_point(p))
 }
 
 /// A bounding box around a geometry's defining points (inserts expand to block).
@@ -6858,6 +6952,31 @@ fn paint_selection(
             let r = egui::Rect::from_center_size(c, egui::vec2(s * 2.0, s * 2.0));
             painter.rect_filled(r, 0.0, grip);
             painter.rect_stroke(r, 0.0, egui::Stroke::new(1.5_f32, grip_edge));
+        }
+    }
+}
+
+/// Highlight the selected hatches by outlining their boundary loops in the
+/// selection blue (hatches have no grips). Indices are into `doc.hatches()`.
+fn paint_selected_hatches(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &Camera,
+    doc: &Document,
+    selected: &[usize],
+) {
+    if selected.is_empty() {
+        return;
+    }
+    let hi = egui::Color32::from_rgb(30, 120, 255);
+    let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
+    let hatches = doc.hatches();
+    for &idx in selected {
+        let Some(h) = hatches.get(idx) else { continue };
+        for boundary in &h.boundaries {
+            let g = Geometry::Polyline(boundary.clone());
+            draw_geometry(painter, rect, camera, &g, egui::Stroke::new(6.0_f32, glow), glow);
+            draw_geometry(painter, rect, camera, &g, egui::Stroke::new(2.5_f32, hi), hi);
         }
     }
 }

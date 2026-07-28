@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Hatch selection / edit / delete
+
+- Hatches are now **selectable** in the viewport — click inside a fill to pick
+  it (topmost wins; boundary edges still select the underlying entity). Selected
+  hatches highlight in selection blue.
+- **Delete** removes selected hatches (Del or `E`/ERASE), undoable as one step;
+  new `Document::remove_hatch` with an index-based `Op::RemoveHatch` that
+  round-trips a middle-of-table hatch (unlike the LIFO `AddHatch`).
+- **Edit**: with a hatch selected, "Set … to <pattern>" in the Hatches dock
+  retargets its pattern via the undoable `Document::set_hatch_pattern`
+  (`Op::SetHatch`). Previously hatches could be created but never selected,
+  edited, or removed (they live in their own table, apart from entities).
+
 ### Scope reset — drafting-first (2026-07)
 
 - **Removed all AI features:** the `aadt-ai` crate, the `infer` command, the

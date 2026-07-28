@@ -926,6 +926,17 @@ enum Op {
     /// A hatch was appended (undo pops it, redo re-appends). Undo is strictly
     /// LIFO, so the hatch this reverts is always the last in the table.
     AddHatch(Hatch),
+    /// A hatch was removed from position `index` (undo reinserts it there, redo
+    /// removes it again). Recorded with the absolute index so a hatch in the
+    /// middle of the table round-trips, unlike the LIFO [`Op::AddHatch`].
+    RemoveHatch { index: usize, hatch: Hatch },
+    /// A hatch was replaced in place at `index` (undo restores `before`, redo
+    /// reapplies `after`) — the undoable half of a hatch property edit.
+    SetHatch {
+        index: usize,
+        before: Hatch,
+        after: Hatch,
+    },
     /// A dimension was appended (undo pops it, redo re-appends).
     AddDimension(Dimension),
     /// Drawing properties were replaced (undo restores `before`). Used for
@@ -1875,6 +1886,16 @@ impl Document {
             Op::AddHatch(h) => {
                 self.hatches.push(h.clone());
             }
+            Op::RemoveHatch { index, .. } => {
+                if *index < self.hatches.len() {
+                    self.hatches.remove(*index);
+                }
+            }
+            Op::SetHatch { index, after, .. } => {
+                if let Some(h) = self.hatches.get_mut(*index) {
+                    *h = after.clone();
+                }
+            }
             Op::AddDimension(d) => {
                 self.dimensions.push(d.clone());
             }
@@ -1956,6 +1977,15 @@ impl Document {
             // Undo is LIFO, so the appended annotation is the last in its table.
             Op::AddHatch(_) => {
                 self.hatches.pop();
+            }
+            Op::RemoveHatch { index, hatch } => {
+                let i = (*index).min(self.hatches.len());
+                self.hatches.insert(i, hatch.clone());
+            }
+            Op::SetHatch { index, before, .. } => {
+                if let Some(h) = self.hatches.get_mut(*index) {
+                    *h = before.clone();
+                }
             }
             Op::AddDimension(_) => {
                 self.dimensions.pop();
@@ -2447,6 +2477,47 @@ impl Document {
         &self.hatches
     }
 
+    /// Remove the hatch at `index`, returning `true` if it existed. Recorded as
+    /// an undoable [`Op::RemoveHatch`] when a transaction is open.
+    pub fn remove_hatch(&mut self, index: usize) -> bool {
+        if index >= self.hatches.len() {
+            return false;
+        }
+        let hatch = self.hatches.remove(index);
+        if self.open.is_some() {
+            self.record(Op::RemoveHatch { index, hatch });
+        }
+        self.revision += 1;
+        true
+    }
+
+    /// Replace the pattern (and derived `solid` flag) of the hatch at `index`.
+    /// Returns `true` if it changed. Undoable via [`Op::SetHatch`] when a
+    /// transaction is open.
+    pub fn set_hatch_pattern(&mut self, index: usize, pattern: impl Into<String>) -> bool {
+        let pattern = pattern.into();
+        let Some(current) = self.hatches.get(index) else {
+            return false;
+        };
+        let before = current.clone();
+        let mut after = before.clone();
+        after.solid = pattern.eq_ignore_ascii_case("SOLID");
+        after.pattern = pattern;
+        if before == after {
+            return false;
+        }
+        self.hatches[index] = after.clone();
+        if self.open.is_some() {
+            self.record(Op::SetHatch {
+                index,
+                before,
+                after,
+            });
+        }
+        self.revision += 1;
+        true
+    }
+
     /// Rename every current layer to [`IMPORTED_LAYER_PREFIX`]`{name}` and remap
     /// entity / hatch / dim / block-content layer references. Call **before**
     /// seeding AIA layers so imported CAD layers stay intact and distinct.
@@ -2900,6 +2971,86 @@ mod tests {
         assert_eq!(doc.dimensions().len(), 1);
         doc.undo();
         assert_eq!(doc.dimensions().len(), 0, "undo pops the dimension");
+    }
+
+    #[test]
+    fn remove_hatch_by_index_is_undoable() {
+        let mut doc = Document::new();
+        let rect = |x: f64| {
+            Polyline::new(
+                vec![
+                    Point2::new(x, 0.0),
+                    Point2::new(x + 1.0, 0.0),
+                    Point2::new(x + 1.0, 1.0),
+                    Point2::new(x, 1.0),
+                ],
+                true,
+            )
+        };
+        // Three hatches, each its own transaction (interactive HATCH).
+        for (i, x) in [0.0, 2.0, 4.0].into_iter().enumerate() {
+            doc.transact("hatch", |d| {
+                d.add_hatch(Hatch::new("A-FLOR", rect(x), format!("P{i}")));
+            });
+        }
+        assert_eq!(doc.hatches().len(), 3);
+
+        // Delete the MIDDLE hatch — the LIFO AddHatch model can't express this,
+        // so it must round-trip through RemoveHatch's absolute index.
+        doc.transact("erase hatch", |d| assert!(d.remove_hatch(1)));
+        assert_eq!(doc.hatches().len(), 2);
+        assert_eq!(doc.hatches()[0].pattern, "P0");
+        assert_eq!(doc.hatches()[1].pattern, "P2");
+
+        doc.undo();
+        assert_eq!(doc.hatches().len(), 3, "undo reinserts at the same index");
+        assert_eq!(doc.hatches()[1].pattern, "P1");
+
+        // Undoing the earlier AddHatch of the last hatch still pops correctly.
+        doc.undo();
+        assert_eq!(doc.hatches().len(), 2);
+        assert_eq!(doc.hatches()[1].pattern, "P1");
+
+        doc.redo();
+        assert_eq!(doc.hatches().len(), 3);
+        doc.redo();
+        assert_eq!(doc.hatches().len(), 2, "redo re-removes the middle hatch");
+        assert_eq!(doc.hatches()[1].pattern, "P2");
+
+        // Out-of-range remove is a no-op.
+        doc.transact("noop", |d| assert!(!d.remove_hatch(9)));
+    }
+
+    #[test]
+    fn set_hatch_pattern_is_undoable() {
+        let mut doc = Document::new();
+        let boundary = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(2.0, 0.0),
+                Point2::new(2.0, 2.0),
+                Point2::new(0.0, 2.0),
+            ],
+            true,
+        );
+        doc.transact("hatch", |d| {
+            d.add_hatch(Hatch::new("A-FLOR", boundary, "ANSI31"))
+        });
+        assert!(!doc.hatches()[0].solid);
+
+        doc.transact("edit hatch", |d| assert!(d.set_hatch_pattern(0, "SOLID")));
+        assert_eq!(doc.hatches()[0].pattern, "SOLID");
+        assert!(doc.hatches()[0].solid, "SOLID sets the solid flag");
+
+        doc.undo();
+        assert_eq!(doc.hatches()[0].pattern, "ANSI31");
+        assert!(!doc.hatches()[0].solid);
+        doc.redo();
+        assert_eq!(doc.hatches()[0].pattern, "SOLID");
+
+        // Setting the same pattern is a no-op (records nothing).
+        doc.transact("noop", |d| assert!(!d.set_hatch_pattern(0, "SOLID")));
+        assert!(!doc.can_undo() || doc.undo_label() != Some("noop"));
     }
 
     #[test]

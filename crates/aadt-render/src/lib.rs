@@ -477,39 +477,82 @@ fn point_in_hatch_fill(hatch: &Hatch, outer: &aadt_geometry::Polyline, p: Point2
         .any(|island| island.contains_point(p))
 }
 
+/// Clip the infinite line through `a`→`b` to the hatch fill (outer boundary minus
+/// islands) **analytically**: intersect the line with every boundary edge, sort
+/// the crossing parameters, and keep each sub-span whose midpoint is inside the
+/// fill. Exact regardless of how thin the region is or how dense the pattern —
+/// unlike fixed-step sampling, which dropped short crossings of thin regions.
 fn clipped_hatch_run(
     hatch: &Hatch,
     outer: &aadt_geometry::Polyline,
     a: Point2,
     b: Point2,
 ) -> Vec<DrawCommand> {
+    let (dx, dy) = (b.x - a.x, b.y - a.y);
+    if dx * dx + dy * dy < 1e-12 {
+        return Vec::new();
+    }
+    // Crossing parameters (t along a→b) with every boundary edge, outer + islands.
+    let mut ts: Vec<f64> = Vec::new();
+    for ring in &hatch.boundaries {
+        collect_ring_crossings(ring, a, dx, dy, &mut ts);
+    }
+    if ts.len() < 2 {
+        return Vec::new();
+    }
+    ts.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+
     let mut cmds = Vec::new();
-    let mut run: Vec<Point2> = Vec::new();
-    let samples = 48;
-    for i in 0..=samples {
-        let t = i as f64 / samples as f64;
-        let p = Point2::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-        if point_in_hatch_fill(hatch, outer, p) {
-            run.push(p);
-        } else if run.len() >= 2 {
+    for w in ts.windows(2) {
+        let (t0, t1) = (w[0], w[1]);
+        if t1 - t0 < 1e-9 {
+            continue; // zero-length span (e.g. a crossing through a vertex)
+        }
+        let tm = 0.5 * (t0 + t1);
+        let mid = Point2::new(a.x + dx * tm, a.y + dy * tm);
+        if point_in_hatch_fill(hatch, outer, mid) {
             cmds.push(DrawCommand::Polyline {
                 layer: hatch.layer.clone(),
-                points: std::mem::take(&mut run),
+                points: vec![
+                    Point2::new(a.x + dx * t0, a.y + dy * t0),
+                    Point2::new(a.x + dx * t1, a.y + dy * t1),
+                ],
                 closed: false,
             });
-            run.clear();
-        } else {
-            run.clear();
         }
     }
-    if run.len() >= 2 {
-        cmds.push(DrawCommand::Polyline {
-            layer: hatch.layer.clone(),
-            points: run,
-            closed: false,
-        });
-    }
     cmds
+}
+
+/// Append the parameters `t` (along the line `a + t·(dx,dy)`) at which the line
+/// crosses each edge of `ring`, treated as a closed loop.
+fn collect_ring_crossings(
+    ring: &aadt_geometry::Polyline,
+    a: Point2,
+    dx: f64,
+    dy: f64,
+    out: &mut Vec<f64>,
+) {
+    let v = &ring.vertices;
+    let n = v.len();
+    if n < 2 {
+        return;
+    }
+    for i in 0..n {
+        let p = v[i];
+        let q = v[(i + 1) % n];
+        let (ex, ey) = (q.x - p.x, q.y - p.y);
+        // Solve a + t·d = p + s·e for t (line param) and s (edge param, [0,1]).
+        let denom = dx * ey - dy * ex;
+        if denom.abs() < 1e-12 {
+            continue; // parallel to this edge
+        }
+        let (difx, dify) = (p.x - a.x, p.y - a.y);
+        let s = (difx * dy - dify * dx) / denom;
+        if (0.0..=1.0).contains(&s) {
+            out.push((difx * ey - dify * ex) / denom);
+        }
+    }
 }
 
 /// A [`Dimension`] flattened to AutoCAD-like draw primitives: extension lines,
@@ -1524,5 +1567,61 @@ mod tests {
             .count();
         // Two families of ~5 lines across 3 m at 600 mm spacing.
         assert!(lines >= 6, "expected grid pattern lines, got {lines}");
+    }
+
+    #[test]
+    fn thin_region_still_renders_diagonal_hatch_lines() {
+        // A very thin, wide rectangle (aspect ~20:1) — the case where fixed-step
+        // sampling dropped nearly every 45° crossing and the fill read as solid.
+        // Analytic clipping must still emit many diagonal strokes.
+        let outer = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(2000.0, 0.0),
+                Point2::new(2000.0, 100.0),
+                Point2::new(0.0, 100.0),
+            ],
+            true,
+        );
+        let hatch = Hatch::new("0", outer.clone(), "ANSI31");
+        let cmds = pattern_hatch_lines(&hatch, &outer);
+        // Count the diagonal strokes (open 2-point polylines) that lie inside.
+        let strokes = cmds
+            .iter()
+            .filter(|c| matches!(c, DrawCommand::Polyline { closed: false, points, .. } if points.len() == 2))
+            .count();
+        // Old fixed-step sampling dropped nearly every crossing here (≈0 strokes);
+        // analytic clipping keeps the full family that crosses the strip.
+        assert!(
+            strokes >= 8,
+            "thin ANSI31 region should still show diagonal hatching, got {strokes} strokes"
+        );
+    }
+
+    #[test]
+    fn clipped_run_matches_a_known_rectangle_crossing() {
+        // Horizontal line across a unit square from x=-1..2 at y=0.5 clips to x∈[0,1].
+        let outer = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            true,
+        );
+        let hatch = Hatch::new("0", outer.clone(), "ANSI31");
+        let cmds = clipped_hatch_run(
+            &hatch,
+            &outer,
+            Point2::new(-1.0, 0.5),
+            Point2::new(2.0, 0.5),
+        );
+        assert_eq!(cmds.len(), 1);
+        if let DrawCommand::Polyline { points, .. } = &cmds[0] {
+            assert!((points[0].x - 0.0).abs() < 1e-9 && (points[1].x - 1.0).abs() < 1e-9);
+        } else {
+            panic!("expected a clipped polyline");
+        }
     }
 }
