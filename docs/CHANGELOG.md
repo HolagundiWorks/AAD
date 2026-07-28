@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Per-command QA harness (M9.8)
+
+- `qa_checklist_every_command` asserts the BricsCAD §34 checklist across the
+  **whole command catalog**: each command starts (every alias resolves; the
+  engine activates with a prompt), cancels (Esc → idle), repeats iff
+  `repeatable`, is keyboard-line addressable, keeps capability/step consistency
+  (snap ⇒ a spatial pick step; mixed ⇒ dynamic input), and has correct undo
+  semantics (mutating vs inquiry). Builds on the M9.7 capability contract.
+
 ### Per-command capability contract (M9.7)
 
 - New `Capabilities` type + `CommandDef::capabilities()` formalize the BricsCAD

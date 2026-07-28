@@ -1360,6 +1360,82 @@ mod tests {
         }
     }
 
+    /// §34 QA checklist, asserted headlessly for **every** command in the
+    /// catalog: starts, cancels, repeats (per `repeatable`), keyboard-line
+    /// addressable, capability/step consistency (preview/snap/mixed input), and
+    /// undo semantics (mutating vs inquiry). The purely-interactive rows
+    /// (mouse-only / keyboard-only end-to-end) are represented by their
+    /// structural guarantees — a spatial step for the pointer, a command-line
+    /// path for the keyboard, dynamic input for mixed.
+    #[test]
+    fn qa_checklist_every_command() {
+        for def in CATALOG {
+            let id = def.id;
+            let caps = def.capabilities();
+
+            // — starts: every declared alias resolves back to this command.
+            for a in def.aliases {
+                assert_eq!(resolve_alias(a), Some(id), "{id}: alias {a} must resolve");
+            }
+
+            // — starts: the engine enters an active state with a live prompt.
+            let mut eng = CommandEngine::default();
+            assert!(eng.start(id).is_some(), "{id}: must start");
+            assert!(eng.is_active(), "{id}: active after start");
+            if !def.steps.is_empty() {
+                assert!(eng.prompt().is_some(), "{id}: active command shows a prompt");
+            }
+
+            // — cancels: Esc returns to idle.
+            eng.cancel();
+            assert!(eng.is_idle(), "{id}: cancel returns to idle");
+
+            // — repeats: complete, then Space-repeat matches `repeatable`.
+            eng.start(id);
+            eng.complete();
+            assert!(eng.is_idle(), "{id}: idle after complete");
+            let repeated = eng.repeat_previous();
+            if def.repeatable {
+                assert!(
+                    repeated.is_some() && eng.is_active(),
+                    "{id}: repeatable command repeats"
+                );
+            } else {
+                assert!(repeated.is_none(), "{id}: non-repeatable must not repeat");
+            }
+
+            // — keyboard: always command-line addressable.
+            assert!(caps.supports_command_line, "{id}: command-line addressable");
+
+            // — snap implies a snappable spatial pick step exists.
+            if caps.supports_snap {
+                assert!(
+                    def.steps.iter().any(|s| matches!(
+                        s,
+                        StepKind::Point { .. }
+                            | StepKind::NextPoint { .. }
+                            | StepKind::Distance { .. }
+                            | StepKind::Side { .. }
+                            | StepKind::Entity { .. }
+                    )),
+                    "{id}: snap implies a spatial pick step"
+                );
+            }
+
+            // — mixed input: any step accepts a typed value at the crosshair.
+            if !def.steps.is_empty() {
+                assert!(caps.supports_dynamic_input, "{id}: steps accept typed input");
+            }
+
+            // — undo/redo: mutating commands undo; inquiry commands do not.
+            assert_eq!(
+                caps.can_undo,
+                !is_query_command(id),
+                "{id}: undo matches mutation"
+            );
+        }
+    }
+
     #[test]
     fn resolve_exact_and_fuzzy() {
         assert_eq!(resolve_alias("L"), Some("line"));

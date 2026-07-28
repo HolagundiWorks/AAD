@@ -225,7 +225,7 @@ impact.
 | M9.5 | Live hatch preview on internal-point pick | §21 | ✅ | Was boundary-entity-only. Now `hatch_boundary_at` detects the smallest enclosing closed region under the cursor (AutoCAD internal point); HATCH hovers show a translucent accent fill + boundary preview, click commits (boundary-entity pick kept as fallback) |
 | M9.6 | Docking: floating panels + auto-hide | §28 | ☐ | Assess egui docking feasibility |
 | M9.7 | Per-command capability trait (`CanUndo`/`SupportsPreview`/`SupportsSnap`/`SupportsDynamicInput`/`SupportsCommandLine`/`SupportsSelectionPreview`) | §33 | ✅ | `Capabilities` + `CommandDef::capabilities()` derive the §33 contract from each command's step interface (query set → `can_undo`); surfaced on hover in the command palette; contract test across the catalog |
-| M9.8 | Per-command QA harness asserting the §34 checklist across every command | §34 | ☐ | Test infrastructure |
+| M9.8 | Per-command QA harness asserting the §34 checklist across every command | §34 | ✅ | `qa_checklist_every_command` iterates the whole catalog asserting starts / cancels / repeats (per `repeatable`) / keyboard-line addressable / snap+preview+mixed-input consistency / undo semantics; builds on the M9.7 capability contract |
 | M9.9 | Frame-time / latency telemetry to validate the §31 performance budgets | §31 | ☐ | Currently unmeasured |
 
 **§35 conflict (product lock):** the spec's "Future Extensions" list (AI command

@@ -133,7 +133,7 @@ Performance (§31) is **unmeasured** — no telemetry exists to assert the ms ta
 ✅ **Conforms (M9.7).** `Capabilities` + `CommandDef::capabilities()` make the contract explicit and queryable: `can_undo`/`can_repeat`/`supports_preview`/`supports_snap`/`supports_dynamic_input`/`supports_command_line`/`supports_selection_preview`. Derived from each command's step interface (plus a query-command set for `can_undo`) so it can't drift from behavior; surfaced on hover in the command palette and asserted by a catalog-wide test.
 
 ### §34 QA Checklist
-❌ **Gap (as an artifact).** Commands are exercised by unit tests, but there is **no per-command QA harness** asserting the checklist (starts/cancels/repeats/undo/redo/preview/snap/keyboard-only/mouse-only/mixed) across every command. This is a test-infrastructure gap, not a behavior gap.
+✅ **Conforms (M9.8).** `qa_checklist_every_command` iterates the whole command catalog and asserts the headlessly-verifiable checklist per command: starts (every alias resolves; engine activates with a prompt), cancels (Esc → idle), repeats (matches `repeatable`), keyboard-line addressable, capability/step consistency (snap ⇒ spatial pick step; mixed ⇒ dynamic input), and undo semantics (mutating vs inquiry). The purely-interactive rows (mouse-only / keyboard-only end-to-end) are represented by their structural guarantees. Built on the M9.7 capability contract.
 
 ### §35 Future Extensions
 ⚠️ **Direct conflict flagged.** This section lists AI command suggestions, AI quantity takeoff, PDF drawing recognition, and auto layer assignment — the exact capabilities removed in commit `e4d93e7` ("Remove all AI features"). **Any work toward §35 reverses that decision.** Resolve the product direction before scheduling §35 items.
