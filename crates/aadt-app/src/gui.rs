@@ -866,6 +866,9 @@ struct AadtApp {
     /// Screen path of an in-progress drag select; a near-straight drag is a box,
     /// a meandering one is a lasso (free-drag region select).
     drag_path: Vec<egui::Pos2>,
+    /// Entities already trimmed by the current TRIM drag stroke (AutoCAD
+    /// freehand quick-trim), so a single stroke never trims one twice.
+    trim_stroke_hits: Vec<EntityId>,
     /// Cursor position in world coordinates, for the readout.
     cursor: Option<Point2>,
     /// Cursor position in screen pixels, for the crosshair and dynamic-input box.
@@ -1014,6 +1017,7 @@ impl AadtApp {
             current_layer: "A-WALL".to_string(),
             box_start: None,
             drag_path: Vec::new(),
+            trim_stroke_hits: Vec::new(),
             cursor: None,
             cursor_screen: None,
             dyn_input: String::new(),
@@ -2004,7 +2008,7 @@ impl AadtApp {
                 };
                 self.engine.advance_step();
                 self.note =
-                    "TRIM — select object to trim or [C]utting edges (Space finishes)".into();
+                    "TRIM — click or drag across objects to trim (Shift extends; Space finishes)".into();
             } else if matches!(
                 self.tool,
                 Tool::Trim {
@@ -3050,7 +3054,7 @@ impl AadtApp {
                 phase: TrimPhase::Objects,
             };
             self.engine.advance_step();
-            self.note = "TRIM — select object to trim or [C]utting edges (Space finishes)".into();
+            self.note = "TRIM — click or drag across objects to trim (Shift extends; Space finishes)".into();
             return;
         }
         if matches!(
@@ -4419,28 +4423,7 @@ impl AadtApp {
                         let cutters = cutters.clone();
                         // AutoCAD: Shift+select extends instead of trims.
                         if self.pointer_shift {
-                            let mut boundaries: Vec<EntityId> =
-                                cutters.iter().copied().filter(|b| *b != id).collect();
-                            if boundaries.is_empty() {
-                                boundaries = self
-                                    .session
-                                    .document()
-                                    .entities()
-                                    .iter()
-                                    .map(|e| e.id)
-                                    .filter(|&eid| eid != id)
-                                    .collect();
-                            }
-                            let mut ok = false;
-                            for b in boundaries {
-                                let fb = self
-                                    .app_feed(&format!("EXTEND {} {} {} {}", id.0, b.0, p.x, p.y));
-                                if !fb.is_err() {
-                                    ok = true;
-                                    break;
-                                }
-                            }
-                            if ok {
+                            if self.extend_within_trim(id, &cutters, p) {
                                 self.note =
                                     "TRIM — select object to trim or Shift+extend (Space finishes)"
                                         .into();
@@ -4457,7 +4440,7 @@ impl AadtApp {
                         };
                         if ok {
                             self.note =
-                                "TRIM — select next object or [C]utting edges (Space finishes)"
+                                "TRIM — click or drag across more objects (Shift extends; Space finishes)"
                                     .into();
                         }
                     }
@@ -5005,6 +4988,56 @@ impl AadtApp {
         true
     }
 
+    /// AutoCAD Shift-select-to-extend inside TRIM: lengthen `target` at `pick`
+    /// to the first boundary that yields a result. `cutters` are the active
+    /// cutting edges (empty ⇒ every other entity is a candidate boundary).
+    fn extend_within_trim(&mut self, target: EntityId, cutters: &[EntityId], pick: Point2) -> bool {
+        let mut boundaries: Vec<EntityId> =
+            cutters.iter().copied().filter(|b| *b != target).collect();
+        if boundaries.is_empty() {
+            boundaries = self
+                .session
+                .document()
+                .entities()
+                .iter()
+                .map(|e| e.id)
+                .filter(|&eid| eid != target)
+                .collect();
+        }
+        for b in boundaries {
+            let fb = self.app_feed(&format!("EXTEND {} {} {} {}", target.0, b.0, pick.x, pick.y));
+            if !fb.is_err() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The geometry the TRIM tool would remove at `pick` right now, for the
+    /// hover ghost. `cutters` are the active cutting edges (empty ⇒ Quick mode,
+    /// every other entity). `None` when nothing under the cursor can be trimmed.
+    fn trim_hover_ghost(&self, pick: Point2, cutters: &[EntityId]) -> Option<Geometry> {
+        let tol = PICK_PIXELS / self.camera.scale;
+        let id = pick_entity(self.session.document(), pick, tol)?;
+        let doc = self.session.document();
+        let target = doc.get(id)?.geometry.clone();
+        let cutter_geoms: Vec<Geometry> = if cutters.is_empty() {
+            doc.entities()
+                .iter()
+                .filter(|e| e.id != id)
+                .map(|e| e.geometry.clone())
+                .collect()
+        } else {
+            cutters
+                .iter()
+                .filter(|c| **c != id)
+                .filter_map(|c| doc.get(*c))
+                .map(|e| e.geometry.clone())
+                .collect()
+        };
+        aadt_command::trim_removed_preview(&target, &cutter_geoms, pick)
+    }
+
     /// The prompt shown while a tool is active.
     fn tool_prompt(&self) -> Option<&'static str> {
         // Multi-phase tools own step prompts (AutoCAD-style), not the engine catalog.
@@ -5033,7 +5066,11 @@ impl AadtApp {
             Tool::Trim {
                 phase: TrimPhase::Objects,
                 ..
-            } => return Some("TRIM — select object to trim or [C]utting edges (Space finishes)"),
+            } => {
+                return Some(
+                    "TRIM — click or drag across objects to trim; Shift extends, [C]utting edges (Space finishes)",
+                )
+            }
             Tool::Xline {
                 mode: XlineMode::Through,
                 origin: None,
@@ -5935,11 +5972,86 @@ impl eframe::App for AadtApp {
                                 self.apply_space_single();
                             }
                         }
+                        // AutoCAD freehand quick-trim: drag a stroke and every
+                        // object the path crosses is trimmed at the crossing
+                        // (Shift-drag extends instead). Each entity trims once
+                        // per stroke. A plain click still falls through to the
+                        // single-pick `on_pick` path below.
+                        if matches!(
+                            self.tool,
+                            Tool::Trim {
+                                phase: TrimPhase::Objects,
+                                ..
+                            }
+                        ) {
+                            if resp.drag_started() {
+                                self.trim_stroke_hits.clear();
+                                self.drag_path.clear();
+                                if let Some(pos) = ui
+                                    .input(|i| i.pointer.press_origin())
+                                    .or_else(|| resp.interact_pointer_pos())
+                                {
+                                    self.drag_path.push(pos);
+                                }
+                            }
+                            if resp.dragged() {
+                                if let Some(pos) = resp.interact_pointer_pos() {
+                                    let moved = self
+                                        .drag_path
+                                        .last()
+                                        .map(|p| (*p - pos).length() > 2.0)
+                                        .unwrap_or(true);
+                                    if moved {
+                                        self.drag_path.push(pos);
+                                        let world = to_world(&self.camera, pos);
+                                        let tol = PICK_PIXELS / self.camera.scale;
+                                        if let Some(id) =
+                                            pick_entity(self.session.document(), world, tol)
+                                        {
+                                            if !self.trim_stroke_hits.contains(&id) {
+                                                let cutters = match &self.tool {
+                                                    Tool::Trim { cutters, .. } => cutters.clone(),
+                                                    _ => Vec::new(),
+                                                };
+                                                let acted = if shift {
+                                                    self.extend_within_trim(id, &cutters, world)
+                                                } else {
+                                                    self.trim_object(id, &cutters, world)
+                                                };
+                                                if acted {
+                                                    self.trim_stroke_hits.push(id);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if resp.drag_stopped() {
+                                self.drag_path.clear();
+                                let n = self.trim_stroke_hits.len();
+                                self.trim_stroke_hits.clear();
+                                if n > 0 {
+                                    self.note = format!(
+                                        "TRIM — {n} trimmed; drag or click more (Space finishes)"
+                                    );
+                                }
+                            }
+                        }
                         // One place per gesture: prefer click; accept micro-drag
                         // release only (not both) so we don't double-fire on_pick.
+                        // TRIM owns its own drag gesture (freehand quick-trim
+                        // above), so exclude it from the micro-drag release path
+                        // — otherwise a looping stroke would trim once more here.
+                        let trim_active = matches!(
+                            self.tool,
+                            Tool::Trim {
+                                phase: TrimPhase::Objects,
+                                ..
+                            }
+                        );
                         let place = if resp.clicked() {
                             resp.interact_pointer_pos()
-                        } else if resp.drag_stopped() {
+                        } else if resp.drag_stopped() && !trim_active {
                             let origin = ui.input(|i| i.pointer.press_origin());
                             let end = resp.interact_pointer_pos();
                             match (origin, end) {
@@ -6009,6 +6121,38 @@ impl eframe::App for AadtApp {
                 // Object-snap marker at the acquired point.
                 if let Some((kind, sp)) = self.snap_hit {
                     paint_snap_marker(&painter, rect, &self.camera, kind, sp);
+                }
+                // TRIM: freehand stroke trail while dragging, else a ghost of the
+                // segment a click would remove under the cursor (AutoCAD preview).
+                if matches!(
+                    self.tool,
+                    Tool::Trim {
+                        phase: TrimPhase::Objects,
+                        ..
+                    }
+                ) {
+                    let ghost = egui::Color32::from_rgba_unmultiplied(230, 70, 70, 210);
+                    if self.drag_path.len() >= 2 && self.box_start.is_none() {
+                        let lstroke = egui::Stroke::new(1.5_f32, ghost);
+                        for pair in self.drag_path.windows(2) {
+                            painter.line_segment([pair[0], pair[1]], lstroke);
+                        }
+                    } else if let Some(pos) = self.cursor {
+                        let cutters = match &self.tool {
+                            Tool::Trim { cutters, .. } => cutters.clone(),
+                            _ => Vec::new(),
+                        };
+                        if let Some(g) = self.trim_hover_ghost(pos, &cutters) {
+                            draw_geometry(
+                                &painter,
+                                rect,
+                                &self.camera,
+                                &g,
+                                egui::Stroke::new(3.0_f32, ghost),
+                                ghost,
+                            );
+                        }
+                    }
                 }
                 // The selection box (straight drag) or lasso trail (curved drag).
                 if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {

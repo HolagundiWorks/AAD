@@ -1496,6 +1496,125 @@ fn polyline_slice(verts: &[Point2], s0: f64, s1: f64) -> Option<Vec<Point2>> {
     (out.len() >= 2).then_some(out)
 }
 
+/// Parameter interval `(lo, hi)` on a line that TRIM would remove at `pick`,
+/// or `None` when no cutter crosses. Mirrors `trim_line`'s cut computation but
+/// yields the discarded span — used for the GUI's hover ghost.
+fn trim_interval_line(s: Segment, cutters: &[Geometry], pick: Point2) -> Option<(f64, f64)> {
+    let target = Geometry::Line(s);
+    let mut cuts = Vec::new();
+    for c in cutters {
+        for p in bounded_crossings(&target, c) {
+            let t = s.project_param(p);
+            if (-HIT_EPS..=1.0 + HIT_EPS).contains(&t) {
+                cuts.push(t.clamp(0.0, 1.0));
+            }
+        }
+    }
+    let cuts = dedup_sorted_params(cuts);
+    if cuts.is_empty() {
+        return None;
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(1.0);
+    let pick_t = s.project_param(pick).clamp(0.0, 1.0);
+    let (lo, hi) = interval_containing(&bounds, pick_t)?;
+    (hi - lo > HIT_EPS).then_some((lo, hi))
+}
+
+/// Removal interval `(lo, hi)` on an arc's unit sweep. See `trim_interval_line`.
+fn trim_interval_arc(a: Arc, cutters: &[Geometry], pick: Point2) -> Option<(f64, f64)> {
+    let target = Geometry::Arc(a);
+    let sweep = a.sweep();
+    if sweep <= HIT_EPS {
+        return None;
+    }
+    let mut cuts = Vec::new();
+    for c in cutters {
+        for p in bounded_crossings(&target, c) {
+            let off = (a.angle_of(p) - a.start_angle).rem_euclid(360.0);
+            if off <= sweep + HIT_EPS {
+                cuts.push((off / sweep).clamp(0.0, 1.0));
+            }
+        }
+    }
+    let cuts = dedup_sorted_params(cuts);
+    if cuts.is_empty() {
+        return None;
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(1.0);
+    let pick_off = (a.angle_of(pick) - a.start_angle).rem_euclid(360.0);
+    let pick_t = (pick_off / sweep).clamp(0.0, 1.0);
+    let (lo, hi) = interval_containing(&bounds, pick_t)?;
+    (hi - lo > HIT_EPS).then_some((lo, hi))
+}
+
+/// Removal interval `(lo, hi)` on a polyline's unit arc-length. See above.
+fn trim_interval_polyline(p: &Polyline, cutters: &[Geometry], pick: Point2) -> Option<(f64, f64)> {
+    let verts = &p.vertices;
+    if verts.len() < 2 {
+        return None;
+    }
+    let total: f64 = verts.windows(2).map(|w| w[0].distance(w[1])).sum();
+    if total <= HIT_EPS {
+        return None;
+    }
+    let mut cuts = Vec::new();
+    for (k, w) in verts.windows(2).enumerate() {
+        let seg = Segment::new(w[0], w[1]);
+        for c in cutters {
+            for x in segment_crossings(seg, c) {
+                let along = length_to_vertex(verts, k) + verts[k].distance(x);
+                cuts.push((along / total).clamp(0.0, 1.0));
+            }
+        }
+    }
+    let cuts = dedup_sorted_params(cuts);
+    if cuts.is_empty() {
+        return None;
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(1.0);
+    let pick_t = (path_param(verts, pick) / total).clamp(0.0, 1.0);
+    let (lo, hi) = interval_containing(&bounds, pick_t)?;
+    (hi - lo > HIT_EPS).then_some((lo, hi))
+}
+
+/// The geometry TRIM would **remove** at `pick`, for the GUI's hover ghost.
+/// `cutters` is every candidate cutting edge (Quick mode passes all other
+/// entities). Returns `None` when the pick can't be trimmed. Non-mutating.
+pub fn trim_removed_preview(
+    target: &Geometry,
+    cutters: &[Geometry],
+    pick: Point2,
+) -> Option<Geometry> {
+    match target {
+        Geometry::Line(s) => {
+            let (lo, hi) = trim_interval_line(*s, cutters, pick)?;
+            let point_at = |t: f64| s.a + (s.b - s.a) * t;
+            let seg = Segment::new(point_at(lo), point_at(hi));
+            (seg.length() > HIT_EPS).then_some(Geometry::Line(seg))
+        }
+        Geometry::Arc(a) => {
+            let sweep = a.sweep();
+            let (lo, hi) = trim_interval_arc(*a, cutters, pick)?;
+            let start = a.start_angle + sweep * lo;
+            let end = a.start_angle + sweep * hi;
+            Some(Geometry::Arc(Arc::new(a.center, a.radius, start, end)))
+        }
+        Geometry::Polyline(p) => {
+            let total: f64 = p.vertices.windows(2).map(|w| w[0].distance(w[1])).sum();
+            let (lo, hi) = trim_interval_polyline(p, cutters, pick)?;
+            let v = polyline_slice(&p.vertices, lo * total, hi * total)?;
+            (v.len() >= 2).then_some(Geometry::Polyline(Polyline::new(v, false)))
+        }
+        _ => None,
+    }
+}
+
 struct ExtendCmd;
 impl Command for ExtendCmd {
     fn name(&self) -> &str {
@@ -3662,6 +3781,35 @@ mod tests {
             "kept piece starts at an end or right cut: {:?}",
             s0
         );
+    }
+
+    #[test]
+    fn trim_removed_preview_returns_the_middle_span() {
+        // The hover ghost previews exactly the piece a click would remove.
+        let target = Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)));
+        let cutters = vec![
+            Geometry::Line(Segment::new(Point2::new(3.0, -2.0), Point2::new(3.0, 2.0))),
+            Geometry::Line(Segment::new(Point2::new(7.0, -2.0), Point2::new(7.0, 2.0))),
+        ];
+        let removed = trim_removed_preview(&target, &cutters, Point2::new(5.0, 0.0))
+            .expect("pick between the cutters previews a removal");
+        let Geometry::Line(s) = removed else {
+            panic!("expected a line span, got {removed:?}");
+        };
+        let (lo, hi) = if s.a.x <= s.b.x { (s.a, s.b) } else { (s.b, s.a) };
+        assert!(lo.distance(Point2::new(3.0, 0.0)) < 1e-9, "starts at left cut: {lo:?}");
+        assert!(hi.distance(Point2::new(7.0, 0.0)) < 1e-9, "ends at right cut: {hi:?}");
+    }
+
+    #[test]
+    fn trim_removed_preview_is_none_without_a_crossing() {
+        let target = Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)));
+        // A cutter that misses the target entirely → nothing to preview.
+        let cutters = vec![Geometry::Line(Segment::new(
+            Point2::new(3.0, 5.0),
+            Point2::new(3.0, 8.0),
+        ))];
+        assert!(trim_removed_preview(&target, &cutters, Point2::new(5.0, 0.0)).is_none());
     }
 
     #[test]
