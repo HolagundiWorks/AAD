@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Multi-mode grip editing (M9.3)
+
+- A hot grip now cycles edit modes with **Space** (AutoCAD): **Stretch → Move →
+  Rotate → Scale → Mirror**. Stretch moves the picked grip; the others transform
+  the whole selection about the grip as base point, dispatched through the
+  existing (unit-tested) MOVE / ROTATE / SCALE / MIRROR commands so each stays a
+  single undo. Scale takes its factor from the base→cursor grab captured when
+  Scale mode is entered (falling back to the entity's grip spread). The rubber
+  preview shows the base→cursor axis, plus a moved-grip ghost in Stretch.
+
 ### Fluent 2 conformance pass
 
 Tightened the chrome against the [Fluent 2](https://fluent2.microsoft.design)

@@ -322,11 +322,15 @@ pub(super) enum Tool {
     },
     /// Erase: select objects (verb-noun or noun-verb), Space confirms.
     Erase,
-    /// Stretch a selected entity's grip to a new location.
+    /// Hot-grip edit: `mode` (cycled with Space) transforms the selection about
+    /// the grip `origin`. `ref_dist` is the SCALE reference (base→cursor when
+    /// Scale mode was entered) so dragging scales relative to the grab.
     GripEdit {
         id: EntityId,
         grip_idx: usize,
         origin: Point2,
+        mode: GripMode,
+        ref_dist: f64,
     },
     /// Explode: click an insert (or explode selection via command).
     Explode,
@@ -437,6 +441,42 @@ pub(super) enum TrimPhase {
     #[default]
     CuttingEdges,
     Objects,
+}
+
+/// Hot-grip edit modes, cycled with Space (AutoCAD: Stretch → Move → Rotate →
+/// Scale → Mirror). Stretch moves the picked grip; the others transform the
+/// whole selection about the hot grip as base point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum GripMode {
+    #[default]
+    Stretch,
+    Move,
+    Rotate,
+    Scale,
+    Mirror,
+}
+
+impl GripMode {
+    /// Next mode in the Space cycle.
+    pub(super) fn next(self) -> Self {
+        match self {
+            GripMode::Stretch => GripMode::Move,
+            GripMode::Move => GripMode::Rotate,
+            GripMode::Rotate => GripMode::Scale,
+            GripMode::Scale => GripMode::Mirror,
+            GripMode::Mirror => GripMode::Stretch,
+        }
+    }
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            GripMode::Stretch => "STRETCH",
+            GripMode::Move => "MOVE",
+            GripMode::Rotate => "ROTATE",
+            GripMode::Scale => "SCALE",
+            GripMode::Mirror => "MIRROR",
+        }
+    }
 }
 
 /// XLINE mode keywords (Hor / Ver / Ang / Through).
@@ -3038,6 +3078,35 @@ impl AadtApp {
             self.commit_dyn();
             return;
         }
+        // Hot grip: Space cycles the edit mode (Stretch→Move→Rotate→Scale→Mirror).
+        if let Tool::GripEdit {
+            id,
+            grip_idx,
+            origin,
+            mode,
+            ..
+        } = self.tool
+        {
+            let mode = mode.next();
+            // Entering Scale: capture the base→cursor grab as the 1.0 reference.
+            let ref_dist = if mode == GripMode::Scale {
+                self.cursor.map(|c| origin.distance(c)).unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            self.tool = Tool::GripEdit {
+                id,
+                grip_idx,
+                origin,
+                mode,
+                ref_dist,
+            };
+            self.note = format!(
+                "GRIP {} — specify point (Space cycles mode; Esc cancels)",
+                mode.label()
+            );
+            return;
+        }
         if self.tool_is_collecting() {
             let _ = self.end_collecting_phase();
             return;
@@ -3268,6 +3337,77 @@ impl AadtApp {
         }
         let ids: Vec<String> = self.selection.iter().map(|id| id.0.to_string()).collect();
         self.app_feed(&format!("SELECT {}", ids.join(" ")));
+    }
+
+    /// Apply a hot-grip edit at the confirming point `p`. Stretch moves the
+    /// picked grip on its entity; the other modes transform the whole selection
+    /// about the grip `origin` (base point), reusing the MOVE/ROTATE/SCALE/MIRROR
+    /// commands so each is a single UNDO. AutoCAD hot-grip semantics.
+    fn apply_grip_edit(
+        &mut self,
+        id: EntityId,
+        grip_idx: usize,
+        origin: Point2,
+        mode: GripMode,
+        ref_dist: f64,
+        p: Point2,
+    ) {
+        match mode {
+            GripMode::Stretch => {
+                self.app_feed(&format!("GRIPEDIT {} {} {} {}", id.0, grip_idx, p.x, p.y));
+            }
+            GripMode::Move => {
+                self.sync_selection();
+                let (dx, dy) = (p.x - origin.x, p.y - origin.y);
+                self.app_feed(&format!("MOVE SELECTION {dx} {dy}"));
+            }
+            GripMode::Rotate => {
+                self.sync_selection();
+                let angle = (p.y - origin.y).atan2(p.x - origin.x).to_degrees();
+                self.app_feed(&format!(
+                    "ROTATE SELECTION {} {} {angle}",
+                    origin.x, origin.y
+                ));
+            }
+            GripMode::Scale => {
+                self.sync_selection();
+                // Factor relative to the grab distance captured on entering Scale
+                // mode. If that was ~0 (cursor near the grip), fall back to the
+                // entity's grip spread so a drag still scales sensibly.
+                let reference = if ref_dist > 1e-9 {
+                    ref_dist
+                } else {
+                    self.session
+                        .document()
+                        .get(id)
+                        .map(|e| {
+                            grip_points(&e.geometry)
+                                .iter()
+                                .map(|g| origin.distance(*g))
+                                .fold(0.0_f64, f64::max)
+                        })
+                        .filter(|d| *d > 1e-9)
+                        .unwrap_or(1.0)
+                };
+                let factor = origin.distance(p) / reference;
+                if factor > 1e-9 && (factor - 1.0).abs() > 1e-9 {
+                    self.app_feed(&format!(
+                        "SCALE SELECTION {} {} {factor}",
+                        origin.x, origin.y
+                    ));
+                } else {
+                    self.note = "GRIP SCALE — move away from the grip to set a factor".into();
+                }
+            }
+            GripMode::Mirror => {
+                self.sync_selection();
+                // Mirror across the base→point axis, keeping the source (N).
+                self.app_feed(&format!(
+                    "MIRROR SELECTION {} {} {} {} N",
+                    origin.x, origin.y, p.x, p.y
+                ));
+            }
+        }
     }
 
     fn tool_is_collecting(&self) -> bool {
@@ -3830,8 +3970,14 @@ impl AadtApp {
                     }
                 },
             },
-            Tool::GripEdit { id, grip_idx, .. } => {
-                self.app_feed(&format!("GRIPEDIT {} {} {} {}", id.0, grip_idx, p.x, p.y));
+            Tool::GripEdit {
+                id,
+                grip_idx,
+                origin,
+                mode,
+                ref_dist,
+            } => {
+                self.apply_grip_edit(id, grip_idx, origin, mode, ref_dist, p);
                 self.tool = Tool::Select;
             }
             Tool::Arc { center, start } => match (center, start) {
@@ -5479,7 +5625,9 @@ impl AadtApp {
                 path: Some(_),
                 count: Some(_),
             } => "ARRAYPATH — Align items to path? [Yes/No] <Y>",
-            Tool::GripEdit { .. } => "GRIP — specify new location (Esc cancels)",
+            Tool::GripEdit { .. } => {
+                "GRIP — new point; Space cycles Stretch/Move/Rotate/Scale/Mirror (Esc cancels)"
+            }
             Tool::Explode => "EXPLODE — click a block reference",
             Tool::Dim { first: None, .. } => "DIM — click first definition point",
             Tool::Dim {
@@ -6282,8 +6430,11 @@ impl AadtApp {
                         id,
                         grip_idx: idx,
                         origin: *gp,
+                        mode: GripMode::Stretch,
+                        ref_dist: 0.0,
                     };
-                    self.note = "GRIP — specify new location".into();
+                    self.note =
+                        "GRIP STRETCH — new location (Space cycles Move/Rotate/Scale/Mirror; Esc cancels)".into();
                     return;
                 }
             }
@@ -7489,18 +7640,25 @@ fn paint_preview(
             origin,
             id,
             grip_idx,
+            mode,
+            ..
         } => {
+            // Base→cursor reference line for every mode.
             painter.line_segment([to_screen(*origin), to_screen(cursor)], stroke);
-            if let Some(e) = doc.get(*id) {
-                if let Some(g) = geometry_with_grip_moved_local(&e.geometry, *grip_idx, cursor) {
-                    draw_geometry(
-                        painter,
-                        rect,
-                        camera,
-                        &g,
-                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(80, 140, 220)),
-                        egui::Color32::from_rgb(80, 140, 220),
-                    );
+            // Stretch previews the moved grip; other modes show only the axis
+            // (the transform preview would duplicate MOVE/ROTATE/… math).
+            if matches!(mode, GripMode::Stretch) {
+                if let Some(e) = doc.get(*id) {
+                    if let Some(g) = geometry_with_grip_moved_local(&e.geometry, *grip_idx, cursor) {
+                        draw_geometry(
+                            painter,
+                            rect,
+                            camera,
+                            &g,
+                            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(80, 140, 220)),
+                            egui::Color32::from_rgb(80, 140, 220),
+                        );
+                    }
                 }
             }
         }
