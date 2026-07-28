@@ -83,6 +83,24 @@ impl Icon {
             Icon::ObjectProps => egui::include_image!("../assets/fluent/options_24_regular.svg"),
         }
     }
+
+    /// Filled variant for selected states (Fluent: "Filled … for highlighting
+    /// selected states"). Vendored for the nav-rail set; other icons fall back
+    /// to their regular glyph. <https://fluent2.microsoft.design/iconography>
+    fn svg_filled(self) -> egui::ImageSource<'static> {
+        match self {
+            Icon::Layers => egui::include_image!("../assets/fluent/layer_24_filled.svg"),
+            Icon::Blocks => egui::include_image!("../assets/fluent/cube_24_filled.svg"),
+            Icon::Hatch => egui::include_image!("../assets/fluent/grid_24_filled.svg"),
+            Icon::Annotate => egui::include_image!("../assets/fluent/text_font_24_filled.svg"),
+            Icon::Templates => egui::include_image!("../assets/fluent/slide_text_24_filled.svg"),
+            Icon::Props => egui::include_image!("../assets/fluent/document_text_24_filled.svg"),
+            Icon::Dims => egui::include_image!("../assets/fluent/ruler_24_filled.svg"),
+            Icon::History => egui::include_image!("../assets/fluent/history_24_filled.svg"),
+            Icon::ObjectProps => egui::include_image!("../assets/fluent/options_24_filled.svg"),
+            other => other.svg(),
+        }
+    }
 }
 
 /// Register SVG loaders so Fluent icons render.
@@ -204,7 +222,9 @@ pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) ->
             );
         }
         let tint = if selected { color::ACCENT } else { color::TEXT };
-        let img = egui::Image::new(icon.svg())
+        // Fluent: filled glyph for the selected state, regular otherwise.
+        let src = if selected { icon.svg_filled() } else { icon.svg() };
+        let img = egui::Image::new(src)
             .fit_to_exact_size(egui::vec2(glyph, glyph))
             .tint(tint);
         img.paint_at(

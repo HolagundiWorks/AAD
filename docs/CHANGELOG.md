@@ -13,7 +13,10 @@ X-Large 12):
   titles and section labels with it via `theme::semibold()` (egui `.strong()`
   only recolors).
 - **Iconography** — glyphs moved to Fluent System Icons' UI step (16px in a 28px
-  target; dense rows 14px) instead of the off-ramp 14/12px.
+  target; dense rows 14px) instead of the off-ramp 14/12px. Selected dock-rail
+  tabs now render the **filled** icon variant (Fluent's selected-state cue),
+  vendored for the nav set (layer/cube/grid/text-font/slide-text/document-text/
+  ruler/history/options).
 - **Elevation** — Windows Fluent outlines with strokes and keeps key shadows
   subtle: dialogs ≈ shadow28 (y8/blur20), menus & tooltips ≈ shadow8 (y4/blur8).
 - **Motion** — hover/rest transitions at ~100ms (`durationFaster`).
