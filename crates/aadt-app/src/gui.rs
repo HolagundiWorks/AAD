@@ -3303,11 +3303,22 @@ impl AadtApp {
                 let candidates: Vec<_> = self
                     .palette_candidates()
                     .into_iter()
-                    .map(|d| (d.id, d.aliases.first().copied().unwrap_or(d.id)))
+                    .map(|d| {
+                        (
+                            d.id,
+                            d.aliases.first().copied().unwrap_or(d.id),
+                            d.capabilities().summary(),
+                        )
+                    })
                     .collect();
-                for (id, alias) in candidates {
+                for (id, alias, caps) in candidates {
                     let label = format!("{}  ({})", id.to_ascii_uppercase(), alias);
-                    if ui.selectable_label(false, label).clicked() {
+                    // Hover reveals the §33 capability contract for the command.
+                    if ui
+                        .selectable_label(false, label)
+                        .on_hover_text(&caps)
+                        .clicked()
+                    {
                         self.palette_open = false;
                         self.palette_filter.clear();
                         self.start_command_id(id);

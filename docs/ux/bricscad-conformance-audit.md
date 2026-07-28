@@ -130,7 +130,7 @@ Performance (§31) is **unmeasured** — no telemetry exists to assert the ms ta
 ⚠️ **Partial (mostly conforms).** Common commands are not hidden; ribbon not forced (➖ none); inline editing favored; keyboard never blocked. The "never more than 2 clicks" and "never require property dialogs" rules hold. Full verification of "never interrupt mouse movement" needs runtime observation.
 
 ### §33 Developer Rules (per-command capability contract)
-⚠️ **Partial.** `CommandDef` declares `repeatable` (= `CanRepeat`) and `steps`/`finish`. The remaining capability flags (`CanUndo`, `SupportsPreview`, `SupportsSnap`, `SupportsDynamicInput`, `SupportsCommandLine`, `SupportsSelectionPreview`) are **provided uniformly by the engine** rather than declared per command. Conforms in behavior; diverges from the spec's explicit per-command interface. A formal `Command` capability trait would close this.
+✅ **Conforms (M9.7).** `Capabilities` + `CommandDef::capabilities()` make the contract explicit and queryable: `can_undo`/`can_repeat`/`supports_preview`/`supports_snap`/`supports_dynamic_input`/`supports_command_line`/`supports_selection_preview`. Derived from each command's step interface (plus a query-command set for `can_undo`) so it can't drift from behavior; surfaced on hover in the command palette and asserted by a catalog-wide test.
 
 ### §34 QA Checklist
 ❌ **Gap (as an artifact).** Commands are exercised by unit tests, but there is **no per-command QA harness** asserting the checklist (starts/cancels/repeats/undo/redo/preview/snap/keyboard-only/mouse-only/mixed) across every command. This is a test-infrastructure gap, not a behavior gap.

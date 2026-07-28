@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Per-command capability contract (M9.7)
+
+- New `Capabilities` type + `CommandDef::capabilities()` formalize the BricsCAD
+  §33 developer contract — `can_undo`, `can_repeat`, `supports_preview`,
+  `supports_snap`, `supports_dynamic_input`, `supports_command_line`,
+  `supports_selection_preview`. Derived from each command's step interface (plus
+  a read-only query set for `can_undo`) so it can't drift from behavior.
+- Surfaced on hover in the command palette; a catalog-wide test asserts the
+  contract (LINE draws/snaps/undoes, MOVE previews a selection, LIST is
+  read-only, every command is command-line addressable).
+
 ### Live hatch preview + internal-point pick (M9.5)
 
 - HATCH now works AutoCAD-style: **pick a point inside** a closed region (not

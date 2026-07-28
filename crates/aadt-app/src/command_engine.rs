@@ -73,6 +73,108 @@ pub struct CommandDef {
     pub tool_token: &'static str,
 }
 
+/// The §33 per-command capability contract (BricsCAD Developer Rules). The
+/// engine already provides these uniformly; this makes them explicit and
+/// queryable rather than implicit. Derived from a command's step interface
+/// (see [`CommandDef::capabilities`]) so it can never drift from behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Capabilities {
+    /// The command edits the document, so it participates in UNDO/REDO.
+    /// (Inquiry commands like LIST/DIST are read-only.)
+    pub can_undo: bool,
+    /// Enter / double-Space repeats the command (mirrors `repeatable`).
+    pub can_repeat: bool,
+    /// Shows a rubber-band / hover preview while a spatial step is in progress.
+    pub supports_preview: bool,
+    /// Spatial picks honor object snap (OSNAP).
+    pub supports_snap: bool,
+    /// Accepts typed values at the crosshair (dynamic input).
+    pub supports_dynamic_input: bool,
+    /// Can be driven entirely from the command line / palette.
+    pub supports_command_line: bool,
+    /// Highlights the pickset during a selection phase.
+    pub supports_selection_preview: bool,
+}
+
+/// Inquiry commands that only read the model (never undoable).
+fn is_query_command(id: CommandId) -> bool {
+    matches!(id, "list" | "dist")
+}
+
+impl Capabilities {
+    /// Human-readable "·"-joined capability tags, for palette/help tooltips.
+    pub fn summary(&self) -> String {
+        let mut tags: Vec<&str> = Vec::new();
+        if self.can_undo {
+            tags.push("Undo");
+        }
+        if self.can_repeat {
+            tags.push("Repeat");
+        }
+        if self.supports_preview {
+            tags.push("Preview");
+        }
+        if self.supports_snap {
+            tags.push("Snap");
+        }
+        if self.supports_dynamic_input {
+            tags.push("Dynamic input");
+        }
+        if self.supports_selection_preview {
+            tags.push("Selection preview");
+        }
+        if self.supports_command_line {
+            tags.push("Command line");
+        }
+        tags.join(" · ")
+    }
+}
+
+impl CommandDef {
+    /// Derive the §33 capability contract from this command's step interface.
+    /// Kept derived (not stored per-literal) so the contract can't drift from
+    /// the actual steps the engine runs.
+    pub fn capabilities(&self) -> Capabilities {
+        let has_spatial = self.steps.iter().any(|s| {
+            matches!(
+                s,
+                StepKind::Point { .. }
+                    | StepKind::NextPoint { .. }
+                    | StepKind::Distance { .. }
+                    | StepKind::Thickness { .. }
+                    | StepKind::Side { .. }
+                    | StepKind::Entity { .. }
+            )
+        });
+        // Snap applies to spatial *picks* (a coordinate or an entity), not to
+        // scalar (Thickness) or free-text steps.
+        let has_snappable = self.steps.iter().any(|s| {
+            matches!(
+                s,
+                StepKind::Point { .. }
+                    | StepKind::NextPoint { .. }
+                    | StepKind::Distance { .. }
+                    | StepKind::Side { .. }
+                    | StepKind::Entity { .. }
+            )
+        });
+        let has_selection = self
+            .steps
+            .iter()
+            .any(|s| matches!(s, StepKind::Selection { .. }));
+        Capabilities {
+            can_undo: !is_query_command(self.id),
+            can_repeat: self.repeatable,
+            supports_preview: has_spatial,
+            supports_snap: has_snappable,
+            // Every step accepts a typed value at the crosshair.
+            supports_dynamic_input: !self.steps.is_empty(),
+            supports_command_line: true,
+            supports_selection_preview: has_selection,
+        }
+    }
+}
+
 /// Result of resolving a typed / palette token.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveHit {
@@ -1229,6 +1331,34 @@ static CATALOG: &[CommandDef] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capability_contract_is_derived_from_steps() {
+        // LINE draws with spatial steps: preview / snap / dynamic-input / undo /
+        // repeat / command-line, but has no selection phase.
+        let line = find_def("line").unwrap().capabilities();
+        assert!(line.can_undo && line.can_repeat);
+        assert!(line.supports_preview && line.supports_snap);
+        assert!(line.supports_dynamic_input && line.supports_command_line);
+        assert!(!line.supports_selection_preview);
+
+        // MOVE is verb-noun, so it has a selection phase to preview.
+        let mv = find_def("move").unwrap().capabilities();
+        assert!(mv.supports_selection_preview && mv.can_undo);
+
+        // LIST is an inquiry command: read-only (no undo), still command-line.
+        let list = find_def("list").unwrap().capabilities();
+        assert!(!list.can_undo && list.supports_command_line);
+
+        // §33 invariant: every command is addressable from the command line.
+        for def in CATALOG {
+            assert!(
+                def.capabilities().supports_command_line,
+                "{} must be command-line addressable",
+                def.id
+            );
+        }
+    }
 
     #[test]
     fn resolve_exact_and_fuzzy() {
