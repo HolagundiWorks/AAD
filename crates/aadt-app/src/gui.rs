@@ -5567,7 +5567,7 @@ impl eframe::App for AadtApp {
     /// dark default — otherwise any region a panel doesn't opaquely cover (e.g.
     /// a transient gap beside the left dock while its width changes) shows black.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        theme::color::LAYER_BASE.to_normalized_gamma_f32()
+        theme::color::CANVAS.to_normalized_gamma_f32()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -5837,8 +5837,6 @@ impl eframe::App for AadtApp {
                 self.camera.viewport = (rect.width() as f64, rect.height() as f64);
 
                 // Paint the paper background over the whole viewport explicitly.
-                // The CentralPanel frame fill does not always clear the entire
-                // rect on some GPU backends, leaving an uncleared (black) region.
                 ui.painter_at(rect)
                     .rect_filled(rect, 0.0, theme::color::CANVAS);
 

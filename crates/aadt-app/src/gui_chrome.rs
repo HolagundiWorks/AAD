@@ -1464,8 +1464,8 @@ impl AadtApp {
                 });
             return;
         }
-        egui::SidePanel::left("left_mgr")
-            .default_width(self.left_panel_width)
+        let left_resp = egui::SidePanel::left("left_mgr")
+            .default_width(self.left_panel_width.clamp(180.0, 260.0))
             .min_width(180.0)
             .max_width(260.0)
             .resizable(true)
@@ -1526,11 +1526,15 @@ impl AadtApp {
                     1 => self.ui_blocks_manager(ui),
                     _ => self.ui_layer_manager(ui),
                 }
-                let w = ui.max_rect().width().clamp(200.0, 480.0);
-                if (w - self.left_panel_width).abs() > 4.0 {
-                    self.left_panel_width = w;
-                }
             });
+        // Persist the panel's *actual* (egui-clamped) width. Reading content
+        // `ui.max_rect()` could exceed max_width and, fed back through
+        // default_width, made egui reserve more than the frame fills — leaving
+        // the gap beside the dock. `rect.width()` is the true panel width.
+        let pw = left_resp.response.rect.width();
+        if (pw - self.left_panel_width).abs() > 1.0 {
+            self.left_panel_width = pw.clamp(180.0, 260.0);
+        }
     }
 
     pub(super) fn draw_right_panel(&mut self, ctx: &egui::Context) {
@@ -1568,8 +1572,8 @@ impl AadtApp {
                 });
             return;
         }
-        egui::SidePanel::right("layer_mgr")
-            .default_width(self.right_panel_width)
+        let right_resp = egui::SidePanel::right("layer_mgr")
+            .default_width(self.right_panel_width.clamp(200.0, 340.0))
             .min_width(200.0)
             .max_width(340.0)
             .resizable(true)
@@ -1632,11 +1636,11 @@ impl AadtApp {
                     7 => self.ui_selection_properties(ui),
                     _ => self.ui_hatch_manager(ui),
                 }
-                let w = ui.max_rect().width().clamp(220.0, 520.0);
-                if (w - self.right_panel_width).abs() > 4.0 {
-                    self.right_panel_width = w;
-                }
             });
+        let pw = right_resp.response.rect.width();
+        if (pw - self.right_panel_width).abs() > 1.0 {
+            self.right_panel_width = pw.clamp(200.0, 340.0);
+        }
     }
 
     pub(super) fn ui_templates_panel(&mut self, ui: &mut egui::Ui) {
