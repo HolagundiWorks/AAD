@@ -550,6 +550,11 @@ impl AadtApp {
                 let panel_w = lock_panel_width(ui);
                 let tile = fit_tile_size(panel_w, 52.0, 96.0, space::SM);
                 let half = half_button_width(panel_w);
+                // `horizontal_wrapped` under-wraps inside a scroll area (tiles
+                // overflow the panel edge and force it to grow), so tile grids
+                // chunk into a fixed column count derived from the real width.
+                let cols = (((panel_w + space::SM) / (tile + space::SM)).floor() as usize)
+                    .clamp(1, 4);
 
                 ui.label(
                     egui::RichText::new(format!("Active space: {}", cat.as_str()))
@@ -611,29 +616,30 @@ impl AadtApp {
                 } else {
                     // Seed so place-block previews have geometry.
                     aadt_command::ensure_place_blocks(self.session.document_mut());
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                        ui.set_max_width(panel_w);
-                        for (label, kind) in place {
-                            let bname = kind.block_name();
-                            let selected = self.insert_block.eq_ignore_ascii_case(bname)
-                                && matches!(self.tool, Tool::PlaceElem { kind: k } if k == *kind);
-                            let resp = block_preview_tile(
-                                ui,
-                                self.session.document(),
-                                bname,
-                                *label,
-                                selected,
-                                tile,
-                            );
-                            if resp.clicked() {
-                                aadt_command::ensure_place_blocks(self.session.document_mut());
-                                self.tool = Tool::PlaceElem { kind: *kind };
-                                self.insert_block = bname.to_string();
-                                self.note = format!("{bname} — click to place");
+                    for chunk in place.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
+                            for (label, kind) in chunk {
+                                let bname = kind.block_name();
+                                let selected = self.insert_block.eq_ignore_ascii_case(bname)
+                                    && matches!(self.tool, Tool::PlaceElem { kind: k } if k == *kind);
+                                let resp = block_preview_tile(
+                                    ui,
+                                    self.session.document(),
+                                    bname,
+                                    *label,
+                                    selected,
+                                    tile,
+                                );
+                                if resp.clicked() {
+                                    aadt_command::ensure_place_blocks(self.session.document_mut());
+                                    self.tool = Tool::PlaceElem { kind: *kind };
+                                    self.insert_block = bname.to_string();
+                                    self.note = format!("{bname} — click to place");
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
 
                 ui.add_space(space::SM);
@@ -659,29 +665,30 @@ impl AadtApp {
                             .color(color::TEXT_SECONDARY),
                     );
                 } else {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                        ui.set_max_width(panel_w);
-                        for (name, n) in &blocks {
-                            let selected = self.insert_block.eq_ignore_ascii_case(name)
-                                && matches!(self.tool, Tool::Insert { .. });
-                            let caption = format!("{name} ({n})");
-                            let resp = block_preview_tile(
-                                ui,
-                                self.session.document(),
-                                name,
-                                &caption,
-                                selected,
-                                tile,
-                            );
-                            if resp.on_hover_text(format!("INSERT {name}")).clicked() {
-                                self.insert_block = name.clone();
-                                self.tool = Tool::Insert { name: name.clone() };
-                                self.note =
-                                    format!("INSERT {name} — click to place (Esc finishes)");
+                    for chunk in blocks.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
+                            for (name, n) in chunk {
+                                let selected = self.insert_block.eq_ignore_ascii_case(name)
+                                    && matches!(self.tool, Tool::Insert { .. });
+                                let caption = format!("{name} ({n})");
+                                let resp = block_preview_tile(
+                                    ui,
+                                    self.session.document(),
+                                    name,
+                                    &caption,
+                                    selected,
+                                    tile,
+                                );
+                                if resp.on_hover_text(format!("INSERT {name}")).clicked() {
+                                    self.insert_block = name.clone();
+                                    self.tool = Tool::Insert { name: name.clone() };
+                                    self.note =
+                                        format!("INSERT {name} — click to place (Esc finishes)");
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
 
                 // Selected INSERT editor (compact).
@@ -829,37 +836,39 @@ impl AadtApp {
                             .small()
                             .color(color::TEXT_SECONDARY),
                     );
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                        ui.set_max_width(panel_w);
-                        for (name, path) in &lib {
-                            let selected = self.insert_block.eq_ignore_ascii_case(name);
-                            // Prefer document geometry if already imported; else folder glyph.
-                            let resp = if self.session.document().block(name).is_some() {
-                                block_preview_tile(
-                                    ui,
-                                    self.session.document(),
-                                    name,
-                                    name,
-                                    selected,
-                                    tile,
-                                )
-                            } else {
-                                library_preview_tile(ui, name, path, selected, tile)
-                            };
-                            if resp.on_hover_text(path.display().to_string()).clicked() {
-                                let p = path.display().to_string();
-                                let fb = self.session.feed(&format!("BLOCKLIB import {p} {name}"));
-                                if let Some(m) = fb.message() {
-                                    self.note = m.to_string();
+                    for chunk in lib.chunks(cols) {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
+                            for (name, path) in chunk {
+                                let selected = self.insert_block.eq_ignore_ascii_case(name);
+                                // Prefer document geometry if imported; else folder glyph.
+                                let resp = if self.session.document().block(name).is_some() {
+                                    block_preview_tile(
+                                        ui,
+                                        self.session.document(),
+                                        name,
+                                        name,
+                                        selected,
+                                        tile,
+                                    )
+                                } else {
+                                    library_preview_tile(ui, name, path, selected, tile)
+                                };
+                                if resp.on_hover_text(path.display().to_string()).clicked() {
+                                    let p = path.display().to_string();
+                                    let fb =
+                                        self.session.feed(&format!("BLOCKLIB import {p} {name}"));
+                                    if let Some(m) = fb.message() {
+                                        self.note = m.to_string();
+                                    }
+                                    self.insert_block = name.clone();
+                                    self.tool = Tool::Insert { name: name.clone() };
+                                    self.blocks_cache.clear();
+                                    self.blocks_cache_rev = None;
                                 }
-                                self.insert_block = name.clone();
-                                self.tool = Tool::Insert { name: name.clone() };
-                                self.blocks_cache.clear();
-                                self.blocks_cache_rev = None;
                             }
-                        }
-                    });
+                        });
+                    }
                 }
 
                 if !self.insert_block.is_empty() {
@@ -1464,11 +1473,12 @@ impl AadtApp {
                 });
             return;
         }
+        // exact_width forces the reservation to a fixed width regardless of the
+        // content's minimum — otherwise a non-wrapping tile row can make egui
+        // reserve far more than the frame fills, leaving a gap beside the dock.
         let left_resp = egui::SidePanel::left("left_mgr")
-            .default_width(self.left_panel_width.clamp(180.0, 260.0))
-            .min_width(180.0)
-            .max_width(260.0)
-            .resizable(true)
+            .exact_width(256.0)
+            .resizable(false)
             .frame(
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
@@ -1573,10 +1583,8 @@ impl AadtApp {
             return;
         }
         let right_resp = egui::SidePanel::right("layer_mgr")
-            .default_width(self.right_panel_width.clamp(200.0, 340.0))
-            .min_width(200.0)
-            .max_width(340.0)
-            .resizable(true)
+            .exact_width(324.0)
+            .resizable(false)
             .frame(
                 egui::Frame::none()
                     .fill(color::LAYER_CARD)
@@ -2909,8 +2917,10 @@ fn truncate_ui(s: &str, max_chars: usize) -> String {
 
 /// Pin scroll/panel content to the current width so wrapped rows reflow on resize.
 fn lock_panel_width(ui: &mut egui::Ui) -> f32 {
-    let w = ui.available_width().max(1.0);
-    ui.set_width(w);
+    // Cap the content width (never *force* it via set_width/min — that lets a
+    // wide row of tiles expand the whole SidePanel past its max_width, leaving a
+    // large uncovered gap beside the dock). set_max_width lets content wrap.
+    let w = ui.available_width().clamp(1.0, 340.0);
     ui.set_max_width(w);
     w
 }

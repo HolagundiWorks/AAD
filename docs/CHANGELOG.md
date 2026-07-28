@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fix: uncovered gap beside the left dock (Blocks tab)
+
+- The Blocks manager's tile grids used `horizontal_wrapped` inside an
+  `auto_shrink([false, false])` scroll area, which under-wraps: tiles overflow
+  the panel edge and force the `SidePanel` to reserve a much wider strip than it
+  paints, leaving a large uncovered band (clear-color) between the dock and the
+  viewport. Tile grids (Place / In drawing / Library) now chunk into a fixed
+  column count derived from the real panel width — the same pattern the Hatches
+  dock already used — so content wraps within the dock.
+- Manager docks are now fixed-width (`exact_width`, non-resizable) so the
+  reservation can never diverge from the painted frame; `lock_panel_width` caps
+  content via `set_max_width` instead of forcing width with `set_width`.
+
 ### Hatch selection / edit / delete
 
 - Hatches are now **selectable** in the viewport — click inside a fill to pick
