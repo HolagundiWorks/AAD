@@ -5563,6 +5563,13 @@ impl AadtApp {
 }
 
 impl eframe::App for AadtApp {
+    /// Clear the framebuffer with the neutral chrome background, not eframe's
+    /// dark default — otherwise any region a panel doesn't opaquely cover (e.g.
+    /// a transient gap beside the left dock while its width changes) shows black.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        theme::color::LAYER_BASE.to_normalized_gamma_f32()
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Prefer light OS chrome; avoid spamming the viewport every frame.
         if self.last_window_title.is_empty() {
