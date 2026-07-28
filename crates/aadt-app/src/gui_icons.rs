@@ -105,9 +105,10 @@ pub fn brand_mark_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
     .on_hover_text("AADT — 2D architectural drafting")
 }
 
-/// Clickable Fluent icon button — compact toolbar (Cursor-like).
+/// Clickable Fluent icon button — compact toolbar (Cursor-like). 16px glyph in
+/// a 28px target (Fluent System Icons UI step + comfortable hit area).
 pub fn icon_btn(ui: &mut egui::Ui, icon: Icon, tip: &str) -> egui::Response {
-    icon_btn_sized(ui, icon, tip, egui::vec2(24.0, 24.0), 14.0)
+    icon_btn_sized(ui, icon, tip, egui::vec2(28.0, 28.0), 16.0)
 }
 
 /// Compact icon for dense lists (layer rows).
@@ -116,8 +117,8 @@ pub fn icon_btn_compact(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool) 
         ui,
         icon,
         tip,
-        egui::vec2(18.0, 18.0),
-        12.0,
+        egui::vec2(20.0, 20.0),
+        14.0,
         if active {
             super::theme::color::ACCENT
         } else {
@@ -177,8 +178,8 @@ fn icon_btn_sized_tinted(
 /// Selected nav-rail icon (accent soft fill) — flat, compact.
 pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) -> egui::Response {
     use super::theme::{color, radius};
-    let size = egui::vec2(28.0, 28.0);
-    let glyph = 14.0;
+    let size = egui::vec2(32.0, 32.0);
+    let glyph = 16.0;
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let resp = resp.on_hover_text(tip);
     if ui.is_rect_visible(rect) {

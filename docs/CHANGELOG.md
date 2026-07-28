@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Fluent 2 conformance pass
+
+Tightened the chrome against the [Fluent 2](https://fluent2.microsoft.design)
+foundations (shapes already matched: None 0 / Small 2 / Medium 4 / Large 8 /
+X-Large 12):
+
+- **Typography** — Fluent "Strong" is Semibold 600, not Bold. Load Segoe UI
+  Semibold (`seguisb.ttf`) as a dedicated `Semibold` family and render panel
+  titles and section labels with it via `theme::semibold()` (egui `.strong()`
+  only recolors).
+- **Iconography** — glyphs moved to Fluent System Icons' UI step (16px in a 28px
+  target; dense rows 14px) instead of the off-ramp 14/12px.
+- **Elevation** — Windows Fluent outlines with strokes and keeps key shadows
+  subtle: dialogs ≈ shadow28 (y8/blur20), menus & tooltips ≈ shadow8 (y4/blur8).
+- **Motion** — hover/rest transitions at ~100ms (`durationFaster`).
+- **Color** — status INFO uses the Fluent 2 brand blue `#0F6CBD` (was the
+  Fluent 1 `#0078D4`); AADT orange stays the product brand.
+
+### TRIM — AutoCAD-style drag-to-trim + hover ghost
+
+- Freehand quick-trim: drag a stroke across objects and every entity the path
+  crosses is trimmed at the crossing (Shift-drag extends). Plain click still
+  trims a single pick.
+- Hover ghost previews the exact segment a click would remove (translucent red);
+  a red trail follows a drag stroke. Non-mutating
+  `aadt_command::trim_removed_preview` backs the preview.
+
 ### Fix: uncovered gap beside the left dock (Blocks tab)
 
 - The Blocks manager's tile grids used `horizontal_wrapped` inside an

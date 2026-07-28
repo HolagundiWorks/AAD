@@ -97,7 +97,7 @@ pub mod color {
     pub const SUCCESS: Color32 = Color32::from_rgb(15, 123, 50); // #0F7B32
     pub const WARNING: Color32 = Color32::from_rgb(157, 93, 0); // #9D5D00
     pub const DANGER: Color32 = Color32::from_rgb(196, 43, 28); // #C42B1C
-    pub const INFO: Color32 = Color32::from_rgb(0, 120, 212); // #0078D4 — status only, not brand
+    pub const INFO: Color32 = Color32::from_rgb(15, 108, 189); // #0F6CBD Fluent 2 brand blue — status only, not AADT brand
 }
 
 /// Apply Fluent 2 visuals: neutrals, medium rounding, Windows-style stroke elevation
@@ -112,18 +112,21 @@ pub fn apply_fluent_visuals(ctx: &egui::Context) {
     visuals.override_text_color = Some(color::TEXT);
     visuals.window_stroke = egui::Stroke::new(stroke::THIN, color::BORDER);
 
-    // Soft ambient elevation for dialogs / floating menus (Fluent shadow 16-ish).
+    // Elevation. Fluent on Windows outlines surfaces with strokes and keeps key
+    // shadows subtle (see window_stroke / widget bg_strokes below). Dialogs sit
+    // higher (≈ shadow28: y8/blur20), menus & tooltips lower (≈ shadow8: y4/blur8).
+    // <https://fluent2.microsoft.design/elevation>
     visuals.window_shadow = egui::epaint::Shadow {
-        offset: egui::vec2(0.0, 4.0),
-        blur: 16.0,
+        offset: egui::vec2(0.0, 8.0),
+        blur: 20.0,
         spread: 0.0,
-        color: egui::Color32::from_black_alpha(28),
+        color: egui::Color32::from_black_alpha(30),
     };
     visuals.popup_shadow = egui::epaint::Shadow {
-        offset: egui::vec2(0.0, 2.0),
+        offset: egui::vec2(0.0, 4.0),
         blur: 8.0,
         spread: 0.0,
-        color: egui::Color32::from_black_alpha(36),
+        color: egui::Color32::from_black_alpha(32),
     };
 
     visuals.widgets.noninteractive.bg_fill = color::LAYER_BASE;
@@ -195,8 +198,10 @@ pub fn apply_fluent_visuals(ctx: &egui::Context) {
     style.spacing.combo_width = 100.0;
     style.interaction.resize_grab_radius_side = 4.0;
     style.interaction.resize_grab_radius_corner = 6.0;
-    // Motion: Fluent prefers short, purposeful transitions — egui animates hover softly.
-    style.animation_time = 0.08;
+    // Motion: Fluent prefers short, purposeful transitions. 100ms ≈ Fluent
+    // `durationFaster`, the band used for hover/rest state changes.
+    // <https://fluent2.microsoft.design/motion>
+    style.animation_time = 0.10;
     ctx.set_style(style);
 }
 
@@ -218,7 +223,13 @@ pub fn install_drawing_fonts(ctx: &egui::Context) {
     {
         if let Some(windir) = std::env::var_os("WINDIR") {
             let fonts_dir = std::path::PathBuf::from(windir).join("Fonts");
-            for (name, file) in [("SegoeUI", "segoeui.ttf"), ("SegoeUIBold", "segoeuib.ttf")] {
+            // Segoe UI is Fluent's primary typeface; Semibold carries "Strong"
+            // (Fluent weight 600) for headings and emphasis.
+            for (name, file) in [
+                ("SegoeUI", "segoeui.ttf"),
+                ("SegoeUISemibold", "seguisb.ttf"),
+                ("SegoeUIBold", "segoeuib.ttf"),
+            ] {
                 let path = fonts_dir.join(file);
                 if let Ok(bytes) = std::fs::read(&path) {
                     fonts
@@ -233,6 +244,17 @@ pub fn install_drawing_fonts(ctx: &egui::Context) {
         egui::FontFamily::Name("SourceSans3".into()),
         vec!["SourceSans3".to_owned(), "SourceSans3Bold".to_owned()],
     );
+
+    // "Semibold" family — Fluent's "Strong" weight for titles/section labels.
+    // Prefer Segoe UI Semibold; fall back to Source Sans 3 Bold off-Windows.
+    let mut semibold = Vec::new();
+    if fonts.font_data.contains_key("SegoeUISemibold") {
+        semibold.push("SegoeUISemibold".to_owned());
+    }
+    semibold.push("SourceSans3Bold".to_owned());
+    fonts
+        .families
+        .insert(egui::FontFamily::Name("Semibold".into()), semibold);
 
     // Proportional = chrome UI. Prefer Segoe when available.
     let mut prop = Vec::new();
@@ -421,12 +443,18 @@ pub mod panel_space {
     pub const RAIL: f32 = 40.0;
 }
 
+/// Fluent "Strong" weight (Semibold 600) at `size_px` — for titles and section
+/// labels. `.strong()` in egui only recolors; this switches to the Semibold face.
+/// <https://fluent2.microsoft.design/typography>
+pub fn semibold(size_px: f32) -> egui::FontId {
+    egui::FontId::new(size_px.max(1.0), egui::FontFamily::Name("Semibold".into()))
+}
+
 /// Panel dock title (one per manager).
 pub fn panel_title(ui: &mut egui::Ui, text: &str) {
     ui.label(
         egui::RichText::new(text)
-            .size(type_scale::TITLE)
-            .strong()
+            .font(semibold(type_scale::TITLE))
             .color(color::TEXT),
     );
 }
@@ -445,8 +473,7 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.add_space(panel_space::SECTION);
     ui.label(
         egui::RichText::new(text)
-            .size(type_scale::CAPTION)
-            .strong()
+            .font(semibold(type_scale::CAPTION))
             .color(color::TEXT_SECONDARY),
     );
     ui.add_space(panel_space::TIGHT);
@@ -456,8 +483,7 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
 pub fn section_label_first(ui: &mut egui::Ui, text: &str) {
     ui.label(
         egui::RichText::new(text)
-            .size(type_scale::CAPTION)
-            .strong()
+            .font(semibold(type_scale::CAPTION))
             .color(color::TEXT_SECONDARY),
     );
     ui.add_space(panel_space::TIGHT);
