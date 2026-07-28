@@ -4527,16 +4527,27 @@ impl AadtApp {
                 self.engine.complete();
             }
             Tool::Hatch => {
+                // AutoCAD: prefer an internal point (region under the cursor);
+                // fall back to a direct hit on the boundary entity itself.
                 let tol = PICK_PIXELS / self.camera.scale;
-                if let Some(id) = pick_entity(self.session.document(), p, tol) {
+                let target = hatch_boundary_at(self.session.document(), p)
+                    .or_else(|| pick_entity(self.session.document(), p, tol));
+                if let Some(id) = target {
                     let pat = self.hatch_pattern.clone();
-                    self.app_feed(&format!("HATCH {} {}", id.0, pat));
-                    self.tool = Tool::Select;
-                    self.engine.accept_point();
-                    self.engine.complete();
+                    let fb = self.app_feed(&format!("HATCH {} {}", id.0, pat));
+                    if fb.is_err() {
+                        self.note = format!(
+                            "HATCH ({}) — click inside a closed region",
+                            self.hatch_pattern
+                        );
+                    } else {
+                        self.tool = Tool::Select;
+                        self.engine.accept_point();
+                        self.engine.complete();
+                    }
                 } else {
                     self.note = format!(
-                        "HATCH ({}) — click a closed polyline or circle",
+                        "HATCH ({}) — pick a point inside a closed region (or its boundary)",
                         self.hatch_pattern
                     );
                 }
@@ -5533,7 +5544,7 @@ impl AadtApp {
                 PlaceKind::Table => "TABLE — click insertion point",
                 PlaceKind::Toilet => "TOILET — click insertion point",
             },
-            Tool::Hatch => "HATCH — click a closed boundary",
+            Tool::Hatch => "HATCH — pick a point inside a closed region",
             Tool::Trim { .. } => "TRIM",
             Tool::Extend { boundary: None } => "EXTEND — click the boundary edge",
             Tool::Extend { boundary: Some(_) } => "EXTEND — click near the end to lengthen",
@@ -6302,6 +6313,17 @@ impl eframe::App for AadtApp {
                         }
                     }
                 }
+                // HATCH: live preview of the region under the cursor (AutoCAD
+                // internal-point pick) — translucent fill + accent boundary.
+                if matches!(self.tool, Tool::Hatch) {
+                    if let Some(pos) = self.cursor {
+                        if let Some(id) = hatch_boundary_at(self.session.document(), pos) {
+                            if let Some(e) = self.session.document().get(id) {
+                                paint_hatch_region(&painter, rect, &self.camera, &e.geometry);
+                            }
+                        }
+                    }
+                }
                 // The selection box (straight drag) or lasso trail (curved drag).
                 if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {
                     if drag_is_lasso(&self.drag_path) {
@@ -6679,6 +6701,30 @@ fn pick_hatch(doc: &Document, p: Point2) -> Option<usize> {
 /// Point-in-hatch: inside the outer boundary and outside every island (hole).
 fn hatch_contains(h: &Hatch, p: Point2) -> bool {
     h.outer().contains_point(p) && !h.boundaries.iter().skip(1).any(|isl| isl.contains_point(p))
+}
+
+/// Smallest-area hatchable closed entity whose interior contains `p` — AutoCAD
+/// internal-point boundary detection. Innermost wins, so clicking a nested
+/// region hatches its own loop. `None` when the pick is in open space.
+fn hatch_boundary_at(doc: &Document, p: Point2) -> Option<EntityId> {
+    let active = doc.active_space();
+    let mut best: Option<(f64, EntityId)> = None;
+    for e in doc.iter_entities_in_space(active) {
+        if !entity_pickable(doc, &e.layer) {
+            continue;
+        }
+        let area = match &e.geometry {
+            Geometry::Polyline(pl) if pl.closed && pl.contains_point(p) => pl.area(),
+            Geometry::Circle(c) if c.center.distance(p) <= c.radius => {
+                std::f64::consts::PI * c.radius * c.radius
+            }
+            _ => continue,
+        };
+        if best.is_none_or(|(ba, _)| area < ba) {
+            best = Some((area, e.id));
+        }
+    }
+    best.map(|(_, id)| id)
 }
 
 /// A bounding box around a geometry's defining points (inserts expand to block).
@@ -7278,6 +7324,44 @@ fn paint_selected_hatches(
             draw_geometry(painter, rect, camera, &g, egui::Stroke::new(6.0_f32, glow), glow);
             draw_geometry(painter, rect, camera, &g, egui::Stroke::new(2.5_f32, hi), hi);
         }
+    }
+}
+
+/// Live HATCH preview: translucent accent fill of the region under the cursor
+/// plus an accent boundary outline. `g` is the detected closed boundary entity.
+fn paint_hatch_region(painter: &egui::Painter, rect: egui::Rect, camera: &Camera, g: &Geometry) {
+    let to_screen = |p: Point2| world_to_screen(camera, rect, p);
+    let pts: Vec<egui::Pos2> = match g {
+        Geometry::Polyline(pl) if pl.closed => pl.vertices.iter().map(|v| to_screen(*v)).collect(),
+        Geometry::Circle(c) => (0..48)
+            .map(|i| {
+                let a = i as f64 / 48.0 * std::f64::consts::TAU;
+                to_screen(Point2::new(
+                    c.center.x + c.radius * a.cos(),
+                    c.center.y + c.radius * a.sin(),
+                ))
+            })
+            .collect(),
+        _ => return,
+    };
+    if pts.len() < 3 {
+        return;
+    }
+    let acc = theme::color::ACCENT;
+    let fill = egui::Color32::from_rgba_unmultiplied(acc.r(), acc.g(), acc.b(), 44);
+    // Path fill supports concave boundaries; convex_polygon does not.
+    painter.add(egui::Shape::Path(egui::epaint::PathShape {
+        points: pts.clone(),
+        closed: true,
+        fill,
+        stroke: egui::Stroke::NONE.into(),
+    }));
+    let outline = egui::Stroke::new(2.0_f32, acc);
+    for pair in pts.windows(2) {
+        painter.line_segment([pair[0], pair[1]], outline);
+    }
+    if let (Some(&a), Some(&b)) = (pts.first(), pts.last()) {
+        painter.line_segment([b, a], outline);
     }
 }
 

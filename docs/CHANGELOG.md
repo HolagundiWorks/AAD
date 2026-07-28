@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Live hatch preview + internal-point pick (M9.5)
+
+- HATCH now works AutoCAD-style: **pick a point inside** a closed region (not
+  just on the boundary line). `hatch_boundary_at` finds the smallest enclosing
+  closed polyline/circle under the cursor (innermost wins).
+- While the HATCH tool is active, the region under the cursor previews live —
+  translucent accent fill + accent boundary outline — so you see what a click
+  will fill. Clicking a boundary entity directly still works as a fallback.
+
 ### Multi-mode grip editing (M9.3)
 
 - A hot grip now cycles edit modes with **Space** (AutoCAD): **Stretch → Move →

@@ -786,7 +786,7 @@ const EXTEND_STEPS: &[StepKind] = &[
 ];
 
 const HATCH_STEPS: &[StepKind] = &[StepKind::Entity {
-    prompt: "HATCH — pick closed boundary",
+    prompt: "HATCH — pick a point inside a closed region",
 }];
 
 const ARC_STEPS: &[StepKind] = &[
