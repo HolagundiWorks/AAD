@@ -27,10 +27,14 @@ Bringing every command's interaction into line with AutoCAD workstyles
   rounded corners (`rect_corner_polyline`, unit-tested). Distance is clamped to
   half the short side. (Per-corner *Width* still needs polyline width support.)
 
+- **FILLET** gains the AutoCAD **`[T]rim`** toggle — No-trim keeps both source
+  lines full-length and adds only the arc. Command-level `FILLET … NOTRIM`
+  (headlessly tested); `T` toggles it in the GUI (persists across corners).
+
 Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference + Copy),
-MIRROR (keep/erase), INSERT (multiple), RECTANGLE (Dimensions + Chamfer + Fillet)
-conform. Remaining gaps to schedule: CIRCLE TTR, FILLET Polyline/Trim, and
-per-entity polyline Width.
+MIRROR (keep/erase), INSERT (multiple), RECTANGLE (Dimensions + Chamfer + Fillet),
+FILLET (Multiple + Trim) conform. Remaining gaps: CIRCLE TTR, FILLET-on-polyline,
+and per-entity polyline Width.
 
 ### Per-command QA harness (M9.8)
 

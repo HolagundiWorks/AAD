@@ -1003,6 +1003,9 @@ struct AadtApp {
     /// RECTANGLE is waiting for a typed chamfer distance (`Some(false)`) or
     /// fillet radius (`Some(true)`) after the C/F keyword.
     rect_corner_pending: Option<bool>,
+    /// FILLET `[T]rim` toggle: when set, keep both source lines full-length
+    /// (AutoCAD No-trim). Persists across corners until toggled or the command ends.
+    fillet_notrim: bool,
     /// Cursor position in world coordinates, for the readout.
     cursor: Option<Point2>,
     /// Cursor position in screen pixels, for the crosshair and dynamic-input box.
@@ -1155,6 +1158,7 @@ impl AadtApp {
             xform_copy: false,
             rect_corner: RectCorner::Square,
             rect_corner_pending: None,
+            fillet_notrim: false,
             cursor: None,
             cursor_screen: None,
             dyn_input: String::new(),
@@ -2202,6 +2206,16 @@ impl AadtApp {
             };
             return;
         }
+        // FILLET [T]rim — toggle whether the source lines are trimmed.
+        if matches!(self.tool, Tool::Fillet { .. }) && (up == "T" || up == "TRIM") {
+            self.fillet_notrim = !self.fillet_notrim;
+            self.note = if self.fillet_notrim {
+                "FILLET — No-trim: lines kept full-length (T toggles)".into()
+            } else {
+                "FILLET — Trim: lines trimmed to the arc (T toggles)".into()
+            };
+            return;
+        }
         // ARC [C]enter — switch to centre-start-end before the first point.
         if let Tool::Arc { a: None, .. } = self.tool {
             if up == "C" || up == "CENTER" || up == "CENTRE" {
@@ -3038,6 +3052,7 @@ impl AadtApp {
         self.xform_copy = false;
         self.rect_corner = RectCorner::Square;
         self.rect_corner_pending = None;
+        self.fillet_notrim = false;
         if let Some(def) = self.engine.start(id) {
             let tool_token = def.tool_token;
             let cmd_id = def.id;
@@ -4567,9 +4582,11 @@ impl AadtApp {
                         }
                     }
                     Some(a) => {
-                        self.session.feed(&format!("FILLET {} {} {}", a.0, id.0, r));
+                        let trim = if self.fillet_notrim { " NOTRIM" } else { "" };
+                        self.session
+                            .feed(&format!("FILLET {} {} {}{}", a.0, id.0, r, trim));
                         // Stay active for more corners (AutoCAD Multiple); radius
-                        // is retained. Esc finishes.
+                        // and trim mode are retained. Esc finishes.
                         self.tool = Tool::Fillet {
                             radius: Some(r),
                             first: None,
@@ -5731,7 +5748,7 @@ impl AadtApp {
             Tool::Fillet {
                 radius: Some(_),
                 first: None,
-            } => "FILLET — click the first line",
+            } => "FILLET — click the first line (or [T]rim toggle)",
             Tool::Fillet {
                 radius: Some(_),
                 first: Some(_),

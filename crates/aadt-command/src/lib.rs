@@ -1782,7 +1782,7 @@ impl Command for FilletCmd {
         &["F"]
     }
     fn help(&self) -> &str {
-        "FILLET id1 id2 radius — round the corner between two lines with an arc (radius 0 just trims to the corner)"
+        "FILLET id1 id2 radius [NOTRIM] — round the corner between two lines with an arc (radius 0 just trims to the corner); NOTRIM keeps both lines full-length"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let id1 = parse_entity_id(args.first().ok_or("FILLET: missing first id")?, "FILLET")?;
@@ -1791,6 +1791,10 @@ impl Command for FilletCmd {
         if radius < 0.0 {
             return Err("FILLET: radius must be non-negative".to_string());
         }
+        let notrim = args
+            .get(3)
+            .map(|s| s.eq_ignore_ascii_case("NOTRIM") || s.eq_ignore_ascii_case("N"))
+            .unwrap_or(false);
         let l1 = require_line(ctx, id1, "FILLET")?;
         let l2 = require_line(ctx, id2, "FILLET")?;
         let layer1 = ctx.doc.get(id1).expect("line exists").layer.clone();
@@ -1814,6 +1818,9 @@ impl Command for FilletCmd {
 
         // Radius 0 is a plain corner: trim both lines to the intersection.
         if radius <= aadt_geometry::LENGTH_EPS {
+            if notrim {
+                return Ok("FILLET: radius 0 with NOTRIM does nothing".to_string());
+            }
             ctx.doc.transact("FILLET", |d| {
                 d.replace_geometry(id1, Geometry::Line(Segment::new(far1, x)));
                 d.replace_geometry(id2, Geometry::Line(Segment::new(far2, x)));
@@ -1841,13 +1848,18 @@ impl Command for FilletCmd {
         let (start, end) = minor_arc(ang(t1), ang(t2));
 
         ctx.doc.transact("FILLET", |d| {
-            d.replace_geometry(id1, Geometry::Line(Segment::new(far1, t1)));
-            d.replace_geometry(id2, Geometry::Line(Segment::new(far2, t2)));
+            // NOTRIM keeps both source lines full-length; only the arc is added.
+            if !notrim {
+                d.replace_geometry(id1, Geometry::Line(Segment::new(far1, t1)));
+                d.replace_geometry(id2, Geometry::Line(Segment::new(far2, t2)));
+            }
             d.add_geometry(layer1, Geometry::Arc(Arc::new(center, radius, start, end)));
         });
         Ok(format!(
-            "filleted entities {} and {} with r={radius}",
-            id1.0, id2.0
+            "filleted entities {} and {} with r={radius}{}",
+            id1.0,
+            id2.0,
+            if notrim { " (no trim)" } else { "" }
         ))
     }
 }
@@ -3959,6 +3971,32 @@ mod tests {
         interp2.eval_line(&mut c2, "LINE 0 0 10 0").unwrap();
         interp2.eval_line(&mut c2, "LINE 0 5 10 5").unwrap();
         assert!(interp2.eval_line(&mut c2, "FILLET 0 1 1").is_err());
+    }
+
+    #[test]
+    fn fillet_notrim_keeps_the_lines_full_length() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 10 0 A-WALL").unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE 0 0 0 10 A-WALL").unwrap(); // id 1
+        interp.eval_line(&mut ctx, "FILLET 0 1 2 NOTRIM").unwrap();
+
+        // Both lines keep their original far ends; only the arc is added.
+        assert_eq!(ctx.doc.len(), 3, "two full lines + arc");
+        if let Geometry::Line(s) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!(
+                s.b.distance(Point2::new(10.0, 0.0)) < 1e-9,
+                "line kept full-length, got {:?}",
+                s.b
+            );
+        } else {
+            panic!("expected line");
+        }
+        assert!(ctx
+            .doc
+            .entities()
+            .iter()
+            .any(|e| matches!(e.geometry, Geometry::Arc(_))));
     }
 
     #[test]
