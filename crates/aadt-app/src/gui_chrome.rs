@@ -212,7 +212,6 @@ impl AadtApp {
 
     pub(super) fn ui_layer_manager(&mut self, ui: &mut egui::Ui) {
         let panel_w = lock_panel_width(ui);
-        let narrow = panel_w < 300.0;
         section_label_first(ui, "Scope");
         section_hint(
             ui,
@@ -305,63 +304,6 @@ impl AadtApp {
         });
         ui.separator();
 
-        // Column headers
-        ui.horizontal(|ui| {
-            ui.add_space(14.0);
-            ui.label(
-                egui::RichText::new("On")
-                    .small()
-                    .strong()
-                    .color(color::TEXT_SECONDARY),
-            );
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Frz")
-                    .small()
-                    .strong()
-                    .color(color::TEXT_SECONDARY),
-            );
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Lck")
-                    .small()
-                    .strong()
-                    .color(color::TEXT_SECONDARY),
-            );
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Clr")
-                    .small()
-                    .strong()
-                    .color(color::TEXT_SECONDARY),
-            );
-            ui.add_space(6.0);
-            ui.label(
-                egui::RichText::new("Name")
-                    .small()
-                    .strong()
-                    .color(color::TEXT_SECONDARY),
-            );
-            if !narrow {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new("Space")
-                            .small()
-                            .strong()
-                            .color(color::TEXT_SECONDARY),
-                    );
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("LW")
-                            .small()
-                            .strong()
-                            .color(color::TEXT_SECONDARY),
-                    );
-                });
-            }
-        });
-        ui.separator();
-
         let rows = self.layer_rows_snapshot();
         let total = rows.len();
         let scope_label = self.layer_mgr_scope.label();
@@ -374,157 +316,129 @@ impl AadtApp {
         let shim = self.session.document().active_category_layer();
         let map_snapshot: std::collections::BTreeMap<String, aadt_model::SpaceCategory> =
             self.session.document().layer_space_map().clone();
-        let combo_w = if narrow {
-            (panel_w - space::MD).clamp(100.0, 180.0)
-        } else {
-            88.0
-        };
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let _ = lock_panel_width(ui);
-            for (name, color_aci, visible, frozen, locked, lw, _lt) in rows {
-                let is_current = self.current_layer == name || name == shim;
-                let mapped = map_snapshot
-                    .get(&name)
-                    .copied()
-                    .unwrap_or_else(|| aadt_model::SpaceCategory::from_layer_name(&name));
-                ui.horizontal_wrapped(|ui| {
-                    ui.set_max_width(panel_w);
-                    ui.spacing_mut().item_spacing.x = space::XS;
-                    if is_current {
-                        ui.colored_label(color::ACCENT, "●");
-                    } else {
-                        ui.label(egui::RichText::new("·").color(color::STROKE));
-                    }
-                    let eye = if visible { Icon::Eye } else { Icon::EyeOff };
-                    if icon_btn_compact(ui, eye, "On / Off", !visible).clicked() {
-                        let cmd = if visible { "OFF" } else { "ON" };
-                        self.app_feed(&format!("LAYER {name} {cmd}"));
-                    }
-                    if icon_btn_compact(ui, Icon::Freeze, "Freeze / Thaw", frozen).clicked() {
-                        let cmd = if frozen { "THAW" } else { "FREEZE" };
-                        self.app_feed(&format!("LAYER {name} {cmd}"));
-                    }
-                    let lock_icon = if locked { Icon::Lock } else { Icon::Unlock };
-                    if icon_btn_compact(ui, lock_icon, "Lock / Unlock", locked).clicked() {
-                        let cmd = if locked { "UNLOCK" } else { "LOCK" };
-                        self.app_feed(&format!("LAYER {name} {cmd}"));
-                    }
-                    let (r, g, b) = aci_to_srgb(color_aci);
-                    let (sw, _) = ui.allocate_painter(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                    ui.painter().rect_filled(
-                        sw.rect,
-                        radius::SMALL,
-                        egui::Color32::from_rgb(r, g, b),
-                    );
-                    ui.painter().rect_stroke(
-                        sw.rect,
-                        radius::SMALL,
-                        egui::Stroke::new(stroke::THIN, color::STROKE),
-                    );
-                    let display = name
-                        .strip_prefix(aadt_model::IMPORTED_LAYER_PREFIX)
-                        .unwrap_or(&name);
-                    let name_max = if narrow { 18 } else { 28 };
-                    let name_resp = ui
-                        .selectable_label(is_current, truncate_ui(display, name_max))
-                        .on_hover_text(format!(
-                            "{name}\nShim highlight only — new geometry follows Floor + Space (ADR-0009)."
-                        ));
-                    if name_resp.clicked() {
-                        self.current_layer = name.clone();
-                        self.note = format!(
-                            "Shim highlight → {name} (drafting still uses Floor + Space)"
+        // AutoCAD Layer Properties Manager: an aligned, striped column grid.
+        // Columns follow AutoCAD's order — Status · Name · On · Freeze · Lock ·
+        // Color · Linetype · Lineweight. Per-layer actions (set current, delete,
+        // map to space) live on the row's right-click context menu.
+        let filter = self.layer_filter.trim().to_ascii_uppercase();
+        egui::ScrollArea::both().show(ui, |ui| {
+            egui::Grid::new("layer_grid")
+                .striped(true)
+                .spacing([space::SM, space::XS])
+                .show(ui, |ui| {
+                    let hdr = |ui: &mut egui::Ui, t: &str| {
+                        ui.label(
+                            egui::RichText::new(t)
+                                .size(type_scale::CAPTION)
+                                .strong()
+                                .color(color::TEXT_SECONDARY),
                         );
+                    };
+                    for h in ["St", "Name", "On", "Frz", "Lck", "Color", "LW"] {
+                        hdr(ui, h);
                     }
-                    if name_resp.double_clicked() {
-                        self.current_layer = name.clone();
-                        self.note = format!("Layer {name} maps to space {mapped}");
-                    }
-                    if !narrow {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let mut cat = mapped;
-                            egui::ComboBox::from_id_salt(format!("lmap_row_{name}"))
-                                .selected_text(cat.as_str())
-                                .width(combo_w)
-                                .show_ui(ui, |ui| {
-                                    for c in aadt_model::SpaceCategory::ALL {
-                                        if ui.selectable_label(cat == c, c.as_str()).clicked() {
-                                            cat = c;
-                                        }
-                                    }
-                                });
-                            if cat != mapped {
-                                let fb = self.app_feed(&format!("LAYERMAP {name} {}", cat.as_str()));
-                                if let Some(m) = fb.message() {
-                                    self.note = m.to_string();
-                                }
-                                let floor = self.session.document().active_floor_id();
-                                if let Some(floor) = floor {
-                                    self.session.document_mut().reassign_by_layer_map(floor);
-                                    self.dirty = true;
-                                    self.layer_rows_cache = None;
-                                }
+                    ui.end_row();
+
+                    for (name, color_aci, visible, frozen, locked, lw, _lt) in rows {
+                        if !filter.is_empty() && !name.to_ascii_uppercase().contains(&filter) {
+                            continue;
+                        }
+                        let is_current = self.current_layer == name || name == shim;
+                        let mapped = map_snapshot
+                            .get(&name)
+                            .copied()
+                            .unwrap_or_else(|| aadt_model::SpaceCategory::from_layer_name(&name));
+
+                        // Status — current-layer marker (AutoCAD ▸).
+                        if is_current {
+                            ui.colored_label(color::ACCENT, "▸");
+                        } else {
+                            ui.label(egui::RichText::new("·").color(color::STROKE));
+                        }
+
+                        // Name — click selects, double-click sets current, right-click actions.
+                        let display = name
+                            .strip_prefix(aadt_model::IMPORTED_LAYER_PREFIX)
+                            .unwrap_or(&name);
+                        let name_resp = ui
+                            .selectable_label(is_current, truncate_ui(display, 18))
+                            .on_hover_text(format!(
+                                "{name}  ·  space: {mapped}\nDouble-click sets current · right-click for actions"
+                            ));
+                        if name_resp.double_clicked() {
+                            self.current_layer = name.clone();
+                            self.note = format!("Current layer → {name}");
+                        } else if name_resp.clicked() {
+                            self.current_layer = name.clone();
+                        }
+                        name_resp.context_menu(|ui| {
+                            if ui.button("Set current").clicked() {
+                                self.current_layer = name.clone();
+                                ui.close_menu();
                             }
-                            if name != "0"
-                                && icon_btn_compact(ui, Icon::Delete, "Remove unused layer", false)
-                                    .clicked()
-                            {
-                                let fb = self.app_feed(&format!("LAYER {name} REMOVE"));
-                                if let Some(m) = fb.message() {
-                                    self.note = m.to_string();
-                                }
-                                if self.current_layer == name {
-                                    self.current_layer = "0".into();
-                                }
-                            }
-                            ui.small(format!("{lw:.2}"));
-                        });
-                    }
-                });
-                if narrow {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.set_max_width(panel_w);
-                        ui.add_space(18.0);
-                        ui.small(format!("LW {lw:.2}"));
-                        let mut cat = mapped;
-                        egui::ComboBox::from_id_salt(format!("lmap_row_{name}"))
-                            .selected_text(cat.as_str())
-                            .width(combo_w)
-                            .show_ui(ui, |ui| {
+                            ui.separator();
+                            ui.menu_button("Map to space", |ui| {
                                 for c in aadt_model::SpaceCategory::ALL {
-                                    if ui.selectable_label(cat == c, c.as_str()).clicked() {
-                                        cat = c;
+                                    if ui.selectable_label(mapped == c, c.as_str()).clicked() {
+                                        let _ = self.app_feed(&format!("LAYERMAP {name} {}", c.as_str()));
+                                        if let Some(floor) = self.session.document().active_floor_id()
+                                        {
+                                            self.session.document_mut().reassign_by_layer_map(floor);
+                                            self.dirty = true;
+                                            self.layer_rows_cache = None;
+                                        }
+                                        ui.close_menu();
                                     }
                                 }
                             });
-                        if cat != mapped {
-                            let fb = self.app_feed(&format!("LAYERMAP {name} {}", cat.as_str()));
-                            if let Some(m) = fb.message() {
-                                self.note = m.to_string();
+                            if name != "0" && ui.button("Delete layer").clicked() {
+                                let _ = self.app_feed(&format!("LAYER {name} REMOVE"));
+                                if self.current_layer == name {
+                                    self.current_layer = "0".into();
+                                }
+                                ui.close_menu();
                             }
-                            let floor = self.session.document().active_floor_id();
-                            if let Some(floor) = floor {
-                                self.session.document_mut().reassign_by_layer_map(floor);
-                                self.dirty = true;
-                                self.layer_rows_cache = None;
-                            }
+                        });
+
+                        // On / Freeze / Lock toggles.
+                        let eye = if visible { Icon::Eye } else { Icon::EyeOff };
+                        if icon_btn_compact(ui, eye, "On / Off", !visible).clicked() {
+                            let cmd = if visible { "OFF" } else { "ON" };
+                            self.app_feed(&format!("LAYER {name} {cmd}"));
                         }
-                        if name != "0"
-                            && icon_btn_compact(ui, Icon::Delete, "Remove unused layer", false)
-                                .clicked()
-                        {
-                            let fb = self.app_feed(&format!("LAYER {name} REMOVE"));
-                            if let Some(m) = fb.message() {
-                                self.note = m.to_string();
-                            }
-                            if self.current_layer == name {
-                                self.current_layer = "0".into();
-                            }
+                        if icon_btn_compact(ui, Icon::Freeze, "Freeze / Thaw", frozen).clicked() {
+                            let cmd = if frozen { "THAW" } else { "FREEZE" };
+                            self.app_feed(&format!("LAYER {name} {cmd}"));
                         }
-                    });
-                }
-            }
+                        let lock_icon = if locked { Icon::Lock } else { Icon::Unlock };
+                        if icon_btn_compact(ui, lock_icon, "Lock / Unlock", locked).clicked() {
+                            let cmd = if locked { "UNLOCK" } else { "LOCK" };
+                            self.app_feed(&format!("LAYER {name} {cmd}"));
+                        }
+
+                        // Color swatch (hover shows the ACI index).
+                        let (r, g, b) = aci_to_srgb(color_aci);
+                        let (sw, _) =
+                            ui.allocate_painter(egui::vec2(26.0, 14.0), egui::Sense::hover());
+                        ui.painter().rect_filled(
+                            sw.rect,
+                            radius::SMALL,
+                            egui::Color32::from_rgb(r, g, b),
+                        );
+                        ui.painter().rect_stroke(
+                            sw.rect,
+                            radius::SMALL,
+                            egui::Stroke::new(stroke::THIN, color::STROKE),
+                        );
+                        sw.on_hover_text(format!("ACI {color_aci}"));
+
+                        // Lineweight.
+                        ui.label(
+                            egui::RichText::new(format!("{lw:.2}")).size(type_scale::CAPTION),
+                        );
+                        ui.end_row();
+                    }
+                });
         });
         ui.separator();
         ui.small(format!(

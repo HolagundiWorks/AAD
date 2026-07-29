@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Layer manager → AutoCAD Layer Properties grid
+
+- Rebuilt the Layer Manager as an AutoCAD-style **aligned, striped column grid**
+  (`egui::Grid`) with AutoCAD's column order — Status · Name · On · Freeze ·
+  Lock · Color · Lineweight — replacing the wrapped card list.
+- Current layer is marked with an accent ▸ and row highlight; **double-click a
+  name sets it current**, single-click selects.
+- Per-layer actions moved to a **right-click context menu** (Set current, Map to
+  space ▸, Delete layer), decluttering the grid to match AutoCAD.
+- Search box filters rows live; color swatch hover shows the ACI index.
+
 ### AutoCAD command-workflow parity (in progress)
 
 Bringing every command's interaction into line with AutoCAD workstyles
