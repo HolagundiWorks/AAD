@@ -419,13 +419,15 @@ pub(super) enum PlaceKind {
     Toilet,
 }
 
-/// CIRCLE creation mode (AutoCAD Center / 2P / 3P).
+/// CIRCLE creation mode (AutoCAD Center / 2P / 3P / TTR).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum CircleMode {
     #[default]
     Center,
     TwoPoint,
     ThreePoint,
+    /// Tangent-tangent-radius: pick two entities, then a radius.
+    Ttr,
 }
 
 /// RECTANGLE step (corners or Dimensions).
@@ -1006,6 +1008,9 @@ struct AadtApp {
     /// FILLET `[T]rim` toggle: when set, keep both source lines full-length
     /// (AutoCAD No-trim). Persists across corners until toggled or the command ends.
     fillet_notrim: bool,
+    /// CIRCLE TTR: the tangent entities picked so far, with the pick point (used
+    /// to choose which of the four tangent solutions to keep).
+    ttr_lines: Vec<(EntityId, Point2)>,
     /// Cursor position in world coordinates, for the readout.
     cursor: Option<Point2>,
     /// Cursor position in screen pixels, for the crosshair and dynamic-input box.
@@ -1159,6 +1164,7 @@ impl AadtApp {
             rect_corner: RectCorner::Square,
             rect_corner_pending: None,
             fillet_notrim: false,
+            ttr_lines: Vec::new(),
             cursor: None,
             cursor_screen: None,
             dyn_input: String::new(),
@@ -2497,6 +2503,33 @@ impl AadtApp {
                 self.note = "CIRCLE 3P — first point on circumference".into();
                 return;
             }
+            if up == "T" || up == "TTR" || up == "TAN" {
+                self.tool = Tool::Circle {
+                    mode: CircleMode::Ttr,
+                    p1: None,
+                    p2: None,
+                    diameter: false,
+                };
+                self.ttr_lines.clear();
+                self.note = "CIRCLE TTR — pick the first tangent line".into();
+                return;
+            }
+            // CIRCLE TTR: a typed radius once both tangent lines are picked.
+            if matches!(
+                self.tool,
+                Tool::Circle {
+                    mode: CircleMode::Ttr,
+                    ..
+                }
+            ) && self.ttr_lines.len() == 2
+            {
+                if let Ok(r) = self.parse_model_length(&text) {
+                    if r > 0.0 {
+                        self.finish_ttr_circle(r);
+                    }
+                    return;
+                }
+            }
             if let Tool::Circle {
                 mode: CircleMode::Center,
                 p1: Some(_),
@@ -3053,6 +3086,7 @@ impl AadtApp {
         self.rect_corner = RectCorner::Square;
         self.rect_corner_pending = None;
         self.fillet_notrim = false;
+        self.ttr_lines.clear();
         if let Some(def) = self.engine.start(id) {
             let tool_token = def.tool_token;
             let cmd_id = def.id;
@@ -4169,6 +4203,23 @@ impl AadtApp {
                         }
                     }
                 },
+                // TTR: collect two tangent lines, then a typed radius finishes.
+                CircleMode::Ttr => {
+                    let tol = PICK_PIXELS / self.camera.scale;
+                    match pick_entity(self.session.document(), p, tol) {
+                        Some(id) if !self.ttr_lines.iter().any(|(e, _)| *e == id) => {
+                            self.ttr_lines.push((id, p));
+                            self.note = if self.ttr_lines.len() < 2 {
+                                "CIRCLE TTR — pick the second tangent line".into()
+                            } else {
+                                "CIRCLE TTR — type the radius and Space".into()
+                            };
+                        }
+                        _ => {
+                            self.note = "CIRCLE TTR — pick a line tangent to the circle".into();
+                        }
+                    }
+                }
             },
             Tool::GripEdit {
                 id,
@@ -5272,6 +5323,38 @@ impl AadtApp {
         self.engine.complete();
     }
 
+    /// Finish CIRCLE TTR: solve for the radius-`r` circle tangent to the two
+    /// picked lines, on the side the picks indicate, and add it.
+    fn finish_ttr_circle(&mut self, r: f64) {
+        let layer = self.layer();
+        let lines: Vec<(Segment, Point2)> = self
+            .ttr_lines
+            .iter()
+            .filter_map(
+                |(id, pick)| match self.session.document().get(*id).map(|e| &e.geometry) {
+                    Some(Geometry::Line(s)) => Some((*s, *pick)),
+                    _ => None,
+                },
+            )
+            .collect();
+        if lines.len() != 2 {
+            self.note = "CIRCLE TTR — both tangents must be straight lines".into();
+            self.ttr_lines.clear();
+            self.tool = Tool::Select;
+            return;
+        }
+        let near = lines[0].1.midpoint(lines[1].1);
+        if let Some((c, radius)) = tangent_circle_center(lines[0].0, lines[1].0, r, near) {
+            self.session
+                .feed(&format!("CIRCLE {} {} {} {}", c.x, c.y, radius, layer));
+            self.engine.complete();
+        } else {
+            self.note = "CIRCLE TTR — the two lines are parallel".into();
+        }
+        self.ttr_lines.clear();
+        self.tool = Tool::Select;
+    }
+
     fn place_rectangle_dims(&mut self, a: Point2, length: f64, width: f64, layer: &str) {
         self.place_rectangle(a, Point2::new(a.x + length, a.y + width), layer);
     }
@@ -5534,7 +5617,7 @@ impl AadtApp {
                 mode: CircleMode::Center,
                 p1: None,
                 ..
-            } => "CIRCLE — center or [2P/3P/D]iameter",
+            } => "CIRCLE — center or [2P/3P/T]TR/[D]iameter",
             Tool::Circle {
                 mode: CircleMode::Center,
                 p1: Some(_),
@@ -5573,6 +5656,10 @@ impl AadtApp {
                 p2: Some(_),
                 ..
             } => "CIRCLE 3P — third point",
+            Tool::Circle {
+                mode: CircleMode::Ttr,
+                ..
+            } => "CIRCLE TTR — pick two tangent lines, then type the radius",
             Tool::Arc {
                 mode: ArcMode::ThreePoint,
                 a: None,
@@ -7218,6 +7305,29 @@ fn grip_points(g: &Geometry) -> Vec<Point2> {
 }
 
 /// Circumcircle through three non-collinear points.
+/// Center of a circle of radius `r` tangent to both infinite lines `l1`,`l2`
+/// (AutoCAD CIRCLE TTR). Each line offset by ±r gives four candidate centers;
+/// the one nearest `near` (the midpoint of the two pick points) is chosen so the
+/// result sits in the quadrant the user pointed at. `None` for parallel lines.
+fn tangent_circle_center(l1: Segment, l2: Segment, r: f64, near: Point2) -> Option<(Point2, f64)> {
+    let n1 = (l1.b - l1.a).normalized()?.perp();
+    let n2 = (l2.b - l2.a).normalized()?.perp();
+    let mut best: Option<(f64, Point2)> = None;
+    for s1 in [-1.0_f64, 1.0] {
+        for s2 in [-1.0_f64, 1.0] {
+            let o1 = Segment::new(l1.a + n1 * (s1 * r), l1.b + n1 * (s1 * r));
+            let o2 = Segment::new(l2.a + n2 * (s2 * r), l2.b + n2 * (s2 * r));
+            if let Some((c, _)) = o1.line_intersection(o2) {
+                let dist = c.distance(near);
+                if best.map(|(bd, _)| dist < bd).unwrap_or(true) {
+                    best = Some((dist, c));
+                }
+            }
+        }
+    }
+    best.map(|(_, c)| (c, r))
+}
+
 fn circle_from_3_points(a: Point2, b: Point2, c: Point2) -> Option<(Point2, f64)> {
     let d = 2.0 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
     if d.abs() < 1e-12 {
@@ -8550,6 +8660,34 @@ mod arc_tests {
             Point2::new(2.0, 0.0),
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod ttr_tests {
+    use super::tangent_circle_center;
+    use aadt_geometry::{Point2, Segment};
+
+    #[test]
+    fn tangent_to_the_two_axes_in_the_picked_quadrant() {
+        let x_axis = Segment::new(Point2::new(-5.0, 0.0), Point2::new(5.0, 0.0));
+        let y_axis = Segment::new(Point2::new(0.0, -5.0), Point2::new(0.0, 5.0));
+        // r=1, pointing into the first quadrant → center (1,1).
+        let (c, r) =
+            tangent_circle_center(x_axis, y_axis, 1.0, Point2::new(3.0, 3.0)).unwrap();
+        assert!((r - 1.0).abs() < 1e-9);
+        assert!(c.distance(Point2::new(1.0, 1.0)) < 1e-9, "got {c:?}");
+        // Pointing into the third quadrant → center (-1,-1).
+        let (c2, _) =
+            tangent_circle_center(x_axis, y_axis, 1.0, Point2::new(-3.0, -3.0)).unwrap();
+        assert!(c2.distance(Point2::new(-1.0, -1.0)) < 1e-9, "got {c2:?}");
+    }
+
+    #[test]
+    fn parallel_lines_have_no_tangent_circle() {
+        let a = Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+        let b = Segment::new(Point2::new(0.0, 4.0), Point2::new(10.0, 4.0));
+        assert!(tangent_circle_center(a, b, 1.0, Point2::new(5.0, 2.0)).is_none());
     }
 }
 

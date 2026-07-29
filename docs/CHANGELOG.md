@@ -31,10 +31,15 @@ Bringing every command's interaction into line with AutoCAD workstyles
   lines full-length and adds only the arc. Command-level `FILLET … NOTRIM`
   (headlessly tested); `T` toggles it in the GUI (persists across corners).
 
+- **CIRCLE** gains **TTR** (tangent-tangent-radius): pick two tangent lines, type
+  a radius, and the circle is placed in the quadrant the picks indicate.
+  `tangent_circle_center` (unit-tested) solves the four offset-line candidates and
+  keeps the one nearest the pick midpoint.
+
 Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference + Copy),
 MIRROR (keep/erase), INSERT (multiple), RECTANGLE (Dimensions + Chamfer + Fillet),
-FILLET (Multiple + Trim) conform. Remaining gaps: CIRCLE TTR, FILLET-on-polyline,
-and per-entity polyline Width.
+FILLET (Multiple + Trim), CIRCLE (Center/2P/3P/TTR) conform. Remaining niche gaps:
+FILLET-on-polyline, and per-entity polyline Width (needs a width attribute).
 
 ### Per-command QA harness (M9.8)
 
