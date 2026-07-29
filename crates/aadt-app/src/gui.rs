@@ -4625,6 +4625,25 @@ impl AadtApp {
                     self.note = "FILLET — click a line".into();
                     return;
                 };
+                // A polyline is filleted whole (all corners) — AutoCAD Polyline.
+                let is_polyline = matches!(
+                    self.session.document().get(id).map(|e| &e.geometry),
+                    Some(Geometry::Polyline(_))
+                );
+                if first.is_none() && is_polyline {
+                    if r > f64::EPSILON {
+                        self.session.feed(&format!("FILLET P {} {}", id.0, r));
+                        self.note =
+                            "FILLET — polyline corners rounded; pick another (Esc finishes)".into();
+                    } else {
+                        self.note = "FILLET — set a non-zero radius before a polyline".into();
+                    }
+                    self.tool = Tool::Fillet {
+                        radius: Some(r),
+                        first: None,
+                    };
+                    return;
+                }
                 match first {
                     None => {
                         self.tool = Tool::Fillet {

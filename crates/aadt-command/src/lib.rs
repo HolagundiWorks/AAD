@@ -1773,6 +1773,65 @@ impl Command for ExtendCmd {
     }
 }
 
+/// Fillet every eligible corner of a polyline with radius `r`, returning the
+/// densified result. Open polylines keep their two endpoints; closed ones round
+/// all vertices. Corners that are collinear or too tight are eased, not skipped.
+fn fillet_polyline_corners(pl: &Polyline, r: f64) -> Polyline {
+    let v = &pl.vertices;
+    let n = v.len();
+    if n < 3 || r <= aadt_geometry::LENGTH_EPS {
+        return pl.clone();
+    }
+    let mut nv: Vec<Point2> = Vec::new();
+    let mut nb: Vec<f64> = Vec::new();
+    if !pl.closed {
+        nv.push(v[0]);
+        nb.push(0.0);
+    }
+    let range = if pl.closed { 0..n } else { 1..n - 1 };
+    for i in range {
+        let prev = v[(i + n - 1) % n];
+        let cur = v[i];
+        let next = v[(i + 1) % n];
+        let (din, dout) = match ((cur - prev).normalized(), (next - cur).normalized()) {
+            (Some(a), Some(b)) => (a, b),
+            _ => {
+                nv.push(cur);
+                nb.push(0.0);
+                continue;
+            }
+        };
+        let u1 = din * -1.0; // toward prev
+        let u2 = dout; // toward next
+        let half = u1.dot(u2).clamp(-1.0, 1.0).acos() / 2.0;
+        if half.sin().abs() < 1e-9 {
+            // Collinear — no corner to round.
+            nv.push(cur);
+            nb.push(0.0);
+            continue;
+        }
+        let mut d_tan = r / half.tan();
+        let lim = prev.distance(cur).min(cur.distance(next)) * 0.5;
+        if d_tan > lim {
+            d_tan = lim;
+        }
+        let t1 = cur + u1 * d_tan;
+        let t2 = cur + u2 * d_tan;
+        let included = std::f64::consts::PI - 2.0 * half;
+        let sign = if din.cross(dout) >= 0.0 { 1.0 } else { -1.0 };
+        let bulge = (included / 4.0).tan() * sign;
+        nv.push(t1);
+        nb.push(bulge);
+        nv.push(t2);
+        nb.push(0.0);
+    }
+    if !pl.closed {
+        nv.push(v[n - 1]);
+        nb.push(0.0);
+    }
+    Polyline::densify_bulges(&nv, &nb, pl.closed)
+}
+
 struct FilletCmd;
 impl Command for FilletCmd {
     fn name(&self) -> &str {
@@ -1782,9 +1841,31 @@ impl Command for FilletCmd {
         &["F"]
     }
     fn help(&self) -> &str {
-        "FILLET id1 id2 radius [NOTRIM] — round the corner between two lines with an arc (radius 0 just trims to the corner); NOTRIM keeps both lines full-length"
+        "FILLET id1 id2 radius [NOTRIM] — round the corner between two lines with an arc (radius 0 just trims to the corner); NOTRIM keeps both lines full-length. FILLET P id radius rounds every corner of a polyline"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        // AutoCAD FILLET Polyline: `FILLET P id radius` rounds every corner.
+        if args
+            .first()
+            .map(|s| s.eq_ignore_ascii_case("P") || s.eq_ignore_ascii_case("POLYLINE"))
+            .unwrap_or(false)
+        {
+            let pid = parse_entity_id(args.get(1).ok_or("FILLET P: missing polyline id")?, "FILLET")?;
+            let radius = parse_f64(args, 2, "FILLET")?;
+            if radius < 0.0 {
+                return Err("FILLET: radius must be non-negative".to_string());
+            }
+            let pl = match ctx.doc.get(pid).map(|e| &e.geometry) {
+                Some(Geometry::Polyline(p)) => p.clone(),
+                _ => return Err(format!("FILLET P: entity {} is not a polyline", pid.0)),
+            };
+            let rounded = fillet_polyline_corners(&pl, radius);
+            let vn = rounded.vertices.len();
+            ctx.doc.transact("FILLET", |d| {
+                d.replace_geometry(pid, Geometry::Polyline(rounded));
+            });
+            return Ok(format!("filleted polyline {} ({vn}-vertex result)", pid.0));
+        }
         let id1 = parse_entity_id(args.first().ok_or("FILLET: missing first id")?, "FILLET")?;
         let id2 = parse_entity_id(args.get(1).ok_or("FILLET: missing second id")?, "FILLET")?;
         let radius = parse_f64(args, 2, "FILLET")?;
@@ -3971,6 +4052,42 @@ mod tests {
         interp2.eval_line(&mut c2, "LINE 0 0 10 0").unwrap();
         interp2.eval_line(&mut c2, "LINE 0 5 10 5").unwrap();
         assert!(interp2.eval_line(&mut c2, "FILLET 0 1 1").is_err());
+    }
+
+    #[test]
+    fn fillet_polyline_rounds_every_corner() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // A closed square polyline (4 sharp corners).
+        interp
+            .eval_line(&mut ctx, "POLYLINE 0 0 10 0 10 10 0 10 CLOSED A-WALL")
+            .unwrap();
+        let id = ctx.doc.entities()[0].id;
+        interp.eval_line(&mut ctx, "FILLET P 0 2").unwrap();
+        // Still one polyline, now densified (rounded corners → many vertices).
+        assert_eq!(ctx.doc.len(), 1);
+        if let Geometry::Polyline(p) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(p.closed);
+            assert!(
+                p.vertices.len() > 8,
+                "rounded corners densify: {} verts",
+                p.vertices.len()
+            );
+            // No vertex leaves the original 10×10 bounds.
+            assert!(p
+                .vertices
+                .iter()
+                .all(|q| q.x >= -1e-6 && q.x <= 10.0 + 1e-6 && q.y >= -1e-6 && q.y <= 10.0 + 1e-6));
+        } else {
+            panic!("expected polyline");
+        }
+
+        // Non-polyline target is rejected.
+        interp.eval_line(&mut ctx, "LINE 0 0 5 0").unwrap();
+        let lid = ctx.doc.entities().last().unwrap().id;
+        assert!(interp
+            .eval_line(&mut ctx, &format!("FILLET P {} 1", lid.0))
+            .is_err());
     }
 
     #[test]

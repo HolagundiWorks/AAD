@@ -36,10 +36,16 @@ Bringing every command's interaction into line with AutoCAD workstyles
   `tangent_circle_center` (unit-tested) solves the four offset-line candidates and
   keeps the one nearest the pick midpoint.
 
+- **FILLET P** rounds **every corner of a polyline** at once (`FILLET P id
+  radius`; in the GUI, a polyline first-pick applies it). `fillet_polyline_corners`
+  eases each corner (collinear/too-tight corners degrade gracefully) and densifies
+  the arcs; unit-tested on a closed square.
+
 Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference + Copy),
 MIRROR (keep/erase), INSERT (multiple), RECTANGLE (Dimensions + Chamfer + Fillet),
-FILLET (Multiple + Trim), CIRCLE (Center/2P/3P/TTR) conform. Remaining niche gaps:
-FILLET-on-polyline, and per-entity polyline Width (needs a width attribute).
+FILLET (Multiple + Trim + Polyline), CIRCLE (Center/2P/3P/TTR) all conform. The
+one remaining item, per-entity polyline **Width**, needs a width attribute on the
+geometry model (a foundational change, not a workflow tweak) — deferred.
 
 ### Per-command QA harness (M9.8)
 
