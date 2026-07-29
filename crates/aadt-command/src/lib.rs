@@ -410,6 +410,12 @@ pub(crate) fn entities_word(n: usize) -> &'static str {
     }
 }
 
+/// Whether a trailing token requests the AutoCAD `Copy` option (keep source).
+fn arg_is_copy(arg: Option<&String>) -> bool {
+    arg.map(|s| matches!(s.to_ascii_lowercase().as_str(), "c" | "copy"))
+        .unwrap_or(false)
+}
+
 struct PolylineCmd;
 impl Command for PolylineCmd {
     fn name(&self) -> &str {
@@ -784,7 +790,7 @@ impl Command for RotateCmd {
         &["RO"]
     }
     fn help(&self) -> &str {
-        "ROTATE target cx cy angle — rotate an id, group, ALL, or SELECTION about (cx, cy) by angle degrees (CCW)"
+        "ROTATE target cx cy angle [COPY] — rotate an id, group, ALL, or SELECTION about (cx, cy) by angle degrees (CCW); COPY keeps the source"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let token = args.first().ok_or("ROTATE: missing target")?;
@@ -792,14 +798,32 @@ impl Command for RotateCmd {
         let cx = parse_f64(args, 1, "ROTATE")?;
         let cy = parse_f64(args, 2, "ROTATE")?;
         let deg = parse_f64(args, 3, "ROTATE")?;
+        let copy = arg_is_copy(args.get(4));
         let pivot = Point2::new(cx, cy);
+        let rad = deg.to_radians();
         let n = targets.len();
-        ctx.doc.transact("ROTATE", |d| {
-            for id in &targets {
-                d.rotate_entity(*id, pivot, deg.to_radians());
-            }
-        });
-        Ok(format!("rotated {n} {} by {deg}°", entities_word(n)))
+        if copy {
+            // AutoCAD Copy: leave the source, add rotated clones.
+            let clones: Vec<_> = targets
+                .iter()
+                .filter_map(|id| ctx.doc.get(*id))
+                .map(|e| (e.layer.clone(), e.geometry.rotated(pivot, rad), e.attributes.clone()))
+                .collect();
+            let n = clones.len();
+            ctx.doc.transact("ROTATE", |d| {
+                for (layer, g, attrs) in clones {
+                    d.add_entity(layer, g, attrs);
+                }
+            });
+            Ok(format!("rotated a copy of {n} {} by {deg}°", entities_word(n)))
+        } else {
+            ctx.doc.transact("ROTATE", |d| {
+                for id in &targets {
+                    d.rotate_entity(*id, pivot, rad);
+                }
+            });
+            Ok(format!("rotated {n} {} by {deg}°", entities_word(n)))
+        }
     }
 }
 
@@ -812,7 +836,7 @@ impl Command for ScaleCmd {
         &["SC"]
     }
     fn help(&self) -> &str {
-        "SCALE target cx cy factor — scale an id, group, ALL, or SELECTION about (cx, cy) by factor"
+        "SCALE target cx cy factor [COPY] — scale an id, group, ALL, or SELECTION about (cx, cy) by factor; COPY keeps the source"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let token = args.first().ok_or("SCALE: missing target")?;
@@ -823,14 +847,31 @@ impl Command for ScaleCmd {
         if factor == 0.0 {
             return Err("SCALE: factor must be non-zero".to_string());
         }
+        let copy = arg_is_copy(args.get(4));
         let pivot = Point2::new(cx, cy);
         let n = targets.len();
-        ctx.doc.transact("SCALE", |d| {
-            for id in &targets {
-                d.scale_entity(*id, pivot, factor);
-            }
-        });
-        Ok(format!("scaled {n} {} by {factor}", entities_word(n)))
+        if copy {
+            // AutoCAD Copy: leave the source, add scaled clones.
+            let clones: Vec<_> = targets
+                .iter()
+                .filter_map(|id| ctx.doc.get(*id))
+                .map(|e| (e.layer.clone(), e.geometry.scaled(pivot, factor), e.attributes.clone()))
+                .collect();
+            let n = clones.len();
+            ctx.doc.transact("SCALE", |d| {
+                for (layer, g, attrs) in clones {
+                    d.add_entity(layer, g, attrs);
+                }
+            });
+            Ok(format!("scaled a copy of {n} {} by {factor}", entities_word(n)))
+        } else {
+            ctx.doc.transact("SCALE", |d| {
+                for id in &targets {
+                    d.scale_entity(*id, pivot, factor);
+                }
+            });
+            Ok(format!("scaled {n} {} by {factor}", entities_word(n)))
+        }
     }
 }
 
@@ -3617,6 +3658,35 @@ mod tests {
         interp.eval_line(&mut ctx, "MIRROR 0 0 0 1 0 Y").unwrap();
         if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
             assert!(s.a.y <= 0.0 && s.b.y <= 0.0, "mirrored below the axis");
+        }
+    }
+
+    #[test]
+    fn rotate_and_scale_copy_keep_the_source() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, "LINE 0 0 2 0 A").unwrap();
+        let id = ctx.doc.entities()[0].id;
+
+        // ROTATE … COPY: original stays, a rotated clone is added.
+        interp.eval_line(&mut ctx, "ROTATE 0 0 0 90 COPY").unwrap();
+        assert_eq!(ctx.doc.len(), 2, "rotate copy keeps source + adds clone");
+        if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(2.0, 0.0)) < 1e-9, "source unchanged");
+        }
+        // The clone is the rotated one: (2,0) -> (0,2).
+        let ents = ctx.doc.entities();
+        let clone = ents.last().unwrap();
+        if let Geometry::Line(s) = &clone.geometry {
+            assert!(s.b.distance(Point2::new(0.0, 2.0)) < 1e-9, "clone rotated");
+        }
+
+        // SCALE … COPY (alias C): original stays, a scaled clone is added.
+        interp.eval_line(&mut ctx, "SELECT 0").unwrap();
+        interp.eval_line(&mut ctx, "SCALE SELECTION 0 0 2 C").unwrap();
+        assert_eq!(ctx.doc.len(), 3, "scale copy keeps source + adds clone");
+        if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
+            assert!(s.b.distance(Point2::new(2.0, 0.0)) < 1e-9, "source unchanged");
         }
     }
 

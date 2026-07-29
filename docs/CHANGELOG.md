@@ -17,10 +17,13 @@ Bringing every command's interaction into line with AutoCAD workstyles
   the radius, so you can fillet several corners without re-invoking (Esc ends) —
   matching the existing INSERT/OFFSET/COPY loop convention.
 
-Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference),
-MIRROR (keep/erase), INSERT (multiple) already conform. Remaining gaps to
-schedule: CIRCLE TTR, ROTATE/​SCALE Copy, RECTANGLE Chamfer/Fillet/Width,
-FILLET Polyline/Trim.
+- **ROTATE / SCALE** gain the AutoCAD **`[C]opy`** option — transform a clone and
+  keep the source. Command-level `ROTATE/SCALE … COPY` (headlessly tested); in
+  the GUI, `C` arms/disarms copy for the next transform (prompt shows the state).
+
+Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference + Copy),
+MIRROR (keep/erase), INSERT (multiple) conform. Remaining gaps to schedule:
+CIRCLE TTR, RECTANGLE Chamfer/Fillet/Width, FILLET Polyline/Trim.
 
 ### Per-command QA harness (M9.8)
 

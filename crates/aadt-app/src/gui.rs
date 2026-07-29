@@ -937,6 +937,9 @@ struct AadtApp {
     /// Entities already trimmed by the current TRIM drag stroke (AutoCAD
     /// freehand quick-trim), so a single stroke never trims one twice.
     trim_stroke_hits: Vec<EntityId>,
+    /// ROTATE/SCALE `[C]opy` option: transform a clone, keep the source.
+    /// Set by the `C` keyword; consumed (and cleared) when the transform runs.
+    xform_copy: bool,
     /// Cursor position in world coordinates, for the readout.
     cursor: Option<Point2>,
     /// Cursor position in screen pixels, for the crosshair and dynamic-input box.
@@ -1086,6 +1089,7 @@ impl AadtApp {
             box_start: None,
             drag_path: Vec::new(),
             trim_stroke_hits: Vec::new(),
+            xform_copy: false,
             cursor: None,
             cursor_screen: None,
             dyn_input: String::new(),
@@ -2116,6 +2120,23 @@ impl AadtApp {
             self.note = "TRIM — select cutting edges (Space when done)".into();
             return;
         }
+        // ROTATE/SCALE [C]opy — arm "transform a clone, keep the source".
+        if matches!(self.tool, Tool::Rotate { .. } | Tool::Scale { .. })
+            && (up == "C" || up == "COPY")
+        {
+            self.xform_copy = !self.xform_copy;
+            let verb = if matches!(self.tool, Tool::Rotate { .. }) {
+                "ROTATE"
+            } else {
+                "SCALE"
+            };
+            self.note = if self.xform_copy {
+                format!("{verb} Copy — source will be kept (C toggles off)")
+            } else {
+                format!("{verb} Copy off")
+            };
+            return;
+        }
         // ARC [C]enter — switch to centre-start-end before the first point.
         if let Tool::Arc { a: None, .. } = self.tool {
             if up == "C" || up == "CENTER" || up == "CENTRE" {
@@ -2589,9 +2610,10 @@ impl AadtApp {
                 } else {
                     return;
                 };
+                let sfx = self.take_copy_suffix();
                 self.sync_selection();
                 self.session
-                    .feed(&format!("ROTATE SELECTION {} {} {}", piv.x, piv.y, angle));
+                    .feed(&format!("ROTATE SELECTION {} {} {}{}", piv.x, piv.y, angle, sfx));
                 self.tool = Tool::Select;
                 self.engine.complete();
                 return;
@@ -2612,9 +2634,10 @@ impl AadtApp {
             }
             if let Ok(factor) = text.parse::<f64>() {
                 if factor.abs() > f64::EPSILON {
+                    let sfx = self.take_copy_suffix();
                     self.sync_selection();
                     self.session
-                        .feed(&format!("SCALE SELECTION {} {} {}", piv.x, piv.y, factor));
+                        .feed(&format!("SCALE SELECTION {} {} {}{}", piv.x, piv.y, factor, sfx));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -2632,9 +2655,10 @@ impl AadtApp {
             if let Ok(new_len) = self.parse_model_length(&text) {
                 if old > f64::EPSILON && new_len.abs() > f64::EPSILON {
                     let factor = new_len / old;
+                    let sfx = self.take_copy_suffix();
                     self.sync_selection();
                     self.session
-                        .feed(&format!("SCALE SELECTION {} {} {}", piv.x, piv.y, factor));
+                        .feed(&format!("SCALE SELECTION {} {} {}{}", piv.x, piv.y, factor, sfx));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -2915,6 +2939,8 @@ impl AadtApp {
     }
 
     fn start_command_id(&mut self, id: command_engine::CommandId) {
+        // Fresh command: clear any armed ROTATE/SCALE copy toggle.
+        self.xform_copy = false;
         if let Some(def) = self.engine.start(id) {
             let tool_token = def.tool_token;
             let cmd_id = def.id;
@@ -3388,6 +3414,17 @@ impl AadtApp {
         }
         let ids: Vec<String> = self.selection.iter().map(|id| id.0.to_string()).collect();
         self.app_feed(&format!("SELECT {}", ids.join(" ")));
+    }
+
+    /// AutoCAD ROTATE/SCALE `[C]opy`: return the trailing `" COPY"` argument when
+    /// the copy option is armed, clearing it so it applies to exactly one run.
+    fn take_copy_suffix(&mut self) -> &'static str {
+        if self.xform_copy {
+            self.xform_copy = false;
+            " COPY"
+        } else {
+            ""
+        }
     }
 
     /// Apply a hot-grip edit at the confirming point `p`. Stretch moves the
@@ -4181,9 +4218,10 @@ impl AadtApp {
                 }
                 (Some(piv), false, _, _) => {
                     let ang = (p.y - piv.y).atan2(p.x - piv.x).to_degrees();
+                    let sfx = self.take_copy_suffix();
                     self.sync_selection();
                     self.session
-                        .feed(&format!("ROTATE SELECTION {} {} {}", piv.x, piv.y, ang));
+                        .feed(&format!("ROTATE SELECTION {} {} {}{}", piv.x, piv.y, ang, sfx));
                     self.tool = Tool::Select;
                     self.engine.accept_point();
                     self.engine.complete();
@@ -4224,9 +4262,10 @@ impl AadtApp {
                 (Some(piv), true, Some(a), Some(ref_ang_val)) => {
                     let new_ang = (p.y - a.y).atan2(p.x - a.x).to_degrees();
                     let deg = new_ang - ref_ang_val;
+                    let sfx = self.take_copy_suffix();
                     self.sync_selection();
                     self.session
-                        .feed(&format!("ROTATE SELECTION {} {} {}", piv.x, piv.y, deg));
+                        .feed(&format!("ROTATE SELECTION {} {} {}{}", piv.x, piv.y, deg, sfx));
                     self.tool = Tool::Select;
                     self.engine.complete();
                 }
@@ -4284,9 +4323,10 @@ impl AadtApp {
                     let new_len = a.distance(p);
                     if old > f64::EPSILON && new_len > f64::EPSILON {
                         let factor = new_len / old;
+                        let sfx = self.take_copy_suffix();
                         self.sync_selection();
                         self.session
-                            .feed(&format!("SCALE SELECTION {} {} {}", piv.x, piv.y, factor));
+                            .feed(&format!("SCALE SELECTION {} {} {}{}", piv.x, piv.y, factor, sfx));
                         self.engine.complete();
                     }
                     self.tool = Tool::Select;
@@ -5460,7 +5500,7 @@ impl AadtApp {
                 pivot: Some(_),
                 reference: false,
                 ..
-            } => "ROTATE — angle (type degrees, pick point, or [R]eference)",
+            } => "ROTATE — angle (type degrees, pick point, or [R]eference / [C]opy)",
             Tool::Rotate {
                 collecting: false,
                 pivot: Some(_),
@@ -5499,7 +5539,7 @@ impl AadtApp {
                 pivot: Some(_),
                 ref_a: None,
                 old_len: None,
-            } => "SCALE — factor (type) or [R]eference",
+            } => "SCALE — factor (type) or [R]eference / [C]opy",
             Tool::Scale {
                 ref_a: Some(_),
                 old_len: None,
