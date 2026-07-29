@@ -491,6 +491,63 @@ pub(super) enum ArcMode {
     CenterStartEnd,
 }
 
+/// RECTANGLE corner treatment (AutoCAD Chamfer / Fillet). The value is the
+/// chamfer distance or fillet radius.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum RectCorner {
+    Square,
+    Chamfer(f64),
+    Fillet(f64),
+}
+
+impl Default for RectCorner {
+    fn default() -> Self {
+        RectCorner::Square
+    }
+}
+
+/// Closed-polyline vertices for a rectangle from opposite corners `a`,`c`, with
+/// each corner squared, chamfered by distance `d`, or filleted (rounded) by
+/// radius `d`. Fillet arcs are densified. `d` is clamped to half the short side.
+fn rect_corner_polyline(a: Point2, c: Point2, corner: RectCorner) -> Vec<Point2> {
+    let (minx, maxx) = (a.x.min(c.x), a.x.max(c.x));
+    let (miny, maxy) = (a.y.min(c.y), a.y.max(c.y));
+    let square = vec![
+        Point2::new(minx, miny),
+        Point2::new(maxx, miny),
+        Point2::new(maxx, maxy),
+        Point2::new(minx, maxy),
+    ];
+    let d = match corner {
+        RectCorner::Square => return square,
+        RectCorner::Chamfer(d) | RectCorner::Fillet(d) => d,
+    };
+    let d = d.min((maxx - minx) * 0.5).min((maxy - miny) * 0.5);
+    if d <= 1e-9 {
+        return square;
+    }
+    // Eight corner-cut points, CCW from the bottom edge.
+    let v = vec![
+        Point2::new(minx + d, miny),
+        Point2::new(maxx - d, miny),
+        Point2::new(maxx, miny + d),
+        Point2::new(maxx, maxy - d),
+        Point2::new(maxx - d, maxy),
+        Point2::new(minx + d, maxy),
+        Point2::new(minx, maxy - d),
+        Point2::new(minx, miny + d),
+    ];
+    match corner {
+        // Corner segments (odd indices) become 90° arcs; edges stay straight.
+        RectCorner::Fillet(_) => {
+            let b = std::f64::consts::FRAC_PI_8.tan(); // tan(90°/4) = tan(22.5°)
+            let bulges = [0.0, b, 0.0, b, 0.0, b, 0.0, b];
+            aadt_geometry::Polyline::densify_bulges(&v, &bulges, true).vertices
+        }
+        _ => v, // chamfer: straight cuts
+    }
+}
+
 /// Arc parameters `(center, radius, start_deg, end_deg)` for the CCW arc through
 /// `p1`→`p2`→`p3`. The sweep direction is chosen so the arc passes through `p2`.
 fn arc_through_3_points(p1: Point2, p2: Point2, p3: Point2) -> Option<(Point2, f64, f64, f64)> {
@@ -940,6 +997,12 @@ struct AadtApp {
     /// ROTATE/SCALE `[C]opy` option: transform a clone, keep the source.
     /// Set by the `C` keyword; consumed (and cleared) when the transform runs.
     xform_copy: bool,
+    /// RECTANGLE corner treatment (Square / Chamfer / Fillet), armed by the
+    /// C/F keywords and applied to the next rectangle.
+    rect_corner: RectCorner,
+    /// RECTANGLE is waiting for a typed chamfer distance (`Some(false)`) or
+    /// fillet radius (`Some(true)`) after the C/F keyword.
+    rect_corner_pending: Option<bool>,
     /// Cursor position in world coordinates, for the readout.
     cursor: Option<Point2>,
     /// Cursor position in screen pixels, for the crosshair and dynamic-input box.
@@ -1090,6 +1153,8 @@ impl AadtApp {
             drag_path: Vec::new(),
             trim_stroke_hits: Vec::new(),
             xform_copy: false,
+            rect_corner: RectCorner::Square,
+            rect_corner_pending: None,
             cursor: None,
             cursor_screen: None,
             dyn_input: String::new(),
@@ -2151,6 +2216,35 @@ impl AadtApp {
         }
         // RECTANGLE keywords / Dimensions / @W,H
         if matches!(self.tool, Tool::Rectangle { .. }) {
+            // Waiting for a typed chamfer distance / fillet radius.
+            if let Some(fillet) = self.rect_corner_pending {
+                if let Ok(d) = self.parse_model_length(&text) {
+                    if d > 0.0 {
+                        self.rect_corner = if fillet {
+                            RectCorner::Fillet(d)
+                        } else {
+                            RectCorner::Chamfer(d)
+                        };
+                        self.rect_corner_pending = None;
+                        self.note = format!(
+                            "RECTANGLE — first corner ({} {d})",
+                            if fillet { "fillet r" } else { "chamfer" }
+                        );
+                        return;
+                    }
+                }
+            }
+            // Arm Chamfer / Fillet corner treatment (asks for the distance).
+            if up == "C" || up == "CHAMFER" {
+                self.rect_corner_pending = Some(false);
+                self.note = "RECTANGLE — type chamfer distance and Space".into();
+                return;
+            }
+            if up == "F" || up == "FILLET" {
+                self.rect_corner_pending = Some(true);
+                self.note = "RECTANGLE — type fillet radius and Space".into();
+                return;
+            }
             if up == "D" || up == "DIM" || up == "DIMENSIONS" {
                 self.tool = Tool::Rectangle {
                     first: None,
@@ -2939,8 +3033,11 @@ impl AadtApp {
     }
 
     fn start_command_id(&mut self, id: command_engine::CommandId) {
-        // Fresh command: clear any armed ROTATE/SCALE copy toggle.
+        // Fresh command: clear any armed ROTATE/SCALE copy toggle and RECTANGLE
+        // corner treatment.
         self.xform_copy = false;
+        self.rect_corner = RectCorner::Square;
+        self.rect_corner_pending = None;
         if let Some(def) = self.engine.start(id) {
             let tool_token = def.tool_token;
             let cmd_id = def.id;
@@ -5134,10 +5231,25 @@ impl AadtApp {
     }
 
     fn place_rectangle(&mut self, a: Point2, b: Point2, layer: &str) {
-        self.app_feed(&format!(
-            "RECTANGLE {} {} {} {} {}",
-            a.x, a.y, b.x, b.y, layer
-        ));
+        match self.rect_corner {
+            RectCorner::Square => {
+                self.app_feed(&format!(
+                    "RECTANGLE {} {} {} {} {}",
+                    a.x, a.y, b.x, b.y, layer
+                ));
+            }
+            // Chamfered / filleted corners: draw a closed polyline instead.
+            corner => {
+                let verts = rect_corner_polyline(a, b, corner);
+                let coords: Vec<String> = verts
+                    .iter()
+                    .flat_map(|p| [p.x.to_string(), p.y.to_string()])
+                    .collect();
+                self.app_feed(&format!("POLYLINE {} CLOSED {}", coords.join(" "), layer));
+            }
+        }
+        self.rect_corner = RectCorner::Square;
+        self.rect_corner_pending = None;
         self.tool = Tool::Select;
         self.engine.accept_point();
         self.engine.complete();
@@ -5310,7 +5422,7 @@ impl AadtApp {
                 first: None,
                 phase: RectPhase::FirstCorner,
                 ..
-            } => return Some("RECTANGLE — first corner or [D]imensions"),
+            } => return Some("RECTANGLE — first corner or [D]imensions / [C]hamfer / [F]illet"),
             Tool::Rectangle {
                 phase: RectPhase::OppositeCorner,
                 ..
@@ -8421,6 +8533,61 @@ mod arc_tests {
             Point2::new(2.0, 0.0),
         )
         .is_none());
+    }
+}
+
+#[cfg(test)]
+mod rect_corner_tests {
+    use super::{rect_corner_polyline, RectCorner};
+    use aadt_geometry::Point2;
+
+    #[test]
+    fn square_is_four_corners() {
+        let v = rect_corner_polyline(
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 6.0),
+            RectCorner::Square,
+        );
+        assert_eq!(v.len(), 4);
+    }
+
+    #[test]
+    fn chamfer_cuts_each_corner_to_eight_points() {
+        let v = rect_corner_polyline(
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 6.0),
+            RectCorner::Chamfer(1.0),
+        );
+        assert_eq!(v.len(), 8, "chamfer = 8 straight vertices");
+        // First cut point sits 1.0 in from the bottom-left along the bottom edge.
+        assert!(v[0].distance(Point2::new(1.0, 0.0)) < 1e-9, "got {:?}", v[0]);
+        // No vertex escapes the rectangle bounds.
+        assert!(v.iter().all(|p| p.x >= -1e-9 && p.x <= 10.0 + 1e-9));
+    }
+
+    #[test]
+    fn fillet_densifies_into_a_rounded_ring() {
+        let v = rect_corner_polyline(
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 6.0),
+            RectCorner::Fillet(1.0),
+        );
+        // Corner arcs are sampled, so far more than 8 vertices, all in bounds.
+        assert!(v.len() > 8, "fillet densifies corners: {}", v.len());
+        assert!(v
+            .iter()
+            .all(|p| p.x >= -1e-9 && p.x <= 10.0 + 1e-9 && p.y >= -1e-9 && p.y <= 6.0 + 1e-9));
+    }
+
+    #[test]
+    fn oversized_corner_clamps_to_square() {
+        // d larger than half the short side clamps; still a valid ring.
+        let v = rect_corner_polyline(
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 6.0),
+            RectCorner::Chamfer(100.0),
+        );
+        assert!(v.len() >= 4);
     }
 }
 

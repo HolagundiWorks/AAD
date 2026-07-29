@@ -21,9 +21,16 @@ Bringing every command's interaction into line with AutoCAD workstyles
   keep the source. Command-level `ROTATE/SCALE … COPY` (headlessly tested); in
   the GUI, `C` arms/disarms copy for the next transform (prompt shows the state).
 
+- **RECTANGLE** gains AutoCAD **`[C]hamfer`** and **`[F]illet`** corner options.
+  Arm the mode (asks for the chamfer distance / fillet radius), then draw as
+  usual — the rectangle is emitted as a closed polyline with cut or densified
+  rounded corners (`rect_corner_polyline`, unit-tested). Distance is clamped to
+  half the short side. (Per-corner *Width* still needs polyline width support.)
+
 Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference + Copy),
-MIRROR (keep/erase), INSERT (multiple) conform. Remaining gaps to schedule:
-CIRCLE TTR, RECTANGLE Chamfer/Fillet/Width, FILLET Polyline/Trim.
+MIRROR (keep/erase), INSERT (multiple), RECTANGLE (Dimensions + Chamfer + Fillet)
+conform. Remaining gaps to schedule: CIRCLE TTR, FILLET Polyline/Trim, and
+per-entity polyline Width.
 
 ### Per-command QA harness (M9.8)
 
