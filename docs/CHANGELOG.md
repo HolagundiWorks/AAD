@@ -13,6 +13,14 @@ Bringing every command's interaction into line with AutoCAD workstyles
   prompts updated for both modes.
 - **CIRCLE** prompt brackets fixed (`[2P/3P/D]iameter`); Center/2P/3P already
   supported (TTR still to come).
+- **FILLET** now stays active after each corner (AutoCAD *Multiple*), retaining
+  the radius, so you can fillet several corners without re-invoking (Esc ends) —
+  matching the existing INSERT/OFFSET/COPY loop convention.
+
+Audit note: COPY (multiple), OFFSET (multiple), ROTATE/SCALE (Reference),
+MIRROR (keep/erase), INSERT (multiple) already conform. Remaining gaps to
+schedule: CIRCLE TTR, ROTATE/​SCALE Copy, RECTANGLE Chamfer/Fillet/Width,
+FILLET Polyline/Trim.
 
 ### Per-command QA harness (M9.8)
 

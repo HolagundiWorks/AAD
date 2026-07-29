@@ -4431,7 +4431,14 @@ impl AadtApp {
                     }
                     Some(a) => {
                         self.session.feed(&format!("FILLET {} {} {}", a.0, id.0, r));
-                        self.tool = Tool::Select;
+                        // Stay active for more corners (AutoCAD Multiple); radius
+                        // is retained. Esc finishes.
+                        self.tool = Tool::Fillet {
+                            radius: Some(r),
+                            first: None,
+                        };
+                        self.note =
+                            "FILLET — click the first line of the next corner (Esc finishes)".into();
                     }
                 }
             }
