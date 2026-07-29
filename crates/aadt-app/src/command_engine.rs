@@ -593,7 +593,7 @@ const TRIM_STEPS: &[StepKind] = &[StepKind::Entity {
 
 const CIRCLE_STEPS: &[StepKind] = &[
     StepKind::Point {
-        prompt: "CIRCLE — center or [2P]/3P]/D]iameter",
+        prompt: "CIRCLE — center or [2P/3P/D]iameter",
     },
     StepKind::Point {
         prompt: "CIRCLE — radius or [D]iameter (type + Space)",
@@ -893,13 +893,13 @@ const HATCH_STEPS: &[StepKind] = &[StepKind::Entity {
 
 const ARC_STEPS: &[StepKind] = &[
     StepKind::Point {
-        prompt: "ARC — center",
+        prompt: "ARC — start point or [C]enter",
     },
     StepKind::Point {
-        prompt: "ARC — start",
+        prompt: "ARC — second point on arc",
     },
     StepKind::Point {
-        prompt: "ARC — end",
+        prompt: "ARC — end point",
     },
 ];
 

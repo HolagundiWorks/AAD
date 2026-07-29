@@ -178,9 +178,12 @@ pub(super) enum Tool {
         /// Center mode only: typed/pick value is diameter.
         diameter: bool,
     },
+    /// ARC — `mode` picks 3-point (default) or centre-start-end; `a`/`b` are the
+    /// first two collected points.
     Arc {
-        center: Option<Point2>,
-        start: Option<Point2>,
+        mode: ArcMode,
+        a: Option<Point2>,
+        b: Option<Point2>,
     },
     Rectangle {
         first: Option<Point2>,
@@ -479,6 +482,30 @@ impl GripMode {
     }
 }
 
+/// ARC construction modes. AutoCAD's default is three points *on* the arc
+/// (start, second, end); `[C]enter` switches to centre → start → end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ArcMode {
+    #[default]
+    ThreePoint,
+    CenterStartEnd,
+}
+
+/// Arc parameters `(center, radius, start_deg, end_deg)` for the CCW arc through
+/// `p1`→`p2`→`p3`. The sweep direction is chosen so the arc passes through `p2`.
+fn arc_through_3_points(p1: Point2, p2: Point2, p3: Point2) -> Option<(Point2, f64, f64, f64)> {
+    let (c, r) = circle_from_3_points(p1, p2, p3)?;
+    let ang = |p: Point2| (p.y - c.y).atan2(p.x - c.x).to_degrees();
+    // Orientation of p1→p2→p3: CCW (>0) sweeps start→end directly; CW flips so
+    // the stored CCW arc still passes through p2.
+    let cross = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
+    if cross >= 0.0 {
+        Some((c, r, ang(p1), ang(p3)))
+    } else {
+        Some((c, r, ang(p3), ang(p1)))
+    }
+}
+
 /// XLINE mode keywords (Hor / Ver / Ang / Through).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum XlineMode {
@@ -682,8 +709,9 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             diameter: false,
         }),
         "A" | "ARC" => Some(Tool::Arc {
-            center: None,
-            start: None,
+            mode: ArcMode::ThreePoint,
+            a: None,
+            b: None,
         }),
         "REC" | "RECTANG" | "RECTANGLE" => Some(Tool::Rectangle {
             first: None,
@@ -1536,7 +1564,7 @@ impl AadtApp {
                 ui.label(egui::RichText::new("Command steps (AutoCAD-like)").strong());
                 ui.label("MOVE/COPY/STRETCH/… — verb-noun: pick objects · Space · points (noun-verb if pre-selected)");
                 ui.label("LINE — points · [U]ndo vertex · [C]lose · Space finish");
-                ui.label("CIRCLE — center · radius/[D] · or [2P]/3P]");
+                ui.label("CIRCLE — center · radius or [D]iameter · or [2P/3P]");
                 ui.label("XLINE — point · through (or H/V/A) · Space ends");
                 ui.label("RECTANGLE — corner · corner (or D length/width, @W,H)");
                 ui.label("Typed points — x,y absolute · @dx,dy relative to last point");
@@ -1618,7 +1646,7 @@ impl AadtApp {
             Tool::Line { points } => points.last().copied(),
             Tool::RegionSelect { points, .. } => points.last().copied(),
             Tool::Circle { p1, p2, .. } => p2.or(*p1),
-            Tool::Arc { center, start } => start.or(*center),
+            Tool::Arc { a, b, .. } => b.or(*a),
             Tool::GripEdit { origin, .. } => Some(*origin),
             Tool::Rectangle { first, .. } => *first,
             Tool::RoomLabel { first, .. } => *first,
@@ -2087,6 +2115,18 @@ impl AadtApp {
             };
             self.note = "TRIM — select cutting edges (Space when done)".into();
             return;
+        }
+        // ARC [C]enter — switch to centre-start-end before the first point.
+        if let Tool::Arc { a: None, .. } = self.tool {
+            if up == "C" || up == "CENTER" || up == "CENTRE" {
+                self.tool = Tool::Arc {
+                    mode: ArcMode::CenterStartEnd,
+                    a: None,
+                    b: None,
+                };
+                self.note = "ARC — center point".into();
+                return;
+            }
         }
         // RECTANGLE keywords / Dimensions / @W,H
         if matches!(self.tool, Tool::Rectangle { .. }) {
@@ -3991,30 +4031,39 @@ impl AadtApp {
                 self.apply_grip_edit(id, grip_idx, origin, mode, ref_dist, p);
                 self.tool = Tool::Select;
             }
-            Tool::Arc { center, start } => match (center, start) {
+            Tool::Arc { mode, a, b } => match (a, b) {
                 (None, _) => {
                     self.tool = Tool::Arc {
-                        center: Some(p),
-                        start: None,
+                        mode,
+                        a: Some(p),
+                        b: None,
                     };
                     self.engine.accept_point();
                 }
-                (Some(c), None) => {
+                (Some(a0), None) => {
                     self.tool = Tool::Arc {
-                        center: Some(c),
-                        start: Some(p),
+                        mode,
+                        a: Some(a0),
+                        b: Some(p),
                     };
                     self.engine.accept_point();
                 }
-                (Some(c), Some(s)) => {
-                    let r = c.distance(s);
-                    if r > f64::EPSILON {
-                        let start_ang = (s.y - c.y).atan2(s.x - c.x).to_degrees();
-                        let end_ang = (p.y - c.y).atan2(p.x - c.x).to_degrees();
-                        self.app_feed(&format!(
-                            "ARC {} {} {} {} {} {}",
-                            c.x, c.y, r, start_ang, end_ang, layer
-                        ));
+                (Some(a0), Some(b0)) => {
+                    let arc = match mode {
+                        // 3-point: a=start, b=second-on-arc, p=end.
+                        ArcMode::ThreePoint => arc_through_3_points(a0, b0, p),
+                        // Centre-start-end: a=centre, b=start, p=end direction.
+                        ArcMode::CenterStartEnd => {
+                            let r = a0.distance(b0);
+                            (r > f64::EPSILON).then(|| {
+                                let sa = (b0.y - a0.y).atan2(b0.x - a0.x).to_degrees();
+                                let ea = (p.y - a0.y).atan2(p.x - a0.x).to_degrees();
+                                (a0, r, sa, ea)
+                            })
+                        }
+                    };
+                    if let Some((c, r, sa, ea)) = arc {
+                        self.app_feed(&format!("ARC {} {} {} {} {} {}", c.x, c.y, r, sa, ea, layer));
                     }
                     self.tool = Tool::Select;
                     self.engine.accept_point();
@@ -5309,7 +5358,7 @@ impl AadtApp {
                 mode: CircleMode::Center,
                 p1: None,
                 ..
-            } => "CIRCLE — center or [2P]/3P]/D]iameter",
+            } => "CIRCLE — center or [2P/3P/D]iameter",
             Tool::Circle {
                 mode: CircleMode::Center,
                 p1: Some(_),
@@ -5348,15 +5397,34 @@ impl AadtApp {
                 p2: Some(_),
                 ..
             } => "CIRCLE 3P — third point",
-            Tool::Arc { center: None, .. } => "ARC — click the centre",
             Tool::Arc {
-                center: Some(_),
-                start: None,
-            } => "ARC — click the start point",
+                mode: ArcMode::ThreePoint,
+                a: None,
+                ..
+            } => "ARC — start point or [C]enter",
             Tool::Arc {
-                center: Some(_),
-                start: Some(_),
-            } => "ARC — click the end point",
+                mode: ArcMode::ThreePoint,
+                b: None,
+                ..
+            } => "ARC — second point on arc",
+            Tool::Arc {
+                mode: ArcMode::ThreePoint,
+                ..
+            } => "ARC — end point",
+            Tool::Arc {
+                mode: ArcMode::CenterStartEnd,
+                a: None,
+                ..
+            } => "ARC — center point",
+            Tool::Arc {
+                mode: ArcMode::CenterStartEnd,
+                b: None,
+                ..
+            } => "ARC — start point",
+            Tool::Arc {
+                mode: ArcMode::CenterStartEnd,
+                ..
+            } => "ARC — end point",
             Tool::Rectangle { .. } => "RECTANGLE",
             Tool::Xline { .. } => "XLINE",
             Tool::Move {
@@ -7784,15 +7852,44 @@ fn paint_preview(
                 painter.line_segment([to_screen(a), to_screen(b)], stroke);
             }
         }
+        // 3-point: after two points, preview the arc through both + cursor.
         Tool::Arc {
-            center: Some(c),
-            start: None,
+            mode: ArcMode::ThreePoint,
+            a: Some(a0),
+            b: Some(b0),
+        } => {
+            if let Some((c, r, sa, ea)) = arc_through_3_points(*a0, *b0, cursor) {
+                draw_geometry(
+                    painter,
+                    rect,
+                    camera,
+                    &Geometry::Arc(aadt_geometry::Arc::new(c, r, sa, ea)),
+                    stroke,
+                    egui::Color32::from_rgb(30, 90, 180),
+                );
+            } else {
+                painter.line_segment([to_screen(*a0), to_screen(cursor)], stroke);
+            }
+        }
+        // 3-point: first segment guide to the second point.
+        Tool::Arc {
+            mode: ArcMode::ThreePoint,
+            a: Some(a0),
+            b: None,
+        } => {
+            painter.line_segment([to_screen(*a0), to_screen(cursor)], stroke);
+        }
+        Tool::Arc {
+            mode: ArcMode::CenterStartEnd,
+            a: Some(c),
+            b: None,
         } => {
             painter.line_segment([to_screen(*c), to_screen(cursor)], stroke);
         }
         Tool::Arc {
-            center: Some(c),
-            start: Some(s),
+            mode: ArcMode::CenterStartEnd,
+            a: Some(c),
+            b: Some(s),
         } => {
             let r = c.distance(*s);
             if r > f64::EPSILON {
@@ -8231,6 +8328,52 @@ mod dyn_coord_tests {
         let a = Point2::new(10.0, 20.0);
         assert_eq!(parse_relative_xy("@3,4", a), Some(Point2::new(13.0, 24.0)));
         assert!(parse_relative_xy("3,4", a).is_none());
+    }
+}
+
+#[cfg(test)]
+mod arc_tests {
+    use super::arc_through_3_points;
+    use aadt_geometry::Point2;
+
+    #[test]
+    fn three_point_arc_through_upper_semicircle() {
+        // p1=(1,0), p2=(0,1) top, p3=(-1,0): unit circle centered at origin.
+        let (c, r, sa, ea) = arc_through_3_points(
+            Point2::new(1.0, 0.0),
+            Point2::new(0.0, 1.0),
+            Point2::new(-1.0, 0.0),
+        )
+        .unwrap();
+        assert!(c.x.abs() < 1e-9 && c.y.abs() < 1e-9, "center at origin: {c:?}");
+        assert!((r - 1.0).abs() < 1e-9, "radius 1: {r}");
+        // CCW from p1 (0°) to p3 (180°) passes through the top (p2).
+        assert!((sa - 0.0).abs() < 1e-6, "start 0°: {sa}");
+        assert!((ea - 180.0).abs() < 1e-6, "end 180°: {ea}");
+    }
+
+    #[test]
+    fn three_point_arc_flips_for_clockwise_points() {
+        // Same endpoints but p2 at the bottom → the CCW-stored arc must run
+        // start=180°→end=360°(0°) so it passes through the bottom.
+        let (_c, _r, sa, ea) = arc_through_3_points(
+            Point2::new(1.0, 0.0),
+            Point2::new(0.0, -1.0),
+            Point2::new(-1.0, 0.0),
+        )
+        .unwrap();
+        assert!((sa - 180.0).abs() < 1e-6, "start 180°: {sa}");
+        assert!((ea - 0.0).abs() < 1e-6, "end 0°: {ea}");
+    }
+
+    #[test]
+    fn collinear_points_have_no_arc() {
+        assert!(arc_through_3_points(
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(2.0, 0.0),
+        )
+        .is_none());
     }
 }
 

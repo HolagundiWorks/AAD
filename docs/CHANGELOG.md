@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### AutoCAD command-workflow parity (in progress)
+
+Bringing every command's interaction into line with AutoCAD workstyles
+(keyword options, default flows, entry/repeat/cancel, live preview):
+
+- **ARC** now defaults to **three points on the arc** (start → second → end),
+  AutoCAD's default, with the sweep chosen to pass through the second point.
+  `[C]enter` switches to the old centre → start → end flow. Live preview and
+  prompts updated for both modes.
+- **CIRCLE** prompt brackets fixed (`[2P/3P/D]iameter`); Center/2P/3P already
+  supported (TTR still to come).
+
 ### Per-command QA harness (M9.8)
 
 - `qa_checklist_every_command` asserts the BricsCAD §34 checklist across the
