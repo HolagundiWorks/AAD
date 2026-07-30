@@ -416,10 +416,11 @@ impl AadtApp {
                             self.app_feed(&format!("LAYER {name} {cmd}"));
                         }
 
-                        // Color swatch (hover shows the ACI index).
+                        // Color swatch — click opens the ACI palette (AutoCAD's
+                        // Select Color dialog).
                         let (r, g, b) = aci_to_srgb(color_aci);
                         let (sw, _) =
-                            ui.allocate_painter(egui::vec2(26.0, 14.0), egui::Sense::hover());
+                            ui.allocate_painter(egui::vec2(26.0, 14.0), egui::Sense::click());
                         ui.painter().rect_filled(
                             sw.rect,
                             radius::SMALL,
@@ -430,7 +431,54 @@ impl AadtApp {
                             radius::SMALL,
                             egui::Stroke::new(stroke::THIN, color::STROKE),
                         );
-                        sw.on_hover_text(format!("ACI {color_aci}"));
+                        let sresp = sw.on_hover_text(format!("ACI {color_aci} — click to change"));
+                        let pop_id = ui.make_persistent_id(("laycolor", &name));
+                        if sresp.clicked() {
+                            ui.memory_mut(|m| m.toggle_popup(pop_id));
+                        }
+                        egui::popup_below_widget(
+                            ui,
+                            pop_id,
+                            &sresp,
+                            egui::PopupCloseBehavior::CloseOnClickOutside,
+                            |ui| {
+                                ui.set_min_width(196.0);
+                                ui.label(
+                                    egui::RichText::new(format!("Select Color — ACI {color_aci}"))
+                                        .size(type_scale::CAPTION)
+                                        .strong(),
+                                );
+                                egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                                    ui.horizontal_wrapped(|ui| {
+                                        for aci in 1u8..=255 {
+                                            let (cr, cg, cb) = aci_to_srgb(aci);
+                                            let (cw, _) = ui.allocate_painter(
+                                                egui::vec2(12.0, 12.0),
+                                                egui::Sense::click(),
+                                            );
+                                            ui.painter().rect_filled(
+                                                cw.rect,
+                                                radius::SMALL,
+                                                egui::Color32::from_rgb(cr, cg, cb),
+                                            );
+                                            if aci == color_aci {
+                                                ui.painter().rect_stroke(
+                                                    cw.rect,
+                                                    radius::SMALL,
+                                                    egui::Stroke::new(1.5_f32, color::ACCENT),
+                                                );
+                                            }
+                                            if cw.on_hover_text(format!("ACI {aci}")).clicked() {
+                                                let _ = self
+                                                    .app_feed(&format!("LAYER {name} COLOR {aci}"));
+                                                ui.memory_mut(|m| m.close_popup());
+                                            }
+                                        }
+                                    });
+                                });
+                            },
+                        );
 
                         // Lineweight.
                         ui.label(
@@ -447,10 +495,6 @@ impl AadtApp {
     }
 
     pub(super) fn ui_blocks_manager(&mut self, ui: &mut egui::Ui) {
-        if std::env::var("AADT_DEBUG_BLOCKS_STUB").is_ok() {
-            ui.label("blocks stub");
-            return;
-        }
         self.ensure_blocks_cache();
         let cat = {
             let doc = self.session.document();
@@ -1391,7 +1435,7 @@ impl AadtApp {
         // content's minimum — otherwise a non-wrapping tile row can make egui
         // reserve far more than the frame fills, leaving a gap beside the dock.
         let left_resp = egui::SidePanel::left("left_mgr")
-            .exact_width(256.0)
+            .exact_width(320.0)
             .resizable(false)
             .frame(
                 egui::Frame::none()
@@ -1457,7 +1501,7 @@ impl AadtApp {
         // the gap beside the dock. `rect.width()` is the true panel width.
         let pw = left_resp.response.rect.width();
         if (pw - self.left_panel_width).abs() > 1.0 {
-            self.left_panel_width = pw.clamp(180.0, 260.0);
+            self.left_panel_width = pw.clamp(180.0, 340.0);
         }
     }
 

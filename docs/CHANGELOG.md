@@ -11,7 +11,11 @@
   name sets it current**, single-click selects.
 - Per-layer actions moved to a **right-click context menu** (Set current, Map to
   space ▸, Delete layer), decluttering the grid to match AutoCAD.
-- Search box filters rows live; color swatch hover shows the ACI index.
+- Search box filters rows live.
+- **Color picker:** clicking a layer's color swatch opens a *Select Color (ACI)*
+  popup of the full 1–255 ACI palette (current index highlighted); choosing one
+  restyles the layer via `LAYER <name> COLOR <aci>`. Widened the dock so the
+  Color / Lineweight columns are visible without horizontal scrolling.
 
 ### AutoCAD command-workflow parity (in progress)
 
