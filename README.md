@@ -50,7 +50,9 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 | `aadt-geometry` | 2D geometry kernel |
 | `aadt-model` | Document model, layers, undo/redo |
 | `aadt-dxf` | DXF/DWG import/export |
-| `aadt-store` | Native `.aadt` SQLite (history checkpoints) |
+| `aadt-store` | Native `.aadt` SQLite (history checkpoints, embeddings vector db) |
+| `aadt-embed` | Local, offline ML classifier/embedder (element → AIA layer + category) |
+| `aadt-vecdb` | Custom embeddings vector db + confidence-gated metadata mapping (`MAPMETA`) |
 | `aadt-detect` | Wall/room/opening detection, anomalies |
 | `aadt-command` | Command interpreter (daily band + firm suites) |
 | `aadt-standards` | AIA/NCS layers, layer sets, WCAG helpers |

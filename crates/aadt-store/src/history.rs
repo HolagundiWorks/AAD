@@ -136,6 +136,57 @@ pub fn copy_extended_tables(src: &Connection, dst: &Connection) -> Result<(), St
         }
     }
     copy_takeoff_tables(src, dst)?;
+    copy_vec_tables(src, dst)?;
+    Ok(())
+}
+
+/// Carry the embeddings vector-db tables forward across an atomic save rewrite,
+/// so a plain `SAVE` that doesn't pass a fresh `VectorDb` preserves the stored
+/// vectors and reconciliation statuses.
+fn copy_vec_tables(src: &Connection, dst: &Connection) -> Result<(), StoreError> {
+    let has: bool = src
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='vec_embedding'")?
+        .exists([])?;
+    if !has {
+        return Ok(());
+    }
+    {
+        let mut q = src.prepare("SELECT key, value FROM vec_meta")?;
+        let rows: Vec<(String, String)> = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins = dst.prepare(
+            "INSERT INTO vec_meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )?;
+        for (k, v) in rows {
+            ins.execute(params![k, v])?;
+        }
+    }
+    {
+        let mut q = src.prepare(
+            "SELECT entity_id, vec, pred_layer, pred_category, confidence, status FROM vec_embedding",
+        )?;
+        let rows: Vec<(i64, Vec<u8>, String, String, f64, String)> = q
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins = dst.prepare(
+            "INSERT INTO vec_embedding (entity_id, vec, pred_layer, pred_category, confidence, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        )?;
+        for (id, blob, layer, cat, conf, status) in rows {
+            ins.execute(params![id, blob, layer, cat, conf, status])?;
+        }
+    }
     Ok(())
 }
 
@@ -429,12 +480,12 @@ pub(crate) fn ensure_v5_or_migrate(conn: &Connection) -> Result<(), StoreError> 
         )
         .optional()?;
     match ver {
-        Some(v) if v == SCHEMA_VERSION => {
-            // Ensure extended tables exist (in case of partial write).
+        // For these read paths we only need the extended (history / takeoff /
+        // vector-db) tables to exist; creating them is additive and version-safe.
+        Some(v) if v <= SCHEMA_VERSION => {
             crate::ensure_extended_tables(conn)?;
             Ok(())
         }
-        Some(v) if v < SCHEMA_VERSION => crate::migrate_to_v5(conn, v),
         Some(v) => Err(StoreError::Format(format!(
             "unsupported schema_version {v} (want {SCHEMA_VERSION})"
         ))),

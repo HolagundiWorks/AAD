@@ -11,6 +11,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aadt_detect::{detect, DetectionConfig};
+use aadt_embed::Classifier;
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
 use aadt_model::{Document, EntityId, Geometry, Text};
 
@@ -48,8 +49,51 @@ pub fn install_document(env: &Env, doc: Rc<RefCell<Document>>) {
         );
     }
 
-
+    install_classify(env, doc.clone());
     install_edits(env, doc);
+}
+
+/// Register the embeddings metadata-mapping bridge.
+///
+/// | function | returns |
+/// |---|---|
+/// | `(aadt-classify id)` | the predicted AIA layer for an entity (string), or `nil` |
+/// | `(aadt-map-metadata)` | auto-classify every element; returns how many were auto-assigned |
+fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
+    let d = doc.clone();
+    define(
+        env,
+        "aadt-classify",
+        Native::new("aadt-classify", move |a| {
+            want(a, 1, "aadt-classify")?;
+            let eid = id(a, 0)?;
+            let doc = d.borrow();
+            match doc.get(eid) {
+                Some(ent) => {
+                    let pred = aadt_embed::default_classifier().classify(ent, &doc);
+                    Ok(Value::Str(pred.layer.to_string()))
+                }
+                None => Ok(Value::Nil),
+            }
+        }),
+    );
+
+    let d = doc;
+    define(
+        env,
+        "aadt-map-metadata",
+        Native::new("aadt-map-metadata", move |_a| {
+            let clf = aadt_embed::default_classifier();
+            let mut db = aadt_vecdb::VectorDb::new(clf.model_id(), aadt_embed::EMBED_DIM);
+            let report = aadt_vecdb::map_metadata(
+                &mut d.borrow_mut(),
+                &mut db,
+                &clf,
+                aadt_vecdb::Thresholds::default(),
+            );
+            Ok(Value::Int(report.auto_assigned as i64))
+        }),
+    );
 }
 
 /// Register the entity create/modify functions. Each returns the new entity's

@@ -25,6 +25,8 @@ aadt-store.workspace = true
 aadt-geometry.workspace = true
 aadt-standards.workspace = true
 aadt-library.workspace = true
+aadt-embed.workspace = true
+aadt-vecdb.workspace = true
 aadt-render = { workspace = true, optional = true }
 
 [features]

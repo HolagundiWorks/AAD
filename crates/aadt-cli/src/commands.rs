@@ -7,8 +7,12 @@
 //! onto an interpreter that already carries the generic drawing built-ins.
 
 use aadt_command::{Command, Context, Interpreter};
+use aadt_embed::{default_classifier, Classifier, ElementClass, EMBED_DIM};
 use aadt_geometry::Point2;
+use aadt_model::EntityId;
 use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
+use aadt_vecdb::{accept, map_metadata, set_class, set_layer, Thresholds, VectorDb};
+use std::cell::RefCell;
 use std::path::Path;
 
 /// Register the file-I/O and engine commands onto an interpreter.
@@ -17,6 +21,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(OpenCmd));
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(HistoryCmd));
+    registry.register(Box::new(MapMetaCmd::new()));
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(SectionCmd));
@@ -294,6 +299,256 @@ impl Command for HatchLibCmd {
             .map(|p| format!("  {} — {}", p.name, p.description))
             .collect();
         Ok(format!("{} pattern(s):\n{}", pats.len(), lines.join("\n")))
+    }
+}
+
+/// `MAPMETA` — embeddings-vector-db metadata mapping. Classifies every element
+/// from its geometry (local ML model), auto-assigns confident predictions to the
+/// AIA standard layer + model-space category, and queues low-confidence ones for
+/// reconciliation. Vectors + statuses persist in the `.aadt` file.
+struct MapState {
+    db: VectorDb,
+    path: Option<String>,
+}
+
+struct MapMetaCmd {
+    st: RefCell<Option<MapState>>,
+}
+
+impl MapMetaCmd {
+    fn new() -> Self {
+        Self {
+            st: RefCell::new(None),
+        }
+    }
+
+    /// Load the vector DB from the current `.aadt` path (or start fresh) whenever
+    /// the drawing path changes, so state persists across commands in a session.
+    fn sync(&self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        let mut g = self.st.borrow_mut();
+        let reload = match &*g {
+            None => true,
+            Some(s) => s.path != path,
+        };
+        if reload {
+            let model_id = default_classifier().model_id().to_string();
+            let db = path
+                .as_ref()
+                .filter(|p| is_aadt_path(p))
+                .and_then(|p| aadt_store::read_vecdb_path(p).ok().flatten())
+                .filter(|db| db.model_id() == model_id)
+                .unwrap_or_else(|| VectorDb::new(model_id, EMBED_DIM));
+            *g = Some(MapState { db, path });
+        }
+    }
+
+    /// Persist the in-memory DB back into the `.aadt` file, if there is one.
+    fn persist(&self, ctx: &Context) {
+        if let Some(p) = ctx.drawing_path.as_ref().filter(|p| is_aadt_path(p)) {
+            if let Some(s) = self.st.borrow().as_ref() {
+                let _ = aadt_store::write_vecdb_path(p, &s.db);
+            }
+        }
+    }
+
+    fn do_map(&self, ctx: &mut Context) -> Result<String, String> {
+        let report = {
+            let clf = default_classifier();
+            let mut g = self.st.borrow_mut();
+            let state = g.as_mut().expect("state synced");
+            map_metadata(&mut ctx.doc, &mut state.db, &clf, Thresholds::default())
+        };
+        ctx.selection = report.pending_ids.clone();
+        self.persist(ctx);
+        let tail = if report.pending > 0 {
+            format!(
+                " — reconcile with MAPMETA RECONCILE (ids: {})",
+                ids_str(&report.pending_ids)
+            )
+        } else {
+            String::new()
+        };
+        let reapplied = if report.reapplied > 0 {
+            format!(" · {} manual re-applied", report.reapplied)
+        } else {
+            String::new()
+        };
+        Ok(format!(
+            "MAPMETA: {} classified · {} auto-assigned · {} pending{reapplied}{tail}",
+            report.total, report.auto_assigned, report.pending
+        ))
+    }
+
+    fn do_reconcile(&self, ctx: &mut Context) -> Result<String, String> {
+        let clf = default_classifier();
+        let g = self.st.borrow();
+        let state = g.as_ref().expect("state synced");
+        let pend = state.db.pending();
+        if pend.is_empty() {
+            return Ok("MAPMETA: nothing pending — every element is classified".into());
+        }
+        let mut ids = Vec::new();
+        let mut lines = Vec::new();
+        for e in &pend {
+            ids.push(e.id);
+            let cands = ctx
+                .doc
+                .get(e.id)
+                .map(|ent| clf.classify(ent, &ctx.doc).candidates)
+                .unwrap_or_default();
+            let top: Vec<String> = cands
+                .iter()
+                .take(3)
+                .map(|(c, p)| format!("{} {:.0}%", c.label(), p * 100.0))
+                .collect();
+            lines.push(format!(
+                "  #{} (conf {:.0}%) → {} | candidates: {}",
+                e.id.0,
+                e.confidence * 100.0,
+                e.layer,
+                top.join(", ")
+            ));
+        }
+        drop(g);
+        ctx.selection = ids;
+        Ok(format!(
+            "{} pending — MAPMETA ACCEPT <id> or MAPMETA SET <id> <class|layer>:\n{}",
+            lines.len(),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_accept(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "MAPMETA ACCEPT")?;
+        let ok = {
+            let mut g = self.st.borrow_mut();
+            let state = g.as_mut().expect("state synced");
+            accept(&mut ctx.doc, &mut state.db, EntityId(id))
+        };
+        if !ok {
+            return Err(format!(
+                "MAPMETA ACCEPT: no entity #{id} with a prediction (run MAPMETA first)"
+            ));
+        }
+        self.persist(ctx);
+        let layer = self
+            .st
+            .borrow()
+            .as_ref()
+            .and_then(|s| s.db.get(EntityId(id)).map(|e| e.layer.clone()))
+            .unwrap_or_default();
+        ctx.selection = vec![EntityId(id)];
+        Ok(format!("MAPMETA: accepted #{id} → {layer} (confirmed)"))
+    }
+
+    fn do_set(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "MAPMETA SET")?;
+        let target = args.get(2..).map(|s| s.join(" ")).unwrap_or_default();
+        let target = target.trim();
+        if target.is_empty() {
+            return Err("MAPMETA SET: give a class (Wall/Column/…) or a layer name".into());
+        }
+        let class = ElementClass::ALL
+            .iter()
+            .find(|c| c.label().eq_ignore_ascii_case(target))
+            .copied();
+        let ok = {
+            let mut g = self.st.borrow_mut();
+            let state = g.as_mut().expect("state synced");
+            match class {
+                Some(c) => set_class(&mut ctx.doc, &mut state.db, EntityId(id), c),
+                None => set_layer(&mut ctx.doc, &mut state.db, EntityId(id), target),
+            }
+        };
+        if !ok {
+            return Err(format!("MAPMETA SET: no entity #{id}"));
+        }
+        self.persist(ctx);
+        ctx.selection = vec![EntityId(id)];
+        Ok(format!("MAPMETA: set #{id} → {target} (overridden)"))
+    }
+
+    fn do_info(&self, ctx: &Context, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "MAPMETA INFO")?;
+        let clf = default_classifier();
+        let Some(ent) = ctx.doc.get(EntityId(id)) else {
+            return Err(format!("MAPMETA INFO: no entity #{id}"));
+        };
+        let pred = clf.classify(ent, &ctx.doc);
+        let cands: Vec<String> = pred
+            .candidates
+            .iter()
+            .take(3)
+            .map(|(c, p)| format!("{} {:.0}%", c.label(), p * 100.0))
+            .collect();
+        let similar = self
+            .st
+            .borrow()
+            .as_ref()
+            .map(|s| s.db.query(&pred.embedding, 3, Some(EntityId(id))))
+            .unwrap_or_default();
+        let sim: Vec<String> = similar
+            .iter()
+            .map(|(eid, sc)| format!("#{} ({:.2})", eid.0, sc))
+            .collect();
+        let cat = pred.category.map(|c| c.as_str()).unwrap_or("(layer only)");
+        Ok(format!(
+            "#{id}: {} → layer {} / category {} (conf {:.0}%)\n  candidates: {}\n  similar: {}",
+            pred.class.label(),
+            pred.layer,
+            cat,
+            pred.confidence * 100.0,
+            cands.join(", "),
+            if sim.is_empty() {
+                "(run MAPMETA to populate the vector db)".into()
+            } else {
+                sim.join(", ")
+            }
+        ))
+    }
+}
+
+fn parse_id(args: &[String], idx: usize, cmd: &str) -> Result<u64, String> {
+    args.get(idx)
+        .ok_or_else(|| format!("{cmd}: missing entity id"))?
+        .parse()
+        .map_err(|_| format!("{cmd}: entity id must be an integer"))
+}
+
+fn ids_str(ids: &[EntityId]) -> String {
+    ids.iter()
+        .map(|i| format!("#{}", i.0))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+impl Command for MapMetaCmd {
+    fn name(&self) -> &str {
+        "MAPMETA"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["CLASSIFY", "VECTORDB", "VDB"]
+    }
+    fn help(&self) -> &str {
+        "MAPMETA [ALL]|RECONCILE|ACCEPT id|SET id <class|layer>|INFO id — map elements to AIA layer + category via the embeddings vector db"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        self.sync(ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" | "ALL" | "RUN" | "MAP" => self.do_map(ctx),
+            "RECONCILE" | "PENDING" | "LIST" => self.do_reconcile(ctx),
+            "ACCEPT" | "OK" => self.do_accept(ctx, args),
+            "SET" | "OVERRIDE" => self.do_set(ctx, args),
+            "INFO" | "WHY" => self.do_info(ctx, args),
+            other => Err(format!(
+                "MAPMETA: unknown subcommand {other:?} (ALL|RECONCILE|ACCEPT id|SET id <class|layer>|INFO id)"
+            )),
+        }
     }
 }
 

@@ -12,6 +12,8 @@ description = "Embedded Scheme/AutoLISP-compatible interpreter with read access 
 aadt-geometry.workspace = true
 aadt-model.workspace = true
 aadt-detect.workspace = true
+aadt-embed.workspace = true
+aadt-vecdb.workspace = true
 
 [lints]
 workspace = true

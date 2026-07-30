@@ -9,6 +9,7 @@ authors.workspace = true
 description = "Native .aadt SQLite document persistence (ADR-0004)."
 
 [dependencies]
+aadt-vecdb.workspace = true
 aadt-geometry.workspace = true
 aadt-model.workspace = true
 rusqlite = { version = "0.32", features = ["bundled"] }

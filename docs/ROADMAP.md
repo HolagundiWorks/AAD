@@ -230,7 +230,12 @@ impact.
 
 **§35 conflict (product lock):** the spec's "Future Extensions" list (AI command
 suggestions, AI takeoff, PDF recognition, auto layer assignment) reintroduces the
-AI removed in M4. **Not scheduled** — resolve product direction first.
+AI removed in M4. Mostly **not scheduled** — resolve product direction first.
+**Exception — auto layer assignment is now implemented** via a *local, offline,
+deterministic* ML model: the embeddings vector DB (`aadt-embed` / `aadt-vecdb`)
+maps each element to its AIA layer + model-space category, confidence-gated with
+reconciliation (`MAPMETA`). This is a deliberate, bounded deviation from the M4
+lock — see [ADR-0010](adr/0010-embeddings-metadata-mapping.md).
 
 **Out of scope for M9:** Ribbon (command-driven by design), View Cube (spec-optional).
 

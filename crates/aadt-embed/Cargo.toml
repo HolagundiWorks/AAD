@@ -1,0 +1,16 @@
+[package]
+name = "aadt-embed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Local, offline geometric ML embedder/classifier: maps a drawing element to its predefined AIA layer + model-space category from geometry."
+
+[dependencies]
+aadt-model.workspace = true
+aadt-geometry.workspace = true
+
+[lints]
+workspace = true

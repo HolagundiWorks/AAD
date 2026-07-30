@@ -10,6 +10,7 @@
 mod codec;
 mod history;
 mod takeoff_db;
+mod vecdb_io;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -34,9 +35,10 @@ pub use takeoff_db::{
     latest_takeoff_run_id, load_takeoff_run, mark_takeoff_published, TakeoffOpeningRow,
     TakeoffRoomRow, TakeoffRunData, TakeoffStructuralRow, TakeoffWallRow,
 };
+pub use vecdb_io::{read_vecdb, read_vecdb_path, write_vecdb, write_vecdb_path};
 
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
@@ -349,6 +351,18 @@ pub(crate) fn ensure_extended_tables(conn: &Connection) -> Result<(), StoreError
             to_run INTEGER NOT NULL,
             summary TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS vec_meta (
+            key TEXT PRIMARY KEY NOT NULL,
+            value TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS vec_embedding (
+            entity_id INTEGER PRIMARY KEY NOT NULL,
+            vec BLOB NOT NULL,
+            pred_layer TEXT NOT NULL DEFAULT '',
+            pred_category TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'auto'
+        );
         ",
     )?;
     Ok(())
@@ -365,6 +379,9 @@ pub(crate) fn migrate_schema(conn: &Connection, from: i64) -> Result<(), StoreEr
     }
     if from < 6 {
         migrate_to_v6(conn)?;
+    }
+    if from < 7 {
+        migrate_to_v7(conn)?;
     }
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
@@ -449,6 +466,12 @@ pub(crate) fn migrate_to_v6(conn: &Connection) -> Result<(), StoreError> {
         let _ = conn.execute("UPDATE dimensions SET space_id = 1 WHERE space_id = 0", []);
     }
     Ok(())
+}
+
+/// v6 → v7: the embeddings vector database tables. Purely additive — geometry,
+/// history, floors, and takeoff data are untouched.
+pub(crate) fn migrate_to_v7(conn: &Connection) -> Result<(), StoreError> {
+    ensure_extended_tables(conn)
 }
 
 pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {

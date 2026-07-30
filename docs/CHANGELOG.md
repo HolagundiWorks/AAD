@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Embeddings vector DB → predefined-metadata mapping (`MAPMETA`)
+
+The drawing is now **stored as a vector database**: each element gets a geometric
+embedding from a small **local ML model** and is mapped to its predefined AIA
+standard layer **and** model-space category (Walls/Structural/Lintel/BeamLayout/
+Furniture) from geometry alone — replacing the old layer-name-only heuristic. See
+[ADR-0010](adr/0010-embeddings-metadata-mapping.md).
+
+- **New crates.** `aadt-embed` (offline, deterministic MLP classifier + featurizer,
+  trained at first use on seeded synthetic exemplars; no new runtime deps,
+  `unsafe`-free) and `aadt-vecdb` (custom cosine-kNN vector store + mapping engine).
+- **Confidence-gated.** Confident predictions are **auto-assigned** to layer +
+  category (one undoable transaction); low-confidence elements are queued
+  **pending** for reconciliation (`Accept` / `Set` to a class or layer). Manual
+  decisions are preserved and re-applied across reopen.
+- **`MAPMETA`** command (aliases `CLASSIFY` / `VECTORDB` / `VDB`):
+  `[ALL] | RECONCILE | ACCEPT id | SET id <class|layer> | INFO id`.
+- **LISP:** `(aadt-classify id)` returns an element's predicted layer;
+  `(aadt-map-metadata)` auto-classifies the drawing.
+- **Persistence:** `.aadt` schema **v6 → v7** (additive) — new `vec_meta` /
+  `vec_embedding` tables hold each element's vector, predicted layer/category,
+  confidence, and reconciliation status; carried forward across `SAVE` and
+  migrated in place on open.
+
 ### Layer manager → AutoCAD Layer Properties grid
 
 - Rebuilt the Layer Manager as an AutoCAD-style **aligned, striped column grid**

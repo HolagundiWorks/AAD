@@ -1304,6 +1304,19 @@ impl AadtApp {
                         self.open_layer_map_dialog();
                         self.show_left_mgr = true;
                         self.left_tab = 0;
+                        // Confidence-gated auto-classification: map elements to
+                        // their AIA layer + model-space category via the
+                        // embeddings vector db. Confident ones are assigned;
+                        // low-confidence ones stay pending (MAPMETA RECONCILE).
+                        let rev_before = self.session.document().revision();
+                        let mfb = self.session.feed("MAPMETA");
+                        if self.session.document().revision() != rev_before {
+                            self.dirty = true;
+                            self.fitted = false;
+                        }
+                        if let Some(m) = mfb.message() {
+                            self.note = m.to_string();
+                        }
                     } else if up == "SAVE" {
                         let auto = Self::autosave_path(&pb);
                         let _ = std::fs::remove_file(auto);
