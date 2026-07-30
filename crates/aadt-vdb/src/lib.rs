@@ -1,14 +1,14 @@
-//! # aadt-vdb — custom on-disk vector database for the drawing
+//! # aadt-vdb — **VastuDB**, a custom on-disk vector database for the drawing
 //!
-//! Stores a drawing **as vectors**: every entity (line, polyline, circle, arc,
-//! text, block insert) is a native binary record in a purpose-built `.vdb` file,
-//! alongside layers, blocks, hatches, dimensions, floors, and a built-in
+//! VastuDB stores a drawing **as vectors**: every entity (line, polyline, circle,
+//! arc, text, block insert) is a native binary record in a purpose-built `.vdb`
+//! file, alongside layers, blocks, hatches, dimensions, floors, and a built-in
 //! **spatial index** over the entities' extents. It is a self-contained database
 //! format we own end to end — no SQLite, no `serde`, no external crate,
 //! `unsafe`-free.
 //!
 //! ```
-//! use aadt_vdb::Vdb;
+//! use aadt_vdb::VastuDb;
 //! use aadt_geometry::{Bbox, Point2, Segment};
 //! use aadt_model::{Document, Geometry};
 //!
@@ -18,8 +18,8 @@
 //! aadt_vdb::save_path(&doc, &path).unwrap();
 //!
 //! // Reopen and query the spatial index for entities in a window.
-//! let vdb = Vdb::open(&path).unwrap();
-//! let hits = vdb.query_bbox(Bbox::from_corners(Point2::new(-1.0, -1.0), Point2::new(1.0, 1.0)));
+//! let db = VastuDb::open(&path).unwrap();
+//! let hits = db.query_bbox(Bbox::from_corners(Point2::new(-1.0, -1.0), Point2::new(1.0, 1.0)));
 //! assert_eq!(hits.len(), 1);
 //! ```
 
@@ -37,8 +37,8 @@ pub use index::SpatialGrid;
 
 use buf::{Reader, Writer};
 
-/// File magic: "AADTVDB" + a NUL. A `u32` format version follows.
-const MAGIC: &[u8; 8] = b"AADTVDB\0";
+/// File magic: "VASTUDB" + a NUL. A `u32` format version follows.
+const MAGIC: &[u8; 8] = b"VASTUDB\0";
 /// On-disk format version.
 pub const FORMAT_VERSION: u32 = 1;
 
@@ -85,7 +85,7 @@ fn read_header(r: &mut Reader) -> Result<(), VdbError> {
     let magic = r.raw(MAGIC.len())?;
     if magic != MAGIC {
         return Err(VdbError::Format(
-            "not an AADT vector database (bad magic)".into(),
+            "not a VastuDB vector database (bad magic)".into(),
         ));
     }
     let ver = r.u32()?;
@@ -97,28 +97,28 @@ fn read_header(r: &mut Reader) -> Result<(), VdbError> {
     Ok(())
 }
 
-/// An opened vector database: the drawing plus its spatial index, ready to query.
-pub struct Vdb {
+/// An opened VastuDB database: the drawing plus its spatial index, ready to query.
+pub struct VastuDb {
     doc: Document,
     index: SpatialGrid,
 }
 
-impl Vdb {
+impl VastuDb {
     /// Open a `.vdb` file — load the document and its spatial index (rebuilding
     /// the index from the geometry if the stored one is missing or unreadable).
-    pub fn open(path: impl AsRef<Path>) -> Result<Vdb, VdbError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<VastuDb, VdbError> {
         let bytes = std::fs::read(path.as_ref())?;
         let mut r = Reader::new(&bytes);
         read_header(&mut r)?;
         let doc = codec::decode_document(&mut r)?;
         let index = SpatialGrid::read(&mut r).unwrap_or_else(|_| build_index(&doc));
-        Ok(Vdb { doc, index })
+        Ok(VastuDb { doc, index })
     }
 
     /// Build an in-memory database from a document already in hand.
-    pub fn from_document(doc: Document) -> Vdb {
+    pub fn from_document(doc: Document) -> VastuDb {
         let index = build_index(&doc);
-        Vdb { doc, index }
+        VastuDb { doc, index }
     }
 
     /// The loaded drawing.
@@ -351,7 +351,7 @@ mod tests {
         }
         let path = tmp("grid.vdb");
         save_path(&doc, &path).unwrap();
-        let vdb = Vdb::open(&path).unwrap();
+        let vdb = VastuDb::open(&path).unwrap();
         assert_eq!(vdb.index().len(), 25);
 
         let hits = vdb.query_bbox(Bbox::from_corners(

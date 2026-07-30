@@ -1,4 +1,4 @@
-# ADR-0011 — Custom vector database store (`.vdb`)
+# ADR-0011 — VastuDB: custom vector database store (`.vdb`)
 
 - **Status:** Accepted (an *additional* native format alongside SQLite `.aadt`,
   ADR-0004; DXF/DWG remain the exchange formats)
@@ -11,8 +11,8 @@
 
 ## Decision
 
-Add a **custom, self-contained on-disk vector database**, crate `aadt-vdb`, file
-extension **`.vdb`**.
+Add **VastuDB**, a **custom, self-contained on-disk vector database**, crate
+`aadt-vdb`, file extension **`.vdb`**.
 
 - **Native vector records.** Every entity is a fixed-layout binary record
   (tagged-union geometry + layer + model space + attributes). Layers, blocks,
@@ -24,7 +24,7 @@ extension **`.vdb`**.
   linear scan (`SpatialGrid::query_bbox` / `query_point`).
 - **Fully custom, dependency-free.** Hand-rolled little-endian binary I/O — no
   SQLite, no `serde`, no external crate; the workspace's `unsafe_code = "forbid"`
-  is preserved. Header is `"AADTVDB\0"` + a `u32` version.
+  is preserved. Header is `"VASTUDB\0"` + a `u32` version.
 - **Durable writes.** Saved to a sibling temp file and renamed, so a failed write
   never truncates an existing database.
 - **Used as storage + queried.** `OPEN`/`SAVE` recognize `.vdb` (CLI + app file

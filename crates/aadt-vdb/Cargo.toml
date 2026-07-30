@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Custom on-disk vector database: the drawing's geometry stored as native vector records with a built-in spatial index."
+description = "VastuDB — a custom on-disk vector database: the drawing's geometry stored as native vector records with a built-in spatial index."
 
 [dependencies]
 aadt-model.workspace = true

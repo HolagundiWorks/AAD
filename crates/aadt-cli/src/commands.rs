@@ -139,7 +139,7 @@ impl Command for SaveCmd {
         "SAVE"
     }
     fn help(&self) -> &str {
-        "SAVE path.dxf|path.dwg|path.aadt|path.vdb — write the document (DXF, DWG subset, native .aadt, or custom vector-db .vdb)"
+        "SAVE path.dxf|path.dwg|path.aadt|path.vdb — write the document (DXF, DWG subset, native .aadt, or VastuDB .vdb)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = path_from_args(args, "SAVE")?;
@@ -557,8 +557,8 @@ impl Command for MapMetaCmd {
     }
 }
 
-/// `WITHIN` — select entities in a window using the custom vector database's
-/// spatial index (a bbox query over `aadt-vdb`), instead of a linear scan.
+/// `WITHIN` — select entities in a window using VastuDB's spatial index (a bbox
+/// query over `aadt-vdb`), instead of a linear scan.
 struct WithinCmd;
 impl Command for WithinCmd {
     fn name(&self) -> &str {
@@ -568,7 +568,7 @@ impl Command for WithinCmd {
         &["VSELECT", "VWINDOW"]
     }
     fn help(&self) -> &str {
-        "WITHIN x1 y1 x2 y2 — select entities inside a window via the vector-db spatial index"
+        "WITHIN x1 y1 x2 y2 — select entities inside a window via the VastuDB spatial index"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let coord = |i: usize, name: &str| -> Result<f64, String> {
@@ -581,12 +581,12 @@ impl Command for WithinCmd {
             Point2::new(coord(0, "x1")?, coord(1, "y1")?),
             Point2::new(coord(2, "x2")?, coord(3, "y2")?),
         );
-        // Build the vector-db spatial index over the live drawing and query it.
+        // Build the VastuDB spatial index over the live drawing and query it.
         let index = aadt_vdb::build_index(&ctx.doc);
         let ids = index.query_bbox(rect);
         ctx.selection = ids.clone();
         Ok(format!(
-            "WITHIN: {} entit{} in the window (vector-db index over {} total)",
+            "WITHIN: {} entit{} in the window (VastuDB index over {} total)",
             ids.len(),
             if ids.len() == 1 { "y" } else { "ies" },
             index.len()

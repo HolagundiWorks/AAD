@@ -95,7 +95,7 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
         }),
     );
 
-    // Query the custom vector database's spatial index for a window.
+    // Query VastuDB's spatial index for a window.
     let d = doc;
     define(
         env,

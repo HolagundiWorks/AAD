@@ -13,12 +13,12 @@
   `aadt` binary, the `.aadt` file extension, and the `AADT-*` entity/command
   keys keep their names. Logo art files and historical ADRs were left as-is.
 
-### Custom vector database store (`.vdb`)
+### VastuDB — custom vector database store (`.vdb`)
 
-The drawing can now be **stored as a custom vector database** — a purpose-built,
-self-contained on-disk format (`aadt-vdb`, extension `.vdb`) that holds every
-entity as a native binary vector record with a **built-in spatial index**, rather
-than as text payloads in SQLite. See
+The drawing can now be **stored as a custom vector database, VastuDB** — a
+purpose-built, self-contained on-disk format (`aadt-vdb`, extension `.vdb`) that
+holds every entity as a native binary vector record with a **built-in spatial
+index**, rather than as text payloads in SQLite. See
 [ADR-0011](adr/0011-vector-database-store.md).
 
 - **Native vector records** for all geometry (line/polyline/circle/arc/text/
