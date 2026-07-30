@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "AADT command-line driver: headless entry point for command scripts, batch runs, and tests."
+description = "AAD command-line driver: headless entry point for command scripts, batch runs, and tests."
 
 [[bin]]
 name = "aadt"

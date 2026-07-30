@@ -137,7 +137,7 @@ impl ApplicationHandler for App {
             return;
         }
         let window = match event_loop
-            .create_window(Window::default_attributes().with_title("AADT — canvas"))
+            .create_window(Window::default_attributes().with_title("AAD — canvas"))
         {
             Ok(w) => Arc::new(w),
             Err(e) => {

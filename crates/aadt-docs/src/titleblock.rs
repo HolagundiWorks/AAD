@@ -480,7 +480,7 @@ fn emit_strip_minimal(
     line(doc, &mut ids, Point2::new(o.x, o.y + h), o);
 
     let firm = if tb.company_name.trim().is_empty() {
-        "AADT"
+        "AAD"
     } else {
         tb.company_name.as_str()
     };
@@ -562,7 +562,7 @@ fn emit_band_minimal(
     line(doc, &mut ids, Point2::new(o.x, o.y + h), o);
 
     let firm = if tb.company_name.trim().is_empty() {
-        "AADT"
+        "AAD"
     } else {
         tb.company_name.as_str()
     };
@@ -685,7 +685,7 @@ fn emit_strip(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> V
         ));
     }
     let firm = if tb.company_name.trim().is_empty() {
-        "AADT"
+        "AAD"
     } else {
         tb.company_name.as_str()
     };
@@ -965,7 +965,7 @@ fn emit_band(doc: &mut Document, tb: &TitleBlock, style: &TitleBlockStyle) -> Ve
 
     // Branding (left).
     let firm = if tb.company_name.trim().is_empty() {
-        "AADT"
+        "AAD"
     } else {
         tb.company_name.as_str()
     };
@@ -1176,7 +1176,7 @@ mod tests {
 
     fn sample() -> TitleBlock {
         TitleBlock {
-            company_name: "Studio AADT".into(),
+            company_name: "Studio AAD".into(),
             firm_tagline: "ARCHITECTURE · INTERIORS".into(),
             phone: "+1 555 0100".into(),
             email: "studio@example.com".into(),

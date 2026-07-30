@@ -120,7 +120,7 @@ pub fn brand_mark_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
             .fit_to_exact_size(egui::vec2(size, size))
             .sense(egui::Sense::hover()),
     )
-    .on_hover_text("AADT — 2D architectural drafting")
+    .on_hover_text("AAD — Accelerated Architectural Drafting")
 }
 
 /// Clickable Fluent icon button — compact toolbar (Cursor-like). 16px glyph in

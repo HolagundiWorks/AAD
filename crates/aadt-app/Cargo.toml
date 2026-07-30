@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Desktop application shell (egui) tying the CAD core, render canvas, and AADT engine together."
+description = "Desktop application shell (egui) tying the CAD core, render canvas, and AAD engine together."
 
 [dependencies]
 aadt-model.workspace = true

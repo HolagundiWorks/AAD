@@ -1,12 +1,12 @@
 # UX & command interaction
 
-AADT is **command-first** and intentionally close to AutoCAD muscle memory,
+AAD is **command-first** and intentionally close to AutoCAD muscle memory,
 without chasing AutoCAD’s full command count (see [ROADMAP](../ROADMAP.md)
 *Curated command band*).
 
 | Document | Purpose |
 |----------|---------|
-| [autocad-research.md](./autocad-research.md) | Deep dive: how AutoCAD command interaction works, and what AADT adopts |
+| [autocad-research.md](./autocad-research.md) | Deep dive: how AutoCAD command interaction works, and what AAD adopts |
 | [command-workflows.md](./command-workflows.md) | Step-by-step workflows for the daily band + units/dims + parity matrix |
 | [Industry audit](../audit/2026-07-industry-standards-audit.md) | Grade vs industry baselines + gap register |
 | [Brand guidelines](../branding/README.md) | Orange brand system, assets, UI application |

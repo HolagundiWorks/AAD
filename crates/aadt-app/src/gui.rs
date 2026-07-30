@@ -141,13 +141,13 @@ pub fn run(session: Session) -> eframe::Result<()> {
             .unwrap_or_default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("AADT")
+            .with_title("AAD")
             .with_inner_size([1280.0, 800.0])
             .with_icon(icon),
         ..Default::default()
     };
     eframe::run_native(
-        "AADT",
+        "AAD",
         options,
         Box::new(move |cc| {
             // Windows 11 / Fluent neutrals + AADT brand orange.
@@ -1358,7 +1358,7 @@ impl AadtApp {
 
     fn save_as_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("AADT", &["aadt"])
+            .add_filter("AAD", &["aadt"])
             .add_filter("DXF", &["dxf"])
             .add_filter("DWG", &["dwg"])
             .add_filter("Vector DB", &["vdb"])
@@ -1391,16 +1391,16 @@ impl AadtApp {
             Some(p) => {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("drawing");
                 if self.dirty {
-                    format!("AADT — {name}*")
+                    format!("AAD — {name}*")
                 } else {
-                    format!("AADT — {name}")
+                    format!("AAD — {name}")
                 }
             }
             None => {
                 if self.dirty {
-                    "AADT — untitled*".into()
+                    "AAD — untitled*".into()
                 } else {
-                    "AADT".into()
+                    "AAD".into()
                 }
             }
         };
@@ -6223,10 +6223,10 @@ impl eframe::App for AadtApp {
                                 }
                                 egui::Key::O => {
                                     if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("AADT / DXF / DWG / VDB", &["aadt", "dxf", "dwg", "vdb"])
+                                        .add_filter("AAD / DXF / DWG / VDB", &["aadt", "dxf", "dwg", "vdb"])
                                         .add_filter("DWG", &["dwg"])
                                         .add_filter("DXF", &["dxf"])
-                                        .add_filter("AADT", &["aadt"])
+                                        .add_filter("AAD", &["aadt"])
                                         .add_filter("Vector DB", &["vdb"])
                                         .pick_file()
                                     {

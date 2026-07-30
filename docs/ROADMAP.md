@@ -1,6 +1,6 @@
-# AADT Roadmap
+# AAD Roadmap
 
-This roadmap records how AADT was built as a lean **2D architectural drafting
+This roadmap records how AAD was built as a lean **2D architectural drafting
 tool**. Early milestones proved a deterministic detection/takeoff pipeline on a
 minimal substrate; the **takeoff/quantity engine (M0/M3), the AI layer (M4), and
 cloud collaboration (M8) have since been removed** (see those sections), leaving
@@ -46,7 +46,7 @@ Each milestone is a shippable, verifiable increment.
 
 ## Curated command band
 
-AADT is a **powerful 2D drafting tool free of bloat**. Depth goes into LISP, not
+AAD is a **powerful 2D drafting tool free of bloat**. Depth goes into LISP, not
 more command names. Interaction is **AutoCAD-like** (prompts, keywords,
 noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 
@@ -58,7 +58,7 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
 | Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
-| AADT | `SECTION` `STANDARDS` `BLOCKLIB` |
+| AAD | `SECTION` `STANDARDS` `BLOCKLIB` |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
 
 **Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
