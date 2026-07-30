@@ -53,6 +53,8 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 | `aadt-dxf` | DXF/DWG import/export |
 | `aadt-store` | Native `.aadt` SQLite (history checkpoints, embeddings vector db) |
 | `aadt-vdb` | **VastuDB** — custom on-disk vector database `.vdb`; the drawing's geometry as native vector records + spatial index |
+| `aadt-object` | Object DB — typed intelligent engineering objects (Wall/Room/Door/Column…) + append-only audit log |
+| `aadt-graph` | Graph DB — typed relationships (BelongsTo/Contains/Bounds/ConnectedTo) + detection→object promotion |
 | `aadt-embed` | Local, offline ML classifier/embedder (element → AIA layer + category) |
 | `aadt-vecdb` | Custom embeddings vector db + confidence-gated metadata mapping (`MAPMETA`) |
 | `aadt-detect` | Wall/room/opening detection, anomalies |

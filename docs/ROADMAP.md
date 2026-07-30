@@ -248,6 +248,21 @@ lock — see [ADR-0010](adr/0010-embeddings-metadata-mapping.md).
 
 **Out of scope for M9:** Ribbon (command-driven by design), View Cube (spec-optional).
 
+## M10 — AI-Native Phase 1: Intelligent objects + Graph DB ✅ (core)
+
+First implementation phase of the [AI-native platform](vision/ai-native-platform.md)
+(ADR-0012; [phased roadmap](plans/2026-07-ai-native-phases.md)). Geometry stays
+the source of truth in the `Document`; objects reference entities, never replace
+them.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M10.1 | `aadt-object` — **Object DB**: typed engineering objects (Wall/Room/Door/Window/Column/Beam/Furniture) with stable `ObjectId`, member entities, engineering properties, AI confidence, revision stamp | ✅ | Seeded by promoting `aadt-detect` output |
+| M10.2 | `aadt-object` — **audit log**: append-only per-object entries (user, timestamp, action, prev/new, AI-suggested, approval, reason); nothing deleted | ✅ | Extends the ADR-0008 history model to object granularity |
+| M10.3 | `aadt-graph` — **Graph DB**: persisted typed relationships (`ConnectedTo`, `BelongsTo`, `Contains`, `Bounds`, `Supports`) with forward/reverse queries + traversal | ✅ | Door → *belongs to* → Wall; Room → *contains* → Furniture; Wall → *bounds* → Room |
+| M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + VastuDB `.vdb` **v2** sections; carried across resave | ✅ | Additive; v7/v1 files still open |
+| M10.5 | Surface: `OBJECTS` / `RELATIONS` commands + LISP (`aadt-objects`, `aadt-relations`) | ✅ | Promotion is deterministic and undo-safe (objects live beside the document) |
+
 ## Post-1.0
 
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;

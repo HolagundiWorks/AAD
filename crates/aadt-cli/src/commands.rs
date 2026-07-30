@@ -9,11 +9,14 @@
 use aadt_command::{Command, Context, Interpreter};
 use aadt_embed::{default_classifier, Classifier, ElementClass, EMBED_DIM};
 use aadt_geometry::{Bbox, Point2};
+use aadt_graph::{promote::promote_with_audit, Graph};
 use aadt_model::EntityId;
+use aadt_object::{AuditLog, ObjectId, ObjectStore};
 use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
 use aadt_vecdb::{accept, map_metadata, set_class, set_layer, Thresholds, VectorDb};
 use std::cell::RefCell;
 use std::path::Path;
+use std::rc::Rc;
 
 /// Register the file-I/O and engine commands onto an interpreter.
 pub fn register(interp: &mut Interpreter) {
@@ -23,6 +26,11 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(HistoryCmd));
     registry.register(Box::new(MapMetaCmd::new()));
     registry.register(Box::new(WithinCmd));
+    let objstate = Rc::new(RefCell::new(ObjState::default()));
+    registry.register(Box::new(ObjectsCmd {
+        st: objstate.clone(),
+    }));
+    registry.register(Box::new(RelationsCmd { st: objstate }));
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(SectionCmd));
@@ -554,6 +562,226 @@ impl Command for MapMetaCmd {
                 "MAPMETA: unknown subcommand {other:?} (ALL|RECONCILE|ACCEPT id|SET id <class|layer>|INFO id)"
             )),
         }
+    }
+}
+
+/// Shared Object-DB session state for `OBJECTS` / `RELATIONS` (AI-native
+/// Phase 1): the promoted objects, relationship graph, and append-only audit
+/// log, synced against the drawing's `.aadt` path.
+#[derive(Default)]
+struct ObjState {
+    objects: ObjectStore,
+    graph: Graph,
+    audit: AuditLog,
+    path: Option<String>,
+    loaded: bool,
+}
+
+impl ObjState {
+    /// (Re)load persisted objects when the drawing path changes.
+    fn sync(&mut self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        if self.loaded && self.path == path {
+            return;
+        }
+        self.path = path.clone();
+        self.loaded = true;
+        self.objects = ObjectStore::new();
+        self.graph = Graph::new();
+        self.audit = AuditLog::new();
+        if let Some(p) = path.as_ref().filter(|p| is_aadt_path(p)) {
+            if let Ok(Some((o, g, a))) = aadt_store::read_objects_path(p) {
+                self.objects = o;
+                self.graph = g;
+                self.audit = a;
+            }
+        }
+    }
+
+    /// Persist to the drawing's `.aadt` file, if there is one.
+    fn persist(&self) {
+        if let Some(p) = self.path.as_ref().filter(|p| is_aadt_path(p)) {
+            let _ = aadt_store::write_objects_path(p, &self.objects, &self.graph, &self.audit);
+        }
+    }
+}
+
+fn object_line(o: &aadt_object::EngObject, graph: &Graph) -> String {
+    let props: Vec<String> = o.props.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    format!(
+        "  #{} {} [{} entit{}, {} relation{}] {}",
+        o.id.0,
+        o.kind,
+        o.entities.len(),
+        if o.entities.len() == 1 { "y" } else { "ies" },
+        graph.relations_of(o.id).len(),
+        if graph.relations_of(o.id).len() == 1 {
+            ""
+        } else {
+            "s"
+        },
+        props.join(" ")
+    )
+}
+
+/// `OBJECTS` — promote the drawing's detected elements into the Object DB +
+/// Graph DB (deterministic; audited), and inspect them.
+struct ObjectsCmd {
+    st: Rc<RefCell<ObjState>>,
+}
+
+impl Command for ObjectsCmd {
+    fn name(&self) -> &str {
+        "OBJECTS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["OBJ", "PROMOTE"]
+    }
+    fn help(&self) -> &str {
+        "OBJECTS [LIST|INFO id|AUDIT] — promote detection into intelligent objects + relationship graph (Object DB / Graph DB)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        st.sync(ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" | "RUN" | "BUILD" => {
+                let promoted = promote_with_audit(&ctx.doc, &mut st.audit);
+                st.objects = promoted.objects;
+                st.graph = promoted.graph;
+                st.persist();
+                let counts: Vec<String> = st
+                    .objects
+                    .kind_counts()
+                    .into_iter()
+                    .map(|(k, n)| format!("{n} {k}"))
+                    .collect();
+                Ok(format!(
+                    "OBJECTS: promoted {} object(s) ({}) with {} relation(s); audit +{}",
+                    st.objects.len(),
+                    if counts.is_empty() {
+                        "none".into()
+                    } else {
+                        counts.join(", ")
+                    },
+                    st.graph.len(),
+                    st.objects.len(),
+                ))
+            }
+            "LIST" => {
+                if st.objects.is_empty() {
+                    return Ok("no objects yet — run OBJECTS first".into());
+                }
+                let lines: Vec<String> = st
+                    .objects
+                    .iter()
+                    .map(|o| object_line(o, &st.graph))
+                    .collect();
+                Ok(format!(
+                    "{} object(s):\n{}",
+                    st.objects.len(),
+                    lines.join("\n")
+                ))
+            }
+            "INFO" => {
+                let id = ObjectId(parse_id(args, 1, "OBJECTS INFO")?);
+                let Some(o) = st.objects.get(id) else {
+                    return Err(format!("OBJECTS INFO: no object #{}", id.0));
+                };
+                let mut out = object_line(o, &st.graph);
+                for e in st.graph.relations_of(id) {
+                    out.push_str(&format!("\n    #{} {} #{}", e.from.0, e.rel, e.to.0));
+                }
+                ctx.selection = o.entities.clone();
+                Ok(out)
+            }
+            "AUDIT" => {
+                if st.audit.is_empty() {
+                    return Ok("audit log is empty".into());
+                }
+                let lines: Vec<String> = st
+                    .audit
+                    .entries()
+                    .iter()
+                    .rev()
+                    .take(20)
+                    .map(|e| {
+                        format!(
+                            "  [{}] {} {} #{} by {}{}{}",
+                            e.seq,
+                            e.action,
+                            e.new,
+                            e.object.0,
+                            e.user,
+                            if e.ai_suggested { " (AI)" } else { "" },
+                            if e.approved { " ✓" } else { " (pending)" },
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} audit entr{} (latest first):\n{}",
+                    st.audit.len(),
+                    if st.audit.len() == 1 { "y" } else { "ies" },
+                    lines.join("\n")
+                ))
+            }
+            other => Err(format!(
+                "OBJECTS: unknown subcommand {other:?} (LIST|INFO id|AUDIT)"
+            )),
+        }
+    }
+}
+
+/// `RELATIONS <id>` — the typed relationship edges of one object.
+struct RelationsCmd {
+    st: Rc<RefCell<ObjState>>,
+}
+
+impl Command for RelationsCmd {
+    fn name(&self) -> &str {
+        "RELATIONS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["REL"]
+    }
+    fn help(&self) -> &str {
+        "RELATIONS id — typed engineering relationships of an object (Graph DB)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        st.sync(ctx);
+        let id = ObjectId(parse_id(args, 0, "RELATIONS")?);
+        let Some(o) = st.objects.get(id) else {
+            return Err(format!(
+                "RELATIONS: no object #{} (run OBJECTS first)",
+                id.0
+            ));
+        };
+        let edges = st.graph.relations_of(id);
+        ctx.selection = o.entities.clone();
+        if edges.is_empty() {
+            return Ok(format!("#{} {} has no relations", id.0, o.kind));
+        }
+        let name = |oid: ObjectId| -> String {
+            st.objects
+                .get(oid)
+                .map(|x| format!("{} #{}", x.kind, oid.0))
+                .unwrap_or_else(|| format!("#{}", oid.0))
+        };
+        let lines: Vec<String> = edges
+            .iter()
+            .map(|e| format!("  {} —{}→ {}", name(e.from), e.rel, name(e.to)))
+            .collect();
+        Ok(format!(
+            "{} relation(s) of {} #{}:\n{}",
+            edges.len(),
+            o.kind,
+            id.0,
+            lines.join("\n")
+        ))
     }
 }
 

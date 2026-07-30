@@ -26,11 +26,14 @@
 mod buf;
 mod codec;
 mod index;
+mod objects;
 
 use std::path::Path;
 
 use aadt_geometry::{Bbox, Point2};
+use aadt_graph::Graph;
 use aadt_model::{Document, Entity, EntityId, Geometry};
+use aadt_object::{AuditLog, ObjectStore};
 
 pub use buf::VdbError;
 pub use index::SpatialGrid;
@@ -39,8 +42,9 @@ use buf::{Reader, Writer};
 
 /// File magic: "VASTUDB" + a NUL. A `u32` format version follows.
 const MAGIC: &[u8; 8] = b"VASTUDB\0";
-/// On-disk format version.
-pub const FORMAT_VERSION: u32 = 1;
+/// On-disk format version. v2 adds the Object DB / Graph DB / audit sections
+/// (AI-native Phase 1); v1 files still load with empty object stores.
+pub const FORMAT_VERSION: u32 = 2;
 
 /// The canonical file extension for the vector database.
 pub const EXTENSION: &str = "vdb";
@@ -50,6 +54,23 @@ pub const EXTENSION: &str = "vdb";
 /// Written to a sibling temp file and renamed, so a failed write never truncates
 /// an existing database.
 pub fn save_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), VdbError> {
+    save_path_with_objects(
+        doc,
+        path,
+        &ObjectStore::new(),
+        &Graph::new(),
+        &AuditLog::new(),
+    )
+}
+
+/// Write `doc` plus its Object DB / Graph DB / audit log (`.vdb` v2 sections).
+pub fn save_path_with_objects(
+    doc: &Document,
+    path: impl AsRef<Path>,
+    objects: &ObjectStore,
+    graph: &Graph,
+    audit: &AuditLog,
+) -> Result<(), VdbError> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
@@ -62,6 +83,7 @@ pub fn save_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), VdbError>
     w.u32(FORMAT_VERSION);
     codec::encode_document(&mut w, doc);
     build_index(doc).write(&mut w);
+    objects::write_sections(&mut w, objects, graph, audit);
     let bytes = w.into_bytes();
 
     let tmp = path.with_extension("vdb.tmp");
@@ -81,7 +103,7 @@ pub fn load_path(path: impl AsRef<Path>) -> Result<Document, VdbError> {
     codec::decode_document(&mut r)
 }
 
-fn read_header(r: &mut Reader) -> Result<(), VdbError> {
+fn read_header(r: &mut Reader) -> Result<u32, VdbError> {
     let magic = r.raw(MAGIC.len())?;
     if magic != MAGIC {
         return Err(VdbError::Format(
@@ -94,31 +116,68 @@ fn read_header(r: &mut Reader) -> Result<(), VdbError> {
             "unsupported .vdb version {ver} (max {FORMAT_VERSION})"
         )));
     }
-    Ok(())
+    Ok(ver)
 }
 
-/// An opened VastuDB database: the drawing plus its spatial index, ready to query.
+/// An opened VastuDB database: the drawing, its spatial index, and (v2) the
+/// Object DB / Graph DB / audit log — ready to query.
 pub struct VastuDb {
     doc: Document,
     index: SpatialGrid,
+    objects: ObjectStore,
+    graph: Graph,
+    audit: AuditLog,
 }
 
 impl VastuDb {
     /// Open a `.vdb` file — load the document and its spatial index (rebuilding
-    /// the index from the geometry if the stored one is missing or unreadable).
+    /// the index from the geometry if the stored one is missing or unreadable),
+    /// plus the object/graph/audit sections when present (v2).
     pub fn open(path: impl AsRef<Path>) -> Result<VastuDb, VdbError> {
         let bytes = std::fs::read(path.as_ref())?;
         let mut r = Reader::new(&bytes);
-        read_header(&mut r)?;
+        let ver = read_header(&mut r)?;
         let doc = codec::decode_document(&mut r)?;
         let index = SpatialGrid::read(&mut r).unwrap_or_else(|_| build_index(&doc));
-        Ok(VastuDb { doc, index })
+        let (objects, graph, audit) = if ver >= 2 {
+            objects::read_sections(&mut r)?
+        } else {
+            (ObjectStore::new(), Graph::new(), AuditLog::new())
+        };
+        Ok(VastuDb {
+            doc,
+            index,
+            objects,
+            graph,
+            audit,
+        })
     }
 
     /// Build an in-memory database from a document already in hand.
     pub fn from_document(doc: Document) -> VastuDb {
         let index = build_index(&doc);
-        VastuDb { doc, index }
+        VastuDb {
+            doc,
+            index,
+            objects: ObjectStore::new(),
+            graph: Graph::new(),
+            audit: AuditLog::new(),
+        }
+    }
+
+    /// The Object DB (empty for v1 files or when never promoted).
+    pub fn objects(&self) -> &ObjectStore {
+        &self.objects
+    }
+
+    /// The Graph DB.
+    pub fn graph(&self) -> &Graph {
+        &self.graph
+    }
+
+    /// The append-only object audit log.
+    pub fn audit(&self) -> &AuditLog {
+        &self.audit
     }
 
     /// The loaded drawing.
@@ -386,6 +445,47 @@ mod tests {
         );
         save_path(&doc, &path).unwrap();
         assert_eq!(load_path(&path).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn objects_graph_audit_round_trip_in_v2() {
+        use aadt_graph::Relation;
+        use aadt_object::ObjectKind;
+        use std::collections::BTreeMap;
+
+        let mut doc = Document::new();
+        let e = doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(6.0, 0.0))),
+        );
+        let mut store = ObjectStore::new();
+        let mut props = BTreeMap::new();
+        props.insert("length".into(), "6.000".into());
+        let wall = store.insert(ObjectKind::Wall, vec![e], props, 1.0, doc.revision());
+        let room = store.insert(ObjectKind::Room, vec![], BTreeMap::new(), 1.0, 0);
+        let mut graph = Graph::new();
+        graph.add(wall, Relation::Bounds, room);
+        let mut audit = AuditLog::new();
+        audit.record("promote", wall, "", "Wall …", false, true, "detect");
+
+        let path = tmp("objects.vdb");
+        save_path_with_objects(&doc, &path, &store, &graph, &audit).unwrap();
+        let db = VastuDb::open(&path).unwrap();
+        assert_eq!(db.objects().len(), 2);
+        let w = db.objects().get(wall).unwrap();
+        assert_eq!(w.kind, ObjectKind::Wall);
+        assert_eq!(w.entities, vec![e]);
+        assert_eq!(w.prop("length"), Some("6.000"));
+        assert_eq!(db.graph().edges().len(), 1);
+        assert_eq!(db.graph().edges()[0].rel, Relation::Bounds);
+        assert_eq!(db.audit().len(), 1);
+        assert_eq!(db.audit().entries()[0].action, "promote");
+
+        // A plain save (no objects) still opens with empty stores.
+        let path2 = tmp("noobjects.vdb");
+        save_path(&doc, &path2).unwrap();
+        let db2 = VastuDb::open(&path2).unwrap();
+        assert!(db2.objects().is_empty() && db2.graph().is_empty());
     }
 
     #[test]

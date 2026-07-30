@@ -17,17 +17,18 @@ engineering intent accurate · semantically understandable · scales) and keep
 | Geometry DB | ✅ 2D vector records (`.vdb` VastuDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
 | Spatial Index | ✅ Uniform-grid bbox index, persisted in `.vdb` | `aadt-vdb` | R-tree option; wire into GUI pick/osnap; perf targets |
 | Vector DB | ⚠️ Per-element geometry embeddings + kNN | `aadt-embed`, `aadt-vecdb` | Drawing/text/visual embeddings; PDFs/specs/photos; RAG |
-| Object DB | ⚠️ Detection (walls/rooms/openings/structural) is transient | `aadt-detect`, `aadt-model` | Persisted typed objects with engineering properties |
+| Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10) | `aadt-object` | Editable props UI; MAPMETA-driven objects for undetected geometry |
 | Metadata DB | ⚠️ DrawingProperties + AIA layer catalog | `aadt-model`, `aadt-standards` | Material libraries, semantic layer defaults, AI tags |
-| Graph DB | ❌ Wall graph computed, thrown away | (`aadt-detect` internals) | Persisted relationship store + queries |
+| Graph DB | ✅ Persisted typed relationships + promotion (M10) | `aadt-graph` | `Supports` population (needs slabs); constraint-aware edges |
 
 Cross-cutting already in place: deterministic core + undo (`aadt-model`,
 `aadt-command`); drawing-level history/audit checkpoints (`aadt-store`);
 AI-suggests / DB-commits pattern with confidence + reconciliation (`MAPMETA`).
 
-## Phase 1 — Intelligent objects + Graph DB (foundation)
+## Phase 1 — Intelligent objects + Graph DB (foundation) — ✅ core shipped as **M10**
 
-The largest net-new piece; everything later leans on it.
+The largest net-new piece; everything later leans on it. Tracked as
+[ROADMAP M10](../ROADMAP.md#m10--ai-native-phase-1-intelligent-objects--graph-db-).
 
 1. **`aadt-object` crate — the Object DB.** Typed engineering objects
    (`Wall`, `Door`, `Window`, `Column`, `Beam`, `Room`, …) with: stable

@@ -34,9 +34,11 @@ dependencies = [
  "aadt-dxf",
  "aadt-embed",
  "aadt-geometry",
+ "aadt-graph",
  "aadt-library",
  "aadt-lisp",
  "aadt-model",
+ "aadt-object",
  "aadt-pdf",
  "aadt-render",
  "aadt-standards",
@@ -101,6 +103,16 @@ name = "aadt-geometry"
 version = "0.0.0"
 
 [[package]]
+name = "aadt-graph"
+version = "0.0.0"
+dependencies = [
+ "aadt-detect",
+ "aadt-geometry",
+ "aadt-model",
+ "aadt-object",
+]
+
+[[package]]
 name = "aadt-library"
 version = "0.0.0"
 dependencies = [
@@ -116,7 +128,9 @@ dependencies = [
  "aadt-detect",
  "aadt-embed",
  "aadt-geometry",
+ "aadt-graph",
  "aadt-model",
+ "aadt-object",
  "aadt-vdb",
  "aadt-vecdb",
 ]
@@ -126,6 +140,14 @@ name = "aadt-model"
 version = "0.0.0"
 dependencies = [
  "aadt-geometry",
+]
+
+[[package]]
+name = "aadt-object"
+version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-model",
 ]
 
 [[package]]
@@ -162,7 +184,9 @@ name = "aadt-store"
 version = "0.0.0"
 dependencies = [
  "aadt-geometry",
+ "aadt-graph",
  "aadt-model",
+ "aadt-object",
  "aadt-vecdb",
  "rusqlite",
 ]
@@ -172,7 +196,9 @@ name = "aadt-vdb"
 version = "0.0.0"
 dependencies = [
  "aadt-geometry",
+ "aadt-graph",
  "aadt-model",
+ "aadt-object",
 ]
 
 [[package]]

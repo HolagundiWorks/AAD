@@ -18,6 +18,8 @@ members = [
     "crates/aadt-embed",
     "crates/aadt-vecdb",
     "crates/aadt-vdb",
+    "crates/aadt-object",
+    "crates/aadt-graph",
     "crates/aadt-cli",
 ]
 
@@ -50,6 +52,8 @@ aadt-library = { path = "crates/aadt-library" }
 aadt-embed = { path = "crates/aadt-embed" }
 aadt-vecdb = { path = "crates/aadt-vecdb" }
 aadt-vdb = { path = "crates/aadt-vdb" }
+aadt-object = { path = "crates/aadt-object" }
+aadt-graph = { path = "crates/aadt-graph" }
 acadrust = "0.4.1"
 
 [workspace.lints.rust]

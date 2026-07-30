@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### AI-Native Phase 1 (M10): intelligent objects + Graph DB
+
+First implementation phase of the AI-native platform (ADR-0012). Geometry stays
+the source of truth; objects reference document entities, never replace them.
+
+- **`aadt-object` — the Object DB.** Typed intelligent engineering objects
+  (Wall / Room / Door / Window / Column / Beam / Furniture) with stable ids,
+  member entities, engineering properties (length, thickness, area, height…),
+  confidence, and revision stamp — plus an **append-only audit log** (user,
+  timestamp, action, prev/new, AI-suggested, approval, reason; nothing deleted).
+- **`aadt-graph` — the Graph DB.** Persisted typed relationships
+  (`BelongsTo` / `Contains` / `Bounds` / `ConnectedTo` / `Supports`) with
+  forward/reverse queries and BFS traversal, and a deterministic **promotion**
+  engine that assembles objects + relations from `aadt-detect` output
+  (Wall —Bounds→ Room, Room —Contains→ Column/Furniture, Door —BelongsTo→ Wall,
+  Wall —ConnectedTo→ Wall).
+- **Persistence.** `.aadt` schema **v7 → v8** (additive tables: `objects`,
+  `object_entities`, `object_props`, `graph_edges`, `object_audit`; carried
+  across plain `SAVE`) and VastuDB `.vdb` **v2** sections (v1 files still load).
+- **Surface.** `OBJECTS [LIST|INFO id|AUDIT]` (aliases `OBJ`/`PROMOTE`) and
+  `RELATIONS id` commands; LISP `(aadt-objects)` / `(aadt-relations id)`.
+
 ### AI-native platform direction adopted (docs)
 
 - Added the canonical [AI-Native CAD Platform guidelines](vision/ai-native-platform.md):

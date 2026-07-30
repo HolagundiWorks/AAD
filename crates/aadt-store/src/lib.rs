@@ -9,6 +9,7 @@
 
 mod codec;
 mod history;
+mod object_io;
 mod takeoff_db;
 mod vecdb_io;
 
@@ -30,6 +31,7 @@ pub use history::{
     list_checkpoints, purge_auto_checkpoints, restore_checkpoint, save_named_checkpoint,
     CheckpointMeta, MAX_AUTO_CHECKPOINTS,
 };
+pub use object_io::{read_objects, read_objects_path, write_objects, write_objects_path};
 pub use takeoff_db::{
     append_takeoff_delta, append_takeoff_run, latest_delta_summary, latest_published_run_id,
     latest_takeoff_run_id, load_takeoff_run, mark_takeoff_published, TakeoffOpeningRow,
@@ -38,7 +40,7 @@ pub use takeoff_db::{
 pub use vecdb_io::{read_vecdb, read_vecdb_path, write_vecdb, write_vecdb_path};
 
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
@@ -363,6 +365,42 @@ pub(crate) fn ensure_extended_tables(conn: &Connection) -> Result<(), StoreError
             confidence REAL NOT NULL DEFAULT 0,
             status TEXT NOT NULL DEFAULT 'auto'
         );
+        CREATE TABLE IF NOT EXISTS objects (
+            id INTEGER PRIMARY KEY NOT NULL,
+            kind TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 1,
+            revision INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS object_entities (
+            object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL,
+            entity_id INTEGER NOT NULL,
+            PRIMARY KEY (object_id, seq)
+        );
+        CREATE TABLE IF NOT EXISTS object_props (
+            object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+            key TEXT NOT NULL,
+            value TEXT NOT NULL,
+            PRIMARY KEY (object_id, key)
+        );
+        CREATE TABLE IF NOT EXISTS graph_edges (
+            from_id INTEGER NOT NULL,
+            rel TEXT NOT NULL,
+            to_id INTEGER NOT NULL,
+            PRIMARY KEY (from_id, rel, to_id)
+        );
+        CREATE TABLE IF NOT EXISTS object_audit (
+            seq INTEGER PRIMARY KEY NOT NULL,
+            at_unix INTEGER NOT NULL,
+            user TEXT NOT NULL,
+            action TEXT NOT NULL,
+            object_id INTEGER NOT NULL,
+            prev TEXT NOT NULL DEFAULT '',
+            new TEXT NOT NULL DEFAULT '',
+            ai INTEGER NOT NULL DEFAULT 0,
+            approved INTEGER NOT NULL DEFAULT 0,
+            reason TEXT NOT NULL DEFAULT ''
+        );
         ",
     )?;
     Ok(())
@@ -382,6 +420,9 @@ pub(crate) fn migrate_schema(conn: &Connection, from: i64) -> Result<(), StoreEr
     }
     if from < 7 {
         migrate_to_v7(conn)?;
+    }
+    if from < 8 {
+        migrate_to_v8(conn)?;
     }
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
@@ -471,6 +512,12 @@ pub(crate) fn migrate_to_v6(conn: &Connection) -> Result<(), StoreError> {
 /// v6 → v7: the embeddings vector database tables. Purely additive — geometry,
 /// history, floors, and takeoff data are untouched.
 pub(crate) fn migrate_to_v7(conn: &Connection) -> Result<(), StoreError> {
+    ensure_extended_tables(conn)
+}
+
+/// v7 → v8: the Object DB + Graph DB + object audit tables (AI-native Phase 1).
+/// Purely additive.
+pub(crate) fn migrate_to_v8(conn: &Connection) -> Result<(), StoreError> {
     ensure_extended_tables(conn)
 }
 

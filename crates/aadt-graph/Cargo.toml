@@ -1,0 +1,18 @@
+[package]
+name = "aadt-graph"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Graph DB (AI-native Phase 1): persisted typed engineering relationships between objects, plus promotion of detection output into objects + graph."
+
+[dependencies]
+aadt-model.workspace = true
+aadt-geometry.workspace = true
+aadt-detect.workspace = true
+aadt-object.workspace = true
+
+[lints]
+workspace = true

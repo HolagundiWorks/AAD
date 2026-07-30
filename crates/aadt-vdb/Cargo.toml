@@ -11,6 +11,8 @@ description = "VastuDB — a custom on-disk vector database: the drawing's geome
 [dependencies]
 aadt-model.workspace = true
 aadt-geometry.workspace = true
+aadt-object.workspace = true
+aadt-graph.workspace = true
 
 [lints]
 workspace = true

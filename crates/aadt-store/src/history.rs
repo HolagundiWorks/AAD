@@ -137,6 +137,108 @@ pub fn copy_extended_tables(src: &Connection, dst: &Connection) -> Result<(), St
     }
     copy_takeoff_tables(src, dst)?;
     copy_vec_tables(src, dst)?;
+    copy_object_tables(src, dst)?;
+    Ok(())
+}
+
+/// Carry the Object DB / Graph DB / audit tables (schema v8) across an atomic
+/// save rewrite, so a plain `SAVE` preserves promoted objects and the
+/// append-only audit trail.
+fn copy_object_tables(src: &Connection, dst: &Connection) -> Result<(), StoreError> {
+    let has: bool = src
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='objects'")?
+        .exists([])?;
+    if !has {
+        return Ok(());
+    }
+    {
+        let mut q = src.prepare("SELECT id, kind, confidence, revision FROM objects")?;
+        let rows: Vec<(i64, String, f64, i64)> = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins = dst.prepare(
+            "INSERT INTO objects (id, kind, confidence, revision) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for (a, b, c, d) in rows {
+            ins.execute(params![a, b, c, d])?;
+        }
+    }
+    {
+        let mut q = src.prepare("SELECT object_id, seq, entity_id FROM object_entities")?;
+        let rows: Vec<(i64, i64, i64)> = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins = dst.prepare(
+            "INSERT INTO object_entities (object_id, seq, entity_id) VALUES (?1, ?2, ?3)",
+        )?;
+        for (a, b, c) in rows {
+            ins.execute(params![a, b, c])?;
+        }
+    }
+    {
+        let mut q = src.prepare("SELECT object_id, key, value FROM object_props")?;
+        let rows: Vec<(i64, String, String)> = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins =
+            dst.prepare("INSERT INTO object_props (object_id, key, value) VALUES (?1, ?2, ?3)")?;
+        for (a, b, c) in rows {
+            ins.execute(params![a, b, c])?;
+        }
+    }
+    {
+        let mut q = src.prepare("SELECT from_id, rel, to_id FROM graph_edges")?;
+        let rows: Vec<(i64, String, i64)> = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins =
+            dst.prepare("INSERT INTO graph_edges (from_id, rel, to_id) VALUES (?1, ?2, ?3)")?;
+        for (a, b, c) in rows {
+            ins.execute(params![a, b, c])?;
+        }
+    }
+    {
+        let mut q = src.prepare(
+            "SELECT seq, at_unix, user, action, object_id, prev, new, ai, approved, reason
+             FROM object_audit",
+        )?;
+        type AuditRow = (
+            i64,
+            i64,
+            String,
+            String,
+            i64,
+            String,
+            String,
+            i64,
+            i64,
+            String,
+        );
+        let rows: Vec<AuditRow> = q
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                    r.get(9)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins = dst.prepare(
+            "INSERT INTO object_audit
+             (seq, at_unix, user, action, object_id, prev, new, ai, approved, reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        )?;
+        for r in rows {
+            ins.execute(params![r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7, r.8, r.9])?;
+        }
+    }
     Ok(())
 }
 

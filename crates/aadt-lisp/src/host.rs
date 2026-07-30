@@ -96,7 +96,7 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
     );
 
     // Query VastuDB's spatial index for a window.
-    let d = doc;
+    let d = doc.clone();
     define(
         env,
         "aadt-within",
@@ -105,6 +105,43 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
             let rect = Bbox::from_corners(pt(a, 0)?, pt(a, 2)?);
             let index = aadt_vdb::build_index(&d.borrow());
             Ok(Value::Int(index.query_bbox(rect).len() as i64))
+        }),
+    );
+
+    // Object DB / Graph DB (AI-native Phase 1): promote deterministically on
+    // demand and query the result.
+    let d = doc.clone();
+    define(
+        env,
+        "aadt-objects",
+        Native::new("aadt-objects", move |_a| {
+            let p = aadt_graph::promote::promote_document(&d.borrow());
+            Ok(Value::Int(p.objects.len() as i64))
+        }),
+    );
+
+    let d = doc;
+    define(
+        env,
+        "aadt-relations",
+        Native::new("aadt-relations", move |a| {
+            want(a, 1, "aadt-relations")?;
+            let oid = match a[0] {
+                Value::Int(n) if n >= 0 => aadt_object::ObjectId(n as u64),
+                _ => {
+                    return Err(LispError::BadArgs(
+                        "aadt-relations: object id must be a non-negative integer".into(),
+                    ))
+                }
+            };
+            let p = aadt_graph::promote::promote_document(&d.borrow());
+            let related: Vec<Value> = p
+                .graph
+                .neighbors(oid)
+                .into_iter()
+                .map(|o| Value::Int(o.0 as i64))
+                .collect();
+            Ok(Value::List(related))
         }),
     );
 }
