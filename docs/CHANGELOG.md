@@ -22,6 +22,11 @@
 Bringing every command's interaction into line with AutoCAD workstyles
 (keyword options, default flows, entry/repeat/cancel, live preview):
 
+- **TRIM** now cuts **circles** (previously rejected — only lines, arcs, and
+  polylines trimmed). The cutting edges split the circle; the span under the
+  pick is removed and the complement is kept as an arc, matching AutoCAD. The
+  hover ghost highlights the removed span too (`trim_circle` /
+  `circle_removed_span`, unit-tested).
 - **ARC** now defaults to **three points on the arc** (start → second → end),
   AutoCAD's default, with the sweep chosen to pass through the second point.
   `[C]enter` switches to the old centre → start → end flow. Live preview and

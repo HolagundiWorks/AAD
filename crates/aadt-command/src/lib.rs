@@ -1250,6 +1250,7 @@ fn trim_geometry(
     match target {
         Geometry::Line(s) => trim_line(*s, cutters, pick),
         Geometry::Arc(a) => trim_arc(*a, cutters, pick),
+        Geometry::Circle(c) => trim_circle(*c, cutters, pick),
         Geometry::Polyline(p) => {
             // Closed loops: open the ring (duplicate first vertex) so the
             // closing edge participates in cut detection and path params.
@@ -1268,7 +1269,7 @@ fn trim_geometry(
                 trim_polyline(p, cutters, pick)
             }
         }
-        _ => Err("TRIM: entity must be a line, arc, or polyline".into()),
+        _ => Err("TRIM: entity must be a line, arc, circle, or polyline".into()),
     }
 }
 
@@ -1428,6 +1429,73 @@ fn trim_arc(a: Arc, cutters: &[Geometry], pick: Point2) -> Result<TrimResult, St
             split: Some(arcs[1].clone()),
         }),
     }
+}
+
+/// The crossing-angle span (degrees, `lo ≤ hi`; `hi` may exceed 360 when the
+/// span wraps the 0° seam) that a TRIM at `pick` removes from circle `c`.
+/// `None` when the cutters don't cross the circle in ≥2 places around the pick.
+fn circle_removed_span(c: Circle, cutters: &[Geometry], pick: Point2) -> Option<(f64, f64)> {
+    let target = Geometry::Circle(c);
+    let ang = |p: Point2| {
+        (p.y - c.center.y)
+            .atan2(p.x - c.center.x)
+            .to_degrees()
+            .rem_euclid(360.0)
+    };
+    // Crossing angles around the circle, sorted and de-duplicated (cyclically).
+    let mut cuts: Vec<f64> = Vec::new();
+    for cut in cutters {
+        for p in bounded_crossings(&target, cut) {
+            cuts.push(ang(p));
+        }
+    }
+    cuts.sort_by(|a, b| a.total_cmp(b));
+    let mut uniq: Vec<f64> = Vec::new();
+    for a in cuts {
+        if uniq.last().is_none_or(|p| (a - p).abs() > HIT_EPS) {
+            uniq.push(a);
+        }
+    }
+    if let (Some(&first), Some(&last)) = (uniq.first(), uniq.last()) {
+        if uniq.len() >= 2 && (first + 360.0 - last).abs() <= HIT_EPS {
+            uniq.pop(); // first and last are the same point across the 0/360 seam
+        }
+    }
+    if uniq.len() < 2 {
+        return None;
+    }
+    // The gap (between consecutive crossings, wrapping past 360°) holding the pick.
+    let pick_ang = ang(pick);
+    let n = uniq.len();
+    for i in 0..n {
+        let lo = uniq[i];
+        let hi = if i + 1 < n { uniq[i + 1] } else { uniq[0] + 360.0 };
+        let pa = if pick_ang >= lo { pick_ang } else { pick_ang + 360.0 };
+        if pa >= lo - HIT_EPS && pa <= hi + HIT_EPS {
+            return Some((lo, hi));
+        }
+    }
+    None
+}
+
+/// Trim a full circle: the cutting edges split it into arcs; the span
+/// containing `pick` is removed and the complementary arc is kept (AutoCAD
+/// converts the circle to an arc). Needs at least two crossings.
+fn trim_circle(c: Circle, cutters: &[Geometry], pick: Point2) -> Result<TrimResult, String> {
+    let (lo, hi) = circle_removed_span(c, cutters, pick)
+        .ok_or("TRIM: the cutter must cross the circle in two places")?;
+    // Keep the complement: start where the removed span ends, sweep the long way
+    // back to its start. `Arc::new` normalises the CCW sweep.
+    let kept = Geometry::Arc(Arc::new(
+        c.center,
+        c.radius,
+        hi.rem_euclid(360.0),
+        lo.rem_euclid(360.0),
+    ));
+    Ok(TrimResult {
+        kept: Some(kept),
+        split: None,
+    })
 }
 
 fn trim_polyline(p: &Polyline, cutters: &[Geometry], pick: Point2) -> Result<TrimResult, String> {
@@ -1645,6 +1713,16 @@ pub fn trim_removed_preview(
             let start = a.start_angle + sweep * lo;
             let end = a.start_angle + sweep * hi;
             Some(Geometry::Arc(Arc::new(a.center, a.radius, start, end)))
+        }
+        Geometry::Circle(c) => {
+            // The removed span (pick side) as an arc, for the ghost highlight.
+            let (lo, hi) = circle_removed_span(*c, cutters, pick)?;
+            Some(Geometry::Arc(Arc::new(
+                c.center,
+                c.radius,
+                lo.rem_euclid(360.0),
+                hi.rem_euclid(360.0),
+            )))
         }
         Geometry::Polyline(p) => {
             let total: f64 = p.vertices.windows(2).map(|w| w[0].distance(w[1])).sum();
@@ -4242,6 +4320,28 @@ mod tests {
             assert!((a.end_angle - 90.0).abs() < 1e-6, "end {}", a.end_angle);
         } else {
             panic!("expected arc");
+        }
+    }
+
+    #[test]
+    fn trim_cuts_a_circle_into_an_arc() {
+        let interp = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        // Circle r=5 at the origin, and a horizontal line through the centre
+        // (crosses at (5,0)=0° and (-5,0)=180°).
+        interp.eval_line(&mut ctx, "CIRCLE 0 0 5").unwrap(); // id 0
+        interp.eval_line(&mut ctx, "LINE -10 0 10 0").unwrap(); // id 1
+                                                                // Pick the bottom half → drop it, keep the top semicircle.
+        interp.eval_line(&mut ctx, "TRIM 0 1 0 -4").unwrap();
+        if let Geometry::Arc(a) = &ctx.doc.get(EntityId(0)).unwrap().geometry {
+            assert!((a.sweep() - 180.0).abs() < 1e-6, "sweep {}", a.sweep());
+            assert!(a.contains_point(Point2::new(0.0, 5.0)), "top half kept");
+            assert!(
+                !a.contains_point(Point2::new(0.0, -5.0)),
+                "bottom half removed"
+            );
+        } else {
+            panic!("expected an arc after trimming the circle");
         }
     }
 
