@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use aadt_detect::{detect, DetectionConfig};
 use aadt_embed::Classifier;
-use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
+use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment};
 use aadt_model::{Document, EntityId, Geometry, Text};
 
 use crate::eval::{define, Env};
@@ -78,7 +78,7 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
         }),
     );
 
-    let d = doc;
+    let d = doc.clone();
     define(
         env,
         "aadt-map-metadata",
@@ -92,6 +92,19 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
                 aadt_vecdb::Thresholds::default(),
             );
             Ok(Value::Int(report.auto_assigned as i64))
+        }),
+    );
+
+    // Query the custom vector database's spatial index for a window.
+    let d = doc;
+    define(
+        env,
+        "aadt-within",
+        Native::new("aadt-within", move |a| {
+            want(a, 4, "aadt-within")?;
+            let rect = Bbox::from_corners(pt(a, 0)?, pt(a, 2)?);
+            let index = aadt_vdb::build_index(&d.borrow());
+            Ok(Value::Int(index.query_bbox(rect).len() as i64))
         }),
     );
 }

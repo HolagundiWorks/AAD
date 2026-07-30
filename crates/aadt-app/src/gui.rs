@@ -1361,6 +1361,7 @@ impl AadtApp {
             .add_filter("AADT", &["aadt"])
             .add_filter("DXF", &["dxf"])
             .add_filter("DWG", &["dwg"])
+            .add_filter("Vector DB", &["vdb"])
             .set_file_name("drawing.aadt")
             .save_file()
         {
@@ -6222,10 +6223,11 @@ impl eframe::App for AadtApp {
                                 }
                                 egui::Key::O => {
                                     if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("AADT / DXF / DWG", &["aadt", "dxf", "dwg"])
+                                        .add_filter("AADT / DXF / DWG / VDB", &["aadt", "dxf", "dwg", "vdb"])
                                         .add_filter("DWG", &["dwg"])
                                         .add_filter("DXF", &["dxf"])
                                         .add_filter("AADT", &["aadt"])
+                                        .add_filter("Vector DB", &["vdb"])
                                         .pick_file()
                                     {
                                         let fb = self.app_feed(&format!("OPEN {}", path.display()));

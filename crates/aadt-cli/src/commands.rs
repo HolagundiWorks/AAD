@@ -8,7 +8,7 @@
 
 use aadt_command::{Command, Context, Interpreter};
 use aadt_embed::{default_classifier, Classifier, ElementClass, EMBED_DIM};
-use aadt_geometry::Point2;
+use aadt_geometry::{Bbox, Point2};
 use aadt_model::EntityId;
 use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
 use aadt_vecdb::{accept, map_metadata, set_class, set_layer, Thresholds, VectorDb};
@@ -22,6 +22,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(HistoryCmd));
     registry.register(Box::new(MapMetaCmd::new()));
+    registry.register(Box::new(WithinCmd));
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(SectionCmd));
@@ -75,6 +76,9 @@ fn open_document(path: &str) -> Result<(aadt_model::Document, Vec<String>), Stri
         Some("aadt") => aadt_store::load_path(p)
             .map(|doc| (doc, Vec::new()))
             .map_err(|e| e.to_string()),
+        Some("vdb") => aadt_vdb::load_path(p)
+            .map(|doc| (doc, Vec::new()))
+            .map_err(|e| e.to_string()),
         Some("dwg") => aadt_dxf::import_path_report(p)
             .map(|r| (r.document, r.warnings))
             .map_err(|e| e.to_string()),
@@ -93,6 +97,7 @@ fn save_document(doc: &aadt_model::Document, path: &str) -> Result<(), String> {
         .as_deref()
     {
         Some("aadt") => aadt_store::save_path(doc, p).map_err(|e| e.to_string()),
+        Some("vdb") => aadt_vdb::save_path(doc, p).map_err(|e| e.to_string()),
         Some("dwg") => aadt_dxf::export_dwg_path(doc, p).map_err(|e| e.to_string()),
         _ => aadt_dxf::export_path(doc, p).map_err(|e| e.to_string()),
     }
@@ -104,7 +109,7 @@ impl Command for OpenCmd {
         "OPEN"
     }
     fn help(&self) -> &str {
-        "OPEN path.dxf|path.dwg|path.aadt — replace the document with an imported drawing"
+        "OPEN path.dxf|path.dwg|path.aadt|path.vdb — replace the document with an imported drawing"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = path_from_args(args, "OPEN")?;
@@ -134,7 +139,7 @@ impl Command for SaveCmd {
         "SAVE"
     }
     fn help(&self) -> &str {
-        "SAVE path.dxf|path.dwg|path.aadt — write the document (DXF, DWG subset, or native .aadt)"
+        "SAVE path.dxf|path.dwg|path.aadt|path.vdb — write the document (DXF, DWG subset, native .aadt, or custom vector-db .vdb)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = path_from_args(args, "SAVE")?;
@@ -549,6 +554,43 @@ impl Command for MapMetaCmd {
                 "MAPMETA: unknown subcommand {other:?} (ALL|RECONCILE|ACCEPT id|SET id <class|layer>|INFO id)"
             )),
         }
+    }
+}
+
+/// `WITHIN` — select entities in a window using the custom vector database's
+/// spatial index (a bbox query over `aadt-vdb`), instead of a linear scan.
+struct WithinCmd;
+impl Command for WithinCmd {
+    fn name(&self) -> &str {
+        "WITHIN"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["VSELECT", "VWINDOW"]
+    }
+    fn help(&self) -> &str {
+        "WITHIN x1 y1 x2 y2 — select entities inside a window via the vector-db spatial index"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let coord = |i: usize, name: &str| -> Result<f64, String> {
+            args.get(i)
+                .ok_or_else(|| format!("WITHIN: missing {name}"))?
+                .parse::<f64>()
+                .map_err(|_| format!("WITHIN: bad {name}"))
+        };
+        let rect = Bbox::from_corners(
+            Point2::new(coord(0, "x1")?, coord(1, "y1")?),
+            Point2::new(coord(2, "x2")?, coord(3, "y2")?),
+        );
+        // Build the vector-db spatial index over the live drawing and query it.
+        let index = aadt_vdb::build_index(&ctx.doc);
+        let ids = index.query_bbox(rect);
+        ctx.selection = ids.clone();
+        Ok(format!(
+            "WITHIN: {} entit{} in the window (vector-db index over {} total)",
+            ids.len(),
+            if ids.len() == 1 { "y" } else { "ies" },
+            index.len()
+        ))
     }
 }
 

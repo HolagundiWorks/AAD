@@ -41,6 +41,7 @@ dependencies = [
  "aadt-render",
  "aadt-standards",
  "aadt-store",
+ "aadt-vdb",
  "aadt-vecdb",
 ]
 
@@ -116,6 +117,7 @@ dependencies = [
  "aadt-embed",
  "aadt-geometry",
  "aadt-model",
+ "aadt-vdb",
  "aadt-vecdb",
 ]
 
@@ -163,6 +165,14 @@ dependencies = [
  "aadt-model",
  "aadt-vecdb",
  "rusqlite",
+]
+
+[[package]]
+name = "aadt-vdb"
+version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-model",
 ]
 
 [[package]]

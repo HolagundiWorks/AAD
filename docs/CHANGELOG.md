@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Custom vector database store (`.vdb`)
+
+The drawing can now be **stored as a custom vector database** — a purpose-built,
+self-contained on-disk format (`aadt-vdb`, extension `.vdb`) that holds every
+entity as a native binary vector record with a **built-in spatial index**, rather
+than as text payloads in SQLite. See
+[ADR-0011](adr/0011-vector-database-store.md).
+
+- **Native vector records** for all geometry (line/polyline/circle/arc/text/
+  insert) plus layers, blocks, hatches, dimensions, floors/spaces, and properties
+  — full-fidelity round-trip. Hand-rolled little-endian binary; no SQLite, no
+  `serde`, no external crate, `unsafe`-free. Atomic temp-file-then-rename writes.
+- **Built-in spatial index** (uniform grid over entity extents), persisted in the
+  file: window/point queries are `O(cells + hits)` instead of a linear scan.
+- **Used as storage + queried:** `OPEN`/`SAVE` recognize `.vdb` (CLI and app file
+  dialogs). New `WITHIN x1 y1 x2 y2` command (aliases `VSELECT`/`VWINDOW`) selects
+  entities in a window via the index; LISP `(aadt-within x1 y1 x2 y2)`. `.aadt`
+  (SQLite) remains the default working format.
+
 ### Embeddings vector DB → predefined-metadata mapping (`MAPMETA`)
 
 The drawing is now **stored as a vector database**: each element gets a geometric
