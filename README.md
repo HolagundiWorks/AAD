@@ -14,6 +14,7 @@ the focus. Everything runs locally.
 > of your way."
 
 See [`docs/`](docs/) for engineering docs:
+- [`docs/vision/ai-native-platform.md`](docs/vision/ai-native-platform.md) — the AI-native platform direction (multi-store architecture, semantic objects, AI services).
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestones, curated command band, product locks.
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — layers and data flow.
 - [`docs/audit/2026-07-industry-standards-audit.md`](docs/audit/2026-07-industry-standards-audit.md) — industry grade + gap register.

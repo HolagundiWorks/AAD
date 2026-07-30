@@ -9,6 +9,15 @@ production.
 
 Each milestone is a shippable, verifiable increment.
 
+> **Direction (2026-07):** the long-term destination is now the
+> [AI-Native CAD Platform](vision/ai-native-platform.md) — an
+> engineering-intelligence platform on a multi-layer data architecture
+> (geometry / object / metadata / vector / graph / spatial stores). See
+> [ADR-0012](adr/0012-ai-native-platform-pivot.md) for which locks below it
+> supersedes (phase by phase, never silently) and the
+> [phased roadmap](plans/2026-07-ai-native-phases.md) for sequencing. Until a
+> phase ships, the locks below govern the shipping product.
+
 ## Product locks
 
 - **2D CAD only.** Plan/elevation/section drafting in the plane. No solids,

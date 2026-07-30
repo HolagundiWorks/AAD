@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### AI-native platform direction adopted (docs)
+
+- Added the canonical [AI-Native CAD Platform guidelines](vision/ai-native-platform.md):
+  multi-layer data architecture (geometry / object / metadata / vector / graph /
+  spatial stores), intelligent objects, semantic engine, AI services,
+  construction intelligence, enterprise APIs — with "geometry is the source of
+  truth" and "AI never owns data" as governing principles.
+- [ADR-0012](adr/0012-ai-native-platform-pivot.md) records the pivot and which
+  existing product locks each future phase supersedes (never silently).
+- [Phased roadmap](plans/2026-07-ai-native-phases.md) maps the six stores onto
+  the existing crates (VastuDB → Geometry DB + Spatial Index; `aadt-embed`/
+  `aadt-vecdb` → Vector DB; `aadt-detect`/`aadt-standards` → Object DB seeds)
+  and sequences Phases 1–6, starting with intelligent objects + a Graph DB.
+- Docs only — no code changes; current locks govern until a phase ships.
+
 ### Rebrand → AAD (Accelerated Architectural Drafting)
 
 - Renamed the product from **AADT** to **AAD — Accelerated Architectural
