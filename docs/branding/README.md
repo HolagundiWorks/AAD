@@ -1,6 +1,6 @@
-# AADT brand guidelines
+# AAD brand guidelines
 
-**Product:** AADT — 2D Architectural Drafting  
+**Product:** AAD — 2D Architectural Drafting  
 **Voice:** Command-first, local-first, calm Fluent chrome with a bold orange identity.  
 **Primary brand color:** Orange (`#E85D04`)
 
@@ -8,7 +8,7 @@
 
 ## Brand idea
 
-Keep it simple: **orange mark + plain “AADT” text**. No geometric wordmark / stylized logo lockup in the product UI.
+Keep it simple: **orange mark + plain “AAD” text**. No geometric wordmark / stylized logo lockup in the product UI.
 
 The mark is a soft-apex open **A** (white on orange). The name is system UI text next to it.
 
@@ -32,7 +32,7 @@ Do **not** use Windows blue (`#005FB8`) for brand. Keep Fluent System Icons tint
 ## Typography & shapes (Fluent 2)
 
 - UI: Segoe UI on Windows (Caption 12 / Body 14 / Subtitle 20); Source Sans 3 for drawing text.
-- Product name in chrome: plain **AADT** (strong), not a custom lettering logo.
+- Product name in chrome: plain **AAD** (strong), not a custom lettering logo.
 - Controls: 4px radius · cards/menus: 8px · dialogs: 12px · edge-docked bars: 0.
 - Elevation: 1px strokes + soft ambient shadow on floating windows.
 
@@ -40,9 +40,9 @@ Do **not** use Windows blue (`#005FB8`) for brand. Keep Fluent System Icons tint
 
 ## Voice & naming
 
-- Short name: **AADT**
-- Full: **AADT — 2D Architectural Drafting** (AADT is the product name, not an acronym)
-- Window title: `AADT`
+- Short name: **AAD**
+- Full: **AAD — 2D Architectural Drafting** (AAD is the product name, not an acronym)
+- Window title: `AAD`
 - Tagline (optional): *Draft the way you always have — fast, predictable, out of your way.*
 
 ---
@@ -62,7 +62,7 @@ Logo construction rules: see [logo-guidelines.md](./logo-guidelines.md).
 
 ## UI application
 
-- Chrome: **mark + “AADT” text** only (right of the top bar).
+- Chrome: **mark + “AAD” text** only (right of the top bar).
 - Orange for hierarchy only: selection, active nav, units chip, prompts.
 - Do not flood panels with orange fills.
 - Fluent toolbar icons remain monochrome; tint to text or brand orange when selected.

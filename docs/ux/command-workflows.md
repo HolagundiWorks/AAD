@@ -311,7 +311,7 @@ Blocks Manager: create from selection, add params, edit selected INSERT attrs / 
 `BPLTSTART` switches the drawing to metres and seeds BP-/AP- layers. `WINLABEL` reads `WNAME` on INSERT attributes.
 
 ---
-## AADT / file (brief)
+## AAD / file (brief)
 
 | Command | Role |
 |---------|------|

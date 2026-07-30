@@ -1038,10 +1038,10 @@ impl AadtApp {
                     }
                     if icon_btn(ui, Icon::Open, "Open… (Ctrl+O)").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("AADT / DXF / DWG", &["aadt", "dxf", "dwg"])
+                            .add_filter("AAD / DXF / DWG", &["aadt", "dxf", "dwg"])
                             .add_filter("DWG", &["dwg"])
                             .add_filter("DXF", &["dxf"])
-                            .add_filter("AADT", &["aadt"])
+                            .add_filter("AAD", &["aadt"])
                             .pick_file()
                         {
                             let p = path.display().to_string();
@@ -1073,7 +1073,7 @@ impl AadtApp {
                         self.seed_plot_dialog();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("AADT").strong().color(color::TEXT));
+                        ui.label(egui::RichText::new("AAD").strong().color(color::TEXT));
                         ui.add_space(space::XS);
                         brand_mark_widget(ui, 16.0);
                     });

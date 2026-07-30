@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Rebrand → AAD (Accelerated Architectural Drafting)
+
+- Renamed the product from **AADT** to **AAD — Accelerated Architectural
+  Drafting** across the user-facing surface: desktop window titles, the app
+  logo/wordmark and brand tooltip, file-dialog filter labels, the default
+  title-block firm name, the CLI banner, README/NOTICE, and the branding /
+  architecture / UX / roadmap docs.
+- Internal identifiers are unchanged for compatibility: the `aadt-*` crates, the
+  `aadt` binary, the `.aadt` file extension, and the `AADT-*` entity/command
+  keys keep their names. Logo art files and historical ADRs were left as-is.
+
 ### Layer manager → AutoCAD Layer Properties grid
 
 - Rebuilt the Layer Manager as an AutoCAD-style **aligned, striped column grid**
@@ -125,7 +136,7 @@ X-Large 12):
   subtle: dialogs ≈ shadow28 (y8/blur20), menus & tooltips ≈ shadow8 (y4/blur8).
 - **Motion** — hover/rest transitions at ~100ms (`durationFaster`).
 - **Color** — status INFO uses the Fluent 2 brand blue `#0F6CBD` (was the
-  Fluent 1 `#0078D4`); AADT orange stays the product brand.
+  Fluent 1 `#0078D4`); AAD orange stays the product brand.
 
 ### TRIM — AutoCAD-style drag-to-trim + hover ghost
 

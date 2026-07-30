@@ -40,24 +40,24 @@ impl Default for UserPrefs {
 }
 
 impl UserPrefs {
-    /// `%APPDATA%/AADT/prefs.json` on Windows; `dirs`-style elsewhere via
+    /// `%APPDATA%/AAD/prefs.json` on Windows; `dirs`-style elsewhere via
     /// `$XDG_CONFIG_HOME` / `$HOME/.config`.
     pub fn config_path() -> Option<PathBuf> {
         #[cfg(windows)]
         {
             let appdata = std::env::var_os("APPDATA")?;
-            Some(PathBuf::from(appdata).join("AADT").join("prefs.json"))
+            Some(PathBuf::from(appdata).join("AAD").join("prefs.json"))
         }
         #[cfg(not(windows))]
         {
             if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-                return Some(PathBuf::from(xdg).join("aadt").join("prefs.json"));
+                return Some(PathBuf::from(xdg).join("aad").join("prefs.json"));
             }
             let home = std::env::var_os("HOME")?;
             Some(
                 PathBuf::from(home)
                     .join(".config")
-                    .join("aadt")
+                    .join("aad")
                     .join("prefs.json"),
             )
         }

@@ -422,7 +422,7 @@ fn cmd_app(_args: &[String]) -> Result<(), String> {
 }
 
 const USAGE: &str = "\
-AADT — 2D architectural drafting
+AAD — Accelerated Architectural Drafting
 
 Usage:
   aadt run <script.aadt>                 Execute a command script

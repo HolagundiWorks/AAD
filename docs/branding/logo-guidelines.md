@@ -1,15 +1,15 @@
-# AADT logo design guidelines
+# AAD logo design guidelines
 
 ## Concept
 
 **Simple mark + plain text.**  
-Orange square with a soft-apex open **A**, paired with the word **AADT** in system UI type. No stylized geometric wordmark in product chrome.
+Orange square with a soft-apex open **A**, paired with the word **AAD** in system UI type. No stylized geometric wordmark in product chrome.
 
 ## Mark anatomy
 
 1. **Field** — solid `#E85D04`, square corners.
 2. **Glyph** — white open A; monoline; round caps; soft apex; short crossbar.
-3. **Name** — “AADT” as plain text beside the mark (not drawn into the SVG).
+3. **Name** — “AAD” as plain text beside the mark (not drawn into the SVG).
 
 ## Variants
 
@@ -27,7 +27,7 @@ Orange square with a soft-apex open **A**, paired with the word **AADT** in syst
 ## Do
 
 - Keep the mark simple and bold.
-- Pair with plain “AADT” text.
+- Pair with plain “AAD” text.
 - Use brand orange or white for the glyph only.
 
 ## Don’t

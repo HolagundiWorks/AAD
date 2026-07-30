@@ -26,7 +26,7 @@ license = "Apache-2.0"
 repository = "https://github.com/holagundiworks/aadt"
 authors = ["HolagundiWorks"]
 
-# AADT M0 is deliberately dependency-free (std only) to keep the build hermetic
+# AAD M0 is deliberately dependency-free (std only) to keep the build hermetic
 # and CI fast. External crates (dxf, wgpu, egui, rusqlite, ollama clients, ...)
 # arrive with the milestones that need them — see docs/ROADMAP.md and docs/adr.
 [workspace.dependencies]

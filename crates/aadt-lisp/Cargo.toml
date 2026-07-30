@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Embedded Scheme/AutoLISP-compatible interpreter with read access to AADT outputs. Skeleton — built in M6."
+description = "Embedded Scheme/AutoLISP-compatible interpreter with read access to AAD outputs. Skeleton — built in M6."
 
 [dependencies]
 aadt-geometry.workspace = true

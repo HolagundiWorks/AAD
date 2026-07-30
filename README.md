@@ -1,11 +1,11 @@
-# AADT — 2D Architectural Drafting
+# AAD — Accelerated Architectural Drafting
 
 <p align="left">
   <img src="crates/aadt-app/assets/branding/aadt_mark.svg" alt="" height="28" />
-  <strong>AADT</strong>
+  <strong>AAD</strong>
 </p>
 
-AADT is a lean, **keyboard-first 2D CAD drafting tool** for architecture, built
+AAD is a lean, **keyboard-first 2D CAD drafting tool** for architecture, built
 on a native command-line-first core. Drafting speed comes first: the command
 line is the primary interaction engine, the mouse assists, and the canvas stays
 the focus. Everything runs locally.
@@ -36,7 +36,7 @@ input, docked Layers/Properties, and `OPEN`/`SAVE` for `.dxf` / `.dwg` /
 wgpu-at-100k and ODA-grade DWG fidelity remain later work.
 
 ```sh
-# Drive AADT with a command script
+# Drive AAD with a command script
 cargo run -p aadt-cli -- run fixtures/demo.aadt
 
 # Desktop shell (needs --features app)

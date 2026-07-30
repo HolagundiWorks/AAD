@@ -1,6 +1,6 @@
 # Architecture Overview
 
-AADT is layered so the **CAD core is the substrate** — a document model, a
+AAD is layered so the **CAD core is the substrate** — a document model, a
 geometry kernel, and a command interpreter — with drafting capabilities
 (detection, standards, libraries, documentation, PDF, LISP) as layers on top.
 The core's job is to produce clean, structured geometry; the capability layers
@@ -8,7 +8,7 @@ consume that model.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                      AADT Application (aadt-app / aadt-cli)     │
+│                      AAD Application (aadt-app / aadt-cli)     │
 ├───────────────────────────────────────────────────────────────┤
 │                     CAPABILITIES (on the core)                 │
 │   aadt-detect  │  aadt-docs  │  aadt-standards  │  aadt-pdf     │
@@ -65,7 +65,7 @@ Key properties:
 Mouse = **position**, keyboard = **intent**, Space = **execute**
 ([`command_engine`](../../crates/aadt-app/src/command_engine.rs)).
 
-AADT follows classic AutoCAD command-loop rules (Enter≈Space, keyword options,
+AAD follows classic AutoCAD command-loop rules (Enter≈Space, keyword options,
 noun-verb **and** verb-noun selection, dyn prompts) without chasing AutoCAD’s
 full command count. Deep dive + step tables:
 
@@ -105,7 +105,7 @@ three-point aligned with AutoCAD-like glyphs (see workflows doc).
 - **Autosave / recovery.** Dirty drawings with a known path autosave to a
   `*.autosave.aadt` sibling on a timer; on open, a newer autosave prompts
   Restore / Discard. Prefs (`ortho` / `osnap` / panel width / …) live in
-  `%APPDATA%/AADT/prefs.json` (or XDG config).
+  `%APPDATA%/AAD/prefs.json` (or XDG config).
 
 ## GUI chrome (Windows 11 / Fluent)
 
