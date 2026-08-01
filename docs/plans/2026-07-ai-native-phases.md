@@ -16,7 +16,7 @@ engineering intent accurate · semantically understandable · scales) and keep
 |---|---|---|---|
 | Geometry DB | ✅ 2D vector records (`.vdb` VastuDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
 | Spatial Index | ✅ Uniform-grid bbox index, persisted in `.vdb` | `aadt-vdb` | R-tree option; wire into GUI pick/osnap; perf targets |
-| Vector DB | ⚠️ Per-element geometry embeddings + kNN | `aadt-embed`, `aadt-vecdb` | Drawing/text/visual embeddings; PDFs/specs/photos; RAG |
+| Vector DB | ✅ Geometry + text + aggregate embeddings, kNN, BM25 corpus (M11) | `aadt-embed`, `aadt-vecdb` | PDF/photo ingestion; relationship embeddings; ANN index for perf |
 | Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10) | `aadt-object` | Editable props UI; MAPMETA-driven objects for undetected geometry |
 | Metadata DB | ⚠️ DrawingProperties + AIA layer catalog | `aadt-model`, `aadt-standards` | Material libraries, semantic layer defaults, AI tags |
 | Graph DB | ✅ Persisted typed relationships + promotion (M10) | `aadt-graph` | `Supports` population (needs slabs); constraint-aware edges |
@@ -49,18 +49,35 @@ The largest net-new piece; everything later leans on it. Tracked as
 promotion is deterministic; graph queries match brute force; audit row per
 mutation.
 
-## Phase 2 — Semantic engine + retrieval (Vector DB grows up)
+## Phase 2 — Semantic engine + retrieval (Vector DB grows up) — ✅ core shipped as **M11**
 
-1. **Embedding types:** extend `aadt-embed` beyond geometry — text embedding
-   (deterministic local model over annotations/metadata), drawing-level
-   embedding (aggregate), relationship embedding (graph context). Regenerate on
-   approved modification (keyed off `Document::revision`, as today).
-2. **Semantic search:** `FIND <text|id>` — cosine search across object/drawing
-   embeddings in `aadt-vecdb`; duplicate detection (near-identical clusters).
-3. **External corpus (RAG seed):** index sidecar documents (PDF text via
-   `aadt-pdf`, specs, standards) into the vector store with source refs;
-   `ASKDOCS`-style retrieval returns cited passages. Local-only.
-4. **Perf:** meet `<100 ms` search on 100k+ vectors (ANN index if needed).
+Tracked as [ROADMAP M11](../ROADMAP.md#m11--ai-native-phase-2-semantic-search--local-retrieval-).
+
+1. **Embedding types:** ✅ `aadt-embed` gained `text_embedding` (64-dim character
+   n-gram hashing — no training, no dependencies) and `drawing_embedding` /
+   `object_embedding` (mean-pooled aggregates). Relationship (graph-context)
+   embeddings remain open.
+2. **Semantic search:** ✅ `FIND <text>` over element labels, `FIND SIMILAR id`
+   over the geometric embedding space, and `FIND DUPES` for congruent geometry.
+   `FIND` sets the selection, so hits feed the next command.
+3. **External corpus (RAG seed):** ✅ `ASKDOCS INDEX <path>` chunks a text
+   document per paragraph; `ASKDOCS <question>` returns passages with source and
+   paragraph number. Ranking is **BM25** over word tokens with an n-gram cosine
+   fallback. Local-only. PDF ingestion via `aadt-pdf` is still open — today the
+   corpus takes plain text/Markdown.
+4. **Perf:** open. Corpus search is O(n·|q|) per query and duplicate detection is
+   O(n²); both are fine at drawing scale but neither is the ANN index the
+   `<100 ms` on 100k+ vectors gate will need.
+
+**Design note — why BM25 rather than embedding cosine for the corpus.** The
+character n-gram vector is 64 hashed buckets. Paragraph-length text fills nearly
+every bucket, so all passages look alike (measured: every candidate scored
+84–87%, and the correct answer ranked *third*). IDF re-weighting cannot fix this
+because the buckets are collided hash bins, not terms — the weights come out
+near-uniform and cancel. BM25 over word tokens scores on term rarity and ranks
+the right passage first by a wide margin. The n-gram model is kept where it does
+work well: short labels, where `FIND wall` cleanly separates walls (75%) from
+columns (9%).
 
 ## Phase 3 — AI service layer (assistive, gated)
 

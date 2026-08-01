@@ -13,7 +13,10 @@ use aadt_graph::{promote::promote_with_audit, Graph};
 use aadt_model::EntityId;
 use aadt_object::{AuditLog, ObjectId, ObjectStore};
 use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
-use aadt_vecdb::{accept, map_metadata, set_class, set_layer, Thresholds, VectorDb};
+use aadt_vecdb::{
+    accept, find_by_text, find_duplicates, find_similar_to, map_metadata, set_class, set_layer,
+    CorpusDb, Thresholds, VectorDb,
+};
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -24,7 +27,10 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(OpenCmd));
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(HistoryCmd));
-    registry.register(Box::new(MapMetaCmd::new()));
+    let mapstate: SharedMapState = Rc::new(RefCell::new(None));
+    registry.register(Box::new(MapMetaCmd::new(mapstate.clone())));
+    registry.register(Box::new(FindCmd { st: mapstate }));
+    registry.register(Box::new(AskDocsCmd::new()));
     registry.register(Box::new(WithinCmd));
     let objstate = Rc::new(RefCell::new(ObjState::default()));
     registry.register(Box::new(ObjectsCmd {
@@ -324,36 +330,42 @@ struct MapState {
     path: Option<String>,
 }
 
+/// Shared handle to the session's embeddings vector DB, so `MAPMETA` and `FIND`
+/// query the same vectors without each re-reading the `.aadt` file.
+type SharedMapState = Rc<RefCell<Option<MapState>>>;
+
+/// Load the vector DB from the current `.aadt` path (or start fresh) whenever the
+/// drawing path changes, so state persists across commands in a session.
+fn sync_map_state(st: &SharedMapState, ctx: &Context) {
+    let path = ctx.drawing_path.clone();
+    let mut g = st.borrow_mut();
+    let reload = match &*g {
+        None => true,
+        Some(s) => s.path != path,
+    };
+    if reload {
+        let model_id = default_classifier().model_id().to_string();
+        let db = path
+            .as_ref()
+            .filter(|p| is_aadt_path(p))
+            .and_then(|p| aadt_store::read_vecdb_path(p).ok().flatten())
+            .filter(|db| db.model_id() == model_id)
+            .unwrap_or_else(|| VectorDb::new(model_id, EMBED_DIM));
+        *g = Some(MapState { db, path });
+    }
+}
+
 struct MapMetaCmd {
-    st: RefCell<Option<MapState>>,
+    st: SharedMapState,
 }
 
 impl MapMetaCmd {
-    fn new() -> Self {
-        Self {
-            st: RefCell::new(None),
-        }
+    fn new(st: SharedMapState) -> Self {
+        Self { st }
     }
 
-    /// Load the vector DB from the current `.aadt` path (or start fresh) whenever
-    /// the drawing path changes, so state persists across commands in a session.
     fn sync(&self, ctx: &Context) {
-        let path = ctx.drawing_path.clone();
-        let mut g = self.st.borrow_mut();
-        let reload = match &*g {
-            None => true,
-            Some(s) => s.path != path,
-        };
-        if reload {
-            let model_id = default_classifier().model_id().to_string();
-            let db = path
-                .as_ref()
-                .filter(|p| is_aadt_path(p))
-                .and_then(|p| aadt_store::read_vecdb_path(p).ok().flatten())
-                .filter(|db| db.model_id() == model_id)
-                .unwrap_or_else(|| VectorDb::new(model_id, EMBED_DIM));
-            *g = Some(MapState { db, path });
-        }
+        sync_map_state(&self.st, ctx);
     }
 
     /// Persist the in-memory DB back into the `.aadt` file, if there is one.
@@ -910,6 +922,293 @@ impl Command for HistoryCmd {
             other => Err(format!(
                 "HISTORY: unknown subcommand {other:?} (LIST|SAVE|RESTORE|PURGE)"
             )),
+        }
+    }
+}
+
+/// `FIND` — semantic search over the drawing (AI-native Phase 2). Text queries
+/// match against each element's label (layer name + annotation text) using the
+/// character n-gram text model; `SIMILAR` and `DUPES` search the geometric
+/// embedding space held in the session's vector db.
+struct FindCmd {
+    st: SharedMapState,
+}
+
+impl FindCmd {
+    /// Default number of hits reported by a text search.
+    const TOP_K: usize = 10;
+    /// Cosine similarity at or above which two elements read as near-duplicates.
+    const DUP_THRESHOLD: f32 = 0.995;
+
+    fn do_text(&self, ctx: &mut Context, query: &str) -> Result<String, String> {
+        let hits = find_by_text(&ctx.doc, query, Self::TOP_K);
+        let hits: Vec<_> = hits.into_iter().filter(|h| h.score > 0.0).collect();
+        if hits.is_empty() {
+            return Ok(format!("FIND: nothing matches {query:?}"));
+        }
+        ctx.selection = hits.iter().map(|h| h.id).collect();
+        let lines: Vec<String> = hits
+            .iter()
+            .map(|h| format!("  #{} {} ({:.0}%)", h.id.0, h.layer, h.score * 100.0))
+            .collect();
+        Ok(format!(
+            "FIND {query:?}: {} match(es), selected:\n{}",
+            hits.len(),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_similar(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = EntityId(parse_id(args, 1, "FIND SIMILAR")?);
+        let hits = {
+            let g = self.st.borrow();
+            let Some(state) = g.as_ref() else {
+                return Err("FIND SIMILAR: run MAPMETA first to build the vector db".into());
+            };
+            if state.db.get(id).is_none() {
+                return Err(format!(
+                    "FIND SIMILAR: no embedding for #{} — run MAPMETA first",
+                    id.0
+                ));
+            }
+            find_similar_to(&state.db, id, Self::TOP_K)
+        };
+        // A non-positive cosine means actively dissimilar — not a match.
+        let hits: Vec<_> = hits.into_iter().filter(|h| h.score > 0.0).collect();
+        if hits.is_empty() {
+            return Ok(format!("FIND SIMILAR: nothing else resembles #{}", id.0));
+        }
+        ctx.selection = hits.iter().map(|h| h.id).collect();
+        let lines: Vec<String> = hits
+            .iter()
+            .map(|h| format!("  #{} {} ({:.0}%)", h.id.0, h.layer, h.score * 100.0))
+            .collect();
+        Ok(format!(
+            "{} element(s) similar to #{}, selected:\n{}",
+            hits.len(),
+            id.0,
+            lines.join("\n")
+        ))
+    }
+
+    fn do_dupes(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let threshold = match args.get(1) {
+            Some(s) => s
+                .parse::<f32>()
+                .map_err(|_| format!("FIND DUPES: bad threshold {s:?} (want 0.0–1.0)"))?,
+            None => Self::DUP_THRESHOLD,
+        };
+        let pairs = {
+            let g = self.st.borrow();
+            let Some(state) = g.as_ref() else {
+                return Err("FIND DUPES: run MAPMETA first to build the vector db".into());
+            };
+            find_duplicates(&state.db, threshold)
+        };
+        if pairs.is_empty() {
+            return Ok(format!(
+                "FIND DUPES: no near-duplicate geometry at ≥{:.0}% similarity",
+                threshold * 100.0
+            ));
+        }
+        let mut selection = Vec::new();
+        for p in &pairs {
+            if !selection.contains(&p.a) {
+                selection.push(p.a);
+            }
+            if !selection.contains(&p.b) {
+                selection.push(p.b);
+            }
+        }
+        ctx.selection = selection;
+        let lines: Vec<String> = pairs
+            .iter()
+            .take(20)
+            .map(|p| format!("  #{} ≈ #{} ({:.1}%)", p.a.0, p.b.0, p.similarity * 100.0))
+            .collect();
+        Ok(format!(
+            "{} duplicate pair(s) at ≥{:.0}% similarity:\n{}",
+            pairs.len(),
+            threshold * 100.0,
+            lines.join("\n")
+        ))
+    }
+}
+
+impl Command for FindCmd {
+    fn name(&self) -> &str {
+        "FIND"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["SEARCH", "SEMSEARCH"]
+    }
+    fn help(&self) -> &str {
+        "FIND <text>|SIMILAR id|DUPES [threshold] — semantic search over the drawing (selects the hits)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        sync_map_state(&self.st, ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" => Err("FIND: give a text query, or SIMILAR id / DUPES [threshold]".into()),
+            "SIMILAR" | "LIKE" => self.do_similar(ctx, args),
+            "DUPES" | "DUPLICATES" => self.do_dupes(ctx, args),
+            // Anything else is a free-text query (may be several words).
+            _ => self.do_text(ctx, args.join(" ").trim()),
+        }
+    }
+}
+
+/// `ASKDOCS` — retrieval over locally indexed spec/standard documents
+/// (AI-native Phase 2). Text files are chunked per paragraph, embedded with the
+/// character n-gram model, and searched by cosine similarity. Every answer cites
+/// its source, so the retrieved passage is the evidence — nothing is generated.
+struct AskDocsCmd {
+    st: RefCell<Option<CorpusState>>,
+}
+
+struct CorpusState {
+    corpus: CorpusDb,
+    path: Option<String>,
+}
+
+impl AskDocsCmd {
+    /// Passages returned per query.
+    const TOP_K: usize = 3;
+
+    fn new() -> Self {
+        Self {
+            st: RefCell::new(None),
+        }
+    }
+
+    /// (Re)load the corpus whenever the drawing path changes.
+    fn sync(&self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        let mut g = self.st.borrow_mut();
+        let reload = match &*g {
+            None => true,
+            Some(s) => s.path != path,
+        };
+        if reload {
+            let corpus = path
+                .as_ref()
+                .filter(|p| is_aadt_path(p))
+                .and_then(|p| aadt_store::read_corpus_path(p).ok().flatten())
+                .unwrap_or_default();
+            *g = Some(CorpusState { corpus, path });
+        }
+    }
+
+    /// Persist the corpus back into the drawing's `.aadt` file, if there is one.
+    fn persist(&self) {
+        if let Some(s) = self.st.borrow().as_ref() {
+            if let Some(p) = s.path.as_ref().filter(|p| is_aadt_path(p)) {
+                let _ = aadt_store::write_corpus_path(p, &s.corpus);
+            }
+        }
+    }
+
+    fn do_index(&self, args: &[String]) -> Result<String, String> {
+        let path = path_from_args(&args[1..], "ASKDOCS INDEX")?;
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("ASKDOCS INDEX: cannot read {path}: {e}"))?;
+        let added = {
+            let mut g = self.st.borrow_mut();
+            let state = g.as_mut().expect("state synced");
+            state.corpus.index_text(&path, &text)
+        };
+        self.persist();
+        if added == 0 {
+            return Ok(format!("ASKDOCS: {path} has no indexable text"));
+        }
+        Ok(format!("ASKDOCS: indexed {added} passage(s) from {path}"))
+    }
+
+    fn do_sources(&self) -> Result<String, String> {
+        let g = self.st.borrow();
+        let state = g.as_ref().expect("state synced");
+        let sources = state.corpus.sources();
+        if sources.is_empty() {
+            return Ok("ASKDOCS: no documents indexed — ASKDOCS INDEX <path>".into());
+        }
+        let lines: Vec<String> = sources
+            .iter()
+            .map(|s| {
+                let n = state
+                    .corpus
+                    .chunks()
+                    .iter()
+                    .filter(|c| c.source == *s)
+                    .count();
+                format!("  {s} ({n} passage(s))")
+            })
+            .collect();
+        Ok(format!(
+            "{} document(s), {} passage(s):\n{}",
+            sources.len(),
+            state.corpus.len(),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_ask(&self, query: &str) -> Result<String, String> {
+        let g = self.st.borrow();
+        let state = g.as_ref().expect("state synced");
+        if state.corpus.is_empty() {
+            return Err("ASKDOCS: no documents indexed — ASKDOCS INDEX <path> first".into());
+        }
+        let results = state.corpus.search(query, Self::TOP_K);
+        if results.is_empty() {
+            return Ok(format!("ASKDOCS: nothing in the corpus matches {query:?}"));
+        }
+        // BM25 scores are unbounded and comparable only within one result set,
+        // so rank them rather than dressing them up as a percentage.
+        let lines: Vec<String> = results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                format!(
+                    "  {}. [{}:{}] (score {:.2})\n     {}",
+                    i + 1,
+                    r.source,
+                    r.seq,
+                    r.score,
+                    r.text
+                )
+            })
+            .collect();
+        Ok(format!(
+            "ASKDOCS {query:?} — {} passage(s), most relevant first:\n{}",
+            results.len(),
+            lines.join("\n")
+        ))
+    }
+}
+
+impl Command for AskDocsCmd {
+    fn name(&self) -> &str {
+        "ASKDOCS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DOCS", "RAG"]
+    }
+    fn help(&self) -> &str {
+        "ASKDOCS <question>|INDEX path|SOURCES — retrieve cited passages from indexed spec documents"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        self.sync(ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" => Err("ASKDOCS: ask a question, or INDEX <path> / SOURCES".into()),
+            "INDEX" | "ADD" => self.do_index(args),
+            "SOURCES" | "LIST" => self.do_sources(),
+            _ => self.do_ask(args.join(" ").trim()),
         }
     }
 }

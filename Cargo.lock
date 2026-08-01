@@ -183,6 +183,7 @@ dependencies = [
 name = "aadt-store"
 version = "0.0.0"
 dependencies = [
+ "aadt-embed",
  "aadt-geometry",
  "aadt-graph",
  "aadt-model",

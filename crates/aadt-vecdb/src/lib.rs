@@ -10,13 +10,23 @@
 //! The [`mapping`] engine embeds and classifies every element, **auto-assigns**
 //! confident predictions, and leaves uncertain ones **pending** for
 //! reconciliation — never silently mis-filing geometry.
+//!
+//! Two retrieval layers sit on top (AI-native Phase 2):
+//! - [`search`] — semantic search over the drawing: by text label, by geometric
+//!   similarity to a given element, or for near-duplicate geometry.
+//! - [`corpus`] — a local BM25-ranked text corpus over sidecar spec documents,
+//!   returning cited passages. Retrieval only: nothing is generated.
 
+pub mod corpus;
 mod mapping;
+pub mod search;
 
 use aadt_embed::ElementClass;
 use aadt_model::{EntityId, SpaceCategory};
 
+pub use corpus::{CorpusChunk, CorpusDb, CorpusResult};
 pub use mapping::{accept, map_metadata, set_class, set_layer, MappingReport, Thresholds};
+pub use search::{find_by_text, find_duplicates, find_similar_to, DuplicatePair, SearchHit};
 
 /// Reconciliation state of an element's metadata mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

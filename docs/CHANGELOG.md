@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### AI-Native Phase 2 (M11): semantic search + local retrieval
+
+Second implementation phase of the AI-native platform (ADR-0012). Everything
+stays local, offline, and deterministic — retrieval surfaces existing content
+and cites it; nothing is generated or invented.
+
+- **Text + aggregate embeddings (`aadt-embed`).** `text_embedding` embeds a
+  string as a 64-dim character n-gram (2/3/4-gram) hash vector — no training,
+  no dependencies, so `WALL` / `A-WALL` / `WALL-TYPE` cluster together.
+  `drawing_embedding` / `object_embedding` mean-pool element vectors into a
+  single drawing- or object-level vector.
+- **Semantic search (`aadt-vecdb::search`).** `find_by_text` ranks elements by
+  their label (layer name + annotation text); `find_similar_to` searches the
+  geometric embedding space; `find_duplicates` reports congruent geometry by
+  all-pairs cosine above a threshold.
+- **Local corpus + RAG retrieval (`aadt-vecdb::corpus`).** Sidecar spec/standard
+  text is chunked per paragraph and ranked with **BM25** over word tokens, so a
+  passage wins on its distinctive terms rather than the boilerplate every clause
+  shares; when no query term occurs at all, scoring falls back to n-gram cosine
+  so morphological variants still match. Passages that match nothing are dropped
+  rather than padding the answer.
+- **Persistence.** `.aadt` schema **v8 → v9** (additive tables: `corpus_source`,
+  `corpus_chunk`; carried across plain `SAVE`). v8 files migrate in place with
+  geometry, objects, and audit intact.
+- **Surface.** `FIND <text>|SIMILAR id|DUPES [threshold]` (aliases `SEARCH` /
+  `SEMSEARCH`), which selects its hits; and `ASKDOCS <question>|INDEX path|
+  SOURCES` (aliases `DOCS` / `RAG`), which answers only with cited passages.
+
+**Honest limitation.** `ASKDOCS` is retrieval, not generation: it returns the
+passages most relevant to a question, each with its source and paragraph number,
+and never composes an answer. BM25 scores are unbounded and comparable only
+within one result set, so they are shown as a rank plus a raw score, not a
+percentage.
+
 ### AI-Native Phase 1 (M10): intelligent objects + Graph DB
 
 First implementation phase of the AI-native platform (ADR-0012). Geometry stays

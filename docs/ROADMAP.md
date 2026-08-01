@@ -263,6 +263,24 @@ them.
 | M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + VastuDB `.vdb` **v2** sections; carried across resave | ✅ | Additive; v7/v1 files still open |
 | M10.5 | Surface: `OBJECTS` / `RELATIONS` commands + LISP (`aadt-objects`, `aadt-relations`) | ✅ | Promotion is deterministic and undo-safe (objects live beside the document) |
 
+## M11 — AI-Native Phase 2: Semantic search + local retrieval ✅ (core)
+
+Second implementation phase (ADR-0012). Retrieval only: every answer points at
+content that already exists in the drawing or an indexed document. Nothing is
+generated, and nothing leaves the machine.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M11.1 | `aadt-embed` — **text embeddings**: 64-dim character n-gram (2/3/4-gram) hashing, plus `drawing_embedding` / `object_embedding` mean-pooling | ✅ | No training and no dependencies; `WALL` / `A-WALL` / `WALL-TYPE` cluster |
+| M11.2 | `aadt-vecdb::search` — **semantic search**: `find_by_text` over element labels, `find_similar_to` over geometry, `find_duplicates` by all-pairs cosine | ✅ | `FIND` selects its hits, so the result feeds straight into the next command |
+| M11.3 | `aadt-vecdb::corpus` — **local corpus + RAG retrieval**: paragraph chunking, **BM25** ranking over word tokens, n-gram cosine fallback | ✅ | BM25 is what stops shared boilerplate ("shall be … mm") from dominating |
+| M11.4 | Persistence: `.aadt` schema **v9** (`corpus_source`, `corpus_chunk`); carried across resave | ✅ | Additive; v8 files migrate with geometry/objects/audit intact |
+| M11.5 | Surface: `FIND` / `ASKDOCS` commands | ✅ | `ASKDOCS` cites source + paragraph for every passage it returns |
+
+**Deliberately not in M11:** answer *generation*. `ASKDOCS` retrieves and cites
+passages; it never composes prose from them. Composition would mean asserting
+something no document says — the opposite of "AI never owns data" (ADR-0012).
+
 ## Post-1.0
 
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;

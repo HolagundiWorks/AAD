@@ -30,18 +30,22 @@
 //! deterministic; predictions are advisory and gated by confidence upstream.
 
 mod classes;
+pub mod drawing;
 mod features;
 mod model;
 mod rng;
+pub mod text;
 
 use aadt_model::{Document, Entity, SpaceCategory};
 
 pub use classes::ElementClass;
+pub use drawing::{drawing_embedding, object_embedding};
 pub use features::{element_features, features_for_geometry, FEATURE_DIM};
 pub use model::{
     default_model, default_prototypes, ClassPrototype, Model, EMBED_DIM, HIDDEN, MODEL_ID,
     NUM_CLASSES,
 };
+pub use text::{entity_text_label, text_embedding, TEXT_DIM};
 
 /// Per-class prototype (centroid) embeddings paired with their class — the
 /// labeled reference vectors a vector database can seed itself with.

@@ -5,9 +5,10 @@
 //! (time machine), and **takeoff runs**. Session undo is still RAM-only.
 //!
 //! Geometry is stored as a compact text payload (no serde). Schema version is in
-//! the `meta` table; older files migrate in place on open (currently through v6).
+//! the `meta` table; older files migrate in place on open (currently through v9).
 
 mod codec;
+mod corpus_io;
 mod history;
 mod object_io;
 mod takeoff_db;
@@ -27,6 +28,7 @@ use crate::codec::{
     decode_geometry, decode_hatch_boundaries, encode_geometry, encode_hatch_boundaries,
 };
 
+pub use corpus_io::{read_corpus, read_corpus_path, write_corpus, write_corpus_path};
 pub use history::{
     list_checkpoints, purge_auto_checkpoints, restore_checkpoint, save_named_checkpoint,
     CheckpointMeta, MAX_AUTO_CHECKPOINTS,
@@ -40,7 +42,7 @@ pub use takeoff_db::{
 pub use vecdb_io::{read_vecdb, read_vecdb_path, write_vecdb, write_vecdb_path};
 
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
@@ -401,6 +403,18 @@ pub(crate) fn ensure_extended_tables(conn: &Connection) -> Result<(), StoreError
             approved INTEGER NOT NULL DEFAULT 0,
             reason TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS corpus_source (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL,
+            indexed_at INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS corpus_chunk (
+            id INTEGER PRIMARY KEY NOT NULL,
+            source_id INTEGER NOT NULL REFERENCES corpus_source(id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            vec BLOB NOT NULL
+        );
         ",
     )?;
     Ok(())
@@ -423,6 +437,9 @@ pub(crate) fn migrate_schema(conn: &Connection, from: i64) -> Result<(), StoreEr
     }
     if from < 8 {
         migrate_to_v8(conn)?;
+    }
+    if from < 9 {
+        migrate_to_v9(conn)?;
     }
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
@@ -518,6 +535,11 @@ pub(crate) fn migrate_to_v7(conn: &Connection) -> Result<(), StoreError> {
 /// v7 → v8: the Object DB + Graph DB + object audit tables (AI-native Phase 1).
 /// Purely additive.
 pub(crate) fn migrate_to_v8(conn: &Connection) -> Result<(), StoreError> {
+    ensure_extended_tables(conn)
+}
+
+/// v8 → v9: corpus tables for local RAG (AI-native Phase 2). Purely additive.
+pub(crate) fn migrate_to_v9(conn: &Connection) -> Result<(), StoreError> {
     ensure_extended_tables(conn)
 }
 

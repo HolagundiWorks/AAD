@@ -138,6 +138,7 @@ pub fn copy_extended_tables(src: &Connection, dst: &Connection) -> Result<(), St
     copy_takeoff_tables(src, dst)?;
     copy_vec_tables(src, dst)?;
     copy_object_tables(src, dst)?;
+    copy_corpus_tables(src, dst)?;
     Ok(())
 }
 
@@ -413,6 +414,44 @@ fn copy_takeoff_tables(src: &Connection, dst: &Connection) -> Result<(), StoreEr
                 }
                 _ => {}
             }
+        }
+    }
+    Ok(())
+}
+
+/// Carry the local corpus tables (schema v9) across an atomic save rewrite, so
+/// a plain `SAVE` preserves indexed spec documents and their embeddings.
+fn copy_corpus_tables(src: &Connection, dst: &Connection) -> Result<(), StoreError> {
+    let has: bool = src
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='corpus_chunk'")?
+        .exists([])?;
+    if !has {
+        return Ok(());
+    }
+    {
+        let mut q = src.prepare("SELECT id, path, indexed_at FROM corpus_source ORDER BY id")?;
+        let rows: Vec<(i64, String, i64)> = q
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins =
+            dst.prepare("INSERT INTO corpus_source (id, path, indexed_at) VALUES (?1, ?2, ?3)")?;
+        for (id, path, at) in rows {
+            ins.execute(params![id, path, at])?;
+        }
+    }
+    {
+        let mut q =
+            src.prepare("SELECT id, source_id, seq, text, vec FROM corpus_chunk ORDER BY id")?;
+        let rows: Vec<(i64, i64, i64, String, Vec<u8>)> = q
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ins = dst.prepare(
+            "INSERT INTO corpus_chunk (id, source_id, seq, text, vec) VALUES (?1, ?2, ?3, ?4, ?5)",
+        )?;
+        for (id, src_id, seq, text, vec) in rows {
+            ins.execute(params![id, src_id, seq, text, vec])?;
         }
     }
     Ok(())
