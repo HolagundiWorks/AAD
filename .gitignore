@@ -12,6 +12,10 @@
 .idea/
 .vscode/
 
+# Installer build artifacts (scripts + .iss are tracked; outputs are not)
+/installer/Output/
+/installer/stage/
+
 # CLI scratch output
 /tmp-out.csv
 /out.csv

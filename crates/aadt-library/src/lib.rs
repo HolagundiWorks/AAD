@@ -41,8 +41,18 @@ impl From<String> for LibraryError {
     }
 }
 
-/// Resolve the default library root (cwd/`libraries`, or crate-relative fallback).
+/// Resolve the default library root: `libraries/` beside the executable
+/// (installed layout), then `cwd/libraries`, then walking up (workspace checkout).
 pub fn default_library_root() -> PathBuf {
+    // Installed layout: `libraries/` sits next to the binary — the most reliable
+    // anchor once the app is installed and launched from an arbitrary cwd.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(cand) = exe.parent().map(|d| d.join("libraries")) {
+            if cand.is_dir() {
+                return cand;
+            }
+        }
+    }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let local = cwd.join("libraries");
     if local.is_dir() {
