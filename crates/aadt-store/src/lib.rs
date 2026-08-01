@@ -36,8 +36,8 @@ pub use history::{
 pub use object_io::{read_objects, read_objects_path, write_objects, write_objects_path};
 pub use takeoff_db::{
     append_takeoff_delta, append_takeoff_run, latest_delta_summary, latest_published_run_id,
-    latest_takeoff_run_id, load_takeoff_run, mark_takeoff_published, TakeoffOpeningRow,
-    TakeoffRoomRow, TakeoffRunData, TakeoffStructuralRow, TakeoffWallRow,
+    latest_takeoff_run_id, load_takeoff_run, mark_takeoff_published, run_to_row_data,
+    TakeoffOpeningRow, TakeoffRoomRow, TakeoffRunData, TakeoffStructuralRow, TakeoffWallRow,
 };
 pub use vecdb_io::{read_vecdb, read_vecdb_path, write_vecdb, write_vecdb_path};
 

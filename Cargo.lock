@@ -55,6 +55,7 @@ dependencies = [
  "aadt-render",
  "aadt-standards",
  "aadt-store",
+ "aadt-takeoff",
  "aadt-vdb",
  "aadt-vecdb",
 ]
@@ -200,8 +201,19 @@ dependencies = [
  "aadt-graph",
  "aadt-model",
  "aadt-object",
+ "aadt-takeoff",
  "aadt-vecdb",
  "rusqlite",
+]
+
+[[package]]
+name = "aadt-takeoff"
+version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-graph",
+ "aadt-model",
+ "aadt-object",
 ]
 
 [[package]]

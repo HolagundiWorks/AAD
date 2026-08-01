@@ -46,6 +46,8 @@ pub fn register(interp: &mut Interpreter) {
         corpus,
     }));
     registry.register(Box::new(AskCmd));
+    registry.register(Box::new(TakeoffCmd));
+    registry.register(Box::new(BoqCmd));
     let objstate = Rc::new(RefCell::new(ObjState::default()));
     registry.register(Box::new(ObjectsCmd {
         st: objstate.clone(),
@@ -1547,5 +1549,200 @@ impl Command for AskCmd {
                 Err(format!("ASK: {reason}{tail}"))
             }
         }
+    }
+}
+
+/// `TAKEOFF` — quantity takeoff over the Object DB (AI-native Phase 4).
+/// Promotes the drawing into objects, measures them, and reports. `SAVE`
+/// persists the run into the `.aadt` takeoff tables.
+struct TakeoffCmd;
+
+impl TakeoffCmd {
+    fn report(run: &aadt_takeoff::TakeoffRun) -> String {
+        let t = run.totals();
+        let mut out = format!(
+            "TAKEOFF (rev {}): {} wall(s), {} room(s), {} opening(s)\n  \
+             wall area {:.2} m² net · volume {:.3} m³ · {} bricks\n  \
+             floor area {:.2} m² · paintable {:.2} m²",
+            run.doc_revision,
+            t.walls,
+            t.rooms,
+            t.openings,
+            t.wall_area,
+            t.wall_volume,
+            t.bricks,
+            t.floor_area,
+            t.paint_area,
+        );
+        // Assumptions a reviewer must confirm before pricing.
+        let assumed = run.assumed_openings();
+        if !assumed.is_empty() {
+            out.push_str(&format!(
+                "\n  note: {} opening(s) sized from defaults, not drawn dimensions",
+                assumed.len()
+            ));
+        }
+        let unattached = run
+            .quantities
+            .openings
+            .iter()
+            .filter(|o| o.in_wall.is_none())
+            .count();
+        if unattached > 0 {
+            out.push_str(&format!(
+                "\n  note: {unattached} opening(s) not attributed to a wall — not deducted"
+            ));
+        }
+        out
+    }
+}
+
+impl Command for TakeoffCmd {
+    fn name(&self) -> &str {
+        "TAKEOFF"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["QTO", "QUANTITIES"]
+    }
+    fn help(&self) -> &str {
+        "TAKEOFF [WALLS|ROOMS|OPENINGS|SAVE] — measure quantities from the Object DB"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let cfg = aadt_takeoff::TakeoffConfig::default();
+        let run = aadt_takeoff::run(&ctx.doc, &cfg);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" | "ALL" | "TOTALS" => Ok(Self::report(&run)),
+            "WALLS" => {
+                if run.quantities.walls.is_empty() {
+                    return Ok("TAKEOFF: no walls detected".into());
+                }
+                let lines: Vec<String> = run
+                    .quantities
+                    .walls
+                    .iter()
+                    .map(|w| {
+                        format!(
+                            "  #{} {} — {:.3} m × {:.3} m thick, net {:.2} m² (less {:.2} m² openings), {:.3} m³, {} bricks [{}]",
+                            w.object.0, w.layer, w.length, w.thickness, w.net_area,
+                            w.opening_area, w.volume, w.bricks, w.cost_code
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} wall(s):\n{}",
+                    run.quantities.walls.len(),
+                    lines.join("\n")
+                ))
+            }
+            "ROOMS" => {
+                if run.quantities.rooms.is_empty() {
+                    return Ok("TAKEOFF: no rooms detected".into());
+                }
+                let lines: Vec<String> = run
+                    .quantities
+                    .rooms
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "  #{} {} — floor {:.2} m², perimeter {:.2} m, wall finish {:.2} m², paint {:.2} m² [{}]",
+                            r.object.0, r.layer, r.floor_area, r.perimeter,
+                            r.wall_finish_area, r.paint_area, r.cost_code
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} room(s):\n{}",
+                    run.quantities.rooms.len(),
+                    lines.join("\n")
+                ))
+            }
+            "OPENINGS" => {
+                if run.quantities.openings.is_empty() {
+                    return Ok("TAKEOFF: no openings detected".into());
+                }
+                let lines: Vec<String> = run
+                    .quantities
+                    .openings
+                    .iter()
+                    .map(|o| {
+                        format!(
+                            "  #{} {} — {:.3} × {:.3} m = {:.3} m² [{}]{}{}",
+                            o.object.0,
+                            o.kind,
+                            o.width,
+                            o.height,
+                            o.area,
+                            o.cost_code,
+                            if o.measured { "" } else { " (assumed size)" },
+                            match o.in_wall {
+                                Some(w) => format!(" in wall #{}", w.0),
+                                None => " (no host wall)".into(),
+                            }
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} opening(s):\n{}",
+                    run.quantities.openings.len(),
+                    lines.join("\n")
+                ))
+            }
+            "SAVE" | "PUBLISH" => {
+                let path = resolve_drawing_path(ctx, None)?;
+                if !is_aadt_path(&path) {
+                    return Err("TAKEOFF SAVE: .aadt file required".into());
+                }
+                let data = aadt_store::run_to_row_data(&run, None);
+                let id = aadt_store::append_takeoff_run(&path, &data)
+                    .map_err(|e| format!("TAKEOFF SAVE: {e}"))?;
+                Ok(format!(
+                    "TAKEOFF: saved run #{id} ({} wall / {} room / {} opening rows)",
+                    data.walls.len(),
+                    data.rooms.len(),
+                    data.openings.len()
+                ))
+            }
+            other => Err(format!(
+                "TAKEOFF: unknown subcommand {other:?} (WALLS|ROOMS|OPENINGS|SAVE)"
+            )),
+        }
+    }
+}
+
+/// `BOQ` — the bill of quantities, aggregated by CSI MasterFormat cost code.
+struct BoqCmd;
+
+impl Command for BoqCmd {
+    fn name(&self) -> &str {
+        "BOQ"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["BILL"]
+    }
+    fn help(&self) -> &str {
+        "BOQ — bill of quantities by CSI MasterFormat cost code"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let run = aadt_takeoff::run(&ctx.doc, &aadt_takeoff::TakeoffConfig::default());
+        if run.boq.is_empty() {
+            return Ok("BOQ: nothing measured — the drawing has no promotable objects".into());
+        }
+        let mut out = format!("BOQ — {} line(s):", run.boq.len());
+        let mut current = "";
+        for l in &run.boq.lines {
+            if l.cost_code.code != current {
+                current = l.cost_code.code;
+                out.push_str(&format!("\n  {}", l.cost_code));
+            }
+            out.push_str(&format!(
+                "\n    {:<32} {:>12.3} {}",
+                l.description, l.quantity, l.unit
+            ));
+        }
+        Ok(out)
     }
 }

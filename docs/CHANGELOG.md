@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### AI-Native Phase 4 (M13): quantity takeoff returns, built on the Object DB
+
+Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).
+Reinstates the quantity engine removed in M3 — and with it
+[ADR-0005](adr/0005-cost-code-standard.md), which had been marked superseded only
+because takeoff was gone.
+
+- **`aadt-takeoff` — the quantity engine over objects.** Wall length, thickness,
+  gross/net area, volume, brick count and plaster area; room floor, ceiling,
+  wall-finish and paint areas; opening schedule; structural members.
+- **Opening deduction is a graph lookup, not a guess.** This is the whole reason
+  takeoff waited for Phase 1. Raw geometry cannot say which door pierces which
+  wall, so the M3 engine could measure a *gross* wall area honestly or guess
+  deductions by proximity. The Graph DB records `Door —BelongsTo→ Wall`, so a
+  net area is now derived. An opening the graph does not attribute is measured
+  and scheduled but **deducted from nothing**, and the command says so —
+  under-deducting is conservative and visible; guessing is neither.
+- **CSI MasterFormat cost codes (ADR-0005, revived).** Mapped by object kind,
+  refined by layer name — a drywall partition and a brick wall are both `Wall`
+  objects but different trades, and billing them as one line would be wrong.
+- **BOQ generation.** Quantities aggregated by cost code into a sorted bill.
+  Zero-quantity lines are dropped rather than inviting a reader to price nothing.
+- **Run persistence.** The `takeoff_*` tables that survived the M3 removal are
+  re-activated as-is — no schema change. They key rows by integer id, which is
+  what stable `ObjectId`s now supply and geometry never could.
+- **Surface.** `TAKEOFF [WALLS|ROOMS|OPENINGS|SAVE]` (aliases `QTO`/
+  `QUANTITIES`) and `BOQ` (alias `BILL`).
+
+**Assumptions are labelled, not hidden.** AADT is 2D: a plan has no storey
+height, so wall height is a config *input*. Openings without drawn dimensions
+use defaults and are flagged; `TAKEOFF` reports how many figures were assumed
+rather than measured, so an estimator confirms exactly those.
+
+**Honest limitations.** Walls are assumed prismatic and of uniform thickness — no
+lintels, sills, or returns. Brick count is a modular estimate with no wastage
+allowance, not a bond-aware count. Room finishes do not deduct openings (walls
+do). No pricing: the bill carries quantities and codes; rates belong to the
+estimator's system.
+
 ### AI-Native Phase 3 (M12): the AI service layer — propose, never commit
 
 Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first

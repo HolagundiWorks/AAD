@@ -17,7 +17,7 @@ engineering intent accurate · semantically understandable · scales) and keep
 | Geometry DB | ✅ 2D vector records (`.vdb` VastuDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
 | Spatial Index | ✅ Uniform-grid bbox index, persisted in `.vdb` | `aadt-vdb` | R-tree option; wire into GUI pick/osnap; perf targets |
 | Vector DB | ✅ Geometry + text + aggregate embeddings, kNN, BM25 corpus (M11) | `aadt-embed`, `aadt-vecdb` | PDF/photo ingestion; relationship embeddings; ANN index for perf |
-| Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10) | `aadt-object` | Editable props UI; MAPMETA-driven objects for undetected geometry |
+| Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10); measured for takeoff (M13) | `aadt-object`, `aadt-takeoff` | Editable props UI; MAPMETA-driven objects for undetected geometry |
 | Metadata DB | ⚠️ DrawingProperties + AIA layer catalog | `aadt-model`, `aadt-standards` | Material libraries, semantic layer defaults, AI tags |
 | Graph DB | ✅ Persisted typed relationships + promotion (M10) | `aadt-graph` | `Supports` population (needs slabs); constraint-aware edges |
 
@@ -108,12 +108,33 @@ express.
 cannot distinguish "considered and declined" from "never raised" — which is the
 question a reviewer actually asks.
 
-## Phase 4 — Construction intelligence (takeoff returns)
+## Phase 4 — Construction intelligence (takeoff returns) — ✅ core shipped as **M13**
 
-Reinstate quantity extraction on top of **objects** (not raw geometry):
-paint/plaster areas, brick/mortar, cost codes, BOQ generation — the M3
-machinery redone against the Object DB, with `takeoff_*` tables in `aadt-store`
-re-activated. Reports as plugins.
+Tracked as [ROADMAP M13](../ROADMAP.md#m13--ai-native-phase-4-quantity-takeoff-on-objects-);
+recorded in [ADR-0014](../adr/0014-object-based-takeoff.md).
+
+- ✅ Quantity extraction on top of **objects**, not raw geometry: paint/plaster
+  areas, brick/mortar volumes, room finishes, opening schedule.
+- ✅ Cost codes — [ADR-0005](../adr/0005-cost-code-standard.md) revived unchanged
+  (CSI MasterFormat), mapped by object kind and refined by layer name.
+- ✅ BOQ generation, aggregated by cost code with deterministic ordering.
+- ✅ `takeoff_*` tables in `aadt-store` re-activated — no schema change needed.
+- ⬜ Reports as plugins — deferred; the engine and the surfaces ship, the plugin
+  packaging does not.
+
+**Why this phase had to come after Phase 1.** The M3 engine measured raw
+geometry, and a bag of lines and block inserts cannot say which door pierces
+which wall. It could report a *gross* wall area honestly, or guess deductions by
+proximity — neither is good enough to price from. `Door —BelongsTo→ Wall` in the
+Graph DB turns the deduction into a lookup. Where the graph attributes nothing,
+the opening is measured and scheduled but subtracted from nothing, and the
+command says so: under-deducting is conservative and visible, guessing is
+neither.
+
+**What 2D cannot measure is declared, not invented.** Storey height is a config
+input (a plan has no height). Openings without drawn dimensions use defaults and
+are flagged `measured: false`, and `TAKEOFF` reports the count — so an estimator
+confirms exactly the assumed figures instead of discovering one mid-tender.
 
 ## Phase 5 — Enterprise + APIs
 

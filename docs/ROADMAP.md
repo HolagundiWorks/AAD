@@ -302,6 +302,28 @@ decision from the engineer to the tool.
 **Still open from the phase plan:** revision-comparison narration and
 standard-detail recommendation (both retrieval-shaped, deferred to a later pass).
 
+## M13 — AI-Native Phase 4: quantity takeoff, on objects ✅ (core)
+
+Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).
+Reinstates what M3 removed, rebuilt against the Object DB — and revives
+[ADR-0005](adr/0005-cost-code-standard.md) with it.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M13.1 | `aadt-takeoff` — **quantity engine over objects**: wall net area / volume / bricks / plaster, room finishes, opening schedule, structural members | ✅ | Reads engineering props off objects, not geometry |
+| M13.2 | **Opening deduction via the Graph DB** (`Door —BelongsTo→ Wall`) | ✅ | The reason takeoff waited for Phase 1; an unattributed opening is *not* deducted, and that is reported |
+| M13.3 | **CSI MasterFormat cost codes** — kind first, layer-name refinement | ✅ | ADR-0005 revived unchanged; masonry vs drywall bill separately |
+| M13.4 | **BOQ generation** — aggregated by cost code, deterministic ordering | ✅ | Zero-quantity lines dropped; identical output across runs so revisions diff |
+| M13.5 | Persistence: the surviving `takeoff_*` tables re-activated | ✅ | No schema change — stable `ObjectId`s are the row key the tables always wanted |
+| M13.6 | Surface: `TAKEOFF` / `BOQ` commands | ✅ | Reports how many figures were assumed rather than measured |
+
+**Not measurable in 2D, so declared as input:** storey height, and any opening
+without drawn dimensions. Both come from `TakeoffConfig` and are flagged in the
+report rather than presented as measurements.
+
+**Deliberately not in M13:** pricing. The bill carries quantities and cost codes;
+rates belong to the estimator's system.
+
 ## Post-1.0
 
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;
