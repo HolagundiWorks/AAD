@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### AI-Native Phase 3 (M12): the AI service layer — propose, never commit
+
+Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
+services that want to *write* to the drawing, and the mechanism that stops them
+doing it unsupervised.
+
+- **`aadt-assist` — the gated suggestion framework.** A service returns
+  `Suggestion` records carrying a confidence, a written rationale, and an
+  `Action` that is **data, not a closure**. Services never receive a mutable
+  document; one function (`apply`) commits, inside `Document::transact` (so an
+  accepted suggestion is one undo step) and writes an append-only audit row.
+  `reject` changes nothing but is *also* audited — a reviewer can tell a
+  declined suggestion from one never raised.
+- **Dimension prediction.** Proposes a linear dimension for every detected wall
+  carrying none, with confidence derived from detection quality. Re-running
+  skips walls that are already dimensioned.
+- **Code-check rule packs.** Three deterministic geometric rules (minimum room
+  area, minimum room width, minimum door width), graded violation/warning.
+  Confidence is always `1.0` — a code check that guesses is worse than none.
+  Findings are **advisory and never auto-fixed**: resolving a violation is a
+  design decision. With a spec corpus indexed (Phase 2), each finding cites the
+  governing passage.
+- **Natural-language command routing.** `route` maps a phrase to a *command
+  string* — never to geometry. The proposed command runs through the existing
+  deterministic interpreter or not at all, so NL inherits its validation, undo,
+  and audit. Unmatched phrasings are refused with candidates rather than guessed.
+- **BM25 stemming.** Corpus tokens now strip a plural `s`, so "dimension"
+  reaches a clause headed "Room Dimensions" — singular/plural pairs are
+  everywhere in spec prose, and exact matching missed them.
+- **Surface.** `SUGGEST DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id`
+  (alias `PROPOSE`), `CHECK [rule|RULES]` (aliases `CODECHECK`/`AUDIT-RULES`),
+  and `ASK <phrase>` (alias `NL`), which shows the routed command without
+  running it.
+
+**Honest limitations.** The NL router recognises a small explicit vocabulary and
+refuses far more phrasings than it accepts — that is the intended failure mode,
+not a gap. Dimension prediction proposes one dimension per wall, not dimension
+strings or sheet layout. Three rules ship: the pack is a frame for adding more,
+and passing `CHECK` is not a claim that a drawing is code-compliant.
+
 ### AI-Native Phase 2 (M11): semantic search + local retrieval
 
 Second implementation phase of the AI-native platform (ADR-0012). Everything

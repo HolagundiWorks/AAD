@@ -216,11 +216,26 @@ impl CorpusDb {
 
 /// Split text into lowercase word tokens for BM25. Single characters are dropped
 /// — they carry no retrieval signal and inflate passage length.
+///
+/// Tokens are lightly stemmed by stripping a plural `s`, so a query for
+/// "dimension" matches a clause headed "Room Dimensions". Without it, exact
+/// token matching misses the singular/plural pairs that spec prose is full of
+/// (wall/walls, door/doors, room/rooms).
 fn tokenize(s: &str) -> Vec<String> {
     s.split(|c: char| !c.is_alphanumeric())
         .filter(|t| t.len() > 1)
-        .map(|t| t.to_ascii_lowercase())
+        .map(|t| stem(&t.to_ascii_lowercase()))
         .collect()
+}
+
+/// Strip a trailing plural `s` (but not `ss`, and never below three letters, so
+/// "less" and "is"/"as" survive intact).
+fn stem(t: &str) -> String {
+    if t.len() > 3 && t.ends_with('s') && !t.ends_with("ss") {
+        t[..t.len() - 1].to_string()
+    } else {
+        t.to_string()
+    }
 }
 
 /// Split `text` into non-empty paragraphs on blank lines, normalising whitespace.
@@ -349,6 +364,23 @@ All walls shall achieve a minimum fire rating of 120 minutes.
         assert!(
             results[0].text.contains("External walls"),
             "the wall-construction paragraph should rank first, got: {:?}",
+            results[0].text
+        );
+    }
+
+    #[test]
+    fn plural_and_singular_match_each_other() {
+        let mut db = CorpusDb::new();
+        db.index_text(
+            "spec.txt",
+            "Room Areas\nEvery room shall have a minimum floor area of 9 square metres.\n\n\
+             Room Dimensions\nNo room shall have a clear width of less than 2.4 metres.",
+        );
+        // Singular "dimension" must reach the "Dimensions" clause.
+        let results = db.search("room dimension width", 2);
+        assert!(
+            results[0].text.contains("clear width"),
+            "singular query should reach the plural heading, got: {:?}",
             results[0].text
         );
     }

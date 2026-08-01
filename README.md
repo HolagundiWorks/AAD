@@ -57,6 +57,7 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 | `aadt-graph` | Graph DB — typed relationships (BelongsTo/Contains/Bounds/ConnectedTo) + detection→object promotion |
 | `aadt-embed` | Local, offline ML classifier/embedder (element → AIA layer + category) + text/aggregate embeddings |
 | `aadt-vecdb` | Custom embeddings vector db, confidence-gated metadata mapping (`MAPMETA`), semantic search (`FIND`) + BM25 corpus retrieval (`ASKDOCS`) |
+| `aadt-assist` | AI service layer — gated suggestions: dimension prediction, code-check rule packs, NL command routing (`SUGGEST`/`CHECK`/`ASK`) |
 | `aadt-detect` | Wall/room/opening detection, anomalies |
 | `aadt-command` | Command interpreter (daily band + firm suites) |
 | `aadt-standards` | AIA/NCS layers, layer sets, WCAG helpers |

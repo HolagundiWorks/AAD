@@ -281,6 +281,27 @@ generated, and nothing leaves the machine.
 passages; it never composes prose from them. Composition would mean asserting
 something no document says — the opposite of "AI never owns data" (ADR-0012).
 
+## M12 — AI-Native Phase 3: the AI service layer ✅ (core)
+
+Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
+services that want to write, and the mechanism that keeps them gated: a service
+returns proposals, and one audited function commits them.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M12.1 | `aadt-assist` — **suggestion framework**: `Suggestion` + `Action` as data, `apply` inside one undo transaction, append-only audit of both accepts and rejects | ✅ | Services never receive `&mut Document` — they structurally cannot commit |
+| M12.2 | **Dimension prediction**: propose a linear dimension per undimensioned wall, confidence from detection quality | ✅ | Re-running skips walls already dimensioned |
+| M12.3 | **Code-check rule packs**: min room area / min room width / min door width, graded violation vs warning | ✅ | Advisory only — resolving a violation is a design decision, never auto-applied |
+| M12.4 | **NL command routing**: phrase → command *string*, never geometry | ✅ | Refuses unmatched phrasings with candidates rather than guessing |
+| M12.5 | Surface: `SUGGEST` / `CHECK` / `ASK` commands | ✅ | `ASK` shows the routed command; running it stays the user's call |
+
+**Deliberately not in M12:** auto-fixing code findings, and any NL path that
+reaches geometry without passing through the command band. Both would move a
+decision from the engineer to the tool.
+
+**Still open from the phase plan:** revision-comparison narration and
+standard-detail recommendation (both retrieval-shaped, deferred to a later pass).
+
 ## Post-1.0
 
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;

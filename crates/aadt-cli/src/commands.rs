@@ -6,6 +6,10 @@
 //! `SECTION`/`STANDARDS` use `aadt-detect`/`aadt-standards`. They are registered
 //! onto an interpreter that already carries the generic drawing built-ins.
 
+use aadt_assist::{
+    rules::{check_as_suggestions, RuleId},
+    Routed, SuggestionSet,
+};
 use aadt_command::{Command, Context, Interpreter};
 use aadt_embed::{default_classifier, Classifier, ElementClass, EMBED_DIM};
 use aadt_geometry::{Bbox, Point2};
@@ -30,8 +34,18 @@ pub fn register(interp: &mut Interpreter) {
     let mapstate: SharedMapState = Rc::new(RefCell::new(None));
     registry.register(Box::new(MapMetaCmd::new(mapstate.clone())));
     registry.register(Box::new(FindCmd { st: mapstate }));
-    registry.register(Box::new(AskDocsCmd::new()));
+    let corpus = Rc::new(RefCell::new(None));
+    registry.register(Box::new(AskDocsCmd { st: corpus.clone() }));
     registry.register(Box::new(WithinCmd));
+    let suggestions: SharedSuggestions = Rc::new(RefCell::new(SuggestState::default()));
+    registry.register(Box::new(SuggestCmd {
+        st: suggestions.clone(),
+    }));
+    registry.register(Box::new(CheckCmd {
+        st: suggestions,
+        corpus,
+    }));
+    registry.register(Box::new(AskCmd));
     let objstate = Rc::new(RefCell::new(ObjState::default()));
     registry.register(Box::new(ObjectsCmd {
         st: objstate.clone(),
@@ -1066,8 +1080,12 @@ impl Command for FindCmd {
 /// character n-gram model, and searched by cosine similarity. Every answer cites
 /// its source, so the retrieved passage is the evidence — nothing is generated.
 struct AskDocsCmd {
-    st: RefCell<Option<CorpusState>>,
+    st: SharedCorpus,
 }
+
+/// Shared handle to the session's indexed corpus, so `ASKDOCS` and `CHECK`
+/// (which cites passages in its findings) read the same documents.
+type SharedCorpus = Rc<RefCell<Option<CorpusState>>>;
 
 struct CorpusState {
     corpus: CorpusDb,
@@ -1077,12 +1095,6 @@ struct CorpusState {
 impl AskDocsCmd {
     /// Passages returned per query.
     const TOP_K: usize = 3;
-
-    fn new() -> Self {
-        Self {
-            st: RefCell::new(None),
-        }
-    }
 
     /// (Re)load the corpus whenever the drawing path changes.
     fn sync(&self, ctx: &Context) {
@@ -1209,6 +1221,331 @@ impl Command for AskDocsCmd {
             "INDEX" | "ADD" => self.do_index(args),
             "SOURCES" | "LIST" => self.do_sources(),
             _ => self.do_ask(args.join(" ").trim()),
+        }
+    }
+}
+
+/// Shared session state for `SUGGEST` / `CHECK` (AI-native Phase 3): the
+/// current proposal set plus the audit log that records every decision.
+#[derive(Default)]
+struct SuggestState {
+    set: SuggestionSet,
+    audit: AuditLog,
+    path: Option<String>,
+    loaded: bool,
+}
+
+type SharedSuggestions = Rc<RefCell<SuggestState>>;
+
+impl SuggestState {
+    /// (Re)load the persisted audit log when the drawing path changes. The
+    /// proposal set itself is session-scoped — proposals are derived from the
+    /// current geometry, so they are regenerated rather than restored.
+    fn sync(&mut self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        if self.loaded && self.path == path {
+            return;
+        }
+        self.path = path.clone();
+        self.loaded = true;
+        self.set = SuggestionSet::new();
+        self.audit = AuditLog::new();
+        if let Some(p) = path.as_ref().filter(|p| is_aadt_path(p)) {
+            if let Ok(Some((_, _, a))) = aadt_store::read_objects_path(p) {
+                self.audit = a;
+            }
+        }
+    }
+
+    /// Persist the audit log, preserving whatever objects/graph are on disk.
+    /// Decisions about AI proposals belong in the same append-only trail as
+    /// every other object mutation.
+    fn persist(&self) {
+        if let Some(p) = self.path.as_ref().filter(|p| is_aadt_path(p)) {
+            let (objects, graph) = aadt_store::read_objects_path(p)
+                .ok()
+                .flatten()
+                .map(|(o, g, _)| (o, g))
+                .unwrap_or_default();
+            let _ = aadt_store::write_objects_path(p, &objects, &graph, &self.audit);
+        }
+    }
+}
+
+/// Render one proposal as a display line.
+fn suggestion_line(s: &aadt_assist::Suggestion) -> String {
+    format!(
+        "  #{} [{}] {} (conf {:.0}%, {})",
+        s.id,
+        s.kind,
+        s.summary,
+        s.confidence * 100.0,
+        s.status.as_str()
+    )
+}
+
+/// `SUGGEST` — the AI service layer's proposal surface. Services propose;
+/// nothing is applied until `ACCEPT` names a proposal explicitly.
+struct SuggestCmd {
+    st: SharedSuggestions,
+}
+
+impl SuggestCmd {
+    fn do_dims(&self, ctx: &mut Context) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        let found = aadt_assist::suggest_dimensions(&ctx.doc);
+        let n = found.len();
+        // Refresh only the dimension proposals — outstanding code findings stay.
+        st.set
+            .replace_kind(aadt_assist::SuggestionKind::Dimension, found);
+        if n == 0 {
+            return Ok("SUGGEST: every detected wall already carries a dimension".into());
+        }
+        ctx.selection = st.set.iter().flat_map(|s| s.targets.clone()).collect();
+        let lines: Vec<String> = st
+            .set
+            .iter()
+            .filter(|s| s.kind == aadt_assist::SuggestionKind::Dimension)
+            .map(suggestion_line)
+            .collect();
+        Ok(format!(
+            "SUGGEST: {n} dimension proposal(s) — nothing applied yet; SUGGEST ACCEPT <id> or REJECT <id>:\n{}",
+            lines.join("\n")
+        ))
+    }
+
+    fn do_list(&self) -> Result<String, String> {
+        let st = self.st.borrow();
+        if st.set.is_empty() {
+            return Ok("SUGGEST: no proposals — run SUGGEST DIMS or CHECK first".into());
+        }
+        let lines: Vec<String> = st.set.iter().map(suggestion_line).collect();
+        let counts: Vec<String> = st
+            .set
+            .kind_counts()
+            .into_iter()
+            .map(|(k, n)| format!("{n} {k}"))
+            .collect();
+        Ok(format!(
+            "{} proposal(s) ({}):\n{}",
+            st.set.len(),
+            counts.join(", "),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_why(&self, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "SUGGEST WHY")? as u32;
+        let st = self.st.borrow();
+        let Some(s) = st.set.get(id) else {
+            return Err(format!("SUGGEST WHY: no proposal #{id}"));
+        };
+        Ok(format!(
+            "#{} [{}] {}\n  confidence: {:.0}%\n  status: {}\n  rationale: {}\n  applicable: {}",
+            s.id,
+            s.kind,
+            s.summary,
+            s.confidence * 100.0,
+            s.status.as_str(),
+            s.rationale,
+            if s.action.is_applicable() {
+                "yes — SUGGEST ACCEPT applies it"
+            } else {
+                "no — advisory only"
+            }
+        ))
+    }
+
+    fn do_accept(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "SUGGEST ACCEPT")? as u32;
+        let mut st = self.st.borrow_mut();
+        let SuggestState { set, audit, .. } = &mut *st;
+        let summary = aadt_assist::apply(set, &mut ctx.doc, audit, id)
+            .map_err(|e| format!("SUGGEST: {e}"))?;
+        st.persist();
+        Ok(format!("SUGGEST: accepted #{id} — {summary} (undoable)"))
+    }
+
+    fn do_reject(&self, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "SUGGEST REJECT")? as u32;
+        let mut st = self.st.borrow_mut();
+        let SuggestState { set, audit, .. } = &mut *st;
+        let summary = aadt_assist::reject(set, audit, id).map_err(|e| format!("SUGGEST: {e}"))?;
+        st.persist();
+        Ok(format!("SUGGEST: rejected #{id} — {summary} (recorded)"))
+    }
+
+    fn do_accept_all(&self, ctx: &mut Context) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        let ids: Vec<u32> = st
+            .set
+            .pending()
+            .iter()
+            .filter(|s| s.action.is_applicable())
+            .map(|s| s.id)
+            .collect();
+        if ids.is_empty() {
+            return Ok("SUGGEST: nothing pending that can be applied".into());
+        }
+        let SuggestState { set, audit, .. } = &mut *st;
+        let mut applied = 0;
+        for id in &ids {
+            if aadt_assist::apply(set, &mut ctx.doc, audit, *id).is_ok() {
+                applied += 1;
+            }
+        }
+        st.persist();
+        Ok(format!(
+            "SUGGEST: accepted {applied} proposal(s) (each undoable individually)"
+        ))
+    }
+}
+
+impl Command for SuggestCmd {
+    fn name(&self) -> &str {
+        "SUGGEST"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["PROPOSE"]
+    }
+    fn help(&self) -> &str {
+        "SUGGEST DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id — AI proposals; nothing applies until you accept"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        self.st.borrow_mut().sync(ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" | "LIST" => self.do_list(),
+            "DIMS" | "DIMENSIONS" => self.do_dims(ctx),
+            "WHY" | "INFO" => self.do_why(args),
+            "ACCEPT" | "OK" => self.do_accept(ctx, args),
+            "ACCEPTALL" | "ACCEPT-ALL" => self.do_accept_all(ctx),
+            "REJECT" | "NO" => self.do_reject(args),
+            other => Err(format!(
+                "SUGGEST: unknown subcommand {other:?} (DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id)"
+            )),
+        }
+    }
+}
+
+/// `CHECK` — deterministic code/standards rule packs. Findings are advisory and
+/// cite the governing passage when a spec corpus has been indexed.
+struct CheckCmd {
+    st: SharedSuggestions,
+    corpus: SharedCorpus,
+}
+
+impl Command for CheckCmd {
+    fn name(&self) -> &str {
+        "CHECK"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AUDIT-RULES", "CODECHECK"]
+    }
+    fn help(&self) -> &str {
+        "CHECK [rule|RULES] — run code/standards rule packs (cites indexed spec passages)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let arg = args.first().map(|s| s.to_ascii_uppercase());
+        if arg.as_deref() == Some("RULES") {
+            let lines: Vec<String> = RuleId::ALL
+                .iter()
+                .map(|r| format!("  {} — {}", r, r.description()))
+                .collect();
+            return Ok(format!(
+                "{} rule(s):\n{}",
+                RuleId::ALL.len(),
+                lines.join("\n")
+            ));
+        }
+        let only = match args.first() {
+            None => None,
+            Some(a) => match RuleId::parse(a) {
+                Some(r) => Some(r),
+                None => {
+                    return Err(format!(
+                        "CHECK: unknown rule {a:?} — try CHECK RULES for the list"
+                    ))
+                }
+            },
+        };
+
+        self.st.borrow_mut().sync(ctx);
+        let found = {
+            let cg = self.corpus.borrow();
+            let corpus = cg.as_ref().map(|c| &c.corpus);
+            check_as_suggestions(&ctx.doc, corpus, only)
+        };
+        let n = found.len();
+        {
+            let mut st = self.st.borrow_mut();
+            // Refresh only the findings — outstanding dimension proposals stay.
+            st.set
+                .replace_kind(aadt_assist::SuggestionKind::CodeCheck, found);
+            ctx.selection = st
+                .set
+                .iter()
+                .filter(|s| s.kind == aadt_assist::SuggestionKind::CodeCheck)
+                .flat_map(|s| s.targets.clone())
+                .collect();
+        }
+        if n == 0 {
+            return Ok("CHECK: no findings — every checked element meets its threshold".into());
+        }
+        let st = self.st.borrow();
+        let lines: Vec<String> = st
+            .set
+            .iter()
+            .filter(|s| s.kind == aadt_assist::SuggestionKind::CodeCheck)
+            .map(|s| format!("{}\n      {}", suggestion_line(s), s.rationale))
+            .collect();
+        Ok(format!(
+            "CHECK: {n} finding(s) — advisory, nothing changed:\n{}",
+            lines.join("\n")
+        ))
+    }
+}
+
+/// `ASK` — natural-language command routing. Maps a phrase to a *command
+/// string* and shows it; it never runs it and never touches geometry directly.
+struct AskCmd;
+
+impl Command for AskCmd {
+    fn name(&self) -> &str {
+        "ASK"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["NL"]
+    }
+    fn help(&self) -> &str {
+        "ASK <phrase> — route natural language to a command (shows it; run it yourself)"
+    }
+    fn run(&self, _ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let phrase = args.join(" ");
+        if phrase.trim().is_empty() {
+            return Err("ASK: give a phrase, e.g. ASK draw a wall from 0,0 to 5,0".into());
+        }
+        match aadt_assist::route(&phrase) {
+            Routed::Command {
+                command,
+                confidence,
+                rationale,
+            } => Ok(format!(
+                "ASK: {phrase:?} → `{command}` (conf {:.0}%, {rationale})\n  \
+                 not executed — run it yourself if that is what you meant",
+                confidence * 100.0
+            )),
+            Routed::Unroutable { candidates, reason } => {
+                let tail = if candidates.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — did you mean: {}", candidates.join(", "))
+                };
+                Err(format!("ASK: {reason}{tail}"))
+            }
         }
     }
 }

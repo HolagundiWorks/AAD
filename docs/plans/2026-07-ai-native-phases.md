@@ -79,18 +79,34 @@ the right passage first by a wide margin. The n-gram model is kept where it does
 work well: short labels, where `FIND wall` cleanly separates walls (75%) from
 columns (9%).
 
-## Phase 3 — AI service layer (assistive, gated)
+## Phase 3 — AI service layer (assistive, gated) — ✅ core shipped as **M12**
 
-All services follow the ADR-0010 contract: suggest → confidence gate →
-reconcile → DB commits → audit.
+Tracked as [ROADMAP M12](../ROADMAP.md#m12--ai-native-phase-3-the-ai-service-layer-);
+recorded in [ADR-0013](../adr/0013-ai-service-layer.md). All services follow the
+ADR-0010 contract, now generalised into `aadt-assist`: suggest → confidence gate
+→ reconcile → DB commits → audit.
 
-- Auto-annotation + dimension prediction (suggest missing dims from geometry).
-- Revision comparison narration (extend `aadt-pdf` compare).
-- Standard-detail recommendation (retrieval over Phase-2 corpus).
-- Natural-language command routing: NL → the existing deterministic command
-  band (`"draw a wall from … to …"` → `POLYLINE`/`WALL`), never NL → geometry.
-- Risk/code checks as rule packs (deterministic rules first, IS-code retrieval
-  via RAG for citations).
+- ✅ **Dimension prediction** — one linear dimension proposed per undimensioned
+  wall; confidence from detection quality; already-dimensioned walls skipped.
+- ⬜ **Revision comparison narration** (extend `aadt-pdf` compare) — deferred.
+- ⬜ **Standard-detail recommendation** (retrieval over the Phase-2 corpus) —
+  deferred; the retrieval half exists, the detail library does not.
+- ✅ **Natural-language command routing** — `"draw a wall from 0,0 to 5,0"` →
+  `LINE 0,0 5,0`, shown but not executed. NL never reaches geometry directly.
+- ✅ **Risk/code checks as rule packs** — three deterministic geometric rules,
+  citing indexed spec passages via the Phase-2 BM25 search.
+
+**The mechanism, not just the services.** The reason this phase needed a crate
+rather than three functions: an `Action` is *data*, not a closure, and services
+never receive `&mut Document`. A service therefore cannot commit even by
+accident — only `apply` can, and it always transacts and always audits. That
+also makes the awkward cases fall out correctly: a code finding carries
+`Action::None`, so "auto-fix the violation" is not a thing the type system will
+express.
+
+**Rejections are audited too.** A trail that records only accepted suggestions
+cannot distinguish "considered and declined" from "never raised" — which is the
+question a reviewer actually asks.
 
 ## Phase 4 — Construction intelligence (takeoff returns)
 
