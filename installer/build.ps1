@@ -41,10 +41,14 @@ Write-Host "==> Portable package: $zip"
 $iscc = $null
 $cmd = Get-Command iscc -ErrorAction SilentlyContinue
 if ($cmd) { $iscc = $cmd.Source }
-else {
-    foreach ($p in @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-                      "$env:ProgramFiles\Inno Setup 6\ISCC.exe")) {
-        if ($p -and (Test-Path $p)) { $iscc = $p; break }
+if (-not $iscc) {
+    # Search common install roots for any Inno Setup version (7/6/5), newest first.
+    $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)},
+               (Join-Path $env:LOCALAPPDATA "Programs")) | Where-Object { $_ -and (Test-Path $_) }
+    foreach ($root in $roots) {
+        $found = Get-ChildItem -Path $root -Filter ISCC.exe -Recurse -Depth 2 -ErrorAction SilentlyContinue |
+                 Sort-Object FullName -Descending | Select-Object -First 1
+        if ($found) { $iscc = $found.FullName; break }
     }
 }
 if ($iscc) {
