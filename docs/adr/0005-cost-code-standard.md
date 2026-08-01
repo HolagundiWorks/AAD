@@ -1,9 +1,11 @@
 # ADR-0005 — Cost-code mapping standard
 
-> ⛔ **Superseded (2026-07): the takeoff module was removed**, so cost-code
-> mapping no longer ships. Retained as historical record.
+> ✅ **Reinstated (2026-08).** This ADR was marked superseded when the takeoff
+> module was removed. [ADR-0014](0014-object-based-takeoff.md) rebuilt takeoff on
+> the Object DB and revives the taxonomy below unchanged: CSI MasterFormat
+> built-in, mapped by object kind and refined by layer name.
 
-- **Status:** Superseded — takeoff removed (was: Accepted; CSI MasterFormat built-in; firm overrides)
+- **Status:** Accepted — CSI MasterFormat built-in; firm overrides (reinstated by ADR-0014)
 - **Context:** Spec §5.2 / §11 #5 — cost-code mapping is the differentiator that
   positions AADT against PlanSwift/STACK, not just AutoCAD LT. Which standard(s)
   to support out of the box vs. fully custom per-firm mapping?

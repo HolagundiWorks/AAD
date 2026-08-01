@@ -340,3 +340,126 @@ pub fn latest_delta_summary(
         .optional()?;
     Ok(s)
 }
+
+// ── Bridge from the Phase-4 quantity engine ───────────────────────────────────
+
+/// Convert a [`aadt_takeoff::TakeoffRun`] into the persisted row shape.
+///
+/// The row tables predate the Object DB and key rows by a plain integer, so the
+/// object id doubles as the row id — objects carry stable ids, which is exactly
+/// what the tables wanted and geometry could not provide.
+pub fn run_to_row_data(
+    run: &aadt_takeoff::TakeoffRun,
+    checkpoint_id: Option<i64>,
+) -> TakeoffRunData {
+    let q = &run.quantities;
+    TakeoffRunData {
+        doc_revision: run.doc_revision,
+        checkpoint_id,
+        schema_ver: "takeoff-2".into(),
+        totals_json: run.totals_json(),
+        published: false,
+        walls: q
+            .walls
+            .iter()
+            .map(|w| TakeoffWallRow {
+                wall_id: w.object.0 as i64,
+                layer: w.layer.clone(),
+                length: w.length,
+                thickness: w.thickness,
+                height: w.height,
+                gross_area: w.net_area,
+                volume: w.volume,
+                cost_code: w.cost_code.code.to_string(),
+                wall_type: w.cost_code.title.to_string(),
+                class_status: "promoted".into(),
+            })
+            .collect(),
+        rooms: q
+            .rooms
+            .iter()
+            .map(|r| TakeoffRoomRow {
+                room_id: r.object.0 as i64,
+                layer: r.layer.clone(),
+                area: r.floor_area,
+                perimeter: r.perimeter,
+                cost_code: r.cost_code.code.to_string(),
+            })
+            .collect(),
+        openings: q
+            .openings
+            .iter()
+            .map(|o| TakeoffOpeningRow {
+                number: o.object.0 as i64,
+                kind: o.kind.as_str().to_string(),
+                width: o.width,
+                height: o.height,
+                area: o.area,
+                cost_code: o.cost_code.code.to_string(),
+            })
+            .collect(),
+        structural: q
+            .structural
+            .iter()
+            .map(|s| TakeoffStructuralRow {
+                number: s.object.0 as i64,
+                kind: s.kind.as_str().to_string(),
+                cost_code: s.cost_code.code.to_string(),
+            })
+            .collect(),
+    }
+}
+
+#[cfg(test)]
+mod phase4_tests {
+    use super::*;
+    use aadt_geometry::{Point2, Segment};
+    use aadt_model::{Document, Geometry};
+
+    fn plan() -> Document {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(6.0, 0.0))),
+        );
+        doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.23), Point2::new(6.0, 0.23))),
+        );
+        doc
+    }
+
+    #[test]
+    fn a_takeoff_run_round_trips_through_aadt() {
+        let doc = plan();
+        let dir = std::env::temp_dir().join("aadt-takeoff-io");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("takeoff.aadt");
+        let _ = std::fs::remove_file(&path);
+        crate::save_path(&doc, &path).unwrap();
+
+        let run = aadt_takeoff::run(&doc, &aadt_takeoff::TakeoffConfig::default());
+        let data = run_to_row_data(&run, None);
+        assert_eq!(data.walls.len(), 1, "the plan has one wall");
+
+        let id = append_takeoff_run(&path, &data).unwrap();
+        let loaded = load_takeoff_run(&path, id).unwrap().expect("run stored");
+        assert_eq!(loaded.walls.len(), 1);
+        assert_eq!(loaded.walls[0].cost_code, "04 20 00");
+        assert_eq!(loaded.doc_revision, run.doc_revision);
+        assert_eq!(loaded.totals_json, run.totals_json());
+    }
+
+    #[test]
+    fn wall_rows_key_off_stable_object_ids() {
+        let run = aadt_takeoff::run(&plan(), &aadt_takeoff::TakeoffConfig::default());
+        let data = run_to_row_data(&run, None);
+        // Object ids start at 1 and are stable across runs — the row id is the
+        // object id, so a row can be traced back to the object it measured.
+        assert_eq!(
+            data.walls[0].wall_id,
+            run.quantities.walls[0].object.0 as i64
+        );
+        assert!(data.walls[0].wall_id > 0);
+    }
+}

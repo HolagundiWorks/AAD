@@ -16,8 +16,8 @@ engineering intent accurate · semantically understandable · scales) and keep
 |---|---|---|---|
 | Geometry DB | ✅ 2D vector records (`.vdb` VastuDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
 | Spatial Index | ✅ Uniform-grid bbox index, persisted in `.vdb` | `aadt-vdb` | R-tree option; wire into GUI pick/osnap; perf targets |
-| Vector DB | ⚠️ Per-element geometry embeddings + kNN | `aadt-embed`, `aadt-vecdb` | Drawing/text/visual embeddings; PDFs/specs/photos; RAG |
-| Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10) | `aadt-object` | Editable props UI; MAPMETA-driven objects for undetected geometry |
+| Vector DB | ✅ Geometry + text + aggregate embeddings, kNN, BM25 corpus (M11) | `aadt-embed`, `aadt-vecdb` | PDF/photo ingestion; relationship embeddings; ANN index for perf |
+| Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10); measured for takeoff (M13) | `aadt-object`, `aadt-takeoff` | Editable props UI; MAPMETA-driven objects for undetected geometry |
 | Metadata DB | ⚠️ DrawingProperties + AIA layer catalog | `aadt-model`, `aadt-standards` | Material libraries, semantic layer defaults, AI tags |
 | Graph DB | ✅ Persisted typed relationships + promotion (M10) | `aadt-graph` | `Supports` population (needs slabs); constraint-aware edges |
 
@@ -49,38 +49,92 @@ The largest net-new piece; everything later leans on it. Tracked as
 promotion is deterministic; graph queries match brute force; audit row per
 mutation.
 
-## Phase 2 — Semantic engine + retrieval (Vector DB grows up)
+## Phase 2 — Semantic engine + retrieval (Vector DB grows up) — ✅ core shipped as **M11**
 
-1. **Embedding types:** extend `aadt-embed` beyond geometry — text embedding
-   (deterministic local model over annotations/metadata), drawing-level
-   embedding (aggregate), relationship embedding (graph context). Regenerate on
-   approved modification (keyed off `Document::revision`, as today).
-2. **Semantic search:** `FIND <text|id>` — cosine search across object/drawing
-   embeddings in `aadt-vecdb`; duplicate detection (near-identical clusters).
-3. **External corpus (RAG seed):** index sidecar documents (PDF text via
-   `aadt-pdf`, specs, standards) into the vector store with source refs;
-   `ASKDOCS`-style retrieval returns cited passages. Local-only.
-4. **Perf:** meet `<100 ms` search on 100k+ vectors (ANN index if needed).
+Tracked as [ROADMAP M11](../ROADMAP.md#m11--ai-native-phase-2-semantic-search--local-retrieval-).
 
-## Phase 3 — AI service layer (assistive, gated)
+1. **Embedding types:** ✅ `aadt-embed` gained `text_embedding` (64-dim character
+   n-gram hashing — no training, no dependencies) and `drawing_embedding` /
+   `object_embedding` (mean-pooled aggregates). Relationship (graph-context)
+   embeddings remain open.
+2. **Semantic search:** ✅ `FIND <text>` over element labels, `FIND SIMILAR id`
+   over the geometric embedding space, and `FIND DUPES` for congruent geometry.
+   `FIND` sets the selection, so hits feed the next command.
+3. **External corpus (RAG seed):** ✅ `ASKDOCS INDEX <path>` chunks a text
+   document per paragraph; `ASKDOCS <question>` returns passages with source and
+   paragraph number. Ranking is **BM25** over word tokens with an n-gram cosine
+   fallback. Local-only. PDF ingestion via `aadt-pdf` is still open — today the
+   corpus takes plain text/Markdown.
+4. **Perf:** open. Corpus search is O(n·|q|) per query and duplicate detection is
+   O(n²); both are fine at drawing scale but neither is the ANN index the
+   `<100 ms` on 100k+ vectors gate will need.
 
-All services follow the ADR-0010 contract: suggest → confidence gate →
-reconcile → DB commits → audit.
+**Design note — why BM25 rather than embedding cosine for the corpus.** The
+character n-gram vector is 64 hashed buckets. Paragraph-length text fills nearly
+every bucket, so all passages look alike (measured: every candidate scored
+84–87%, and the correct answer ranked *third*). IDF re-weighting cannot fix this
+because the buckets are collided hash bins, not terms — the weights come out
+near-uniform and cancel. BM25 over word tokens scores on term rarity and ranks
+the right passage first by a wide margin. The n-gram model is kept where it does
+work well: short labels, where `FIND wall` cleanly separates walls (75%) from
+columns (9%).
 
-- Auto-annotation + dimension prediction (suggest missing dims from geometry).
-- Revision comparison narration (extend `aadt-pdf` compare).
-- Standard-detail recommendation (retrieval over Phase-2 corpus).
-- Natural-language command routing: NL → the existing deterministic command
-  band (`"draw a wall from … to …"` → `POLYLINE`/`WALL`), never NL → geometry.
-- Risk/code checks as rule packs (deterministic rules first, IS-code retrieval
-  via RAG for citations).
+## Phase 3 — AI service layer (assistive, gated) — ✅ core shipped as **M12**
 
-## Phase 4 — Construction intelligence (takeoff returns)
+Tracked as [ROADMAP M12](../ROADMAP.md#m12--ai-native-phase-3-the-ai-service-layer-);
+recorded in [ADR-0013](../adr/0013-ai-service-layer.md). All services follow the
+ADR-0010 contract, now generalised into `aadt-assist`: suggest → confidence gate
+→ reconcile → DB commits → audit.
 
-Reinstate quantity extraction on top of **objects** (not raw geometry):
-paint/plaster areas, brick/mortar, cost codes, BOQ generation — the M3
-machinery redone against the Object DB, with `takeoff_*` tables in `aadt-store`
-re-activated. Reports as plugins.
+- ✅ **Dimension prediction** — one linear dimension proposed per undimensioned
+  wall; confidence from detection quality; already-dimensioned walls skipped.
+- ⬜ **Revision comparison narration** (extend `aadt-pdf` compare) — deferred.
+- ⬜ **Standard-detail recommendation** (retrieval over the Phase-2 corpus) —
+  deferred; the retrieval half exists, the detail library does not.
+- ✅ **Natural-language command routing** — `"draw a wall from 0,0 to 5,0"` →
+  `LINE 0,0 5,0`, shown but not executed. NL never reaches geometry directly.
+- ✅ **Risk/code checks as rule packs** — three deterministic geometric rules,
+  citing indexed spec passages via the Phase-2 BM25 search.
+
+**The mechanism, not just the services.** The reason this phase needed a crate
+rather than three functions: an `Action` is *data*, not a closure, and services
+never receive `&mut Document`. A service therefore cannot commit even by
+accident — only `apply` can, and it always transacts and always audits. That
+also makes the awkward cases fall out correctly: a code finding carries
+`Action::None`, so "auto-fix the violation" is not a thing the type system will
+express.
+
+**Rejections are audited too.** A trail that records only accepted suggestions
+cannot distinguish "considered and declined" from "never raised" — which is the
+question a reviewer actually asks.
+
+## Phase 4 — Construction intelligence (takeoff returns) — ✅ core shipped as **M13**
+
+Tracked as [ROADMAP M13](../ROADMAP.md#m13--ai-native-phase-4-quantity-takeoff-on-objects-);
+recorded in [ADR-0014](../adr/0014-object-based-takeoff.md).
+
+- ✅ Quantity extraction on top of **objects**, not raw geometry: paint/plaster
+  areas, brick/mortar volumes, room finishes, opening schedule.
+- ✅ Cost codes — [ADR-0005](../adr/0005-cost-code-standard.md) revived unchanged
+  (CSI MasterFormat), mapped by object kind and refined by layer name.
+- ✅ BOQ generation, aggregated by cost code with deterministic ordering.
+- ✅ `takeoff_*` tables in `aadt-store` re-activated — no schema change needed.
+- ⬜ Reports as plugins — deferred; the engine and the surfaces ship, the plugin
+  packaging does not.
+
+**Why this phase had to come after Phase 1.** The M3 engine measured raw
+geometry, and a bag of lines and block inserts cannot say which door pierces
+which wall. It could report a *gross* wall area honestly, or guess deductions by
+proximity — neither is good enough to price from. `Door —BelongsTo→ Wall` in the
+Graph DB turns the deduction into a lookup. Where the graph attributes nothing,
+the opening is measured and scheduled but subtracted from nothing, and the
+command says so: under-deducting is conservative and visible, guessing is
+neither.
+
+**What 2D cannot measure is declared, not invented.** Storey height is a config
+input (a plan has no height). Openings without drawn dimensions use defaults and
+are flagged `measured: false`, and `TAKEOFF` reports the count — so an estimator
+confirms exactly the assumed figures instead of discovering one mid-tender.
 
 ## Phase 5 — Enterprise + APIs
 

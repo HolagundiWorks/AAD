@@ -2,6 +2,119 @@
 
 ## Unreleased
 
+### AI-Native Phase 4 (M13): quantity takeoff returns, built on the Object DB
+
+Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).
+Reinstates the quantity engine removed in M3 — and with it
+[ADR-0005](adr/0005-cost-code-standard.md), which had been marked superseded only
+because takeoff was gone.
+
+- **`aadt-takeoff` — the quantity engine over objects.** Wall length, thickness,
+  gross/net area, volume, brick count and plaster area; room floor, ceiling,
+  wall-finish and paint areas; opening schedule; structural members.
+- **Opening deduction is a graph lookup, not a guess.** This is the whole reason
+  takeoff waited for Phase 1. Raw geometry cannot say which door pierces which
+  wall, so the M3 engine could measure a *gross* wall area honestly or guess
+  deductions by proximity. The Graph DB records `Door —BelongsTo→ Wall`, so a
+  net area is now derived. An opening the graph does not attribute is measured
+  and scheduled but **deducted from nothing**, and the command says so —
+  under-deducting is conservative and visible; guessing is neither.
+- **CSI MasterFormat cost codes (ADR-0005, revived).** Mapped by object kind,
+  refined by layer name — a drywall partition and a brick wall are both `Wall`
+  objects but different trades, and billing them as one line would be wrong.
+- **BOQ generation.** Quantities aggregated by cost code into a sorted bill.
+  Zero-quantity lines are dropped rather than inviting a reader to price nothing.
+- **Run persistence.** The `takeoff_*` tables that survived the M3 removal are
+  re-activated as-is — no schema change. They key rows by integer id, which is
+  what stable `ObjectId`s now supply and geometry never could.
+- **Surface.** `TAKEOFF [WALLS|ROOMS|OPENINGS|SAVE]` (aliases `QTO`/
+  `QUANTITIES`) and `BOQ` (alias `BILL`).
+
+**Assumptions are labelled, not hidden.** AADT is 2D: a plan has no storey
+height, so wall height is a config *input*. Openings without drawn dimensions
+use defaults and are flagged; `TAKEOFF` reports how many figures were assumed
+rather than measured, so an estimator confirms exactly those.
+
+**Honest limitations.** Walls are assumed prismatic and of uniform thickness — no
+lintels, sills, or returns. Brick count is a modular estimate with no wastage
+allowance, not a bond-aware count. Room finishes do not deduct openings (walls
+do). No pricing: the bill carries quantities and codes; rates belong to the
+estimator's system.
+
+### AI-Native Phase 3 (M12): the AI service layer — propose, never commit
+
+Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
+services that want to *write* to the drawing, and the mechanism that stops them
+doing it unsupervised.
+
+- **`aadt-assist` — the gated suggestion framework.** A service returns
+  `Suggestion` records carrying a confidence, a written rationale, and an
+  `Action` that is **data, not a closure**. Services never receive a mutable
+  document; one function (`apply`) commits, inside `Document::transact` (so an
+  accepted suggestion is one undo step) and writes an append-only audit row.
+  `reject` changes nothing but is *also* audited — a reviewer can tell a
+  declined suggestion from one never raised.
+- **Dimension prediction.** Proposes a linear dimension for every detected wall
+  carrying none, with confidence derived from detection quality. Re-running
+  skips walls that are already dimensioned.
+- **Code-check rule packs.** Three deterministic geometric rules (minimum room
+  area, minimum room width, minimum door width), graded violation/warning.
+  Confidence is always `1.0` — a code check that guesses is worse than none.
+  Findings are **advisory and never auto-fixed**: resolving a violation is a
+  design decision. With a spec corpus indexed (Phase 2), each finding cites the
+  governing passage.
+- **Natural-language command routing.** `route` maps a phrase to a *command
+  string* — never to geometry. The proposed command runs through the existing
+  deterministic interpreter or not at all, so NL inherits its validation, undo,
+  and audit. Unmatched phrasings are refused with candidates rather than guessed.
+- **BM25 stemming.** Corpus tokens now strip a plural `s`, so "dimension"
+  reaches a clause headed "Room Dimensions" — singular/plural pairs are
+  everywhere in spec prose, and exact matching missed them.
+- **Surface.** `SUGGEST DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id`
+  (alias `PROPOSE`), `CHECK [rule|RULES]` (aliases `CODECHECK`/`AUDIT-RULES`),
+  and `ASK <phrase>` (alias `NL`), which shows the routed command without
+  running it.
+
+**Honest limitations.** The NL router recognises a small explicit vocabulary and
+refuses far more phrasings than it accepts — that is the intended failure mode,
+not a gap. Dimension prediction proposes one dimension per wall, not dimension
+strings or sheet layout. Three rules ship: the pack is a frame for adding more,
+and passing `CHECK` is not a claim that a drawing is code-compliant.
+
+### AI-Native Phase 2 (M11): semantic search + local retrieval
+
+Second implementation phase of the AI-native platform (ADR-0012). Everything
+stays local, offline, and deterministic — retrieval surfaces existing content
+and cites it; nothing is generated or invented.
+
+- **Text + aggregate embeddings (`aadt-embed`).** `text_embedding` embeds a
+  string as a 64-dim character n-gram (2/3/4-gram) hash vector — no training,
+  no dependencies, so `WALL` / `A-WALL` / `WALL-TYPE` cluster together.
+  `drawing_embedding` / `object_embedding` mean-pool element vectors into a
+  single drawing- or object-level vector.
+- **Semantic search (`aadt-vecdb::search`).** `find_by_text` ranks elements by
+  their label (layer name + annotation text); `find_similar_to` searches the
+  geometric embedding space; `find_duplicates` reports congruent geometry by
+  all-pairs cosine above a threshold.
+- **Local corpus + RAG retrieval (`aadt-vecdb::corpus`).** Sidecar spec/standard
+  text is chunked per paragraph and ranked with **BM25** over word tokens, so a
+  passage wins on its distinctive terms rather than the boilerplate every clause
+  shares; when no query term occurs at all, scoring falls back to n-gram cosine
+  so morphological variants still match. Passages that match nothing are dropped
+  rather than padding the answer.
+- **Persistence.** `.aadt` schema **v8 → v9** (additive tables: `corpus_source`,
+  `corpus_chunk`; carried across plain `SAVE`). v8 files migrate in place with
+  geometry, objects, and audit intact.
+- **Surface.** `FIND <text>|SIMILAR id|DUPES [threshold]` (aliases `SEARCH` /
+  `SEMSEARCH`), which selects its hits; and `ASKDOCS <question>|INDEX path|
+  SOURCES` (aliases `DOCS` / `RAG`), which answers only with cited passages.
+
+**Honest limitation.** `ASKDOCS` is retrieval, not generation: it returns the
+passages most relevant to a question, each with its source and paragraph number,
+and never composes an answer. BM25 scores are unbounded and comparable only
+within one result set, so they are shown as a rank plus a raw score, not a
+percentage.
+
 ### AI-Native Phase 1 (M10): intelligent objects + Graph DB
 
 First implementation phase of the AI-native platform (ADR-0012). Geometry stays

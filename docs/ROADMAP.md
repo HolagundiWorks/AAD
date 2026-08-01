@@ -263,6 +263,67 @@ them.
 | M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + VastuDB `.vdb` **v2** sections; carried across resave | ✅ | Additive; v7/v1 files still open |
 | M10.5 | Surface: `OBJECTS` / `RELATIONS` commands + LISP (`aadt-objects`, `aadt-relations`) | ✅ | Promotion is deterministic and undo-safe (objects live beside the document) |
 
+## M11 — AI-Native Phase 2: Semantic search + local retrieval ✅ (core)
+
+Second implementation phase (ADR-0012). Retrieval only: every answer points at
+content that already exists in the drawing or an indexed document. Nothing is
+generated, and nothing leaves the machine.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M11.1 | `aadt-embed` — **text embeddings**: 64-dim character n-gram (2/3/4-gram) hashing, plus `drawing_embedding` / `object_embedding` mean-pooling | ✅ | No training and no dependencies; `WALL` / `A-WALL` / `WALL-TYPE` cluster |
+| M11.2 | `aadt-vecdb::search` — **semantic search**: `find_by_text` over element labels, `find_similar_to` over geometry, `find_duplicates` by all-pairs cosine | ✅ | `FIND` selects its hits, so the result feeds straight into the next command |
+| M11.3 | `aadt-vecdb::corpus` — **local corpus + RAG retrieval**: paragraph chunking, **BM25** ranking over word tokens, n-gram cosine fallback | ✅ | BM25 is what stops shared boilerplate ("shall be … mm") from dominating |
+| M11.4 | Persistence: `.aadt` schema **v9** (`corpus_source`, `corpus_chunk`); carried across resave | ✅ | Additive; v8 files migrate with geometry/objects/audit intact |
+| M11.5 | Surface: `FIND` / `ASKDOCS` commands | ✅ | `ASKDOCS` cites source + paragraph for every passage it returns |
+
+**Deliberately not in M11:** answer *generation*. `ASKDOCS` retrieves and cites
+passages; it never composes prose from them. Composition would mean asserting
+something no document says — the opposite of "AI never owns data" (ADR-0012).
+
+## M12 — AI-Native Phase 3: the AI service layer ✅ (core)
+
+Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
+services that want to write, and the mechanism that keeps them gated: a service
+returns proposals, and one audited function commits them.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M12.1 | `aadt-assist` — **suggestion framework**: `Suggestion` + `Action` as data, `apply` inside one undo transaction, append-only audit of both accepts and rejects | ✅ | Services never receive `&mut Document` — they structurally cannot commit |
+| M12.2 | **Dimension prediction**: propose a linear dimension per undimensioned wall, confidence from detection quality | ✅ | Re-running skips walls already dimensioned |
+| M12.3 | **Code-check rule packs**: min room area / min room width / min door width, graded violation vs warning | ✅ | Advisory only — resolving a violation is a design decision, never auto-applied |
+| M12.4 | **NL command routing**: phrase → command *string*, never geometry | ✅ | Refuses unmatched phrasings with candidates rather than guessing |
+| M12.5 | Surface: `SUGGEST` / `CHECK` / `ASK` commands | ✅ | `ASK` shows the routed command; running it stays the user's call |
+
+**Deliberately not in M12:** auto-fixing code findings, and any NL path that
+reaches geometry without passing through the command band. Both would move a
+decision from the engineer to the tool.
+
+**Still open from the phase plan:** revision-comparison narration and
+standard-detail recommendation (both retrieval-shaped, deferred to a later pass).
+
+## M13 — AI-Native Phase 4: quantity takeoff, on objects ✅ (core)
+
+Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).
+Reinstates what M3 removed, rebuilt against the Object DB — and revives
+[ADR-0005](adr/0005-cost-code-standard.md) with it.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M13.1 | `aadt-takeoff` — **quantity engine over objects**: wall net area / volume / bricks / plaster, room finishes, opening schedule, structural members | ✅ | Reads engineering props off objects, not geometry |
+| M13.2 | **Opening deduction via the Graph DB** (`Door —BelongsTo→ Wall`) | ✅ | The reason takeoff waited for Phase 1; an unattributed opening is *not* deducted, and that is reported |
+| M13.3 | **CSI MasterFormat cost codes** — kind first, layer-name refinement | ✅ | ADR-0005 revived unchanged; masonry vs drywall bill separately |
+| M13.4 | **BOQ generation** — aggregated by cost code, deterministic ordering | ✅ | Zero-quantity lines dropped; identical output across runs so revisions diff |
+| M13.5 | Persistence: the surviving `takeoff_*` tables re-activated | ✅ | No schema change — stable `ObjectId`s are the row key the tables always wanted |
+| M13.6 | Surface: `TAKEOFF` / `BOQ` commands | ✅ | Reports how many figures were assumed rather than measured |
+
+**Not measurable in 2D, so declared as input:** storey height, and any opening
+without drawn dimensions. Both come from `TakeoffConfig` and are flagged in the
+report rather than presented as measurements.
+
+**Deliberately not in M13:** pricing. The bill carries quantities and cost codes;
+rates belong to the estimator's system.
+
 ## Post-1.0
 
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;

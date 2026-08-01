@@ -6,6 +6,10 @@
 //! `SECTION`/`STANDARDS` use `aadt-detect`/`aadt-standards`. They are registered
 //! onto an interpreter that already carries the generic drawing built-ins.
 
+use aadt_assist::{
+    rules::{check_as_suggestions, RuleId},
+    Routed, SuggestionSet,
+};
 use aadt_command::{Command, Context, Interpreter};
 use aadt_embed::{default_classifier, Classifier, ElementClass, EMBED_DIM};
 use aadt_geometry::{Bbox, Point2};
@@ -13,7 +17,10 @@ use aadt_graph::{promote::promote_with_audit, Graph};
 use aadt_model::EntityId;
 use aadt_object::{AuditLog, ObjectId, ObjectStore};
 use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
-use aadt_vecdb::{accept, map_metadata, set_class, set_layer, Thresholds, VectorDb};
+use aadt_vecdb::{
+    accept, find_by_text, find_duplicates, find_similar_to, map_metadata, set_class, set_layer,
+    CorpusDb, Thresholds, VectorDb,
+};
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -24,8 +31,23 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(OpenCmd));
     registry.register(Box::new(SaveCmd));
     registry.register(Box::new(HistoryCmd));
-    registry.register(Box::new(MapMetaCmd::new()));
+    let mapstate: SharedMapState = Rc::new(RefCell::new(None));
+    registry.register(Box::new(MapMetaCmd::new(mapstate.clone())));
+    registry.register(Box::new(FindCmd { st: mapstate }));
+    let corpus = Rc::new(RefCell::new(None));
+    registry.register(Box::new(AskDocsCmd { st: corpus.clone() }));
     registry.register(Box::new(WithinCmd));
+    let suggestions: SharedSuggestions = Rc::new(RefCell::new(SuggestState::default()));
+    registry.register(Box::new(SuggestCmd {
+        st: suggestions.clone(),
+    }));
+    registry.register(Box::new(CheckCmd {
+        st: suggestions,
+        corpus,
+    }));
+    registry.register(Box::new(AskCmd));
+    registry.register(Box::new(TakeoffCmd));
+    registry.register(Box::new(BoqCmd));
     let objstate = Rc::new(RefCell::new(ObjState::default()));
     registry.register(Box::new(ObjectsCmd {
         st: objstate.clone(),
@@ -324,36 +346,42 @@ struct MapState {
     path: Option<String>,
 }
 
+/// Shared handle to the session's embeddings vector DB, so `MAPMETA` and `FIND`
+/// query the same vectors without each re-reading the `.aadt` file.
+type SharedMapState = Rc<RefCell<Option<MapState>>>;
+
+/// Load the vector DB from the current `.aadt` path (or start fresh) whenever the
+/// drawing path changes, so state persists across commands in a session.
+fn sync_map_state(st: &SharedMapState, ctx: &Context) {
+    let path = ctx.drawing_path.clone();
+    let mut g = st.borrow_mut();
+    let reload = match &*g {
+        None => true,
+        Some(s) => s.path != path,
+    };
+    if reload {
+        let model_id = default_classifier().model_id().to_string();
+        let db = path
+            .as_ref()
+            .filter(|p| is_aadt_path(p))
+            .and_then(|p| aadt_store::read_vecdb_path(p).ok().flatten())
+            .filter(|db| db.model_id() == model_id)
+            .unwrap_or_else(|| VectorDb::new(model_id, EMBED_DIM));
+        *g = Some(MapState { db, path });
+    }
+}
+
 struct MapMetaCmd {
-    st: RefCell<Option<MapState>>,
+    st: SharedMapState,
 }
 
 impl MapMetaCmd {
-    fn new() -> Self {
-        Self {
-            st: RefCell::new(None),
-        }
+    fn new(st: SharedMapState) -> Self {
+        Self { st }
     }
 
-    /// Load the vector DB from the current `.aadt` path (or start fresh) whenever
-    /// the drawing path changes, so state persists across commands in a session.
     fn sync(&self, ctx: &Context) {
-        let path = ctx.drawing_path.clone();
-        let mut g = self.st.borrow_mut();
-        let reload = match &*g {
-            None => true,
-            Some(s) => s.path != path,
-        };
-        if reload {
-            let model_id = default_classifier().model_id().to_string();
-            let db = path
-                .as_ref()
-                .filter(|p| is_aadt_path(p))
-                .and_then(|p| aadt_store::read_vecdb_path(p).ok().flatten())
-                .filter(|db| db.model_id() == model_id)
-                .unwrap_or_else(|| VectorDb::new(model_id, EMBED_DIM));
-            *g = Some(MapState { db, path });
-        }
+        sync_map_state(&self.st, ctx);
     }
 
     /// Persist the in-memory DB back into the `.aadt` file, if there is one.
@@ -911,5 +939,810 @@ impl Command for HistoryCmd {
                 "HISTORY: unknown subcommand {other:?} (LIST|SAVE|RESTORE|PURGE)"
             )),
         }
+    }
+}
+
+/// `FIND` — semantic search over the drawing (AI-native Phase 2). Text queries
+/// match against each element's label (layer name + annotation text) using the
+/// character n-gram text model; `SIMILAR` and `DUPES` search the geometric
+/// embedding space held in the session's vector db.
+struct FindCmd {
+    st: SharedMapState,
+}
+
+impl FindCmd {
+    /// Default number of hits reported by a text search.
+    const TOP_K: usize = 10;
+    /// Cosine similarity at or above which two elements read as near-duplicates.
+    const DUP_THRESHOLD: f32 = 0.995;
+
+    fn do_text(&self, ctx: &mut Context, query: &str) -> Result<String, String> {
+        let hits = find_by_text(&ctx.doc, query, Self::TOP_K);
+        let hits: Vec<_> = hits.into_iter().filter(|h| h.score > 0.0).collect();
+        if hits.is_empty() {
+            return Ok(format!("FIND: nothing matches {query:?}"));
+        }
+        ctx.selection = hits.iter().map(|h| h.id).collect();
+        let lines: Vec<String> = hits
+            .iter()
+            .map(|h| format!("  #{} {} ({:.0}%)", h.id.0, h.layer, h.score * 100.0))
+            .collect();
+        Ok(format!(
+            "FIND {query:?}: {} match(es), selected:\n{}",
+            hits.len(),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_similar(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = EntityId(parse_id(args, 1, "FIND SIMILAR")?);
+        let hits = {
+            let g = self.st.borrow();
+            let Some(state) = g.as_ref() else {
+                return Err("FIND SIMILAR: run MAPMETA first to build the vector db".into());
+            };
+            if state.db.get(id).is_none() {
+                return Err(format!(
+                    "FIND SIMILAR: no embedding for #{} — run MAPMETA first",
+                    id.0
+                ));
+            }
+            find_similar_to(&state.db, id, Self::TOP_K)
+        };
+        // A non-positive cosine means actively dissimilar — not a match.
+        let hits: Vec<_> = hits.into_iter().filter(|h| h.score > 0.0).collect();
+        if hits.is_empty() {
+            return Ok(format!("FIND SIMILAR: nothing else resembles #{}", id.0));
+        }
+        ctx.selection = hits.iter().map(|h| h.id).collect();
+        let lines: Vec<String> = hits
+            .iter()
+            .map(|h| format!("  #{} {} ({:.0}%)", h.id.0, h.layer, h.score * 100.0))
+            .collect();
+        Ok(format!(
+            "{} element(s) similar to #{}, selected:\n{}",
+            hits.len(),
+            id.0,
+            lines.join("\n")
+        ))
+    }
+
+    fn do_dupes(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let threshold = match args.get(1) {
+            Some(s) => s
+                .parse::<f32>()
+                .map_err(|_| format!("FIND DUPES: bad threshold {s:?} (want 0.0–1.0)"))?,
+            None => Self::DUP_THRESHOLD,
+        };
+        let pairs = {
+            let g = self.st.borrow();
+            let Some(state) = g.as_ref() else {
+                return Err("FIND DUPES: run MAPMETA first to build the vector db".into());
+            };
+            find_duplicates(&state.db, threshold)
+        };
+        if pairs.is_empty() {
+            return Ok(format!(
+                "FIND DUPES: no near-duplicate geometry at ≥{:.0}% similarity",
+                threshold * 100.0
+            ));
+        }
+        let mut selection = Vec::new();
+        for p in &pairs {
+            if !selection.contains(&p.a) {
+                selection.push(p.a);
+            }
+            if !selection.contains(&p.b) {
+                selection.push(p.b);
+            }
+        }
+        ctx.selection = selection;
+        let lines: Vec<String> = pairs
+            .iter()
+            .take(20)
+            .map(|p| format!("  #{} ≈ #{} ({:.1}%)", p.a.0, p.b.0, p.similarity * 100.0))
+            .collect();
+        Ok(format!(
+            "{} duplicate pair(s) at ≥{:.0}% similarity:\n{}",
+            pairs.len(),
+            threshold * 100.0,
+            lines.join("\n")
+        ))
+    }
+}
+
+impl Command for FindCmd {
+    fn name(&self) -> &str {
+        "FIND"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["SEARCH", "SEMSEARCH"]
+    }
+    fn help(&self) -> &str {
+        "FIND <text>|SIMILAR id|DUPES [threshold] — semantic search over the drawing (selects the hits)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        sync_map_state(&self.st, ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" => Err("FIND: give a text query, or SIMILAR id / DUPES [threshold]".into()),
+            "SIMILAR" | "LIKE" => self.do_similar(ctx, args),
+            "DUPES" | "DUPLICATES" => self.do_dupes(ctx, args),
+            // Anything else is a free-text query (may be several words).
+            _ => self.do_text(ctx, args.join(" ").trim()),
+        }
+    }
+}
+
+/// `ASKDOCS` — retrieval over locally indexed spec/standard documents
+/// (AI-native Phase 2). Text files are chunked per paragraph, embedded with the
+/// character n-gram model, and searched by cosine similarity. Every answer cites
+/// its source, so the retrieved passage is the evidence — nothing is generated.
+struct AskDocsCmd {
+    st: SharedCorpus,
+}
+
+/// Shared handle to the session's indexed corpus, so `ASKDOCS` and `CHECK`
+/// (which cites passages in its findings) read the same documents.
+type SharedCorpus = Rc<RefCell<Option<CorpusState>>>;
+
+struct CorpusState {
+    corpus: CorpusDb,
+    path: Option<String>,
+}
+
+impl AskDocsCmd {
+    /// Passages returned per query.
+    const TOP_K: usize = 3;
+
+    /// (Re)load the corpus whenever the drawing path changes.
+    fn sync(&self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        let mut g = self.st.borrow_mut();
+        let reload = match &*g {
+            None => true,
+            Some(s) => s.path != path,
+        };
+        if reload {
+            let corpus = path
+                .as_ref()
+                .filter(|p| is_aadt_path(p))
+                .and_then(|p| aadt_store::read_corpus_path(p).ok().flatten())
+                .unwrap_or_default();
+            *g = Some(CorpusState { corpus, path });
+        }
+    }
+
+    /// Persist the corpus back into the drawing's `.aadt` file, if there is one.
+    fn persist(&self) {
+        if let Some(s) = self.st.borrow().as_ref() {
+            if let Some(p) = s.path.as_ref().filter(|p| is_aadt_path(p)) {
+                let _ = aadt_store::write_corpus_path(p, &s.corpus);
+            }
+        }
+    }
+
+    fn do_index(&self, args: &[String]) -> Result<String, String> {
+        let path = path_from_args(&args[1..], "ASKDOCS INDEX")?;
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("ASKDOCS INDEX: cannot read {path}: {e}"))?;
+        let added = {
+            let mut g = self.st.borrow_mut();
+            let state = g.as_mut().expect("state synced");
+            state.corpus.index_text(&path, &text)
+        };
+        self.persist();
+        if added == 0 {
+            return Ok(format!("ASKDOCS: {path} has no indexable text"));
+        }
+        Ok(format!("ASKDOCS: indexed {added} passage(s) from {path}"))
+    }
+
+    fn do_sources(&self) -> Result<String, String> {
+        let g = self.st.borrow();
+        let state = g.as_ref().expect("state synced");
+        let sources = state.corpus.sources();
+        if sources.is_empty() {
+            return Ok("ASKDOCS: no documents indexed — ASKDOCS INDEX <path>".into());
+        }
+        let lines: Vec<String> = sources
+            .iter()
+            .map(|s| {
+                let n = state
+                    .corpus
+                    .chunks()
+                    .iter()
+                    .filter(|c| c.source == *s)
+                    .count();
+                format!("  {s} ({n} passage(s))")
+            })
+            .collect();
+        Ok(format!(
+            "{} document(s), {} passage(s):\n{}",
+            sources.len(),
+            state.corpus.len(),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_ask(&self, query: &str) -> Result<String, String> {
+        let g = self.st.borrow();
+        let state = g.as_ref().expect("state synced");
+        if state.corpus.is_empty() {
+            return Err("ASKDOCS: no documents indexed — ASKDOCS INDEX <path> first".into());
+        }
+        let results = state.corpus.search(query, Self::TOP_K);
+        if results.is_empty() {
+            return Ok(format!("ASKDOCS: nothing in the corpus matches {query:?}"));
+        }
+        // BM25 scores are unbounded and comparable only within one result set,
+        // so rank them rather than dressing them up as a percentage.
+        let lines: Vec<String> = results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                format!(
+                    "  {}. [{}:{}] (score {:.2})\n     {}",
+                    i + 1,
+                    r.source,
+                    r.seq,
+                    r.score,
+                    r.text
+                )
+            })
+            .collect();
+        Ok(format!(
+            "ASKDOCS {query:?} — {} passage(s), most relevant first:\n{}",
+            results.len(),
+            lines.join("\n")
+        ))
+    }
+}
+
+impl Command for AskDocsCmd {
+    fn name(&self) -> &str {
+        "ASKDOCS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DOCS", "RAG"]
+    }
+    fn help(&self) -> &str {
+        "ASKDOCS <question>|INDEX path|SOURCES — retrieve cited passages from indexed spec documents"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        self.sync(ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" => Err("ASKDOCS: ask a question, or INDEX <path> / SOURCES".into()),
+            "INDEX" | "ADD" => self.do_index(args),
+            "SOURCES" | "LIST" => self.do_sources(),
+            _ => self.do_ask(args.join(" ").trim()),
+        }
+    }
+}
+
+/// Shared session state for `SUGGEST` / `CHECK` (AI-native Phase 3): the
+/// current proposal set plus the audit log that records every decision.
+#[derive(Default)]
+struct SuggestState {
+    set: SuggestionSet,
+    audit: AuditLog,
+    path: Option<String>,
+    loaded: bool,
+}
+
+type SharedSuggestions = Rc<RefCell<SuggestState>>;
+
+impl SuggestState {
+    /// (Re)load the persisted audit log when the drawing path changes. The
+    /// proposal set itself is session-scoped — proposals are derived from the
+    /// current geometry, so they are regenerated rather than restored.
+    fn sync(&mut self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        if self.loaded && self.path == path {
+            return;
+        }
+        self.path = path.clone();
+        self.loaded = true;
+        self.set = SuggestionSet::new();
+        self.audit = AuditLog::new();
+        if let Some(p) = path.as_ref().filter(|p| is_aadt_path(p)) {
+            if let Ok(Some((_, _, a))) = aadt_store::read_objects_path(p) {
+                self.audit = a;
+            }
+        }
+    }
+
+    /// Persist the audit log, preserving whatever objects/graph are on disk.
+    /// Decisions about AI proposals belong in the same append-only trail as
+    /// every other object mutation.
+    fn persist(&self) {
+        if let Some(p) = self.path.as_ref().filter(|p| is_aadt_path(p)) {
+            let (objects, graph) = aadt_store::read_objects_path(p)
+                .ok()
+                .flatten()
+                .map(|(o, g, _)| (o, g))
+                .unwrap_or_default();
+            let _ = aadt_store::write_objects_path(p, &objects, &graph, &self.audit);
+        }
+    }
+}
+
+/// Render one proposal as a display line.
+fn suggestion_line(s: &aadt_assist::Suggestion) -> String {
+    format!(
+        "  #{} [{}] {} (conf {:.0}%, {})",
+        s.id,
+        s.kind,
+        s.summary,
+        s.confidence * 100.0,
+        s.status.as_str()
+    )
+}
+
+/// `SUGGEST` — the AI service layer's proposal surface. Services propose;
+/// nothing is applied until `ACCEPT` names a proposal explicitly.
+struct SuggestCmd {
+    st: SharedSuggestions,
+}
+
+impl SuggestCmd {
+    fn do_dims(&self, ctx: &mut Context) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        let found = aadt_assist::suggest_dimensions(&ctx.doc);
+        let n = found.len();
+        // Refresh only the dimension proposals — outstanding code findings stay.
+        st.set
+            .replace_kind(aadt_assist::SuggestionKind::Dimension, found);
+        if n == 0 {
+            return Ok("SUGGEST: every detected wall already carries a dimension".into());
+        }
+        ctx.selection = st.set.iter().flat_map(|s| s.targets.clone()).collect();
+        let lines: Vec<String> = st
+            .set
+            .iter()
+            .filter(|s| s.kind == aadt_assist::SuggestionKind::Dimension)
+            .map(suggestion_line)
+            .collect();
+        Ok(format!(
+            "SUGGEST: {n} dimension proposal(s) — nothing applied yet; SUGGEST ACCEPT <id> or REJECT <id>:\n{}",
+            lines.join("\n")
+        ))
+    }
+
+    fn do_list(&self) -> Result<String, String> {
+        let st = self.st.borrow();
+        if st.set.is_empty() {
+            return Ok("SUGGEST: no proposals — run SUGGEST DIMS or CHECK first".into());
+        }
+        let lines: Vec<String> = st.set.iter().map(suggestion_line).collect();
+        let counts: Vec<String> = st
+            .set
+            .kind_counts()
+            .into_iter()
+            .map(|(k, n)| format!("{n} {k}"))
+            .collect();
+        Ok(format!(
+            "{} proposal(s) ({}):\n{}",
+            st.set.len(),
+            counts.join(", "),
+            lines.join("\n")
+        ))
+    }
+
+    fn do_why(&self, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "SUGGEST WHY")? as u32;
+        let st = self.st.borrow();
+        let Some(s) = st.set.get(id) else {
+            return Err(format!("SUGGEST WHY: no proposal #{id}"));
+        };
+        Ok(format!(
+            "#{} [{}] {}\n  confidence: {:.0}%\n  status: {}\n  rationale: {}\n  applicable: {}",
+            s.id,
+            s.kind,
+            s.summary,
+            s.confidence * 100.0,
+            s.status.as_str(),
+            s.rationale,
+            if s.action.is_applicable() {
+                "yes — SUGGEST ACCEPT applies it"
+            } else {
+                "no — advisory only"
+            }
+        ))
+    }
+
+    fn do_accept(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "SUGGEST ACCEPT")? as u32;
+        let mut st = self.st.borrow_mut();
+        let SuggestState { set, audit, .. } = &mut *st;
+        let summary = aadt_assist::apply(set, &mut ctx.doc, audit, id)
+            .map_err(|e| format!("SUGGEST: {e}"))?;
+        st.persist();
+        Ok(format!("SUGGEST: accepted #{id} — {summary} (undoable)"))
+    }
+
+    fn do_reject(&self, args: &[String]) -> Result<String, String> {
+        let id = parse_id(args, 1, "SUGGEST REJECT")? as u32;
+        let mut st = self.st.borrow_mut();
+        let SuggestState { set, audit, .. } = &mut *st;
+        let summary = aadt_assist::reject(set, audit, id).map_err(|e| format!("SUGGEST: {e}"))?;
+        st.persist();
+        Ok(format!("SUGGEST: rejected #{id} — {summary} (recorded)"))
+    }
+
+    fn do_accept_all(&self, ctx: &mut Context) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        let ids: Vec<u32> = st
+            .set
+            .pending()
+            .iter()
+            .filter(|s| s.action.is_applicable())
+            .map(|s| s.id)
+            .collect();
+        if ids.is_empty() {
+            return Ok("SUGGEST: nothing pending that can be applied".into());
+        }
+        let SuggestState { set, audit, .. } = &mut *st;
+        let mut applied = 0;
+        for id in &ids {
+            if aadt_assist::apply(set, &mut ctx.doc, audit, *id).is_ok() {
+                applied += 1;
+            }
+        }
+        st.persist();
+        Ok(format!(
+            "SUGGEST: accepted {applied} proposal(s) (each undoable individually)"
+        ))
+    }
+}
+
+impl Command for SuggestCmd {
+    fn name(&self) -> &str {
+        "SUGGEST"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["PROPOSE"]
+    }
+    fn help(&self) -> &str {
+        "SUGGEST DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id — AI proposals; nothing applies until you accept"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        self.st.borrow_mut().sync(ctx);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" | "LIST" => self.do_list(),
+            "DIMS" | "DIMENSIONS" => self.do_dims(ctx),
+            "WHY" | "INFO" => self.do_why(args),
+            "ACCEPT" | "OK" => self.do_accept(ctx, args),
+            "ACCEPTALL" | "ACCEPT-ALL" => self.do_accept_all(ctx),
+            "REJECT" | "NO" => self.do_reject(args),
+            other => Err(format!(
+                "SUGGEST: unknown subcommand {other:?} (DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id)"
+            )),
+        }
+    }
+}
+
+/// `CHECK` — deterministic code/standards rule packs. Findings are advisory and
+/// cite the governing passage when a spec corpus has been indexed.
+struct CheckCmd {
+    st: SharedSuggestions,
+    corpus: SharedCorpus,
+}
+
+impl Command for CheckCmd {
+    fn name(&self) -> &str {
+        "CHECK"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AUDIT-RULES", "CODECHECK"]
+    }
+    fn help(&self) -> &str {
+        "CHECK [rule|RULES] — run code/standards rule packs (cites indexed spec passages)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let arg = args.first().map(|s| s.to_ascii_uppercase());
+        if arg.as_deref() == Some("RULES") {
+            let lines: Vec<String> = RuleId::ALL
+                .iter()
+                .map(|r| format!("  {} — {}", r, r.description()))
+                .collect();
+            return Ok(format!(
+                "{} rule(s):\n{}",
+                RuleId::ALL.len(),
+                lines.join("\n")
+            ));
+        }
+        let only = match args.first() {
+            None => None,
+            Some(a) => match RuleId::parse(a) {
+                Some(r) => Some(r),
+                None => {
+                    return Err(format!(
+                        "CHECK: unknown rule {a:?} — try CHECK RULES for the list"
+                    ))
+                }
+            },
+        };
+
+        self.st.borrow_mut().sync(ctx);
+        let found = {
+            let cg = self.corpus.borrow();
+            let corpus = cg.as_ref().map(|c| &c.corpus);
+            check_as_suggestions(&ctx.doc, corpus, only)
+        };
+        let n = found.len();
+        {
+            let mut st = self.st.borrow_mut();
+            // Refresh only the findings — outstanding dimension proposals stay.
+            st.set
+                .replace_kind(aadt_assist::SuggestionKind::CodeCheck, found);
+            ctx.selection = st
+                .set
+                .iter()
+                .filter(|s| s.kind == aadt_assist::SuggestionKind::CodeCheck)
+                .flat_map(|s| s.targets.clone())
+                .collect();
+        }
+        if n == 0 {
+            return Ok("CHECK: no findings — every checked element meets its threshold".into());
+        }
+        let st = self.st.borrow();
+        let lines: Vec<String> = st
+            .set
+            .iter()
+            .filter(|s| s.kind == aadt_assist::SuggestionKind::CodeCheck)
+            .map(|s| format!("{}\n      {}", suggestion_line(s), s.rationale))
+            .collect();
+        Ok(format!(
+            "CHECK: {n} finding(s) — advisory, nothing changed:\n{}",
+            lines.join("\n")
+        ))
+    }
+}
+
+/// `ASK` — natural-language command routing. Maps a phrase to a *command
+/// string* and shows it; it never runs it and never touches geometry directly.
+struct AskCmd;
+
+impl Command for AskCmd {
+    fn name(&self) -> &str {
+        "ASK"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["NL"]
+    }
+    fn help(&self) -> &str {
+        "ASK <phrase> — route natural language to a command (shows it; run it yourself)"
+    }
+    fn run(&self, _ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let phrase = args.join(" ");
+        if phrase.trim().is_empty() {
+            return Err("ASK: give a phrase, e.g. ASK draw a wall from 0,0 to 5,0".into());
+        }
+        match aadt_assist::route(&phrase) {
+            Routed::Command {
+                command,
+                confidence,
+                rationale,
+            } => Ok(format!(
+                "ASK: {phrase:?} → `{command}` (conf {:.0}%, {rationale})\n  \
+                 not executed — run it yourself if that is what you meant",
+                confidence * 100.0
+            )),
+            Routed::Unroutable { candidates, reason } => {
+                let tail = if candidates.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — did you mean: {}", candidates.join(", "))
+                };
+                Err(format!("ASK: {reason}{tail}"))
+            }
+        }
+    }
+}
+
+/// `TAKEOFF` — quantity takeoff over the Object DB (AI-native Phase 4).
+/// Promotes the drawing into objects, measures them, and reports. `SAVE`
+/// persists the run into the `.aadt` takeoff tables.
+struct TakeoffCmd;
+
+impl TakeoffCmd {
+    fn report(run: &aadt_takeoff::TakeoffRun) -> String {
+        let t = run.totals();
+        let mut out = format!(
+            "TAKEOFF (rev {}): {} wall(s), {} room(s), {} opening(s)\n  \
+             wall area {:.2} m² net · volume {:.3} m³ · {} bricks\n  \
+             floor area {:.2} m² · paintable {:.2} m²",
+            run.doc_revision,
+            t.walls,
+            t.rooms,
+            t.openings,
+            t.wall_area,
+            t.wall_volume,
+            t.bricks,
+            t.floor_area,
+            t.paint_area,
+        );
+        // Assumptions a reviewer must confirm before pricing.
+        let assumed = run.assumed_openings();
+        if !assumed.is_empty() {
+            out.push_str(&format!(
+                "\n  note: {} opening(s) sized from defaults, not drawn dimensions",
+                assumed.len()
+            ));
+        }
+        let unattached = run
+            .quantities
+            .openings
+            .iter()
+            .filter(|o| o.in_wall.is_none())
+            .count();
+        if unattached > 0 {
+            out.push_str(&format!(
+                "\n  note: {unattached} opening(s) not attributed to a wall — not deducted"
+            ));
+        }
+        out
+    }
+}
+
+impl Command for TakeoffCmd {
+    fn name(&self) -> &str {
+        "TAKEOFF"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["QTO", "QUANTITIES"]
+    }
+    fn help(&self) -> &str {
+        "TAKEOFF [WALLS|ROOMS|OPENINGS|SAVE] — measure quantities from the Object DB"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let cfg = aadt_takeoff::TakeoffConfig::default();
+        let run = aadt_takeoff::run(&ctx.doc, &cfg);
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        match sub.as_str() {
+            "" | "ALL" | "TOTALS" => Ok(Self::report(&run)),
+            "WALLS" => {
+                if run.quantities.walls.is_empty() {
+                    return Ok("TAKEOFF: no walls detected".into());
+                }
+                let lines: Vec<String> = run
+                    .quantities
+                    .walls
+                    .iter()
+                    .map(|w| {
+                        format!(
+                            "  #{} {} — {:.3} m × {:.3} m thick, net {:.2} m² (less {:.2} m² openings), {:.3} m³, {} bricks [{}]",
+                            w.object.0, w.layer, w.length, w.thickness, w.net_area,
+                            w.opening_area, w.volume, w.bricks, w.cost_code
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} wall(s):\n{}",
+                    run.quantities.walls.len(),
+                    lines.join("\n")
+                ))
+            }
+            "ROOMS" => {
+                if run.quantities.rooms.is_empty() {
+                    return Ok("TAKEOFF: no rooms detected".into());
+                }
+                let lines: Vec<String> = run
+                    .quantities
+                    .rooms
+                    .iter()
+                    .map(|r| {
+                        format!(
+                            "  #{} {} — floor {:.2} m², perimeter {:.2} m, wall finish {:.2} m², paint {:.2} m² [{}]",
+                            r.object.0, r.layer, r.floor_area, r.perimeter,
+                            r.wall_finish_area, r.paint_area, r.cost_code
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} room(s):\n{}",
+                    run.quantities.rooms.len(),
+                    lines.join("\n")
+                ))
+            }
+            "OPENINGS" => {
+                if run.quantities.openings.is_empty() {
+                    return Ok("TAKEOFF: no openings detected".into());
+                }
+                let lines: Vec<String> = run
+                    .quantities
+                    .openings
+                    .iter()
+                    .map(|o| {
+                        format!(
+                            "  #{} {} — {:.3} × {:.3} m = {:.3} m² [{}]{}{}",
+                            o.object.0,
+                            o.kind,
+                            o.width,
+                            o.height,
+                            o.area,
+                            o.cost_code,
+                            if o.measured { "" } else { " (assumed size)" },
+                            match o.in_wall {
+                                Some(w) => format!(" in wall #{}", w.0),
+                                None => " (no host wall)".into(),
+                            }
+                        )
+                    })
+                    .collect();
+                Ok(format!(
+                    "{} opening(s):\n{}",
+                    run.quantities.openings.len(),
+                    lines.join("\n")
+                ))
+            }
+            "SAVE" | "PUBLISH" => {
+                let path = resolve_drawing_path(ctx, None)?;
+                if !is_aadt_path(&path) {
+                    return Err("TAKEOFF SAVE: .aadt file required".into());
+                }
+                let data = aadt_store::run_to_row_data(&run, None);
+                let id = aadt_store::append_takeoff_run(&path, &data)
+                    .map_err(|e| format!("TAKEOFF SAVE: {e}"))?;
+                Ok(format!(
+                    "TAKEOFF: saved run #{id} ({} wall / {} room / {} opening rows)",
+                    data.walls.len(),
+                    data.rooms.len(),
+                    data.openings.len()
+                ))
+            }
+            other => Err(format!(
+                "TAKEOFF: unknown subcommand {other:?} (WALLS|ROOMS|OPENINGS|SAVE)"
+            )),
+        }
+    }
+}
+
+/// `BOQ` — the bill of quantities, aggregated by CSI MasterFormat cost code.
+struct BoqCmd;
+
+impl Command for BoqCmd {
+    fn name(&self) -> &str {
+        "BOQ"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["BILL"]
+    }
+    fn help(&self) -> &str {
+        "BOQ — bill of quantities by CSI MasterFormat cost code"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let run = aadt_takeoff::run(&ctx.doc, &aadt_takeoff::TakeoffConfig::default());
+        if run.boq.is_empty() {
+            return Ok("BOQ: nothing measured — the drawing has no promotable objects".into());
+        }
+        let mut out = format!("BOQ — {} line(s):", run.boq.len());
+        let mut current = "";
+        for l in &run.boq.lines {
+            if l.cost_code.code != current {
+                current = l.cost_code.code;
+                out.push_str(&format!("\n  {}", l.cost_code));
+            }
+            out.push_str(&format!(
+                "\n    {:<32} {:>12.3} {}",
+                l.description, l.quantity, l.unit
+            ));
+        }
+        Ok(out)
     }
 }

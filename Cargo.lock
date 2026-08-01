@@ -24,10 +24,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "aadt-assist"
+version = "0.0.0"
+dependencies = [
+ "aadt-detect",
+ "aadt-geometry",
+ "aadt-model",
+ "aadt-object",
+ "aadt-vecdb",
+]
+
+[[package]]
 name = "aadt-cli"
 version = "0.0.0"
 dependencies = [
  "aadt-app",
+ "aadt-assist",
  "aadt-command",
  "aadt-detect",
  "aadt-docs",
@@ -43,6 +55,7 @@ dependencies = [
  "aadt-render",
  "aadt-standards",
  "aadt-store",
+ "aadt-takeoff",
  "aadt-vdb",
  "aadt-vecdb",
 ]
@@ -183,12 +196,24 @@ dependencies = [
 name = "aadt-store"
 version = "0.0.0"
 dependencies = [
+ "aadt-embed",
  "aadt-geometry",
  "aadt-graph",
  "aadt-model",
  "aadt-object",
+ "aadt-takeoff",
  "aadt-vecdb",
  "rusqlite",
+]
+
+[[package]]
+name = "aadt-takeoff"
+version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-graph",
+ "aadt-model",
+ "aadt-object",
 ]
 
 [[package]]
