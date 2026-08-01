@@ -939,6 +939,10 @@ enum Op {
     },
     /// A dimension was appended (undo pops it, redo re-appends).
     AddDimension(Dimension),
+    /// A dimension was removed from position `index` (undo reinserts it there,
+    /// redo removes it again). Recorded with the absolute index so a dimension
+    /// in the middle of the table round-trips.
+    RemoveDimension { index: usize, dimension: Dimension },
     /// Drawing properties were replaced (undo restores `before`). Used for
     /// UNITS / DIMSTYLE / BPLTSTART so one UNDO reverses the whole command.
     /// Boxed so `Op` stays compact (properties are a large struct).
@@ -1899,6 +1903,11 @@ impl Document {
             Op::AddDimension(d) => {
                 self.dimensions.push(d.clone());
             }
+            Op::RemoveDimension { index, .. } => {
+                if *index < self.dimensions.len() {
+                    self.dimensions.remove(*index);
+                }
+            }
             Op::SetProperties { after, .. } => {
                 self.properties = (**after).clone();
             }
@@ -1989,6 +1998,10 @@ impl Document {
             }
             Op::AddDimension(_) => {
                 self.dimensions.pop();
+            }
+            Op::RemoveDimension { index, dimension } => {
+                let i = (*index).min(self.dimensions.len());
+                self.dimensions.insert(i, dimension.clone());
             }
             Op::SetProperties { before, .. } => {
                 self.properties = (**before).clone();
@@ -2486,6 +2499,20 @@ impl Document {
         let hatch = self.hatches.remove(index);
         if self.open.is_some() {
             self.record(Op::RemoveHatch { index, hatch });
+        }
+        self.revision += 1;
+        true
+    }
+
+    /// Remove the dimension at `index`, returning `true` if it existed.
+    /// Recorded as an undoable [`Op::RemoveDimension`] when a transaction is open.
+    pub fn remove_dimension(&mut self, index: usize) -> bool {
+        if index >= self.dimensions.len() {
+            return false;
+        }
+        let dimension = self.dimensions.remove(index);
+        if self.open.is_some() {
+            self.record(Op::RemoveDimension { index, dimension });
         }
         self.revision += 1;
         true
@@ -3019,6 +3046,41 @@ mod tests {
 
         // Out-of-range remove is a no-op.
         doc.transact("noop", |d| assert!(!d.remove_hatch(9)));
+    }
+
+    #[test]
+    fn remove_dimension_by_index_is_undoable() {
+        let mut doc = Document::new();
+        let dim = |m: f64| Dimension {
+            space: Default::default(),
+            layer: "A-DIMS".to_string(),
+            kind: DimensionKind::Aligned,
+            p1: Point2::new(0.0, 0.0),
+            p2: Point2::new(m, 0.0),
+            vertex: Point2::new(0.0, 0.0),
+            text_anchor: Point2::new(m * 0.5, -1.0),
+            text: String::new(),
+            measurement: m,
+        };
+        for m in [1.0, 2.0, 3.0] {
+            doc.transact("dim", |d| d.add_dimension(dim(m)));
+        }
+        assert_eq!(doc.dimensions().len(), 3);
+
+        // Remove the MIDDLE dimension — absolute index must round-trip.
+        doc.transact("erase dim", |d| assert!(d.remove_dimension(1)));
+        assert_eq!(doc.dimensions().len(), 2);
+        assert_eq!(doc.dimensions()[1].measurement, 3.0);
+
+        doc.undo();
+        assert_eq!(doc.dimensions().len(), 3, "undo reinserts at the same index");
+        assert_eq!(doc.dimensions()[1].measurement, 2.0);
+
+        doc.redo();
+        assert_eq!(doc.dimensions().len(), 2, "redo re-removes the middle dimension");
+        assert_eq!(doc.dimensions()[1].measurement, 3.0);
+
+        doc.transact("noop", |d| assert!(!d.remove_dimension(9)));
     }
 
     #[test]

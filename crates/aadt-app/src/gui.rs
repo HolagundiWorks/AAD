@@ -20,12 +20,12 @@ use std::time::Instant;
 
 use aadt_geometry::{Bbox, Point2, Segment};
 use aadt_model::{Document, EntityId, Geometry, Hatch, DEFAULT_LINEWEIGHT_MM};
-use aadt_render::{Camera, DrawCommand, DrawList};
+use aadt_render::{dimension_commands, Camera, DrawCommand, DrawList};
 use aadt_standards::aci_to_srgb;
 use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
-use crate::selection::{select_by_fence, select_in_polygon, RegionMode};
+use crate::selection::{point_in_polygon, select_by_fence, select_in_polygon, RegionMode};
 use crate::prefs::UserPrefs;
 use crate::{Feedback, Session};
 
@@ -986,6 +986,8 @@ struct AadtApp {
     /// Selected hatches, by index into `document().hatches()`. Held apart from
     /// `selection` because hatches live in their own table (no `EntityId`).
     selected_hatches: Vec<usize>,
+    /// Selected dimensions, by index into `document().dimensions()`.
+    selected_dimensions: Vec<usize>,
     /// Layer new interactive geometry is drawn on.
     current_layer: String,
     /// Screen anchor of an in-progress box selection.
@@ -1156,6 +1158,7 @@ impl AadtApp {
             tool: Tool::Select,
             selection: Vec::new(),
             selected_hatches: Vec::new(),
+            selected_dimensions: Vec::new(),
             current_layer: "A-WALL".to_string(),
             box_start: None,
             drag_path: Vec::new(),
@@ -3884,7 +3887,9 @@ impl AadtApp {
         if !line.contains(' ') {
             let up = line.to_ascii_uppercase();
             if matches!(up.as_str(), "E" | "ERASE")
-                && !(self.selection.is_empty() && self.selected_hatches.is_empty())
+                && !(self.selection.is_empty()
+                    && self.selected_hatches.is_empty()
+                    && self.selected_dimensions.is_empty())
             {
                 self.erase_selection();
                 return;
@@ -4067,7 +4072,10 @@ impl AadtApp {
     }
 
     fn erase_selection(&mut self) {
-        if self.selection.is_empty() && self.selected_hatches.is_empty() {
+        if self.selection.is_empty()
+            && self.selected_hatches.is_empty()
+            && self.selected_dimensions.is_empty()
+        {
             self.note = "Select objects first, then E.".to_string();
             return;
         }
@@ -4075,6 +4083,7 @@ impl AadtApp {
             self.sync_selection();
             self.app_feed("ERASE SELECTION");
             self.selection.clear();
+            return;
         }
         if !self.selected_hatches.is_empty() {
             // Remove by descending index so earlier removals don't shift later
@@ -4089,6 +4098,20 @@ impl AadtApp {
                 }
             });
             self.note = format!("Erased {n} hatch{}", if n == 1 { "" } else { "es" });
+            return;
+        }
+        if !self.selected_dimensions.is_empty() {
+            let mut idxs = std::mem::take(&mut self.selected_dimensions);
+            idxs.sort_unstable();
+            idxs.dedup();
+            let n = idxs.len();
+            self.session.document_mut().transact("Erase dimension", |d| {
+                for &i in idxs.iter().rev() {
+                    d.remove_dimension(i);
+                }
+            });
+            self.note = format!("Erased {n} dimension{}", if n == 1 { "" } else { "s" });
+            return;
         }
     }
 
@@ -6305,7 +6328,8 @@ impl eframe::App for AadtApp {
                             egui::Key::Delete => {
                                 if matches!(self.tool, Tool::Select)
                                     && !(self.selection.is_empty()
-                                        && self.selected_hatches.is_empty())
+                                        && self.selected_hatches.is_empty()
+                                        && self.selected_dimensions.is_empty())
                                 {
                                     self.erase_selection();
                                 }
@@ -6322,6 +6346,7 @@ impl eframe::App for AadtApp {
                                 } else {
                                     self.selection.clear();
                                     self.selected_hatches.clear();
+                                    self.selected_dimensions.clear();
                                 }
                             }
                             egui::Key::F8 => {
@@ -6640,6 +6665,13 @@ impl eframe::App for AadtApp {
                     self.session.document(),
                     &self.selected_hatches,
                 );
+                paint_selected_dimensions(
+                    &painter,
+                    rect,
+                    &self.camera,
+                    self.session.document(),
+                    &self.selected_dimensions,
+                );
 
                 // Rubber-band preview for the in-progress tool.
                 if let Some(pos) = self.cursor {
@@ -6849,6 +6881,7 @@ impl AadtApp {
             } else {
                 self.selection = vec![id];
                 self.selected_hatches.clear();
+                self.selected_dimensions.clear();
             }
             return;
         }
@@ -6863,14 +6896,32 @@ impl AadtApp {
             } else {
                 self.selected_hatches = vec![hi];
                 self.selection.clear();
+                self.selected_dimensions.clear();
             }
             self.note = "Hatch selected — Del/E to erase, or apply a pattern in Hatches".into();
             return;
         }
-        // Empty click clears both sets (Shift keeps the current selection).
+        // Hit a dimension's drawn geometry.
+        if let Some(di) = pick_dimension(self.session.document(), world, tol) {
+            if shift {
+                if let Some(i) = self.selected_dimensions.iter().position(|&x| x == di) {
+                    self.selected_dimensions.remove(i);
+                } else {
+                    self.selected_dimensions.push(di);
+                }
+            } else {
+                self.selected_dimensions = vec![di];
+                self.selection.clear();
+                self.selected_hatches.clear();
+            }
+            self.note = "Dimension selected — Del/E to erase".into();
+            return;
+        }
+        // Empty click clears all sets (Shift keeps the current selection).
         if !shift {
             self.selection.clear();
             self.selected_hatches.clear();
+            self.selected_dimensions.clear();
         }
     }
 
@@ -6896,17 +6947,24 @@ impl AadtApp {
         // Direction is screen X only (AutoCAD); Y can go either way.
         let crossing = e.x < s.x;
         let hits = box_select(self.session.document(), lo, hi, crossing);
+        let dim_hits = dimension_box_select(self.session.document(), lo, hi, crossing);
         if ui.input(|i| i.modifiers.shift) {
             for id in hits {
                 if !self.selection.contains(&id) {
                     self.selection.push(id);
                 }
             }
+            for idx in dim_hits {
+                if !self.selected_dimensions.contains(&idx) {
+                    self.selected_dimensions.push(idx);
+                }
+            }
         } else {
             self.selection = hits;
+            self.selected_dimensions = dim_hits;
             self.selected_hatches.clear();
         }
-        let n = self.selection.len();
+        let n = self.selection.len() + self.selected_dimensions.len();
         self.note = if crossing {
             format!("Crossing: {n} selected")
         } else {
@@ -6937,18 +6995,25 @@ impl AadtApp {
             RegionMode::Window
         };
         let hits = select_in_polygon(self.session.document(), &polygon, mode);
+        let dim_hits = dimension_polygon_select(self.session.document(), &polygon, crossing);
         if ui.input(|i| i.modifiers.shift) {
             for id in hits {
                 if !self.selection.contains(&id) {
                     self.selection.push(id);
                 }
             }
+            for idx in dim_hits {
+                if !self.selected_dimensions.contains(&idx) {
+                    self.selected_dimensions.push(idx);
+                }
+            }
         } else {
             self.selection = hits;
+            self.selected_dimensions = dim_hits;
             self.selected_hatches.clear();
         }
         self.sync_selection();
-        let n = self.selection.len();
+        let n = self.selection.len() + self.selected_dimensions.len();
         self.note = format!(
             "Lasso {}: {n} selected",
             if crossing { "crossing" } else { "window" }
@@ -7101,6 +7166,158 @@ fn hatch_boundary_at(doc: &Document, p: Point2) -> Option<EntityId> {
         }
     }
     best.map(|(_, id)| id)
+}
+
+/// The nearest dimension within `tol` of `p` in the active space, tested against
+/// exactly the geometry the renderer draws (extension / dim lines + text anchor).
+/// Dimensions live in their own table (no `EntityId`), so this returns an index
+/// into `doc.dimensions()`.
+fn pick_dimension(doc: &Document, p: Point2, tol: f64) -> Option<usize> {
+    let active = doc.active_space();
+    let props = doc.properties();
+    let mut best: Option<(f64, usize)> = None;
+    for (i, dim) in doc.dimensions().iter().enumerate() {
+        if dim.space != active || !entity_pickable(doc, &dim.layer) {
+            continue;
+        }
+        let d = dimension_hit_dist(dim, props, p);
+        if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, i));
+        }
+    }
+    best.map(|(_, i)| i)
+}
+
+/// Min distance from `p` to a dimension's drawn primitives — its line segments
+/// and text anchor — via [`dimension_commands`].
+fn dimension_hit_dist(
+    dim: &aadt_model::Dimension,
+    props: &aadt_model::DrawingProperties,
+    p: Point2,
+) -> f64 {
+    let mut best = f64::INFINITY;
+    for cmd in dimension_commands(dim, props) {
+        match cmd {
+            DrawCommand::Polyline { points, .. } => {
+                for w in points.windows(2) {
+                    best = best.min(Segment::new(w[0], w[1]).distance_to_point(p));
+                }
+            }
+            DrawCommand::Text { position, .. } => best = best.min(p.distance(position)),
+            _ => {}
+        }
+    }
+    best
+}
+
+/// Dimensions caught by a box/lasso rectangle. Window (L→R) needs every drawn
+/// point inside; crossing (R→L) needs any point inside or any segment crossing.
+fn dimension_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<usize> {
+    let active = doc.active_space();
+    let props = doc.properties();
+    let mut hits = Vec::new();
+    for (i, dim) in doc.dimensions().iter().enumerate() {
+        if dim.space != active || !entity_pickable(doc, &dim.layer) {
+            continue;
+        }
+        let (mut all_in, mut any_in, mut crosses, mut saw) = (true, false, false, false);
+        for cmd in dimension_commands(dim, props) {
+            match cmd {
+                DrawCommand::Polyline { points, .. } => {
+                    for w in points.windows(2) {
+                        saw = true;
+                        let (a_in, b_in) = (point_in_sel(w[0], lo, hi), point_in_sel(w[1], lo, hi));
+                        any_in |= a_in || b_in;
+                        all_in &= a_in && b_in;
+                        if crossing && segment_crosses_sel(Segment::new(w[0], w[1]), lo, hi) {
+                            crosses = true;
+                        }
+                    }
+                }
+                DrawCommand::Text { position, .. } => {
+                    saw = true;
+                    let inside = point_in_sel(position, lo, hi);
+                    any_in |= inside;
+                    all_in &= inside;
+                }
+                _ => {}
+            }
+        }
+        let selected = saw && if crossing { any_in || crosses } else { all_in };
+        if selected {
+            hits.push(i);
+        }
+    }
+    hits
+}
+
+/// Dimensions caught by a lasso polygon. Window needs every drawn point inside;
+/// crossing needs any point inside (segment-edge crossings are not tested — a
+/// dimension line that only clips the lasso boundary is a rare case).
+fn dimension_polygon_select(doc: &Document, polygon: &[Point2], crossing: bool) -> Vec<usize> {
+    let active = doc.active_space();
+    let props = doc.properties();
+    let mut hits = Vec::new();
+    for (i, dim) in doc.dimensions().iter().enumerate() {
+        if dim.space != active || !entity_pickable(doc, &dim.layer) {
+            continue;
+        }
+        let (mut all_in, mut any_in, mut saw) = (true, false, false);
+        for cmd in dimension_commands(dim, props) {
+            match cmd {
+                DrawCommand::Polyline { points, .. } => {
+                    for pt in points {
+                        saw = true;
+                        let inside = point_in_polygon(polygon, pt);
+                        any_in |= inside;
+                        all_in &= inside;
+                    }
+                }
+                DrawCommand::Text { position, .. } => {
+                    saw = true;
+                    let inside = point_in_polygon(polygon, position);
+                    any_in |= inside;
+                    all_in &= inside;
+                }
+                _ => {}
+            }
+        }
+        if saw && if crossing { any_in } else { all_in } {
+            hits.push(i);
+        }
+    }
+    hits
+}
+
+/// Highlight the selected dimensions (indices into `doc.dimensions()`) in the
+/// selection blue, outlining exactly the drawn line geometry.
+fn paint_selected_dimensions(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &Camera,
+    doc: &Document,
+    selected: &[usize],
+) {
+    if selected.is_empty() {
+        return;
+    }
+    let hi = egui::Color32::from_rgb(30, 120, 255);
+    let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
+    let props = doc.properties();
+    let dims = doc.dimensions();
+    for &idx in selected {
+        let Some(dim) = dims.get(idx) else { continue };
+        for cmd in dimension_commands(dim, props) {
+            if let DrawCommand::Polyline { points, .. } = cmd {
+                for w in points.windows(2) {
+                    let a = world_to_screen(camera, rect, w[0]);
+                    let b = world_to_screen(camera, rect, w[1]);
+                    painter.line_segment([a, b], egui::Stroke::new(6.0_f32, glow));
+                    painter.line_segment([a, b], egui::Stroke::new(2.0_f32, hi));
+                }
+            }
+        }
+    }
 }
 
 /// A bounding box around a geometry's defining points (inserts expand to block).

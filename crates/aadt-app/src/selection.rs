@@ -143,7 +143,7 @@ fn sample_circle(center: Point2, radius: f64) -> Vec<Point2> {
 }
 
 /// Even-odd ray-cast point-in-polygon.
-fn point_in_polygon(poly: &[Point2], p: Point2) -> bool {
+pub(crate) fn point_in_polygon(poly: &[Point2], p: Point2) -> bool {
     let n = poly.len();
     let mut inside = false;
     let mut j = n - 1;

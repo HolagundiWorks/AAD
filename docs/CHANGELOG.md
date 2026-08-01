@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Dimension selection & erase (M9 drafting parity)
+
+- Dimensions are now **selectable** in the viewport — click a dimension's drawn
+  geometry to pick it, box/crossing and lasso to multi-select. Selected
+  dimensions highlight in selection blue. Hit-testing and highlight run against
+  exactly what the renderer draws (`aadt_render::dimension_commands`, now public).
+- **Delete / `E`** erases selected dimensions in one undoable step via the new
+  `Document::remove_dimension` (`Op::RemoveDimension`, index-based so a
+  middle-of-table dimension round-trips through undo/redo).
+- Restored the M9.2 free-drag **lasso**, which in-progress dimension-selection
+  work had accidentally reverted.
+
 ### AI-Native Phase 4 (M13): quantity takeoff returns, built on the Object DB
 
 Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).

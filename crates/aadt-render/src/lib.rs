@@ -558,7 +558,10 @@ fn collect_ring_crossings(
 /// A [`Dimension`] flattened to AutoCAD-like draw primitives: extension lines,
 /// dimension line, arrowheads, and value text (oriented along the dim line for
 /// linear/aligned). `dim_scale` / `dim_text_height` size the glyphs.
-fn dimension_commands(dim: &Dimension, props: &aadt_model::DrawingProperties) -> Vec<DrawCommand> {
+///
+/// Public so front-ends can hit-test / highlight a dimension against exactly the
+/// geometry that is drawn, rather than re-deriving it.
+pub fn dimension_commands(dim: &Dimension, props: &aadt_model::DrawingProperties) -> Vec<DrawCommand> {
     let label = aadt_model::format_dimension_label(
         dim.kind,
         dim.measurement,
