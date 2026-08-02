@@ -223,7 +223,11 @@ pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) ->
         }
         let tint = if selected { color::ACCENT } else { color::TEXT };
         // Fluent: filled glyph for the selected state, regular otherwise.
-        let src = if selected { icon.svg_filled() } else { icon.svg() };
+        let src = if selected {
+            icon.svg_filled()
+        } else {
+            icon.svg()
+        };
         let img = egui::Image::new(src)
             .fit_to_exact_size(egui::vec2(glyph, glyph))
             .tint(tint);

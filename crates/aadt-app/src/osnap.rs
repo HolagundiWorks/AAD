@@ -271,7 +271,11 @@ fn nearest_on_geometry(g: &Geometry, p: Point2) -> Option<Point2> {
                 v.normalized().map(|u| a.center + u * a.radius)
             } else {
                 let (sp, ep) = (a.start_point(), a.end_point());
-                Some(if p.distance(sp) <= p.distance(ep) { sp } else { ep })
+                Some(if p.distance(sp) <= p.distance(ep) {
+                    sp
+                } else {
+                    ep
+                })
             }
         }
         Geometry::Text(_) | Geometry::Insert(_) => None,
@@ -289,7 +293,11 @@ fn segments_of(g: &Geometry) -> Vec<Segment> {
     match g {
         Geometry::Line(s) => vec![*s],
         Geometry::Polyline(p) => {
-            let mut v: Vec<Segment> = p.vertices.windows(2).map(|w| Segment::new(w[0], w[1])).collect();
+            let mut v: Vec<Segment> = p
+                .vertices
+                .windows(2)
+                .map(|w| Segment::new(w[0], w[1]))
+                .collect();
             if p.closed && p.vertices.len() >= 2 {
                 v.push(Segment::new(
                     p.vertices[p.vertices.len() - 1],
@@ -352,7 +360,9 @@ fn push_seg_circle(seg: Segment, circ: Circle, arc: Option<Arc>, out: &mut Vec<P
             continue; // on the infinite line but past the segment ends
         }
         if let Some(a) = arc {
-            let deg = (p.y - circ.center.y).atan2(p.x - circ.center.x).to_degrees();
+            let deg = (p.y - circ.center.y)
+                .atan2(p.x - circ.center.x)
+                .to_degrees();
             if !angle_in_arc(&a, deg) {
                 continue;
             }
@@ -406,11 +416,9 @@ pub fn find_osnap_in_spaces(
     // Geometries near the cursor, for the pairwise INT pass.
     let mut near: Vec<&Geometry> = Vec::new();
 
-    let entities = doc.iter_entities().filter(|e| {
-        spaces
-            .map(|ss| ss.contains(&e.space))
-            .unwrap_or(true)
-    });
+    let entities = doc
+        .iter_entities()
+        .filter(|e| spaces.map(|ss| ss.contains(&e.space)).unwrap_or(true));
     for e in entities {
         if !doc.layer_shown(&e.layer) {
             continue;
@@ -701,17 +709,17 @@ mod tests {
         });
         let c = snap_candidates(&g);
         assert_eq!(c.len(), 5); // center + 4 quadrants
-        assert!(c
-            .iter()
-            .any(|(k, p)| *k == SnapKind::Center && (p.x - 3.0).abs() < 1e-9 && (p.y - 4.0).abs() < 1e-9));
+        assert!(c.iter().any(|(k, p)| *k == SnapKind::Center
+            && (p.x - 3.0).abs() < 1e-9
+            && (p.y - 4.0).abs() < 1e-9));
         assert_eq!(
             c.iter().filter(|(k, _)| *k == SnapKind::Quadrant).count(),
             4
         );
         // East quadrant is center + (radius, 0).
-        assert!(c
-            .iter()
-            .any(|(k, p)| *k == SnapKind::Quadrant && (p.x - 5.0).abs() < 1e-9 && (p.y - 4.0).abs() < 1e-9));
+        assert!(c.iter().any(|(k, p)| *k == SnapKind::Quadrant
+            && (p.x - 5.0).abs() < 1e-9
+            && (p.y - 4.0).abs() < 1e-9));
     }
 
     #[test]
@@ -736,7 +744,12 @@ mod tests {
     fn arc_quadrant_only_within_sweep() {
         // Half-circle sweeping -45°→135°: 0° and 90° are interior quadrants;
         // 180° and 270° are off the arc.
-        let g = Geometry::Arc(aadt_geometry::Arc::new(Point2::new(0.0, 0.0), 1.0, -45.0, 135.0));
+        let g = Geometry::Arc(aadt_geometry::Arc::new(
+            Point2::new(0.0, 0.0),
+            1.0,
+            -45.0,
+            135.0,
+        ));
         let quads: Vec<_> = snap_candidates(&g)
             .into_iter()
             .filter(|(k, _)| *k == SnapKind::Quadrant)

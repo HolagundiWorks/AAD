@@ -29,139 +29,8 @@ impl AadtApp {
     }
 
     pub(super) fn ui_levels_strip(&mut self, ui: &mut egui::Ui) {
-        use aadt_model::SpaceCategory;
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Floor").strong().small());
-            let floors: Vec<(aadt_model::LevelId, String, u32)> = self
-                .session
-                .document()
-                .floors()
-                .into_iter()
-                .map(|f| (f.id, f.name.clone(), f.index))
-                .collect();
-            let active_floor = self.session.document().active_floor_id();
-            let active_name = floors
-                .iter()
-                .find(|(id, _, _)| Some(*id) == active_floor)
-                .map(|(_, n, _)| n.as_str())
-                .unwrap_or("Ground");
-            egui::ComboBox::from_id_salt("floor_combo")
-                .selected_text(active_name)
-                .width(100.0)
-                .show_ui(ui, |ui| {
-                    for (id, name, idx) in &floors {
-                        if ui
-                            .selectable_label(Some(*id) == active_floor, format!("[{idx}] {name}"))
-                            .clicked()
-                        {
-                            let fb = self.app_feed(&format!("FLOOR {name}"));
-                            if let Some(m) = fb.message() {
-                                self.note = m.to_string();
-                            }
-                            self.on_floor_or_space_changed();
-                        }
-                    }
-                });
-            if ui.small_button("+").on_hover_text("Add floor above").clicked() {
-                let n = self.session.document().floors().len() + 1;
-                let fb = self.app_feed(&format!("FLOORADD Level {n}"));
-                if let Some(m) = fb.message() {
-                    self.note = m.to_string();
-                }
-                self.on_floor_or_space_changed();
-            }
-            ui.separator();
-            ui.label(egui::RichText::new("Space").strong().small());
-            let active_space_id = self.session.document().active_space();
-            let active_cat = self
-                .session
-                .document()
-                .active_model_space()
-                .map(|s| s.category)
-                .unwrap_or(SpaceCategory::Walls);
-            let active_label = self
-                .session
-                .document()
-                .active_model_space()
-                .map(|s| {
-                    if s.category == SpaceCategory::Custom {
-                        s.name
-                            .rsplit_once('·')
-                            .map(|(_, r)| r.trim().to_string())
-                            .unwrap_or_else(|| s.name.clone())
-                    } else {
-                        s.category.as_str().to_string()
-                    }
-                })
-                .unwrap_or_else(|| "Walls".into());
-            let spaces_on_floor: Vec<(aadt_model::ModelSpaceId, String, SpaceCategory)> = active_floor
-                .map(|fid| {
-                    self.session
-                        .document()
-                        .spaces_on_floor(fid)
-                        .into_iter()
-                        .map(|s| (s.id, s.name.clone(), s.category))
-                        .collect()
-                })
-                .unwrap_or_default();
-            egui::ComboBox::from_id_salt("cat_combo")
-                .selected_text(active_label)
-                .width(130.0)
-                .show_ui(ui, |ui| {
-                    for cat in SpaceCategory::ALL {
-                        if ui
-                            .selectable_label(active_cat == cat, cat.as_str())
-                            .clicked()
-                        {
-                            let fb = self.app_feed(&format!("CATEGORY {}", cat.as_str()));
-                            if let Some(m) = fb.message() {
-                                self.note = m.to_string();
-                            }
-                            self.on_floor_or_space_changed();
-                        }
-                    }
-                    let customs: Vec<_> = spaces_on_floor
-                        .iter()
-                        .filter(|(_, _, c)| *c == SpaceCategory::Custom)
-                        .collect();
-                    if !customs.is_empty() {
-                        ui.separator();
-                        for (id, name, _) in customs {
-                            let short = name
-                                .rsplit_once('·')
-                                .map(|(_, r)| r.trim())
-                                .unwrap_or(name.as_str());
-                            if ui
-                                .selectable_label(*id == active_space_id, short)
-                                .clicked()
-                            {
-                                let _ = self
-                                    .session
-                                    .document_mut()
-                                    .transact("CATEGORY", |d| d.set_active_space(*id));
-                                self.on_floor_or_space_changed();
-                                self.note = format!("active model space → {name}");
-                                self.dirty = true;
-                            }
-                        }
-                    }
-                });
-            if ui
-                .small_button("+")
-                .on_hover_text("Add custom model space on this floor (SPACEADD)")
-                .clicked()
-            {
-                let n = spaces_on_floor
-                    .iter()
-                    .filter(|(_, _, c)| *c == SpaceCategory::Custom)
-                    .count()
-                    + 1;
-                let fb = self.app_feed(&format!("SPACEADD Space {n}"));
-                if let Some(m) = fb.message() {
-                    self.note = m.to_string();
-                }
-                self.on_floor_or_space_changed();
-            }
+            self.breadcrumb_nav(ui);
             ui.separator();
             let mut below = self.session.document().trace_below();
             let mut above = self.session.document().trace_above();
@@ -179,22 +48,7 @@ impl AadtApp {
                     self.note = m.to_string();
                 }
             }
-            ui.separator();
-            let shim = self.session.document().active_category_layer();
-            let space_name = self
-                .session
-                .document()
-                .active_model_space()
-                .map(|s| s.name.clone())
-                .unwrap_or_else(|| "—".into());
-            ui.label(
-                egui::RichText::new(format!("{space_name} → shim {shim}"))
-                    .small()
-                    .color(color::TEXT_SECONDARY),
-            )
-            .on_hover_text(
-                "New geometry targets the active Floor + Space. The layer name is a DXF/DWG compat shim (ADR-0009), not a separate drafting current layer.",
-            );
+            // The active shim layer now lives in the breadcrumb's Layer segment.
             if !self.selection.is_empty()
                 && ui
                     .small_button("To space")
@@ -208,6 +62,172 @@ impl AadtApp {
                 }
             }
         });
+    }
+
+    /// Breadcrumb navigation manager for the drafting context —
+    /// **Floor › Space › Layer(shim)**. Each segment is a menu that switches the
+    /// active floor / model space (or opens the Layer manager), replacing the old
+    /// separate Floor/Space combo boxes.
+    fn breadcrumb_nav(&mut self, ui: &mut egui::Ui) {
+        use aadt_model::SpaceCategory;
+
+        fn space_short_name(name: &str, cat: SpaceCategory) -> String {
+            if cat == SpaceCategory::Custom {
+                name.rsplit_once('·')
+                    .map(|(_, r)| r.trim().to_string())
+                    .unwrap_or_else(|| name.to_string())
+            } else {
+                cat.as_str().to_string()
+            }
+        }
+        fn chevron(ui: &mut egui::Ui) {
+            ui.add_space(1.0);
+            ui.label(egui::RichText::new("›").color(color::TEXT_SECONDARY));
+            ui.add_space(1.0);
+        }
+
+        // Snapshot the active path as owned data so the menus can mutate `self`.
+        let active_floor = self.session.document().active_floor_id();
+        let floors: Vec<(aadt_model::LevelId, String, u32)> = self
+            .session
+            .document()
+            .floors()
+            .into_iter()
+            .map(|f| (f.id, f.name.clone(), f.index))
+            .collect();
+        let floor_name = floors
+            .iter()
+            .find(|(id, _, _)| Some(*id) == active_floor)
+            .map(|(_, n, _)| n.clone())
+            .unwrap_or_else(|| "Ground".into());
+        let active_space_id = self.session.document().active_space();
+        let active_cat = self
+            .session
+            .document()
+            .active_model_space()
+            .map(|s| s.category)
+            .unwrap_or(SpaceCategory::Walls);
+        let space_label = self
+            .session
+            .document()
+            .active_model_space()
+            .map(|s| space_short_name(&s.name, s.category))
+            .unwrap_or_else(|| "Walls".into());
+        let spaces_on_floor: Vec<(aadt_model::ModelSpaceId, String, SpaceCategory)> = active_floor
+            .map(|fid| {
+                self.session
+                    .document()
+                    .spaces_on_floor(fid)
+                    .into_iter()
+                    .map(|s| (s.id, s.name.clone(), s.category))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let shim = self.session.document().active_category_layer();
+
+        // Floor segment.
+        ui.menu_button(format!("{floor_name}  ▾"), |ui| {
+            for (id, name, idx) in &floors {
+                if ui
+                    .selectable_label(Some(*id) == active_floor, format!("[{idx}] {name}"))
+                    .clicked()
+                {
+                    let fb = self.app_feed(&format!("FLOOR {name}"));
+                    if let Some(m) = fb.message() {
+                        self.note = m.to_string();
+                    }
+                    self.on_floor_or_space_changed();
+                    ui.close_menu();
+                }
+            }
+            ui.separator();
+            if ui.button("＋  Add floor above").clicked() {
+                let n = self.session.document().floors().len() + 1;
+                let fb = self.app_feed(&format!("FLOORADD Level {n}"));
+                if let Some(m) = fb.message() {
+                    self.note = m.to_string();
+                }
+                self.on_floor_or_space_changed();
+                ui.close_menu();
+            }
+        })
+        .response
+        .on_hover_text("Floor — switch or add");
+
+        chevron(ui);
+
+        // Space segment.
+        ui.menu_button(format!("{space_label}  ▾"), |ui| {
+            for cat in SpaceCategory::ALL {
+                if ui
+                    .selectable_label(active_cat == cat, cat.as_str())
+                    .clicked()
+                {
+                    let fb = self.app_feed(&format!("CATEGORY {}", cat.as_str()));
+                    if let Some(m) = fb.message() {
+                        self.note = m.to_string();
+                    }
+                    self.on_floor_or_space_changed();
+                    ui.close_menu();
+                }
+            }
+            let customs: Vec<_> = spaces_on_floor
+                .iter()
+                .filter(|(_, _, c)| *c == SpaceCategory::Custom)
+                .collect();
+            if !customs.is_empty() {
+                ui.separator();
+                for (id, name, _) in customs {
+                    if ui
+                        .selectable_label(
+                            *id == active_space_id,
+                            space_short_name(name, SpaceCategory::Custom),
+                        )
+                        .clicked()
+                    {
+                        let _ = self
+                            .session
+                            .document_mut()
+                            .transact("CATEGORY", |d| d.set_active_space(*id));
+                        self.on_floor_or_space_changed();
+                        self.note = format!("active model space → {name}");
+                        self.dirty = true;
+                        ui.close_menu();
+                    }
+                }
+            }
+            ui.separator();
+            if ui.button("＋  Add custom space").clicked() {
+                let n = spaces_on_floor
+                    .iter()
+                    .filter(|(_, _, c)| *c == SpaceCategory::Custom)
+                    .count()
+                    + 1;
+                let fb = self.app_feed(&format!("SPACEADD Space {n}"));
+                if let Some(m) = fb.message() {
+                    self.note = m.to_string();
+                }
+                self.on_floor_or_space_changed();
+                ui.close_menu();
+            }
+        })
+        .response
+        .on_hover_text("Model space — switch category / custom space, or add");
+
+        chevron(ui);
+
+        // Layer segment — the derived shim; click to open the Layer manager.
+        if ui
+            .button(egui::RichText::new(shim).color(color::TEXT_SECONDARY))
+            .on_hover_text(
+                "Active shim layer (derived from Floor + Space, ADR-0009). Click to open the Layer manager.",
+            )
+            .clicked()
+        {
+            self.show_left_mgr = true;
+            self.left_tab = 0;
+            self.persist_prefs();
+        }
     }
 
     pub(super) fn ui_layer_manager(&mut self, ui: &mut egui::Ui) {
@@ -928,10 +948,7 @@ impl AadtApp {
     pub(super) fn ui_history_panel(&mut self, ui: &mut egui::Ui) {
         let _ = lock_panel_width(ui);
         section_label_first(ui, "Versions");
-        section_hint(
-            ui,
-            "File checkpoints inside .aadt — not the same as UNDO.",
-        );
+        section_hint(ui, "File checkpoints inside .aadt — not the same as UNDO.");
         let _ = full_width_edit(ui, &mut self.history_label, "Issued for construction");
         ui.add_space(panel_space::TIGHT);
         if full_width_button(ui, "Save version").clicked() {
@@ -1470,8 +1487,7 @@ impl AadtApp {
                     ui.spacing_mut().item_spacing.x = space::SM;
                     for dest in theme::left_manager_nav() {
                         let tip = format!("{} — {}", dest.label, dest.tip);
-                        if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked()
-                        {
+                        if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked() {
                             self.left_tab = dest.tab;
                             self.persist_prefs();
                         }
@@ -1579,8 +1595,7 @@ impl AadtApp {
                     ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
                     for dest in theme::right_manager_nav() {
                         let tip = format!("{} — {}", dest.label, dest.tip);
-                        if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked()
-                        {
+                        if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked() {
                             self.right_tab = dest.tab;
                             if matches!(dest.tab, 4 | 5) {
                                 self.props_edit = self.session.document().properties().clone();
@@ -1750,7 +1765,10 @@ impl AadtApp {
                 if sel == 1 { "" } else { "es" },
                 self.hatch_pattern
             );
-            if ui.add_sized([panel_w, 24.0], egui::Button::new(label)).clicked() {
+            if ui
+                .add_sized([panel_w, 24.0], egui::Button::new(label))
+                .clicked()
+            {
                 self.apply_pattern_to_selected_hatches();
             }
         }

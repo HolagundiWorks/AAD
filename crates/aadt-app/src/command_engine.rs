@@ -1383,7 +1383,10 @@ mod tests {
             assert!(eng.start(id).is_some(), "{id}: must start");
             assert!(eng.is_active(), "{id}: active after start");
             if !def.steps.is_empty() {
-                assert!(eng.prompt().is_some(), "{id}: active command shows a prompt");
+                assert!(
+                    eng.prompt().is_some(),
+                    "{id}: active command shows a prompt"
+                );
             }
 
             // — cancels: Esc returns to idle.
@@ -1424,7 +1427,10 @@ mod tests {
 
             // — mixed input: any step accepts a typed value at the crosshair.
             if !def.steps.is_empty() {
-                assert!(caps.supports_dynamic_input, "{id}: steps accept typed input");
+                assert!(
+                    caps.supports_dynamic_input,
+                    "{id}: steps accept typed input"
+                );
             }
 
             // — undo/redo: mutating commands undo; inquiry commands do not.

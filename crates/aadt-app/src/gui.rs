@@ -25,8 +25,8 @@ use aadt_standards::aci_to_srgb;
 use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
-use crate::selection::{point_in_polygon, select_by_fence, select_in_polygon, RegionMode};
 use crate::prefs::UserPrefs;
+use crate::selection::{point_in_polygon, select_by_fence, select_in_polygon, RegionMode};
 use crate::{Feedback, Session};
 
 #[path = "gui_chrome.rs"]
@@ -1209,7 +1209,6 @@ struct AadtApp {
 }
 
 impl AadtApp {
-
     fn from_session(session: Session) -> Self {
         let prefs = UserPrefs::load();
         let recovery_prompt = Self::detect_recovery(None);
@@ -1745,7 +1744,6 @@ impl AadtApp {
             });
     }
 
-
     pub(super) fn draw_room_picker(&mut self, ctx: &egui::Context) {
         if !self.show_room_picker {
             return;
@@ -2075,7 +2073,12 @@ impl AadtApp {
                     .fill(egui::Color32::from_rgba_unmultiplied(18, 18, 18, 224))
                     .show(ui, |ui| {
                         ui.set_width(200.0);
-                        ui.label(egui::RichText::new("Performance (F7)").small().strong().color(white));
+                        ui.label(
+                            egui::RichText::new("Performance (F7)")
+                                .small()
+                                .strong()
+                                .color(white),
+                        );
                         ui.label(
                             egui::RichText::new(format!("frame {avg:.1} ms  ·  {fps:.0} FPS"))
                                 .monospace()
@@ -2290,7 +2293,8 @@ impl AadtApp {
                 };
                 self.engine.advance_step();
                 self.note =
-                    "TRIM — click or drag across objects to trim (Shift extends; Space finishes)".into();
+                    "TRIM — click or drag across objects to trim (Shift extends; Space finishes)"
+                        .into();
             } else if matches!(
                 self.tool,
                 Tool::Trim {
@@ -2888,8 +2892,10 @@ impl AadtApp {
                 };
                 let sfx = self.take_copy_suffix();
                 self.sync_selection();
-                self.session
-                    .feed(&format!("ROTATE SELECTION {} {} {}{}", piv.x, piv.y, angle, sfx));
+                self.session.feed(&format!(
+                    "ROTATE SELECTION {} {} {}{}",
+                    piv.x, piv.y, angle, sfx
+                ));
                 self.tool = Tool::Select;
                 self.engine.complete();
                 return;
@@ -2912,8 +2918,10 @@ impl AadtApp {
                 if factor.abs() > f64::EPSILON {
                     let sfx = self.take_copy_suffix();
                     self.sync_selection();
-                    self.session
-                        .feed(&format!("SCALE SELECTION {} {} {}{}", piv.x, piv.y, factor, sfx));
+                    self.session.feed(&format!(
+                        "SCALE SELECTION {} {} {}{}",
+                        piv.x, piv.y, factor, sfx
+                    ));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -2933,8 +2941,10 @@ impl AadtApp {
                     let factor = new_len / old;
                     let sfx = self.take_copy_suffix();
                     self.sync_selection();
-                    self.session
-                        .feed(&format!("SCALE SELECTION {} {} {}{}", piv.x, piv.y, factor, sfx));
+                    self.session.feed(&format!(
+                        "SCALE SELECTION {} {} {}{}",
+                        piv.x, piv.y, factor, sfx
+                    ));
                     self.tool = Tool::Select;
                     self.engine.complete();
                     return;
@@ -3470,7 +3480,9 @@ impl AadtApp {
                 phase: TrimPhase::Objects,
             };
             self.engine.advance_step();
-            self.note = "TRIM — click or drag across objects to trim (Shift extends; Space finishes)".into();
+            self.note =
+                "TRIM — click or drag across objects to trim (Shift extends; Space finishes)"
+                    .into();
             return;
         }
         if matches!(
@@ -4223,11 +4235,13 @@ impl AadtApp {
             idxs.sort_unstable();
             idxs.dedup();
             let n = idxs.len();
-            self.session.document_mut().transact("Erase dimension", |d| {
-                for &i in idxs.iter().rev() {
-                    d.remove_dimension(i);
-                }
-            });
+            self.session
+                .document_mut()
+                .transact("Erase dimension", |d| {
+                    for &i in idxs.iter().rev() {
+                        d.remove_dimension(i);
+                    }
+                });
             self.note = format!("Erased {n} dimension{}", if n == 1 { "" } else { "s" });
             return;
         }
@@ -4250,7 +4264,10 @@ impl AadtApp {
                 }
             }
         });
-        self.note = format!("Set {changed} hatch{} to {pattern}", if changed == 1 { "" } else { "es" });
+        self.note = format!(
+            "Set {changed} hatch{} to {pattern}",
+            if changed == 1 { "" } else { "es" }
+        );
     }
 
     /// Advance the active tool with a picked world point.
@@ -4418,7 +4435,10 @@ impl AadtApp {
                         }
                     };
                     if let Some((c, r, sa, ea)) = arc {
-                        self.app_feed(&format!("ARC {} {} {} {} {} {}", c.x, c.y, r, sa, ea, layer));
+                        self.app_feed(&format!(
+                            "ARC {} {} {} {} {} {}",
+                            c.x, c.y, r, sa, ea, layer
+                        ));
                     }
                     self.tool = Tool::Select;
                     self.engine.accept_point();
@@ -4538,8 +4558,10 @@ impl AadtApp {
                     let ang = (p.y - piv.y).atan2(p.x - piv.x).to_degrees();
                     let sfx = self.take_copy_suffix();
                     self.sync_selection();
-                    self.session
-                        .feed(&format!("ROTATE SELECTION {} {} {}{}", piv.x, piv.y, ang, sfx));
+                    self.session.feed(&format!(
+                        "ROTATE SELECTION {} {} {}{}",
+                        piv.x, piv.y, ang, sfx
+                    ));
                     self.tool = Tool::Select;
                     self.engine.accept_point();
                     self.engine.complete();
@@ -4582,8 +4604,10 @@ impl AadtApp {
                     let deg = new_ang - ref_ang_val;
                     let sfx = self.take_copy_suffix();
                     self.sync_selection();
-                    self.session
-                        .feed(&format!("ROTATE SELECTION {} {} {}{}", piv.x, piv.y, deg, sfx));
+                    self.session.feed(&format!(
+                        "ROTATE SELECTION {} {} {}{}",
+                        piv.x, piv.y, deg, sfx
+                    ));
                     self.tool = Tool::Select;
                     self.engine.complete();
                 }
@@ -4643,8 +4667,10 @@ impl AadtApp {
                         let factor = new_len / old;
                         let sfx = self.take_copy_suffix();
                         self.sync_selection();
-                        self.session
-                            .feed(&format!("SCALE SELECTION {} {} {}{}", piv.x, piv.y, factor, sfx));
+                        self.session.feed(&format!(
+                            "SCALE SELECTION {} {} {}{}",
+                            piv.x, piv.y, factor, sfx
+                        ));
                         self.engine.complete();
                     }
                     self.tool = Tool::Select;
@@ -4817,7 +4843,8 @@ impl AadtApp {
                             first: None,
                         };
                         self.note =
-                            "FILLET — click the first line of the next corner (Esc finishes)".into();
+                            "FILLET — click the first line of the next corner (Esc finishes)"
+                                .into();
                     }
                 }
             }
@@ -4926,8 +4953,10 @@ impl AadtApp {
                 self.note = if fence {
                     format!("FENCE — click next point ({n}); Space selects")
                 } else {
-                    format!("{} — click next corner ({n}); Space selects",
-                        if crossing { "CPOLYGON" } else { "WPOLYGON" })
+                    format!(
+                        "{} — click next corner ({n}); Space selects",
+                        if crossing { "CPOLYGON" } else { "WPOLYGON" }
+                    )
                 };
             }
             Tool::Wall {
@@ -5728,7 +5757,10 @@ impl AadtApp {
                 .collect();
         }
         for b in boundaries {
-            let fb = self.app_feed(&format!("EXTEND {} {} {} {}", target.0, b.0, pick.x, pick.y));
+            let fb = self.app_feed(&format!(
+                "EXTEND {} {} {} {}",
+                target.0, b.0, pick.x, pick.y
+            ));
             if !fb.is_err() {
                 return true;
             }
@@ -6109,8 +6141,12 @@ impl AadtApp {
                 ..
             } => "WBLOCK — pick base point",
             Tool::Polyline { .. } => "POLYLINE — click vertices (Space finishes)",
-            Tool::RegionSelect { fence: true, .. } => "FENCE — click points; Space selects crossings",
-            Tool::RegionSelect { crossing: true, .. } => "CPOLYGON — click corners; Space selects (crossing)",
+            Tool::RegionSelect { fence: true, .. } => {
+                "FENCE — click points; Space selects crossings"
+            }
+            Tool::RegionSelect { crossing: true, .. } => {
+                "CPOLYGON — click corners; Space selects (crossing)"
+            }
             Tool::RegionSelect { .. } => "WPOLYGON — click corners; Space selects (enclosed)",
             Tool::Wall {
                 thickness: None, ..
@@ -6243,7 +6279,9 @@ impl AadtApp {
             Tool::DimContinue => "DIMCONTINUE — next definition point (Space finishes)",
             Tool::DimRadius => "DIMRADIUS — click a circle or arc",
             Tool::DimDiameter => "DIMDIAMETER — click a circle or arc",
-            Tool::DimAngular { vertex: None, .. } => "DIMANGULAR — click a line, or the angle vertex",
+            Tool::DimAngular { vertex: None, .. } => {
+                "DIMANGULAR — click a line, or the angle vertex"
+            }
             Tool::DimAngular {
                 vertex: Some(_),
                 p1: None,
@@ -6447,7 +6485,10 @@ impl eframe::App for AadtApp {
                                 }
                                 egui::Key::O => {
                                     if let Some(path) = rfd::FileDialog::new()
-                                        .add_filter("AAD / DXF / DWG / VDB", &["aadt", "dxf", "dwg", "vdb"])
+                                        .add_filter(
+                                            "AAD / DXF / DWG / VDB",
+                                            &["aadt", "dxf", "dwg", "vdb"],
+                                        )
                                         .add_filter("DWG", &["dwg"])
                                         .add_filter("DXF", &["dxf"])
                                         .add_filter("AAD", &["aadt"])
@@ -6734,9 +6775,8 @@ impl eframe::App for AadtApp {
                             // SHIFT+right-click opens the object-snap override menu
                             // (AutoCAD); plain right-click stays Enter/confirm.
                             if shift {
-                                self.snap_menu_at = resp
-                                    .interact_pointer_pos()
-                                    .or(self.cursor_screen);
+                                self.snap_menu_at =
+                                    resp.interact_pointer_pos().or(self.cursor_screen);
                             } else {
                                 self.apply_space_single();
                             }
@@ -7199,11 +7239,7 @@ impl AadtApp {
 
     /// Free-drag lasso select: the drag path is the region polygon. Direction
     /// (screen L→R vs R→L) picks window vs crossing, like the box.
-    fn finish_lasso(
-        &mut self,
-        to_world: &impl Fn(&Camera, egui::Pos2) -> Point2,
-        ui: &egui::Ui,
-    ) {
+    fn finish_lasso(&mut self, to_world: &impl Fn(&Camera, egui::Pos2) -> Point2, ui: &egui::Ui) {
         if self.drag_path.len() < 3 {
             return;
         }
@@ -7980,8 +8016,17 @@ fn paint_snap_marker(
             painter.line_segment([c + egui::vec2(-s, s), c + egui::vec2(s, s)], stroke);
             painter.line_segment([c + egui::vec2(0.0, s), c + egui::vec2(0.0, -s)], stroke);
             // Small square at the foot to read as a right angle.
-            painter.line_segment([c + egui::vec2(0.0, s * 0.4), c + egui::vec2(s * 0.4, s * 0.4)], stroke);
-            painter.line_segment([c + egui::vec2(s * 0.4, s * 0.4), c + egui::vec2(s * 0.4, s)], stroke);
+            painter.line_segment(
+                [
+                    c + egui::vec2(0.0, s * 0.4),
+                    c + egui::vec2(s * 0.4, s * 0.4),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [c + egui::vec2(s * 0.4, s * 0.4), c + egui::vec2(s * 0.4, s)],
+                stroke,
+            );
         }
         SnapKind::Tangent => {
             // Circle with a tangent line across the top (AutoCAD tangent marker).
@@ -8175,8 +8220,22 @@ fn paint_selected_hatches(
         let Some(h) = hatches.get(idx) else { continue };
         for boundary in &h.boundaries {
             let g = Geometry::Polyline(boundary.clone());
-            draw_geometry(painter, rect, camera, &g, egui::Stroke::new(6.0_f32, glow), glow);
-            draw_geometry(painter, rect, camera, &g, egui::Stroke::new(2.5_f32, hi), hi);
+            draw_geometry(
+                painter,
+                rect,
+                camera,
+                &g,
+                egui::Stroke::new(6.0_f32, glow),
+                glow,
+            );
+            draw_geometry(
+                painter,
+                rect,
+                camera,
+                &g,
+                egui::Stroke::new(2.5_f32, hi),
+                hi,
+            );
         }
     }
 }
@@ -8236,13 +8295,7 @@ fn selection_geometries(doc: &Document, g: &Geometry) -> Vec<Geometry> {
 
 /// Map block-space geometry to world via insert transform (incl. scale).
 fn instantiate_block_geom(g: &Geometry, base: Point2, ins: &aadt_model::Insert) -> Geometry {
-    g.instanced_scaled(
-        base,
-        ins.position,
-        ins.rotation,
-        ins.scale_x,
-        ins.scale_y,
-    )
+    g.instanced_scaled(base, ins.position, ins.rotation, ins.scale_x, ins.scale_y)
 }
 
 /// Draw one raw [`Geometry`] with `stroke` (an insert shows a small marker).
@@ -8587,7 +8640,8 @@ fn paint_preview(
             // (the transform preview would duplicate MOVE/ROTATE/… math).
             if matches!(mode, GripMode::Stretch) {
                 if let Some(e) = doc.get(*id) {
-                    if let Some(g) = geometry_with_grip_moved_local(&e.geometry, *grip_idx, cursor) {
+                    if let Some(g) = geometry_with_grip_moved_local(&e.geometry, *grip_idx, cursor)
+                    {
                         draw_geometry(
                             painter,
                             rect,
@@ -9068,14 +9122,26 @@ fn paint_insert_ghost(
             }
             if n == 0 {
                 let c = world_to_screen(camera, rect, cursor);
-                painter.line_segment([c + egui::vec2(-5.0, 0.0), c + egui::vec2(5.0, 0.0)], stroke);
-                painter.line_segment([c + egui::vec2(0.0, -5.0), c + egui::vec2(0.0, 5.0)], stroke);
+                painter.line_segment(
+                    [c + egui::vec2(-5.0, 0.0), c + egui::vec2(5.0, 0.0)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [c + egui::vec2(0.0, -5.0), c + egui::vec2(0.0, 5.0)],
+                    stroke,
+                );
             }
         }
         None => {
             let c = world_to_screen(camera, rect, cursor);
-            painter.line_segment([c + egui::vec2(-5.0, 0.0), c + egui::vec2(5.0, 0.0)], stroke);
-            painter.line_segment([c + egui::vec2(0.0, -5.0), c + egui::vec2(0.0, 5.0)], stroke);
+            painter.line_segment(
+                [c + egui::vec2(-5.0, 0.0), c + egui::vec2(5.0, 0.0)],
+                stroke,
+            );
+            painter.line_segment(
+                [c + egui::vec2(0.0, -5.0), c + egui::vec2(0.0, 5.0)],
+                stroke,
+            );
         }
     }
 }
@@ -9188,7 +9254,10 @@ mod arc_tests {
             Point2::new(-1.0, 0.0),
         )
         .unwrap();
-        assert!(c.x.abs() < 1e-9 && c.y.abs() < 1e-9, "center at origin: {c:?}");
+        assert!(
+            c.x.abs() < 1e-9 && c.y.abs() < 1e-9,
+            "center at origin: {c:?}"
+        );
         assert!((r - 1.0).abs() < 1e-9, "radius 1: {r}");
         // CCW from p1 (0°) to p3 (180°) passes through the top (p2).
         assert!((sa - 0.0).abs() < 1e-6, "start 0°: {sa}");
@@ -9230,13 +9299,11 @@ mod ttr_tests {
         let x_axis = Segment::new(Point2::new(-5.0, 0.0), Point2::new(5.0, 0.0));
         let y_axis = Segment::new(Point2::new(0.0, -5.0), Point2::new(0.0, 5.0));
         // r=1, pointing into the first quadrant → center (1,1).
-        let (c, r) =
-            tangent_circle_center(x_axis, y_axis, 1.0, Point2::new(3.0, 3.0)).unwrap();
+        let (c, r) = tangent_circle_center(x_axis, y_axis, 1.0, Point2::new(3.0, 3.0)).unwrap();
         assert!((r - 1.0).abs() < 1e-9);
         assert!(c.distance(Point2::new(1.0, 1.0)) < 1e-9, "got {c:?}");
         // Pointing into the third quadrant → center (-1,-1).
-        let (c2, _) =
-            tangent_circle_center(x_axis, y_axis, 1.0, Point2::new(-3.0, -3.0)).unwrap();
+        let (c2, _) = tangent_circle_center(x_axis, y_axis, 1.0, Point2::new(-3.0, -3.0)).unwrap();
         assert!(c2.distance(Point2::new(-1.0, -1.0)) < 1e-9, "got {c2:?}");
     }
 
@@ -9272,7 +9339,11 @@ mod rect_corner_tests {
         );
         assert_eq!(v.len(), 8, "chamfer = 8 straight vertices");
         // First cut point sits 1.0 in from the bottom-left along the bottom edge.
-        assert!(v[0].distance(Point2::new(1.0, 0.0)) < 1e-9, "got {:?}", v[0]);
+        assert!(
+            v[0].distance(Point2::new(1.0, 0.0)) < 1e-9,
+            "got {:?}",
+            v[0]
+        );
         // No vertex escapes the rectangle bounds.
         assert!(v.iter().all(|p| p.x >= -1e-9 && p.x <= 10.0 + 1e-9));
     }
