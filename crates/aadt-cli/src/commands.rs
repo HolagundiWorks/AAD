@@ -28,8 +28,13 @@ use std::rc::Rc;
 /// Register the file-I/O and engine commands onto an interpreter.
 pub fn register(interp: &mut Interpreter) {
     let registry = interp.registry_mut();
+    // Shared Object-DB session state — SAVE persists it into `.vdb`, and the
+    // OBJECTS / RELATIONS commands read/promote it.
+    let objstate = Rc::new(RefCell::new(ObjState::default()));
     registry.register(Box::new(OpenCmd));
-    registry.register(Box::new(SaveCmd));
+    registry.register(Box::new(SaveCmd {
+        st: objstate.clone(),
+    }));
     registry.register(Box::new(HistoryCmd));
     let mapstate: SharedMapState = Rc::new(RefCell::new(None));
     registry.register(Box::new(MapMetaCmd::new(mapstate.clone())));
@@ -48,7 +53,6 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(AskCmd));
     registry.register(Box::new(TakeoffCmd));
     registry.register(Box::new(BoqCmd));
-    let objstate = Rc::new(RefCell::new(ObjState::default()));
     registry.register(Box::new(ObjectsCmd {
         st: objstate.clone(),
     }));
@@ -65,6 +69,14 @@ fn is_aadt_path(path: &str) -> bool {
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.eq_ignore_ascii_case("aadt"))
+        .unwrap_or(false)
+}
+
+fn is_vdb_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("vdb"))
         .unwrap_or(false)
 }
 
@@ -163,7 +175,9 @@ impl Command for OpenCmd {
     }
 }
 
-struct SaveCmd;
+struct SaveCmd {
+    st: Rc<RefCell<ObjState>>,
+}
 impl Command for SaveCmd {
     fn name(&self) -> &str {
         "SAVE"
@@ -173,7 +187,20 @@ impl Command for SaveCmd {
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = path_from_args(args, "SAVE")?;
-        save_document(&ctx.doc, &path)?;
+        if is_vdb_path(&path) {
+            // VastuDB is a whole-file format, so the Object DB is written with
+            // the geometry here (not additively like `.aadt`). Sync first so the
+            // current drawing's objects are carried forward even if OBJECTS
+            // hasn't been run this session.
+            let mut st = self.st.borrow_mut();
+            st.sync(ctx);
+            aadt_vdb::save_path_with_objects(
+                &ctx.doc, &path, &st.objects, &st.graph, &st.audit,
+            )
+            .map_err(|e| e.to_string())?;
+        } else {
+            save_document(&ctx.doc, &path)?;
+        }
         ctx.drawing_path = Some(path.clone());
         let msg = format!("saved {} entities to {path}", ctx.doc.len());
         Ok(msg)
@@ -617,12 +644,23 @@ impl ObjState {
         self.objects = ObjectStore::new();
         self.graph = Graph::new();
         self.audit = AuditLog::new();
-        if let Some(p) = path.as_ref().filter(|p| is_aadt_path(p)) {
-            if let Ok(Some((o, g, a))) = aadt_store::read_objects_path(p) {
-                self.objects = o;
-                self.graph = g;
-                self.audit = a;
+        match path.as_deref() {
+            Some(p) if is_aadt_path(p) => {
+                if let Ok(Some((o, g, a))) = aadt_store::read_objects_path(p) {
+                    self.objects = o;
+                    self.graph = g;
+                    self.audit = a;
+                }
             }
+            // VastuDB carries the Object DB in its v2 sections.
+            Some(p) if is_vdb_path(p) => {
+                if let Ok(db) = aadt_vdb::VastuDb::open(p) {
+                    self.objects = db.objects().clone();
+                    self.graph = db.graph().clone();
+                    self.audit = db.audit().clone();
+                }
+            }
+            _ => {}
         }
     }
 

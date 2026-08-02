@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### VastuDB persists the Object DB (M10.4 gap closed)
+
+- `SAVE *.vdb` now writes the live **Object DB / Graph DB / audit log** into the
+  `.vdb` v2 sections (via `save_path_with_objects`), and OPEN loads them back
+  (`ObjState::sync` reads objects from `.vdb` as well as `.aadt`). Previously the
+  wired `SAVE .vdb` wrote those sections empty, so objects never round-tripped.
+- Proven end-to-end by a golden test: promote → `SAVE .vdb`, then in a **fresh
+  process** OPEN + `OBJECTS LIST` shows the persisted objects and audit entries
+  without re-promoting.
+
 ### Performance telemetry HUD (M9.9)
 
 - **F7** toggles a performance HUD (top-right) with rolling **frame time**
