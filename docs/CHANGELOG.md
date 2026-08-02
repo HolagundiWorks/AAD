@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Performance telemetry HUD (M9.9)
+
+- **F7** toggles a performance HUD (top-right) with rolling **frame time**
+  (avg / p95 / max), **FPS**, and a **build / paint** breakdown, graded live
+  against the §31 redraw budget (**< 16 ms / 60 FPS** → OK / TIGHT / OVER).
+- While the HUD is on, the shell drives continuous repaints so the numbers
+  reflect a real sustained redraw loop rather than the idle throttle. Fixed-size
+  `PerfRing` sampling (~2 s window); no allocation on the hot path.
+
 ### GUI auto-dimensioning (M9.4 complete)
 
 - **Hover-to-auto-dim:** with the `DIM` tool, clicking an entity now

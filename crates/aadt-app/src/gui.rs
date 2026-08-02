@@ -56,6 +56,58 @@ const PICK_PIXELS: f64 = 6.0;
 /// scale gives world units) so it reads the same at any zoom.
 const AUTO_DIM_OFFSET_PX: f64 = 24.0;
 
+/// Rolling window size for perf telemetry (M9.9) — ~2 s at 60 FPS.
+const PERF_SAMPLES: usize = 120;
+
+/// Fixed-capacity ring of recent millisecond samples.
+struct PerfRing {
+    buf: [f32; PERF_SAMPLES],
+    len: usize,
+    head: usize,
+}
+impl Default for PerfRing {
+    fn default() -> Self {
+        Self {
+            buf: [0.0; PERF_SAMPLES],
+            len: 0,
+            head: 0,
+        }
+    }
+}
+impl PerfRing {
+    fn push(&mut self, ms: f32) {
+        self.buf[self.head] = ms;
+        self.head = (self.head + 1) % PERF_SAMPLES;
+        self.len = (self.len + 1).min(PERF_SAMPLES);
+    }
+    fn avg(&self) -> f32 {
+        if self.len == 0 {
+            return 0.0;
+        }
+        self.buf[..self.len].iter().sum::<f32>() / self.len as f32
+    }
+    fn p95(&self) -> f32 {
+        if self.len == 0 {
+            return 0.0;
+        }
+        let mut v: Vec<f32> = self.buf[..self.len].to_vec();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        v[(((self.len as f32) * 0.95) as usize).min(self.len - 1)]
+    }
+    fn max(&self) -> f32 {
+        self.buf[..self.len].iter().copied().fold(0.0_f32, f32::max)
+    }
+}
+
+/// Rolling frame-time / latency telemetry for the §31 budgets (< 16 ms redraw,
+/// 60 FPS). Toggled with F7 in the shell; validates the redraw budget live.
+#[derive(Default)]
+struct PerfTelemetry {
+    frame_ms: PerfRing,
+    build_ms: PerfRing,
+    paint_ms: PerfRing,
+}
+
 /// Cached Layers-panel row: name, ACI, visible, frozen, locked, lineweight_mm, linetype.
 type LayerRowCache = (String, u8, bool, bool, bool, f32, String);
 
@@ -1042,6 +1094,9 @@ struct AadtApp {
     osnap_track: bool,
     /// Dynamic Input near-cursor prompts (F12).
     dyn_mode: bool,
+    /// Frame-time / latency telemetry (F7) and whether its HUD is shown (M9.9).
+    perf: PerfTelemetry,
+    perf_hud: bool,
     /// Camera before last ZOOM, for ZOOM P.
     zoom_prev: Option<Camera>,
     /// Active snap under the cursor (for the marker), if any.
@@ -1187,6 +1242,8 @@ impl AadtApp {
             polar: prefs.polar,
             osnap_track: prefs.osnap_track,
             dyn_mode: prefs.dyn_mode,
+            perf: PerfTelemetry::default(),
+            perf_hud: false,
             zoom_prev: None,
             snap_hit: None,
             snap_override: None,
@@ -1658,7 +1715,7 @@ impl AadtApp {
                 ui.separator();
                 ui.label(egui::RichText::new("Modes & file").strong());
                 ui.label("F1 — this sheet");
-                ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
+                ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F7 — perf HUD · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
                 ui.label("Snap override — type END/MID/INT/CEN/QUA/NEA/PER/TAN at a point, or SHIFT+right-click");
                 ui.label("Delete / Backspace — erase selection · W — WBLOCK · WA — WALL");
                 ui.label("Z Enter — ZOOM · A Enter — All (extents) · W — Window · P — Previous");
@@ -1993,6 +2050,58 @@ impl AadtApp {
     /// Render the SHIFT+right-click object-snap override menu while
     /// [`Self::snap_menu_at`] is set. A choice arms a one-shot override; a click
     /// outside, Escape, or "None" dismisses it.
+    /// M9.9 performance HUD: rolling frame time / FPS + build/paint breakdown,
+    /// graded against the §31 redraw budget (< 16 ms / 60 FPS) on the p95.
+    fn show_perf_hud(&self, ctx: &egui::Context) {
+        let f = &self.perf.frame_ms;
+        let (avg, p95, mx) = (f.avg(), f.p95(), f.max());
+        let fps = if avg > 0.001 { 1000.0 / avg } else { 0.0 };
+        let (col, verdict) = if p95 <= 16.0 {
+            (egui::Color32::from_rgb(15, 123, 50), "OK")
+        } else if p95 <= 33.0 {
+            (egui::Color32::from_rgb(157, 93, 0), "TIGHT")
+        } else {
+            (egui::Color32::from_rgb(196, 43, 28), "OVER")
+        };
+        let screen = ctx.screen_rect();
+        let white = egui::Color32::from_gray(232);
+        let dim = egui::Color32::from_gray(180);
+        egui::Area::new(egui::Id::new("perf_hud"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(screen.right() - 234.0, screen.top() + 96.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(egui::Color32::from_rgba_unmultiplied(18, 18, 18, 224))
+                    .show(ui, |ui| {
+                        ui.set_width(200.0);
+                        ui.label(egui::RichText::new("Performance (F7)").small().strong().color(white));
+                        ui.label(
+                            egui::RichText::new(format!("frame {avg:.1} ms  ·  {fps:.0} FPS"))
+                                .monospace()
+                                .color(white),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!("p95 {p95:.1}   max {mx:.1} ms"))
+                                .small()
+                                .monospace()
+                                .color(dim),
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "build {:.1}   paint {:.1} ms",
+                                self.perf.build_ms.avg(),
+                                self.perf.paint_ms.avg()
+                            ))
+                            .small()
+                            .monospace()
+                            .color(dim),
+                        );
+                        ui.colored_label(col, format!("§31 redraw <16ms: {verdict}"));
+                    });
+            });
+    }
+
     fn show_snap_menu(&mut self, ctx: &egui::Context) {
         let Some(pos) = self.snap_menu_at else {
             return;
@@ -6250,11 +6359,18 @@ impl eframe::App for AadtApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // M9.9: time the whole frame's work (this closure) for the §31 telemetry.
+        let frame_t0 = std::time::Instant::now();
         // Prefer light OS chrome; avoid spamming the viewport every frame.
         if self.last_window_title.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Light));
         }
         ctx.request_repaint_after(std::time::Duration::from_secs(2));
+        // While the HUD is on, drive continuous repaints so FPS reflects a real
+        // sustained redraw loop rather than the idle throttle.
+        if self.perf_hud {
+            ctx.request_repaint();
+        }
         // Dynamic input: unless a text field is focused, keystrokes are typed at
         // the crosshair — a command token, a value, or edit/finish keys.
         if !ctx.wants_keyboard_input() {
@@ -6486,6 +6602,14 @@ impl eframe::App for AadtApp {
                             }
                             egui::Key::F1 => {
                                 self.show_shortcuts = true;
+                            }
+                            egui::Key::F7 => {
+                                self.perf_hud = !self.perf_hud;
+                                self.note = if self.perf_hud {
+                                    "Performance HUD ON (F7) — frame time vs §31 budget".into()
+                                } else {
+                                    "Performance HUD OFF (F7)".into()
+                                };
                             }
                             _ => {}
                         }
@@ -6725,9 +6849,14 @@ impl eframe::App for AadtApp {
                     }
                 }
 
+                let build_t0 = std::time::Instant::now();
                 self.session.refresh_draw_cache();
+                self.perf
+                    .build_ms
+                    .push(build_t0.elapsed().as_secs_f32() * 1000.0);
                 let list = self.session.cached_drawlist();
                 let painter = ui.painter_at(rect);
+                let paint_t0 = std::time::Instant::now();
                 paint(
                     &painter,
                     rect,
@@ -6736,6 +6865,9 @@ impl eframe::App for AadtApp {
                     self.session.document(),
                     self.show_lweights,
                 );
+                self.perf
+                    .paint_ms
+                    .push(paint_t0.elapsed().as_secs_f32() * 1000.0);
                 paint_selection(
                     &painter,
                     rect,
@@ -6916,6 +7048,14 @@ impl eframe::App for AadtApp {
             });
         // SHIFT+right-click object-snap override menu (floats over the viewport).
         self.show_snap_menu(ctx);
+        // M9.9: draw the perf HUD (reads prior samples), then record this frame's
+        // total work time — so the frame sample includes everything, HUD included.
+        if self.perf_hud {
+            self.show_perf_hud(ctx);
+        }
+        self.perf
+            .frame_ms
+            .push(frame_t0.elapsed().as_secs_f32() * 1000.0);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -8977,6 +9117,33 @@ mod geom_tests {
         // Two horizontals are parallel — no intersection.
         let other = Segment::new(Point2::new(0.0, 1.0), Point2::new(9.0, 1.0));
         assert!(line_line_intersection(x_axis, other).is_none());
+    }
+}
+
+#[cfg(test)]
+mod perf_tests {
+    use super::{PerfRing, PERF_SAMPLES};
+
+    #[test]
+    fn perf_ring_stats() {
+        let mut r = PerfRing::default();
+        for v in [10.0_f32, 20.0, 30.0, 40.0] {
+            r.push(v);
+        }
+        assert!((r.avg() - 25.0).abs() < 1e-3);
+        assert!((r.max() - 40.0).abs() < 1e-3);
+        assert!((r.p95() - 40.0).abs() < 1e-3); // idx floor(4*0.95)=3 → 40
+    }
+
+    #[test]
+    fn perf_ring_wraps_to_last_n() {
+        let mut r = PerfRing::default();
+        for i in 0..(PERF_SAMPLES + 10) {
+            r.push(i as f32);
+        }
+        // Holds the most recent PERF_SAMPLES; max is the final push.
+        assert!((r.max() - (PERF_SAMPLES + 9) as f32).abs() < 1e-3);
+        assert!(r.avg() > 0.0);
     }
 }
 
