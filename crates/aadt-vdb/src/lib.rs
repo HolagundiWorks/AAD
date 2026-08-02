@@ -36,9 +36,11 @@ use aadt_model::{Document, Entity, EntityId, Geometry};
 use aadt_object::{AuditLog, ObjectStore};
 
 pub use buf::VdbError;
+// The little-endian binary codec primitives are exposed so the VastuDB wire
+// protocol (`aadt-vdb-proto`) frames payloads with the exact same encoding used
+// on disk — one format for the file and the wire.
+pub use buf::{Reader, Writer};
 pub use index::SpatialGrid;
-
-use buf::{Reader, Writer};
 
 /// File magic: "VASTUDB" + a NUL. A `u32` format version follows.
 const MAGIC: &[u8; 8] = b"VASTUDB\0";

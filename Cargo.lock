@@ -227,6 +227,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aadt-vdb-proto"
+version = "0.0.0"
+dependencies = [
+ "aadt-geometry",
+ "aadt-model",
+ "aadt-vdb",
+]
+
+[[package]]
 name = "aadt-vecdb"
 version = "0.0.0"
 dependencies = [

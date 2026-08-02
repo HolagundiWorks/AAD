@@ -1,0 +1,17 @@
+[package]
+name = "aadt-vdb-proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "VDBP — the VastuDB wire protocol: a length-framed binary request/response codec shared by the vastud server and its clients (Phase A)."
+
+[dependencies]
+aadt-vdb.workspace = true
+aadt-model.workspace = true
+aadt-geometry.workspace = true
+
+[lints]
+workspace = true
