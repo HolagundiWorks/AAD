@@ -4,7 +4,7 @@
 **Inputs:** [Vision / guidelines](../vision/ai-native-platform.md) ·
 [ADR-0012 (pivot)](../adr/0012-ai-native-platform-pivot.md) ·
 [ADR-0010 (embeddings mapping)](../adr/0010-embeddings-metadata-mapping.md) ·
-[ADR-0011 (VastuDB)](../adr/0011-vector-database-store.md)
+[ADR-0011 (ShilpiDB)](../adr/0011-vector-database-store.md)
 
 Every phase must pass the four release questions (geometry correct ·
 engineering intent accurate · semantically understandable · scales) and keep
@@ -14,7 +14,7 @@ engineering intent accurate · semantically understandable · scales) and keep
 
 | Vision store | Today | Crate(s) | Gap |
 |---|---|---|---|
-| Geometry DB | ✅ 2D vector records (`.vdb` VastuDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
+| Geometry DB | ✅ 2D vector records (`.vdb` ShilpiDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
 | Spatial Index | ✅ Uniform-grid bbox index, persisted in `.vdb` | `aadt-vdb` | R-tree option; wire into GUI pick/osnap; perf targets |
 | Vector DB | ✅ Geometry + text + aggregate embeddings, kNN, BM25 corpus (M11) | `aadt-embed`, `aadt-vecdb` | PDF/photo ingestion; relationship embeddings; ANN index for perf |
 | Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10); measured for takeoff (M13) | `aadt-object`, `aadt-takeoff` | Editable props UI; MAPMETA-driven objects for undetected geometry |

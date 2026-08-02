@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "VDBP — the VastuDB wire protocol: a length-framed binary request/response codec shared by the vastud server and its clients (Phase A)."
+description = "VDBP — the ShilpiDB wire protocol: a length-framed binary request/response codec shared by the shilpid server and its clients (Phase A)."
 
 [dependencies]
 aadt-vdb.workspace = true

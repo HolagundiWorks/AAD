@@ -183,12 +183,12 @@ impl Command for SaveCmd {
         "SAVE"
     }
     fn help(&self) -> &str {
-        "SAVE path.dxf|path.dwg|path.aadt|path.vdb — write the document (DXF, DWG subset, native .aadt, or VastuDB .vdb)"
+        "SAVE path.dxf|path.dwg|path.aadt|path.vdb — write the document (DXF, DWG subset, native .aadt, or ShilpiDB .vdb)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let path = path_from_args(args, "SAVE")?;
         if is_vdb_path(&path) {
-            // VastuDB is a whole-file format, so the Object DB is written with
+            // ShilpiDB is a whole-file format, so the Object DB is written with
             // the geometry here (not additively like `.aadt`). Sync first so the
             // current drawing's objects are carried forward even if OBJECTS
             // hasn't been run this session.
@@ -652,9 +652,9 @@ impl ObjState {
                     self.audit = a;
                 }
             }
-            // VastuDB carries the Object DB in its v2 sections.
+            // ShilpiDB carries the Object DB in its v2 sections.
             Some(p) if is_vdb_path(p) => {
-                if let Ok(db) = aadt_vdb::VastuDb::open(p) {
+                if let Ok(db) = aadt_vdb::ShilpiDb::open(p) {
                     self.objects = db.objects().clone();
                     self.graph = db.graph().clone();
                     self.audit = db.audit().clone();
@@ -851,7 +851,7 @@ impl Command for RelationsCmd {
     }
 }
 
-/// `WITHIN` — select entities in a window using VastuDB's spatial index (a bbox
+/// `WITHIN` — select entities in a window using ShilpiDB's spatial index (a bbox
 /// query over `aadt-vdb`), instead of a linear scan.
 struct WithinCmd;
 impl Command for WithinCmd {
@@ -862,7 +862,7 @@ impl Command for WithinCmd {
         &["VSELECT", "VWINDOW"]
     }
     fn help(&self) -> &str {
-        "WITHIN x1 y1 x2 y2 — select entities inside a window via the VastuDB spatial index"
+        "WITHIN x1 y1 x2 y2 — select entities inside a window via the ShilpiDB spatial index"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let coord = |i: usize, name: &str| -> Result<f64, String> {
@@ -875,12 +875,12 @@ impl Command for WithinCmd {
             Point2::new(coord(0, "x1")?, coord(1, "y1")?),
             Point2::new(coord(2, "x2")?, coord(3, "y2")?),
         );
-        // Build the VastuDB spatial index over the live drawing and query it.
+        // Build the ShilpiDB spatial index over the live drawing and query it.
         let index = aadt_vdb::build_index(&ctx.doc);
         let ids = index.query_bbox(rect);
         ctx.selection = ids.clone();
         Ok(format!(
-            "WITHIN: {} entit{} in the window (VastuDB index over {} total)",
+            "WITHIN: {} entit{} in the window (ShilpiDB index over {} total)",
             ids.len(),
             if ids.len() == 1 { "y" } else { "ies" },
             index.len()

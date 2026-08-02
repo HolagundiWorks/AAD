@@ -1429,7 +1429,7 @@ impl AadtApp {
             .add_filter("AAD", &["aadt"])
             .add_filter("DXF", &["dxf"])
             .add_filter("DWG", &["dwg"])
-            .add_filter("VastuDB", &["vdb"])
+            .add_filter("ShilpiDB", &["vdb"])
             .set_file_name("drawing.aadt")
             .save_file()
         {
@@ -6451,7 +6451,7 @@ impl eframe::App for AadtApp {
                                         .add_filter("DWG", &["dwg"])
                                         .add_filter("DXF", &["dxf"])
                                         .add_filter("AAD", &["aadt"])
-                                        .add_filter("VastuDB", &["vdb"])
+                                        .add_filter("ShilpiDB", &["vdb"])
                                         .pick_file()
                                     {
                                         let fb = self.app_feed(&format!("OPEN {}", path.display()));

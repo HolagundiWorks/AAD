@@ -95,7 +95,7 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
         }),
     );
 
-    // Query VastuDB's spatial index for a window.
+    // Query ShilpiDB's spatial index for a window.
     let d = doc.clone();
     define(
         env,

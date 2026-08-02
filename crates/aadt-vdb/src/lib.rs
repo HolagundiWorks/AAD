@@ -1,6 +1,6 @@
-//! # aadt-vdb — **VastuDB**, a custom on-disk vector database for the drawing
+//! # aadt-vdb — **ShilpiDB**, a custom on-disk vector database for the drawing
 //!
-//! VastuDB stores a drawing **as vectors**: every entity (line, polyline, circle,
+//! ShilpiDB stores a drawing **as vectors**: every entity (line, polyline, circle,
 //! arc, text, block insert) is a native binary record in a purpose-built `.vdb`
 //! file, alongside layers, blocks, hatches, dimensions, floors, and a built-in
 //! **spatial index** over the entities' extents. It is a self-contained database
@@ -8,7 +8,7 @@
 //! `unsafe`-free.
 //!
 //! ```
-//! use aadt_vdb::VastuDb;
+//! use aadt_vdb::ShilpiDb;
 //! use aadt_geometry::{Bbox, Point2, Segment};
 //! use aadt_model::{Document, Geometry};
 //!
@@ -18,7 +18,7 @@
 //! aadt_vdb::save_path(&doc, &path).unwrap();
 //!
 //! // Reopen and query the spatial index for entities in a window.
-//! let db = VastuDb::open(&path).unwrap();
+//! let db = ShilpiDb::open(&path).unwrap();
 //! let hits = db.query_bbox(Bbox::from_corners(Point2::new(-1.0, -1.0), Point2::new(1.0, 1.0)));
 //! assert_eq!(hits.len(), 1);
 //! ```
@@ -36,14 +36,17 @@ use aadt_model::{Document, Entity, EntityId, Geometry};
 use aadt_object::{AuditLog, ObjectStore};
 
 pub use buf::VdbError;
-// The little-endian binary codec primitives are exposed so the VastuDB wire
+// The little-endian binary codec primitives are exposed so the ShilpiDB wire
 // protocol (`aadt-vdb-proto`) frames payloads with the exact same encoding used
 // on disk — one format for the file and the wire.
 pub use buf::{Reader, Writer};
 pub use index::SpatialGrid;
 
-/// File magic: "VASTUDB" + a NUL. A `u32` format version follows.
-const MAGIC: &[u8; 8] = b"VASTUDB\0";
+/// File magic (8 bytes): "SHILPIDB". A `u32` format version follows.
+const MAGIC: &[u8; 8] = b"SHILPIDB";
+/// Pre-rename magic ("VASTUDB" + NUL). Still accepted on read so databases
+/// written before the ShilpiDB rename keep opening.
+const LEGACY_MAGIC: &[u8; 8] = b"VASTUDB\0";
 /// On-disk format version. v2 adds the Object DB / Graph DB / audit sections
 /// (AI-native Phase 1); v1 files still load with empty object stores.
 pub const FORMAT_VERSION: u32 = 2;
@@ -107,9 +110,9 @@ pub fn load_path(path: impl AsRef<Path>) -> Result<Document, VdbError> {
 
 fn read_header(r: &mut Reader) -> Result<u32, VdbError> {
     let magic = r.raw(MAGIC.len())?;
-    if magic != MAGIC {
+    if magic != MAGIC && magic != LEGACY_MAGIC {
         return Err(VdbError::Format(
-            "not a VastuDB vector database (bad magic)".into(),
+            "not a ShilpiDB vector database (bad magic)".into(),
         ));
     }
     let ver = r.u32()?;
@@ -121,9 +124,9 @@ fn read_header(r: &mut Reader) -> Result<u32, VdbError> {
     Ok(ver)
 }
 
-/// An opened VastuDB database: the drawing, its spatial index, and (v2) the
+/// An opened ShilpiDB database: the drawing, its spatial index, and (v2) the
 /// Object DB / Graph DB / audit log — ready to query.
-pub struct VastuDb {
+pub struct ShilpiDb {
     doc: Document,
     index: SpatialGrid,
     objects: ObjectStore,
@@ -131,11 +134,11 @@ pub struct VastuDb {
     audit: AuditLog,
 }
 
-impl VastuDb {
+impl ShilpiDb {
     /// Open a `.vdb` file — load the document and its spatial index (rebuilding
     /// the index from the geometry if the stored one is missing or unreadable),
     /// plus the object/graph/audit sections when present (v2).
-    pub fn open(path: impl AsRef<Path>) -> Result<VastuDb, VdbError> {
+    pub fn open(path: impl AsRef<Path>) -> Result<ShilpiDb, VdbError> {
         let bytes = std::fs::read(path.as_ref())?;
         let mut r = Reader::new(&bytes);
         let ver = read_header(&mut r)?;
@@ -146,7 +149,7 @@ impl VastuDb {
         } else {
             (ObjectStore::new(), Graph::new(), AuditLog::new())
         };
-        Ok(VastuDb {
+        Ok(ShilpiDb {
             doc,
             index,
             objects,
@@ -156,9 +159,9 @@ impl VastuDb {
     }
 
     /// Build an in-memory database from a document already in hand.
-    pub fn from_document(doc: Document) -> VastuDb {
+    pub fn from_document(doc: Document) -> ShilpiDb {
         let index = build_index(&doc);
-        VastuDb {
+        ShilpiDb {
             doc,
             index,
             objects: ObjectStore::new(),
@@ -307,6 +310,26 @@ mod tests {
     }
 
     #[test]
+    fn legacy_vastudb_magic_still_opens() {
+        // A database written before the ShilpiDB rename (magic "VASTUDB\0") must
+        // still open. Save a normal file, then rewrite its 8-byte magic.
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0))),
+        );
+        let path = tmp("legacy-magic.vdb");
+        save_path(&doc, &path).unwrap();
+
+        let mut bytes = std::fs::read(&path).unwrap();
+        bytes[..LEGACY_MAGIC.len()].copy_from_slice(LEGACY_MAGIC);
+        std::fs::write(&path, &bytes).unwrap();
+
+        let db = ShilpiDb::open(&path).unwrap();
+        assert_eq!(db.document().len(), 1);
+    }
+
+    #[test]
     fn round_trips_a_rich_document() {
         let mut doc = Document::new();
         doc.ensure_default_spaces();
@@ -412,7 +435,7 @@ mod tests {
         }
         let path = tmp("grid.vdb");
         save_path(&doc, &path).unwrap();
-        let vdb = VastuDb::open(&path).unwrap();
+        let vdb = ShilpiDb::open(&path).unwrap();
         assert_eq!(vdb.index().len(), 25);
 
         let hits = vdb.query_bbox(Bbox::from_corners(
@@ -472,7 +495,7 @@ mod tests {
 
         let path = tmp("objects.vdb");
         save_path_with_objects(&doc, &path, &store, &graph, &audit).unwrap();
-        let db = VastuDb::open(&path).unwrap();
+        let db = ShilpiDb::open(&path).unwrap();
         assert_eq!(db.objects().len(), 2);
         let w = db.objects().get(wall).unwrap();
         assert_eq!(w.kind, ObjectKind::Wall);
@@ -486,7 +509,7 @@ mod tests {
         // A plain save (no objects) still opens with empty stores.
         let path2 = tmp("noobjects.vdb");
         save_path(&doc, &path2).unwrap();
-        let db2 = VastuDb::open(&path2).unwrap();
+        let db2 = ShilpiDb::open(&path2).unwrap();
         assert!(db2.objects().is_empty() && db2.graph().is_empty());
     }
 

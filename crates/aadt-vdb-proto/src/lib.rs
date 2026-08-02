@@ -1,8 +1,8 @@
-//! # aadt-vdb-proto — VDBP, the VastuDB wire protocol
+//! # aadt-vdb-proto — VDBP, the ShilpiDB wire protocol
 //!
-//! Length-framed binary request/response codec for talking to a `vastud` server
-//! ([standalone-server plan](../../../docs/plans/vastudb-standalone-server.md),
-//! Phase A). It reuses the exact little-endian primitives VastuDB writes on disk
+//! Length-framed binary request/response codec for talking to a `shilpid` server
+//! ([standalone-server plan](../../../docs/plans/shilpidb-standalone-server.md),
+//! Phase A). It reuses the exact little-endian primitives ShilpiDB writes on disk
 //! ([`aadt_vdb::Writer`] / [`aadt_vdb::Reader`]) so the file format and the wire
 //! format share one encoding — no `serde`, no external crate, `unsafe`-free.
 //!
@@ -287,13 +287,13 @@ mod tests {
 
     #[test]
     fn hello_payload_round_trips() {
-        let body = encode_hello(PROTO_VERSION, "vastu-shell");
+        let body = encode_hello(PROTO_VERSION, "shilpi-shell");
         let frame = Frame::new(OpCode::Hello, 0, body);
         let mut buf = Vec::new();
         write_frame(&mut buf, &frame).unwrap();
         let got = read_frame(&mut Cursor::new(buf)).unwrap();
         assert_eq!(got.opcode, OpCode::Hello);
-        assert_eq!(decode_hello(&got.payload).unwrap(), (PROTO_VERSION, "vastu-shell".into()));
+        assert_eq!(decode_hello(&got.payload).unwrap(), (PROTO_VERSION, "shilpi-shell".into()));
     }
 
     #[test]

@@ -9,7 +9,7 @@
   spatial-index stores), semantic objects with embeddings + relationships +
   audit, an AI service layer, enterprise integration, and an automation-first
   API surface. Parts of that vision already exist here: the deterministic CAD
-  core, VastuDB (`aadt-vdb`, geometry store + spatial index, ADR-0011), the
+  core, ShilpiDB (`aadt-vdb`, geometry store + spatial index, ADR-0011), the
   embeddings vector DB + confidence-gated auto-classification
   (`aadt-embed`/`aadt-vecdb`, `MAPMETA`, ADR-0010), wall/room detection
   (`aadt-detect`), AIA semantic layers (`aadt-standards`), and per-drawing
@@ -57,7 +57,7 @@ phase that needs them ships**; until then the current locks govern:
 ## Consequences
 
 - The multi-layer data architecture maps onto existing crates and grows from
-  them (see the phased roadmap): VastuDB is the seed of the Geometry DB +
+  them (see the phased roadmap): ShilpiDB is the seed of the Geometry DB +
   Spatial Index; `aadt-vecdb`/`aadt-embed` seed the Vector DB and semantic
   engine; `aadt-detect` + `aadt-standards` seed the Object DB and semantic
   layers; `aadt-store` history seeds the audit/versioning layer. A Graph DB

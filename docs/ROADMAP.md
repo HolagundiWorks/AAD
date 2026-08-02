@@ -260,12 +260,12 @@ them.
 | M10.1 | `aadt-object` — **Object DB**: typed engineering objects (Wall/Room/Door/Window/Column/Beam/Furniture) with stable `ObjectId`, member entities, engineering properties, AI confidence, revision stamp | ✅ | Seeded by promoting `aadt-detect` output |
 | M10.2 | `aadt-object` — **audit log**: append-only per-object entries (user, timestamp, action, prev/new, AI-suggested, approval, reason); nothing deleted | ✅ | Extends the ADR-0008 history model to object granularity |
 | M10.3 | `aadt-graph` — **Graph DB**: persisted typed relationships (`ConnectedTo`, `BelongsTo`, `Contains`, `Bounds`, `Supports`) with forward/reverse queries + traversal | ✅ | Door → *belongs to* → Wall; Room → *contains* → Furniture; Wall → *bounds* → Room |
-| M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + VastuDB `.vdb` **v2** sections; carried across resave | ✅ | Both formats carry objects/graph/audit across resave (additive; v7/v1 files still open). `SAVE .vdb` writes the live Object DB via `save_path_with_objects`, and `ObjState::sync` loads it back on OPEN — round-trip proven across processes by a golden test (`OBJECTS LIST` shows the persisted objects without re-promoting). |
+| M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + ShilpiDB `.vdb` **v2** sections; carried across resave | ✅ | Both formats carry objects/graph/audit across resave (additive; v7/v1 files still open). `SAVE .vdb` writes the live Object DB via `save_path_with_objects`, and `ObjState::sync` loads it back on OPEN — round-trip proven across processes by a golden test (`OBJECTS LIST` shows the persisted objects without re-promoting). |
 | M10.5 | Surface: `OBJECTS` / `RELATIONS` commands + LISP (`aadt-objects`, `aadt-relations`) | ✅ | Promotion is deterministic and undo-safe (objects live beside the document) |
 
-### VastuDB known gaps
+### ShilpiDB known gaps
 
-VastuDB (`aadt-vdb`, `.vdb`; [ADR-0011](adr/0011-vector-database-store.md)) ships
+ShilpiDB (`aadt-vdb`, `.vdb`; [ADR-0011](adr/0011-vector-database-store.md)) ships
 as a custom, dependency-free vector store: entities + layers/blocks/hatches/dims/
 floors/props at `.aadt` fidelity, a built-in spatial grid (`query_bbox` /
 `query_point`, `WITHIN` / `VSELECT`, LISP `aadt-within`), durable temp+rename

@@ -2,7 +2,16 @@
 
 ## Unreleased
 
-### VastuDB persists the Object DB (M10.4 gap closed)
+### Rename: VastuDB → ShilpiDB
+
+- Renamed the vector database from **VastuDB** to **ShilpiDB** across the code
+  (the `ShilpiDb` type), docs, and file-dialog labels. The file magic is now
+  `SHILPIDB`; the pre-rename `VASTUDB\0` magic is **still accepted on read**, so
+  existing `.vdb` files keep opening (guarded by a test). The neutral `aadt-vdb`
+  crate name and the `.vdb` extension are unchanged. The standalone-server draft
+  and its `shilpid` daemon / `shilpi` shell names were renamed to match.
+
+### ShilpiDB persists the Object DB (M10.4 gap closed)
 
 - `SAVE *.vdb` now writes the live **Object DB / Graph DB / audit log** into the
   `.vdb` v2 sections (via `save_path_with_objects`), and OPEN loads them back
@@ -176,7 +185,7 @@ the source of truth; objects reference document entities, never replace them.
   Wall —ConnectedTo→ Wall).
 - **Persistence.** `.aadt` schema **v7 → v8** (additive tables: `objects`,
   `object_entities`, `object_props`, `graph_edges`, `object_audit`; carried
-  across plain `SAVE`) and VastuDB `.vdb` **v2** sections (v1 files still load).
+  across plain `SAVE`) and ShilpiDB `.vdb` **v2** sections (v1 files still load).
 - **Surface.** `OBJECTS [LIST|INFO id|AUDIT]` (aliases `OBJ`/`PROMOTE`) and
   `RELATIONS id` commands; LISP `(aadt-objects)` / `(aadt-relations id)`.
 
@@ -190,7 +199,7 @@ the source of truth; objects reference document entities, never replace them.
 - [ADR-0012](adr/0012-ai-native-platform-pivot.md) records the pivot and which
   existing product locks each future phase supersedes (never silently).
 - [Phased roadmap](plans/2026-07-ai-native-phases.md) maps the six stores onto
-  the existing crates (VastuDB → Geometry DB + Spatial Index; `aadt-embed`/
+  the existing crates (ShilpiDB → Geometry DB + Spatial Index; `aadt-embed`/
   `aadt-vecdb` → Vector DB; `aadt-detect`/`aadt-standards` → Object DB seeds)
   and sequences Phases 1–6, starting with intelligent objects + a Graph DB.
 - Docs only — no code changes; current locks govern until a phase ships.
@@ -206,9 +215,9 @@ the source of truth; objects reference document entities, never replace them.
   `aadt` binary, the `.aadt` file extension, and the `AADT-*` entity/command
   keys keep their names. Logo art files and historical ADRs were left as-is.
 
-### VastuDB — custom vector database store (`.vdb`)
+### ShilpiDB — custom vector database store (`.vdb`)
 
-The drawing can now be **stored as a custom vector database, VastuDB** — a
+The drawing can now be **stored as a custom vector database, ShilpiDB** — a
 purpose-built, self-contained on-disk format (`aadt-vdb`, extension `.vdb`) that
 holds every entity as a native binary vector record with a **built-in spatial
 index**, rather than as text payloads in SQLite. See
