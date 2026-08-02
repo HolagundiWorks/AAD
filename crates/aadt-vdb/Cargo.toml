@@ -6,9 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "ShilpiDB — a custom on-disk vector database: the drawing's geometry stored as native vector records with a built-in spatial index."
+description = "AAD's CAD-specific .vdb layout over the standalone ShilpiDB engine: the drawing + Object DB stored as native vector records with a built-in spatial index."
 
 [dependencies]
+# The standalone ShilpiDB storage engine (codec + spatial index), its own repo.
+shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", tag = "v0.1.1" }
 aadt-model.workspace = true
 aadt-geometry.workspace = true
 aadt-object.workspace = true

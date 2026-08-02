@@ -17,7 +17,7 @@ use std::io::{self, Read, Write};
 
 use aadt_geometry::{Bbox, Point2};
 use aadt_model::EntityId;
-use aadt_vdb::{Reader, VdbError, Writer};
+use aadt_vdb::{PointRead, PointWrite, Reader, VdbError, Writer};
 
 /// Wire-protocol version, negotiated in the `HELLO` handshake.
 pub const PROTO_VERSION: u32 = 1;

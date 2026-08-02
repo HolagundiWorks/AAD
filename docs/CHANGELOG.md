@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### ShilpiDB is now a standalone crate/repo AAD depends on
+
+- Extracted the domain-agnostic storage engine — the little-endian binary codec
+  and the uniform-grid spatial index — into a **separate public repository**,
+  [`shilpidb`](https://github.com/HolagundiWorks/shilpidb) (zero dependencies,
+  `#![forbid(unsafe_code)]`). `aadt-vdb` now depends on it via a pinned git
+  dependency (`tag = "v0.1.1"`) and keeps only AAD's CAD-specific `.vdb` layout
+  (the `Document`/Object-DB codec + the `ShilpiDb` wrapper).
+- The engine codec is scalar-only; AAD adds the `Point2` codec as a `PointRead` /
+  `PointWrite` extension trait. `SpatialGrid` is generic over `u64` ids +
+  `shilpidb::Bbox`; `aadt-vdb` converts at the boundary (`query_index_bbox` for
+  raw-index callers like `WITHIN` / LISP `aadt-within`). The `.vdb` file format
+  is unchanged.
+
 ### Rename: VastuDB → ShilpiDB
 
 - Renamed the vector database from **VastuDB** to **ShilpiDB** across the code

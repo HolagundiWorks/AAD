@@ -25,7 +25,6 @@
 
 mod buf;
 mod codec;
-mod index;
 mod objects;
 
 use std::path::Path;
@@ -36,14 +35,15 @@ use aadt_model::{Document, Entity, EntityId, Geometry};
 use aadt_object::{AuditLog, ObjectStore};
 
 pub use buf::VdbError;
-// The little-endian binary codec primitives are exposed so the ShilpiDB wire
-// protocol (`aadt-vdb-proto`) frames payloads with the exact same encoding used
-// on disk — one format for the file and the wire.
-pub use buf::{Reader, Writer};
-pub use index::SpatialGrid;
+// The binary codec + spatial index come from the standalone `shilpidb` engine.
+// The codec primitives are re-exported so the ShilpiDB wire protocol
+// (`aadt-vdb-proto`) frames payloads with the exact encoding used on disk — one
+// format for the file and the wire. `PointRead`/`PointWrite` add the `Point2`
+// codec that the engine (scalar-only) deliberately omits.
+pub use buf::{PointRead, PointWrite, Reader, Writer};
+pub use shilpidb::SpatialGrid;
+use shilpidb::MAGIC;
 
-/// File magic (8 bytes): "SHILPIDB". A `u32` format version follows.
-const MAGIC: &[u8; 8] = b"SHILPIDB";
 /// Pre-rename magic ("VASTUDB" + NUL). Still accepted on read so databases
 /// written before the ShilpiDB rename keep opening.
 const LEGACY_MAGIC: &[u8; 8] = b"VASTUDB\0";
@@ -202,12 +202,20 @@ impl ShilpiDb {
 
     /// Entity ids whose extent intersects `rect`, ascending — served by the index.
     pub fn query_bbox(&self, rect: Bbox) -> Vec<EntityId> {
-        self.index.query_bbox(rect)
+        self.index
+            .query_bbox(to_engine_bbox(rect))
+            .into_iter()
+            .map(EntityId)
+            .collect()
     }
 
     /// Entity ids within `tol` of `p` — served by the index.
     pub fn query_point(&self, p: Point2, tol: f64) -> Vec<EntityId> {
-        self.index.query_point(p, tol)
+        self.index
+            .query_point(shilpidb::Point::new(p.x, p.y), tol)
+            .into_iter()
+            .map(EntityId)
+            .collect()
     }
 
     /// The entities whose extent intersects `rect` (resolved against the document).
@@ -219,14 +227,34 @@ impl ShilpiDb {
     }
 }
 
-/// Build the spatial index over a document's entities (block-aware bounding boxes).
+/// Build the spatial index over a document's entities (block-aware bounding
+/// boxes), mapping to the engine's `(u64, Bbox)` records.
 pub fn build_index(doc: &Document) -> SpatialGrid {
-    let boxes: Vec<(EntityId, Bbox)> = doc
+    let boxes: Vec<(u64, shilpidb::Bbox)> = doc
         .entities()
         .into_iter()
-        .filter_map(|e| entity_bbox(doc, e).map(|bb| (e.id, bb)))
+        .filter_map(|e| entity_bbox(doc, e).map(|bb| (e.id.0, to_engine_bbox(bb))))
         .collect();
     SpatialGrid::build(boxes)
+}
+
+/// Convert an AAD geometry bounding box to the engine's plain [`shilpidb::Bbox`].
+fn to_engine_bbox(b: Bbox) -> shilpidb::Bbox {
+    shilpidb::Bbox::new(
+        shilpidb::Point::new(b.min.x, b.min.y),
+        shilpidb::Point::new(b.max.x, b.max.y),
+    )
+}
+
+/// Query a built [`SpatialGrid`] with an AAD bounding box, mapping the engine's
+/// `u64` ids back to [`EntityId`]. Convenience for callers holding a raw index
+/// (e.g. the LISP `aadt-within`) rather than an opened [`ShilpiDb`].
+pub fn query_index_bbox(index: &SpatialGrid, rect: Bbox) -> Vec<EntityId> {
+    index
+        .query_bbox(to_engine_bbox(rect))
+        .into_iter()
+        .map(EntityId)
+        .collect()
 }
 
 /// The axis-aligned bounding box of an entity, expanding block inserts.

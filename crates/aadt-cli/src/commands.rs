@@ -877,7 +877,7 @@ impl Command for WithinCmd {
         );
         // Build the ShilpiDB spatial index over the live drawing and query it.
         let index = aadt_vdb::build_index(&ctx.doc);
-        let ids = index.query_bbox(rect);
+        let ids = aadt_vdb::query_index_bbox(&index, rect);
         ctx.selection = ids.clone();
         Ok(format!(
             "WITHIN: {} entit{} in the window (ShilpiDB index over {} total)",

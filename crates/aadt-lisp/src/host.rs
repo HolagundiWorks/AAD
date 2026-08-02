@@ -104,7 +104,7 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
             want(a, 4, "aadt-within")?;
             let rect = Bbox::from_corners(pt(a, 0)?, pt(a, 2)?);
             let index = aadt_vdb::build_index(&d.borrow());
-            Ok(Value::Int(index.query_bbox(rect).len() as i64))
+            Ok(Value::Int(aadt_vdb::query_index_bbox(&index, rect).len() as i64))
         }),
     );
 

@@ -224,6 +224,7 @@ dependencies = [
  "aadt-graph",
  "aadt-model",
  "aadt-object",
+ "shilpidb",
 ]
 
 [[package]]
@@ -3550,6 +3551,11 @@ dependencies = [
  "cpufeatures",
  "digest",
 ]
+
+[[package]]
+name = "shilpidb"
+version = "0.1.1"
+source = "git+https://github.com/HolagundiWorks/shilpidb?tag=v0.1.1#187e579a589422560b1b02144212139ffb0db7e9"
 
 [[package]]
 name = "shlex"

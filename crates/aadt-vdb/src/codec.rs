@@ -13,7 +13,7 @@ use aadt_model::{
     ModelSpaceId, SpaceCategory, Text, VisibilityState,
 };
 
-use crate::buf::{Reader, VdbError, Writer};
+use crate::buf::{PointRead, PointWrite, Reader, VdbError, Writer};
 
 // --- Geometry ---------------------------------------------------------------
 
