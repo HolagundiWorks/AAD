@@ -260,8 +260,26 @@ them.
 | M10.1 | `aadt-object` — **Object DB**: typed engineering objects (Wall/Room/Door/Window/Column/Beam/Furniture) with stable `ObjectId`, member entities, engineering properties, AI confidence, revision stamp | ✅ | Seeded by promoting `aadt-detect` output |
 | M10.2 | `aadt-object` — **audit log**: append-only per-object entries (user, timestamp, action, prev/new, AI-suggested, approval, reason); nothing deleted | ✅ | Extends the ADR-0008 history model to object granularity |
 | M10.3 | `aadt-graph` — **Graph DB**: persisted typed relationships (`ConnectedTo`, `BelongsTo`, `Contains`, `Bounds`, `Supports`) with forward/reverse queries + traversal | ✅ | Door → *belongs to* → Wall; Room → *contains* → Furniture; Wall → *bounds* → Room |
-| M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + VastuDB `.vdb` **v2** sections; carried across resave | ✅ | Additive; v7/v1 files still open |
+| M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + VastuDB `.vdb` **v2** sections; carried across resave | ✅ `.aadt` · 🚧 `.vdb` | `.aadt` carries objects/graph/audit across resave (additive; v7/v1 files still open). **Gap:** the `.vdb` v2 object/graph/audit sections are format-complete and round-trip (`save_path_with_objects`, tested), but the wired `SAVE .vdb` (`save_path`) writes them **empty** — the live Object DB isn't yet threaded into `.vdb` save/open. See [VastuDB gaps](#vastudb-known-gaps). |
 | M10.5 | Surface: `OBJECTS` / `RELATIONS` commands + LISP (`aadt-objects`, `aadt-relations`) | ✅ | Promotion is deterministic and undo-safe (objects live beside the document) |
+
+### VastuDB known gaps
+
+VastuDB (`aadt-vdb`, `.vdb`; [ADR-0011](adr/0011-vector-database-store.md)) ships
+as a custom, dependency-free vector store: entities + layers/blocks/hatches/dims/
+floors/props at `.aadt` fidelity, a built-in spatial grid (`query_bbox` /
+`query_point`, `WITHIN` / `VSELECT`, LISP `aadt-within`), durable temp+rename
+writes, and OPEN/SAVE wiring in the CLI and GUI. Open items:
+
+- **Object DB not persisted from the app.** The v2 object/graph/audit sections
+  exist and round-trip, but the shipping `SAVE .vdb` path passes empty stores;
+  `save_path_with_objects` is unwired outside tests. Threading the Session's
+  live `ObjectStore` / `Graph` / `AuditLog` through `.vdb` save + open would make
+  "carried across resave" true for `.vdb` as it already is for `.aadt`.
+- **No history / time-machine** in `.vdb` — checkpoints stay a `.aadt`-only
+  feature (intentional, ADR-0011).
+- **2D vector records only** — splines / meshes / solids are deferred to Phase 6
+  ([phase plan](plans/2026-07-ai-native-phases.md)).
 
 ## M11 — AI-Native Phase 2: Semantic search + local retrieval ✅ (core)
 
