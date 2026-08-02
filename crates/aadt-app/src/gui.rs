@@ -52,6 +52,9 @@ fn parse_entity_id_from_feedback(msg: Option<&str>) -> Option<u64> {
 
 /// Pick tolerance in screen pixels (also drives pickbox half-size).
 const PICK_PIXELS: f64 = 6.0;
+/// Default dim-line offset for hover-to-auto-dim, in screen pixels (÷ camera
+/// scale gives world units) so it reads the same at any zoom.
+const AUTO_DIM_OFFSET_PX: f64 = 24.0;
 
 /// Cached Layers-panel row: name, ACI, visible, frozen, locked, lineweight_mm, linetype.
 type LayerRowCache = (String, u8, bool, bool, bool, f32, String);
@@ -361,6 +364,11 @@ pub(super) enum Tool {
     DimAngular {
         vertex: Option<Point2>,
         p1: Option<Point2>,
+    },
+    /// Angular dimension between two picked lines — the angle at their
+    /// intersection. `first` is the first line's entity + the point clicked on it.
+    DimAngularLines {
+        first: Option<(EntityId, Point2)>,
     },
     /// Match properties: source entity, then targets.
     MatchProp {
@@ -1779,6 +1787,7 @@ impl AadtApp {
             Tool::Wall { points, .. } => points.last().copied(),
             Tool::Dim { first, second } => second.or(*first),
             Tool::DimAngular { vertex, p1 } => p1.or(*vertex),
+            Tool::DimAngularLines { first } => first.map(|(_, q)| q),
             Tool::Mirror {
                 collecting: false,
                 a,
@@ -5087,11 +5096,27 @@ impl AadtApp {
             }
             Tool::Dim { first, second } => match (first, second) {
                 (None, _) => {
-                    self.tool = Tool::Dim {
-                        first: Some(p),
-                        second: None,
-                    };
-                    self.note = "DIM — click second definition point".into();
+                    // Hover-to-auto-dim: clicking an entity infers the dimension
+                    // type (line→aligned, circle→diameter, arc→radius). Empty
+                    // space falls back to the two-point coordinate form.
+                    let tol = PICK_PIXELS / self.camera.scale;
+                    let auto = pick_entity(self.session.document(), p, tol).filter(|&id| {
+                        self.session.document().get(id).is_some_and(|e| {
+                            aadt_command::auto_dimension_for(&e.geometry, 0.0, String::new())
+                                .is_some()
+                        })
+                    });
+                    if let Some(id) = auto {
+                        let offset = AUTO_DIM_OFFSET_PX / self.camera.scale;
+                        self.app_feed(&format!("DIM {} {}", id.0, offset));
+                        self.tool = Tool::Select;
+                    } else {
+                        self.tool = Tool::Dim {
+                            first: Some(p),
+                            second: None,
+                        };
+                        self.note = "DIM — click second definition point".into();
+                    }
                 }
                 (Some(a), None) => {
                     self.tool = Tool::Dim {
@@ -5154,13 +5179,70 @@ impl AadtApp {
                     self.note = "DIMDIAMETER — click a circle or arc".into();
                 }
             }
+            Tool::DimAngularLines { first } => {
+                let Some((id1, q1)) = first else {
+                    self.tool = Tool::Select;
+                    return;
+                };
+                let tol = PICK_PIXELS / self.camera.scale;
+                // Resolve both line segments + their intersection without holding
+                // a document borrow across the mutating app_feed.
+                let vertex = {
+                    let doc = self.session.document();
+                    let seg_of = |id: EntityId| match doc.get(id).map(|e| &e.geometry) {
+                        Some(Geometry::Line(s)) => Some(*s),
+                        _ => None,
+                    };
+                    let s2 = pick_entity(doc, p, tol)
+                        .filter(|&id| id != id1)
+                        .and_then(seg_of);
+                    match (seg_of(id1), s2) {
+                        (Some(s1), Some(s2)) => Some(line_line_intersection(s1, s2)),
+                        _ => None,
+                    }
+                };
+                match vertex {
+                    Some(Some(v)) => {
+                        self.app_feed(&format!(
+                            "DIMANGULAR {} {} {} {} {} {} AN-DIMS",
+                            v.x, v.y, q1.x, q1.y, p.x, p.y
+                        ));
+                        self.tool = Tool::Select;
+                    }
+                    Some(None) => {
+                        self.note =
+                            "DIMANGULAR — those lines are parallel; pick two that meet".into();
+                        self.tool = Tool::DimAngular {
+                            vertex: None,
+                            p1: None,
+                        };
+                    }
+                    None => self.note = "DIMANGULAR — click a second, different line".into(),
+                }
+            }
             Tool::DimAngular { vertex, p1 } => match (vertex, p1) {
                 (None, _) => {
-                    self.tool = Tool::DimAngular {
-                        vertex: Some(p),
-                        p1: None,
-                    };
-                    self.note = "DIMANGULAR — click first ray point".into();
+                    // Two-line form: clicking a line dimensions the angle between it
+                    // and a second line. Clicking empty space uses the 3-point form.
+                    let tol = PICK_PIXELS / self.camera.scale;
+                    let line = pick_entity(self.session.document(), p, tol).filter(|&id| {
+                        matches!(
+                            self.session.document().get(id).map(|e| &e.geometry),
+                            Some(Geometry::Line(_))
+                        )
+                    });
+                    if let Some(id) = line {
+                        self.tool = Tool::DimAngularLines {
+                            first: Some((id, p)),
+                        };
+                        self.note = "DIMANGULAR — click the second line".into();
+                    } else {
+                        self.tool = Tool::DimAngular {
+                            vertex: Some(p),
+                            p1: None,
+                        };
+                        self.note = "DIMANGULAR — click first ray point".into();
+                    }
                 }
                 (Some(v), None) => {
                     self.tool = Tool::DimAngular {
@@ -6038,7 +6120,9 @@ impl AadtApp {
                 "GRIP — new point; Space cycles Stretch/Move/Rotate/Scale/Mirror (Esc cancels)"
             }
             Tool::Explode => "EXPLODE — click a block reference",
-            Tool::Dim { first: None, .. } => "DIM — click first definition point",
+            Tool::Dim { first: None, .. } => {
+                "DIM — click an entity to auto-dimension, or two definition points"
+            }
             Tool::Dim {
                 first: Some(_),
                 second: None,
@@ -6050,12 +6134,13 @@ impl AadtApp {
             Tool::DimContinue => "DIMCONTINUE — next definition point (Space finishes)",
             Tool::DimRadius => "DIMRADIUS — click a circle or arc",
             Tool::DimDiameter => "DIMDIAMETER — click a circle or arc",
-            Tool::DimAngular { vertex: None, .. } => "DIMANGULAR — click vertex",
+            Tool::DimAngular { vertex: None, .. } => "DIMANGULAR — click a line, or the angle vertex",
             Tool::DimAngular {
                 vertex: Some(_),
                 p1: None,
             } => "DIMANGULAR — click first ray point",
             Tool::DimAngular { p1: Some(_), .. } => "DIMANGULAR — click second ray point",
+            Tool::DimAngularLines { .. } => "DIMANGULAR — click the second line",
             Tool::MatchProp { source: None } => "MATCHPROP — click source",
             Tool::MatchProp { source: Some(_) } => "MATCHPROP — click targets",
             Tool::ZoomWindow { first: None } => {
@@ -7166,6 +7251,19 @@ fn hatch_boundary_at(doc: &Document, p: Point2) -> Option<EntityId> {
         }
     }
     best.map(|(_, id)| id)
+}
+
+/// Intersection of the two infinite lines through segments `a` and `b`, or
+/// `None` when they are parallel (used by DIMANGULAR's two-line form).
+fn line_line_intersection(a: Segment, b: Segment) -> Option<Point2> {
+    let (dax, day) = (a.b.x - a.a.x, a.b.y - a.a.y);
+    let (dbx, dby) = (b.b.x - b.a.x, b.b.y - b.a.y);
+    let denom = dax * dby - day * dbx;
+    if denom.abs() < 1e-9 {
+        return None; // parallel
+    }
+    let t = ((b.a.x - a.a.x) * dby - (b.a.y - a.a.y) * dbx) / denom;
+    Some(Point2::new(a.a.x + dax * t, a.a.y + day * t))
 }
 
 /// The nearest dimension within `tol` of `p` in the active space, tested against
@@ -8541,6 +8639,28 @@ fn paint_preview(
         } => {
             painter.line_segment([to_screen(*b), to_screen(cursor)], stroke);
         }
+        Tool::Dim { first: None, .. } => {
+            // Hover-to-auto-dim ghost: preview the inferred dimension over an entity.
+            let tol = PICK_PIXELS / camera.scale;
+            if let Some(dim) = pick_entity(doc, cursor, tol)
+                .and_then(|id| doc.get(id))
+                .and_then(|e| {
+                    aadt_command::auto_dimension_for(
+                        &e.geometry,
+                        AUTO_DIM_OFFSET_PX / camera.scale,
+                        aadt_command::DEFAULT_DIM_LAYER.to_string(),
+                    )
+                })
+            {
+                for cmd in dimension_commands(&dim, doc.properties()) {
+                    if let DrawCommand::Polyline { points, .. } = cmd {
+                        for w in points.windows(2) {
+                            painter.line_segment([to_screen(w[0]), to_screen(w[1])], stroke);
+                        }
+                    }
+                }
+            }
+        }
         Tool::Dim {
             first: Some(a),
             second: None,
@@ -8839,6 +8959,25 @@ pub(super) fn layer_stroke(
         1.0
     };
     (color, egui::Stroke::new(px, color))
+}
+
+#[cfg(test)]
+mod geom_tests {
+    use super::line_line_intersection;
+    use aadt_geometry::{Point2, Segment};
+
+    #[test]
+    fn line_line_intersection_meets_and_parallel() {
+        // y = 0 (x-axis) crosses x = 2 (vertical) at (2, 0).
+        let x_axis = Segment::new(Point2::new(-5.0, 0.0), Point2::new(5.0, 0.0));
+        let vert = Segment::new(Point2::new(2.0, -3.0), Point2::new(2.0, 4.0));
+        let v = line_line_intersection(x_axis, vert).unwrap();
+        assert!((v.x - 2.0).abs() < 1e-9 && v.y.abs() < 1e-9);
+
+        // Two horizontals are parallel — no intersection.
+        let other = Segment::new(Point2::new(0.0, 1.0), Point2::new(9.0, 1.0));
+        assert!(line_line_intersection(x_axis, other).is_none());
+    }
 }
 
 #[cfg(test)]

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### GUI auto-dimensioning (M9.4 complete)
+
+- **Hover-to-auto-dim:** with the `DIM` tool, clicking an entity now
+  auto-dimensions it — line/polyline → aligned, circle → diameter, arc → radius
+  — with a live **ghost preview** on hover. Clicking empty space keeps the
+  two-point coordinate form. Wires the command-level `DIM <id>` auto-type into
+  the viewport (`auto_dimension_for` + `dimension_commands` are now public).
+- **Angular from two lines:** `DIMANGULAR`'s first click on a line starts the
+  two-line form — pick a second line and it dimensions the angle at their
+  intersection (`line_line_intersection`); parallel lines are rejected. Clicking
+  empty space still uses the 3-point vertex form.
+
 ### Dimension selection & erase (M9 drafting parity)
 
 - Dimensions are now **selectable** in the viewport — click a dimension's drawn

@@ -2906,7 +2906,10 @@ fn dim_kind_label(kind: DimensionKind) -> &'static str {
 /// Infer a dimension from a single entity's geometry (AutoCAD-style auto `DIM`):
 /// line/polyline → aligned, circle → diameter, arc → radius. `None` for
 /// geometries with nothing to measure (text / inserts).
-fn auto_dimension_for(geom: &Geometry, offset: f64, layer: String) -> Option<Dimension> {
+/// The dimension that `DIM <id>` would create for a geometry (line/polyline →
+/// aligned, circle → diameter, arc → radius), or `None` if it isn't
+/// dimensionable. Public so the GUI can preview the auto-dimension on hover.
+pub fn auto_dimension_for(geom: &Geometry, offset: f64, layer: String) -> Option<Dimension> {
     let aligned = |a: Point2, b: Point2| Dimension {
         space: Default::default(),
         layer: layer.clone(),
