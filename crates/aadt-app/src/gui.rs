@@ -205,8 +205,9 @@ pub fn run(session: Session) -> eframe::Result<()> {
         "AAD",
         options,
         Box::new(move |cc| {
-            // Windows 11 / Fluent neutrals + AADT brand orange.
-            theme::apply_fluent_visuals(&cc.egui_ctx);
+            // Windows 11 / Fluent neutrals + AADT brand orange, in the last-used theme.
+            let theme = theme::Theme::from(UserPrefs::load().dark_theme);
+            theme::apply_fluent_visuals(&cc.egui_ctx, theme);
             theme::install_drawing_fonts(&cc.egui_ctx);
             // Keep OS DPI; density comes from compact text/spacing (Cursor-like).
             icons::install(&cc.egui_ctx);
@@ -1206,6 +1207,8 @@ struct AadtApp {
     library_cache_at: Option<Instant>,
     /// Shift held on the last canvas interaction (TRIM↔EXTEND).
     pointer_shift: bool,
+    /// Active chrome theme (light / dark) — persisted in `UserPrefs`.
+    theme: theme::Theme,
 }
 
 impl AadtApp {
@@ -1300,6 +1303,7 @@ impl AadtApp {
             library_cache: Vec::new(),
             library_cache_at: None,
             pointer_shift: false,
+            theme: theme::Theme::from(prefs.dark_theme),
         }
     }
 
@@ -1316,11 +1320,19 @@ impl AadtApp {
             right_panel_width: self.right_panel_width,
             left_panel_width: self.left_panel_width,
             autosave_secs: self.autosave_secs,
+            dark_theme: self.theme.is_dark(),
         }
     }
 
     fn persist_prefs(&self) {
         self.current_prefs().save();
+    }
+
+    /// Switch the chrome theme: re-apply Fluent visuals + palette, then persist.
+    fn set_theme(&mut self, ctx: &egui::Context, theme: theme::Theme) {
+        self.theme = theme;
+        theme::apply_fluent_visuals(ctx, theme);
+        self.persist_prefs();
     }
 
     /// Sibling autosave path: `drawing.aadt` → `drawing.autosave.aadt`.
@@ -1665,8 +1677,11 @@ impl AadtApp {
             .resizable(false)
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(
+                        theme::stroke::THIN,
+                        theme::color::border(),
+                    ))
                     .rounding(theme::radius::DIALOG),
             )
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -1698,8 +1713,8 @@ impl AadtApp {
             .default_width(420.0)
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::border()))
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -1757,8 +1772,11 @@ impl AadtApp {
             .default_height(420.0)
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(
+                        theme::stroke::THIN,
+                        theme::color::border(),
+                    ))
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -3643,8 +3661,11 @@ impl AadtApp {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(theme::color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::BORDER))
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(
+                        theme::stroke::THIN,
+                        theme::color::border(),
+                    ))
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -6393,7 +6414,7 @@ impl eframe::App for AadtApp {
     /// dark default — otherwise any region a panel doesn't opaquely cover (e.g.
     /// a transient gap beside the left dock while its width changes) shows black.
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        theme::color::CANVAS.to_normalized_gamma_f32()
+        theme::color::canvas().to_normalized_gamma_f32()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -6677,7 +6698,7 @@ impl eframe::App for AadtApp {
 
         // --- Central viewport (white paper = print preview) ---
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(theme::color::CANVAS))
+            .frame(egui::Frame::none().fill(theme::color::canvas()))
             .show(ctx, |ui| {
                 let (rect, resp) =
                     ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
@@ -6685,7 +6706,7 @@ impl eframe::App for AadtApp {
 
                 // Paint the paper background over the whole viewport explicitly.
                 ui.painter_at(rect)
-                    .rect_filled(rect, 0.0, theme::color::CANVAS);
+                    .rect_filled(rect, 0.0, theme::color::canvas());
 
                 if !self.fitted {
                     self.camera.fit_document(self.session.document(), 0.08);
@@ -8260,7 +8281,7 @@ fn paint_hatch_region(painter: &egui::Painter, rect: egui::Rect, camera: &Camera
     if pts.len() < 3 {
         return;
     }
-    let acc = theme::color::ACCENT;
+    let acc = theme::color::accent();
     let fill = egui::Color32::from_rgba_unmultiplied(acc.r(), acc.g(), acc.b(), 44);
     // Path fill supports concave boundaries; convex_polygon does not.
     painter.add(egui::Shape::Path(egui::epaint::PathShape {
@@ -8962,7 +8983,14 @@ fn paint_preview(
 /// same size with a clearer pickbox.
 fn paint_crosshair_and_pickbox(painter: &egui::Painter, sp: egui::Pos2, drafting: bool) {
     let half = CROSSHAIR_SIZE_PX * 0.5;
-    let color = if drafting {
+    // Contrast against the (theme-filled) paper: dark arms on light, light on dark.
+    let color = if theme::color::is_dark() {
+        if drafting {
+            egui::Color32::from_rgb(210, 210, 210)
+        } else {
+            egui::Color32::from_rgb(175, 175, 175)
+        }
+    } else if drafting {
         egui::Color32::from_rgb(40, 40, 40)
     } else {
         egui::Color32::from_rgb(60, 60, 60)
@@ -8983,11 +9011,12 @@ fn paint_crosshair_and_pickbox(painter: &egui::Painter, sp: egui::Pos2, drafting
         egui::pos2(sp.x - pb, sp.y - pb),
         egui::pos2(sp.x + pb, sp.y + pb),
     );
-    painter.rect_stroke(
-        box_rect,
-        0.0,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(20, 20, 20)),
-    );
+    let pick_ink = if theme::color::is_dark() {
+        egui::Color32::from_rgb(225, 225, 225)
+    } else {
+        egui::Color32::from_rgb(20, 20, 20)
+    };
+    painter.rect_stroke(box_rect, 0.0, egui::Stroke::new(1.0_f32, pick_ink));
 }
 
 /// Window (L→R, solid blue) or crossing (R→L, dashed green) selection box.
@@ -9061,7 +9090,7 @@ fn paint_dyn_box(painter: &egui::Painter, sp: egui::Pos2, lines: &[String]) {
         return;
     }
     let font = egui::FontId::monospace(13.0);
-    let color = egui::Color32::from_gray(20);
+    let color = theme::color::text();
     let galleys: Vec<_> = lines
         .iter()
         .map(|l| painter.layout_no_wrap(l.clone(), font.clone(), color))
@@ -9071,16 +9100,13 @@ fn paint_dyn_box(painter: &egui::Painter, sp: egui::Pos2, lines: &[String]) {
     let h = galleys.iter().map(|g| g.size().y).sum::<f32>();
     let origin = sp + egui::vec2(18.0, 18.0);
     let bg = egui::Rect::from_min_size(origin, egui::vec2(w + pad * 2.0, h + pad * 2.0));
+    let card = theme::color::layer_card();
     painter.rect_filled(
         bg,
         4.0,
-        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 230),
+        egui::Color32::from_rgba_unmultiplied(card.r(), card.g(), card.b(), 235),
     );
-    painter.rect_stroke(
-        bg,
-        4.0,
-        egui::Stroke::new(1.0_f32, egui::Color32::from_gray(160)),
-    );
+    painter.rect_stroke(bg, 4.0, egui::Stroke::new(1.0_f32, theme::color::border()));
     let mut y = origin.y + pad;
     for g in galleys {
         let dy = g.size().y;
@@ -9158,7 +9184,14 @@ pub(super) fn layer_stroke(
         .map(|l| (l.color, l.lineweight_mm))
         .unwrap_or((7, DEFAULT_LINEWEIGHT_MM));
     let (r, g, b) = aci_to_srgb(aci);
-    let color = egui::Color32::from_rgb(r, g, b);
+    // ByLayer / ACI 0·7 resolve to black; substitute the theme ink so default
+    // geometry stays visible when the paper is dark (AutoCAD renders 7 as white
+    // on a dark model space). Explicit colours (red, green, …) are unchanged.
+    let color = if (r, g, b) == (0, 0, 0) {
+        theme::color::ink()
+    } else {
+        egui::Color32::from_rgb(r, g, b)
+    };
     let px = if show_lweights {
         (lw * (camera.scale as f32) * (25.4 / PLOT_SCALE) * 0.15).clamp(0.8, 10.0)
     } else {

@@ -19,6 +19,8 @@ pub struct UserPrefs {
     pub right_panel_width: f32,
     pub left_panel_width: f32,
     pub autosave_secs: u64,
+    /// Dark chrome theme (false = light, the default).
+    pub dark_theme: bool,
 }
 
 impl Default for UserPrefs {
@@ -35,6 +37,7 @@ impl Default for UserPrefs {
             right_panel_width: 280.0,
             left_panel_width: 260.0,
             autosave_secs: 120,
+            dark_theme: false,
         }
     }
 }
@@ -85,7 +88,7 @@ impl UserPrefs {
 
     pub fn to_json(&self) -> String {
         format!(
-            "{{\n  \"ortho\": {},\n  \"osnap\": {},\n  \"polar\": {},\n  \"osnap_track\": {},\n  \"dyn_mode\": {},\n  \"show_layer_mgr\": {},\n  \"show_left_mgr\": {},\n  \"show_lweights\": {},\n  \"right_panel_width\": {},\n  \"left_panel_width\": {},\n  \"autosave_secs\": {}\n}}\n",
+            "{{\n  \"ortho\": {},\n  \"osnap\": {},\n  \"polar\": {},\n  \"osnap_track\": {},\n  \"dyn_mode\": {},\n  \"show_layer_mgr\": {},\n  \"show_left_mgr\": {},\n  \"show_lweights\": {},\n  \"right_panel_width\": {},\n  \"left_panel_width\": {},\n  \"autosave_secs\": {},\n  \"dark_theme\": {}\n}}\n",
             bool_json(self.ortho),
             bool_json(self.osnap),
             bool_json(self.polar),
@@ -97,6 +100,7 @@ impl UserPrefs {
             self.right_panel_width,
             self.left_panel_width,
             self.autosave_secs,
+            bool_json(self.dark_theme),
         )
     }
 
@@ -137,6 +141,9 @@ impl UserPrefs {
         }
         if let Some(v) = parse_u64(text, "autosave_secs") {
             p.autosave_secs = v;
+        }
+        if let Some(v) = parse_bool(text, "dark_theme") {
+            p.dark_theme = v;
         }
         Some(p)
     }
@@ -203,6 +210,7 @@ mod tests {
             right_panel_width: 280.5,
             left_panel_width: 260.0,
             autosave_secs: 60,
+            dark_theme: true,
         };
         let back = UserPrefs::from_json(&p.to_json()).unwrap();
         assert_eq!(back, p);

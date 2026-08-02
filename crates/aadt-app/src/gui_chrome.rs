@@ -82,7 +82,7 @@ impl AadtApp {
         }
         fn chevron(ui: &mut egui::Ui) {
             ui.add_space(1.0);
-            ui.label(egui::RichText::new("›").color(color::TEXT_SECONDARY));
+            ui.label(egui::RichText::new("›").color(color::text_secondary()));
             ui.add_space(1.0);
         }
 
@@ -218,7 +218,7 @@ impl AadtApp {
 
         // Layer segment — the derived shim; click to open the Layer manager.
         if ui
-            .button(egui::RichText::new(shim).color(color::TEXT_SECONDARY))
+            .button(egui::RichText::new(shim).color(color::text_secondary()))
             .on_hover_text(
                 "Active shim layer (derived from Floor + Space, ADR-0009). Click to open the Layer manager.",
             )
@@ -244,7 +244,7 @@ impl AadtApp {
                 egui::RichText::new("Show")
                     .size(type_scale::CAPTION)
                     .strong()
-                    .color(color::TEXT_SECONDARY),
+                    .color(color::text_secondary()),
             );
             egui::ComboBox::from_id_salt("layer_scope")
                 .selected_text(self.layer_mgr_scope.label())
@@ -351,7 +351,7 @@ impl AadtApp {
                             egui::RichText::new(t)
                                 .size(type_scale::CAPTION)
                                 .strong()
-                                .color(color::TEXT_SECONDARY),
+                                .color(color::text_secondary()),
                         );
                     };
                     for h in ["St", "Name", "On", "Frz", "Lck", "Color", "LW"] {
@@ -371,9 +371,9 @@ impl AadtApp {
 
                         // Status — current-layer marker (AutoCAD ▸).
                         if is_current {
-                            ui.colored_label(color::ACCENT, "▸");
+                            ui.colored_label(color::accent(), "▸");
                         } else {
-                            ui.label(egui::RichText::new("·").color(color::STROKE));
+                            ui.label(egui::RichText::new("·").color(color::stroke()));
                         }
 
                         // Name — click selects, double-click sets current, right-click actions.
@@ -449,7 +449,7 @@ impl AadtApp {
                         ui.painter().rect_stroke(
                             sw.rect,
                             radius::SMALL,
-                            egui::Stroke::new(stroke::THIN, color::STROKE),
+                            egui::Stroke::new(stroke::THIN, color::stroke()),
                         );
                         let sresp = sw.on_hover_text(format!("ACI {color_aci} — click to change"));
                         let pop_id = ui.make_persistent_id(("laycolor", &name));
@@ -486,7 +486,7 @@ impl AadtApp {
                                                 ui.painter().rect_stroke(
                                                     cw.rect,
                                                     radius::SMALL,
-                                                    egui::Stroke::new(1.5_f32, color::ACCENT),
+                                                    egui::Stroke::new(1.5_f32, color::accent()),
                                                 );
                                             }
                                             if cw.on_hover_text(format!("ACI {aci}")).clicked() {
@@ -537,7 +537,7 @@ impl AadtApp {
                 ui.label(
                     egui::RichText::new(format!("Active space: {}", cat.as_str()))
                         .small()
-                        .color(color::ACCENT),
+                        .color(color::accent()),
                 );
                 ui.add_space(space::XS);
 
@@ -589,7 +589,7 @@ impl AadtApp {
                             "No place tools for this space — switch category or load library.",
                         )
                         .small()
-                        .color(color::TEXT_SECONDARY),
+                        .color(color::text_secondary()),
                     );
                 } else {
                     // Seed so place-block previews have geometry.
@@ -633,14 +633,14 @@ impl AadtApp {
                     ui.label(
                         egui::RichText::new(format!("({})", blocks.len()))
                             .small()
-                            .color(color::TEXT_SECONDARY),
+                            .color(color::text_secondary()),
                     );
                 });
                 if blocks.is_empty() {
                     ui.label(
                         egui::RichText::new("No blocks for this space — Place or Load library.")
                             .small()
-                            .color(color::TEXT_SECONDARY),
+                            .color(color::text_secondary()),
                     );
                 } else {
                     for chunk in blocks.chunks(cols) {
@@ -760,7 +760,7 @@ impl AadtApp {
                         cat.as_str()
                     ))
                     .small()
-                    .color(color::TEXT_SECONDARY),
+                    .color(color::text_secondary()),
                 );
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = space::SM;
@@ -812,7 +812,7 @@ impl AadtApp {
                     ui.label(
                         egui::RichText::new(format!("{} files", lib.len()))
                             .small()
-                            .color(color::TEXT_SECONDARY),
+                            .color(color::text_secondary()),
                     );
                     for chunk in lib.chunks(cols) {
                         ui.horizontal(|ui| {
@@ -854,7 +854,7 @@ impl AadtApp {
                     ui.label(
                         egui::RichText::new(format!("Active: {}", self.insert_block))
                             .small()
-                            .color(color::ACCENT),
+                            .color(color::accent()),
                     );
                 }
             });
@@ -868,7 +868,7 @@ impl AadtApp {
                 ui.label(
                     egui::RichText::new("No selection")
                         .strong()
-                        .color(color::TEXT_SECONDARY),
+                        .color(color::text_secondary()),
                 );
                 ui.label(
                     egui::RichText::new(
@@ -1019,13 +1019,13 @@ impl AadtApp {
                                     c.change_summary, c.doc_revision
                                 ))
                                 .size(type_scale::CAPTION)
-                                .color(color::TEXT_SECONDARY),
+                                .color(color::text_secondary()),
                             );
                             ui.add_space(panel_space::TIGHT);
                         }
                     }
                     Err(e) => {
-                        ui.colored_label(color::DANGER, format!("History: {e}"));
+                        ui.colored_label(color::danger(), format!("History: {e}"));
                     }
                 }
             } else {
@@ -1042,9 +1042,9 @@ impl AadtApp {
             .exact_height(32.0)
             .frame(
                 egui::Frame::none()
-                    .fill(color::LAYER_BASE)
+                    .fill(color::layer_base())
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1090,7 +1090,26 @@ impl AadtApp {
                         self.seed_plot_dialog();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new("AAD").strong().color(color::TEXT));
+                        // Theme toggle (far right): moon → go dark, sun → go light.
+                        let icon = if self.theme.is_dark() {
+                            Icon::Sun
+                        } else {
+                            Icon::Moon
+                        };
+                        let tip = format!(
+                            "Theme: {} — switch to {}",
+                            self.theme.label(),
+                            self.theme.toggled().label()
+                        );
+                        if icon_btn(ui, icon, &tip).clicked() {
+                            let next = self.theme.toggled();
+                            let ctx = ui.ctx().clone();
+                            self.set_theme(&ctx, next);
+                        }
+                        ui.add_space(space::SM);
+                        ui.separator();
+                        ui.add_space(space::SM);
+                        ui.label(egui::RichText::new("AAD").strong().color(color::text()));
                         ui.add_space(space::XS);
                         brand_mark_widget(ui, 16.0);
                     });
@@ -1101,9 +1120,9 @@ impl AadtApp {
             .exact_height(32.0)
             .frame(
                 egui::Frame::none()
-                    .fill(color::LAYER_CARD)
+                    .fill(color::layer_card())
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
                 self.ui_levels_strip(ui);
@@ -1126,16 +1145,16 @@ impl AadtApp {
             .resizable(true)
             .frame(
                 egui::Frame::none()
-                    .fill(color::LAYER_CARD)
+                    .fill(color::layer_card())
                     .inner_margin(egui::Margin::same(space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(
                         egui::RichText::new("Drawing properties")
                             .heading()
-                            .color(color::TEXT),
+                            .color(color::text()),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_btn(ui, Icon::Dismiss, "Close drawing properties").clicked() {
@@ -1165,9 +1184,9 @@ impl AadtApp {
             .exact_height(bar_h)
             .frame(
                 egui::Frame::none()
-                    .fill(color::LAYER_BASE)
+                    .fill(color::layer_base())
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
                 // Row 1: command + status (status reserved on the right so text never collides).
@@ -1178,10 +1197,10 @@ impl AadtApp {
                         egui::Button::new(
                             egui::RichText::new(units.as_token())
                                 .strong()
-                                .color(color::ACCENT),
+                                .color(color::accent()),
                         )
-                        .fill(color::ACCENT_SOFT)
-                        .stroke(egui::Stroke::new(stroke::THIN, color::ACCENT))
+                        .fill(color::accent_soft())
+                        .stroke(egui::Stroke::new(stroke::THIN, color::accent()))
                         .rounding(radius::CONTROL),
                     );
                     if units_chip
@@ -1242,10 +1261,10 @@ impl AadtApp {
                         ui.label(
                             egui::RichText::new(format!("{n} ents"))
                                 .small()
-                                .color(color::TEXT_SECONDARY),
+                                .color(color::text_secondary()),
                         );
                         if self.dirty {
-                            ui.colored_label(color::WARNING, "MOD");
+                            ui.colored_label(color::warning(), "MOD");
                         }
                         if let Some(p) = &self.file_path {
                             let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("drawing");
@@ -1257,7 +1276,7 @@ impl AadtApp {
                             ui.label(
                                 egui::RichText::new(short)
                                     .small()
-                                    .color(color::TEXT_SECONDARY),
+                                    .color(color::text_secondary()),
                             );
                         }
                         // RTL: add aids rightmost-first so they read ORTHO…LWT left-to-right.
@@ -1286,23 +1305,23 @@ impl AadtApp {
                                 egui::RichText::new(label)
                                     .small()
                                     .strong()
-                                    .color(color::TEXT)
+                                    .color(color::text())
                             } else {
                                 egui::RichText::new(label)
                                     .small()
-                                    .color(color::TEXT_SECONDARY)
+                                    .color(color::text_secondary())
                             };
                             let resp = ui
                                 .add(
                                     egui::Button::new(text)
                                         .fill(if on {
-                                            color::ACCENT_SOFT
+                                            color::accent_soft()
                                         } else {
-                                            color::CONTROL
+                                            color::control()
                                         })
                                         .stroke(egui::Stroke::new(
                                             1.0_f32,
-                                            if on { color::ACCENT } else { color::STROKE },
+                                            if on { color::accent() } else { color::stroke() },
                                         ))
                                         .rounding(radius::CONTROL),
                                 )
@@ -1399,16 +1418,12 @@ impl AadtApp {
                                 egui::RichText::new(short)
                                     .small()
                                     .strong()
-                                    .color(color::ACCENT),
+                                    .color(color::accent()),
                             );
                         } else if !self.note.is_empty() {
                             let short = truncate_ui(&self.note, 72);
-                            ui.label(
-                                egui::RichText::new(short)
-                                    .small()
-                                    .color(egui::Color32::from_rgb(140, 100, 20)),
-                            )
-                            .on_hover_text(&self.note);
+                            ui.label(egui::RichText::new(short).small().color(color::warning()))
+                                .on_hover_text(&self.note);
                         }
                     });
                 }
@@ -1422,8 +1437,8 @@ impl AadtApp {
                 .resizable(false)
                 .frame(
                     egui::Frame::none()
-                        .fill(color::LAYER_BASE)
-                        .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                        .fill(color::layer_base())
+                        .stroke(egui::Stroke::new(stroke::THIN, color::border())),
                 )
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
@@ -1456,9 +1471,9 @@ impl AadtApp {
             .resizable(false)
             .frame(
                 egui::Frame::none()
-                    .fill(color::LAYER_CARD)
+                    .fill(color::layer_card())
                     .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1496,9 +1511,9 @@ impl AadtApp {
                                 .size(type_scale::CAPTION)
                                 .strong()
                                 .color(if self.left_tab == dest.tab {
-                                    color::ACCENT
+                                    color::accent()
                                 } else {
-                                    color::TEXT_SECONDARY
+                                    color::text_secondary()
                                 }),
                         );
                     }
@@ -1528,8 +1543,8 @@ impl AadtApp {
                 .resizable(false)
                 .frame(
                     egui::Frame::none()
-                        .fill(color::LAYER_BASE)
-                        .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                        .fill(color::layer_base())
+                        .stroke(egui::Stroke::new(stroke::THIN, color::border())),
                 )
                 .show(ctx, |ui| {
                     ui.vertical_centered(|ui| {
@@ -1561,9 +1576,9 @@ impl AadtApp {
             .resizable(false)
             .frame(
                 egui::Frame::none()
-                    .fill(color::LAYER_CARD)
+                    .fill(color::layer_card())
                     .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER)),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1745,7 +1760,7 @@ impl AadtApp {
         ui.label(
             egui::RichText::new(format!("Active: {}", self.hatch_pattern))
                 .small()
-                .color(color::ACCENT),
+                .color(color::accent()),
         );
         if ui
             .add_sized([panel_w, 24.0], egui::Button::new("Apply Hatch (H)"))
@@ -2506,8 +2521,8 @@ impl AadtApp {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER))
+                    .fill(color::layer_card())
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
                     .rounding(radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -2553,13 +2568,13 @@ impl AadtApp {
                                     w.min.x, w.min.y, w.max.x, w.max.y
                                 ))
                                 .small()
-                                .color(color::TEXT_SECONDARY),
+                                .color(color::text_secondary()),
                             );
                         } else {
                             ui.label(
                                 egui::RichText::new("no window yet")
                                     .small()
-                                    .color(color::TEXT_SECONDARY),
+                                    .color(color::text_secondary()),
                             );
                         }
                     }
@@ -2792,8 +2807,8 @@ impl AadtApp {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .frame(
                 egui::Frame::window(&ctx.style())
-                    .fill(color::LAYER_CARD)
-                    .stroke(egui::Stroke::new(stroke::THIN, color::BORDER))
+                    .fill(color::layer_card())
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
                     .rounding(radius::DIALOG),
             )
             .show(ctx, |ui| {
@@ -2926,14 +2941,14 @@ fn preview_frame(
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let painter = ui.painter();
     let bg = if selected {
-        color::ACCENT_SOFT
+        color::accent_soft()
     } else {
-        color::CANVAS
+        color::canvas()
     };
     let edge = if selected {
-        egui::Stroke::new(stroke::THICK, color::ACCENT)
+        egui::Stroke::new(stroke::THICK, color::accent())
     } else {
-        egui::Stroke::new(stroke::THIN, color::BORDER)
+        egui::Stroke::new(stroke::THIN, color::border())
     };
     painter.rect_filled(rect, radius::CONTROL, bg);
     painter.rect_stroke(rect, radius::CONTROL, edge);
@@ -2950,9 +2965,9 @@ fn hatch_preview_tile(ui: &mut egui::Ui, name: &str, selected: bool, tile: f32) 
             egui::RichText::new(truncate_ui(name, caption_chars(tile)))
                 .small()
                 .color(if selected {
-                    color::ACCENT
+                    color::accent()
                 } else {
-                    color::TEXT_SECONDARY
+                    color::text_secondary()
                 }),
         );
         resp
@@ -2961,17 +2976,28 @@ fn hatch_preview_tile(ui: &mut egui::Ui, name: &str, selected: bool, tile: f32) 
 }
 
 fn paint_hatch_swatch(painter: &egui::Painter, r: egui::Rect, name: &str) {
-    let ink = egui::Color32::from_rgb(40, 40, 40);
+    // Pattern ink contrasts with the (theme-filled) tile: dark on light paper,
+    // light on the dark tile so the diagonals/bricks/dots stay legible.
+    let ink = if color::is_dark() {
+        egui::Color32::from_rgb(205, 205, 205)
+    } else {
+        egui::Color32::from_rgb(40, 40, 40)
+    };
     let stroke = egui::Stroke::new(1.0_f32, ink);
     let u = name.to_ascii_uppercase();
-    painter.rect_stroke(r, 0.0, egui::Stroke::new(0.5_f32, color::STROKE));
+    painter.rect_stroke(r, 0.0, egui::Stroke::new(0.5_f32, color::stroke()));
     // Clip every pattern to the swatch box: several families (diagonals, tri/net,
     // zigzag) intentionally over-draw the rect and rely on this clip to stay
     // inside their tile instead of bleeding across the panel.
     let painter = painter.with_clip_rect(r);
 
     if u == "SOLID" {
-        painter.rect_filled(r, 0.0, egui::Color32::from_rgb(90, 90, 90));
+        let fill = if color::is_dark() {
+            egui::Color32::from_rgb(150, 150, 150)
+        } else {
+            egui::Color32::from_rgb(90, 90, 90)
+        };
+        painter.rect_filled(r, 0.0, fill);
         return;
     }
     if u.contains("DOT") {
@@ -3139,9 +3165,9 @@ fn block_preview_tile(
             egui::RichText::new(truncate_ui(caption, caption_chars(tile)))
                 .small()
                 .color(if selected {
-                    color::ACCENT
+                    color::accent()
                 } else {
-                    color::TEXT_SECONDARY
+                    color::text_secondary()
                 }),
         );
         resp
@@ -3165,9 +3191,9 @@ fn library_preview_tile(
             egui::RichText::new(truncate_ui(name, caption_chars(tile)))
                 .small()
                 .color(if selected {
-                    color::ACCENT
+                    color::accent()
                 } else {
-                    color::TEXT_SECONDARY
+                    color::text_secondary()
                 }),
         );
         resp
@@ -3176,7 +3202,7 @@ fn library_preview_tile(
 }
 
 fn paint_placeholder_block(painter: &egui::Painter, r: egui::Rect) {
-    let stroke = egui::Stroke::new(1.2_f32, color::TEXT_SECONDARY);
+    let stroke = egui::Stroke::new(1.2_f32, color::text_secondary());
     painter.rect_stroke(r.shrink(4.0), 0.0, stroke);
     painter.line_segment(
         [
@@ -3189,7 +3215,7 @@ fn paint_placeholder_block(painter: &egui::Painter, r: egui::Rect) {
 
 fn paint_library_glyph(painter: &egui::Painter, r: egui::Rect, path: &std::path::Path) {
     let s = path.to_string_lossy().to_ascii_lowercase();
-    let stroke = egui::Stroke::new(1.3_f32, color::TEXT);
+    let stroke = egui::Stroke::new(1.3_f32, color::text());
     if s.contains("door") {
         let leaf = egui::Rect::from_min_max(
             egui::pos2(r.center().x - 4.0, r.min.y + 4.0),
@@ -3199,7 +3225,7 @@ fn paint_library_glyph(painter: &egui::Painter, r: egui::Rect, path: &std::path:
         painter.circle_filled(
             egui::pos2(leaf.min.x + 5.0, leaf.center().y),
             1.5,
-            color::TEXT,
+            color::text(),
         );
         // swing arc
         painter.circle_stroke(
@@ -3302,7 +3328,7 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
             r.center().y - ((p.y - cy) * scale) as f32,
         )
     };
-    let stroke = egui::Stroke::new(1.2_f32, color::TEXT);
+    let stroke = egui::Stroke::new(1.2_f32, color::text());
     for be in &block.entities {
         match &be.geometry {
             Geometry::Line(s) => {
@@ -3348,7 +3374,7 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
                 }
             }
             Geometry::Text(t) => {
-                painter.circle_filled(to_screen(t.position), 1.5, color::TEXT_SECONDARY);
+                painter.circle_filled(to_screen(t.position), 1.5, color::text_secondary());
             }
             Geometry::Insert(i) => {
                 let c = to_screen(i.position);

@@ -1,6 +1,9 @@
 //! WinUI / Fluent System Icons (MIT) for the AADT chrome.
 //!
-//! SVGs are vendored from microsoft/fluentui-system-icons under MIT.
+//! SVGs are vendored from microsoft/fluentui-system-icons under MIT. Masters
+//! are recolored to white fill so a runtime `.tint(color)` (multiply) resolves
+//! to the exact requested colour in both light and dark themes. The `Moon` /
+//! `Sun` theme-toggle glyphs under `assets/ui/` are original (not Fluent).
 
 use eframe::egui;
 
@@ -44,6 +47,10 @@ pub enum Icon {
     Templates,
     /// Object / selection properties.
     ObjectProps,
+    /// Theme toggle — switch to dark (shown in light mode).
+    Moon,
+    /// Theme toggle — switch to light (shown in dark mode).
+    Sun,
 }
 
 impl Icon {
@@ -81,6 +88,8 @@ impl Icon {
             Icon::History => egui::include_image!("../assets/fluent/history_24_regular.svg"),
             Icon::Templates => egui::include_image!("../assets/fluent/slide_text_24_regular.svg"),
             Icon::ObjectProps => egui::include_image!("../assets/fluent/options_24_regular.svg"),
+            Icon::Moon => egui::include_image!("../assets/ui/weather_moon.svg"),
+            Icon::Sun => egui::include_image!("../assets/ui/weather_sunny.svg"),
         }
     }
 
@@ -138,9 +147,9 @@ pub fn icon_btn_compact(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool) 
         egui::vec2(20.0, 20.0),
         14.0,
         if active {
-            super::theme::color::ACCENT
+            super::theme::color::accent()
         } else {
-            super::theme::color::TEXT_SECONDARY
+            super::theme::color::text_secondary()
         },
     )
 }
@@ -152,7 +161,7 @@ pub fn icon_btn_sized(
     size: egui::Vec2,
     glyph: f32,
 ) -> egui::Response {
-    icon_btn_sized_tinted(ui, icon, tip, size, glyph, super::theme::color::TEXT)
+    icon_btn_sized_tinted(ui, icon, tip, size, glyph, super::theme::color::text())
 }
 
 fn icon_btn_sized_tinted(
@@ -169,9 +178,9 @@ fn icon_btn_sized_tinted(
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let bg = if resp.is_pointer_button_down_on() {
-            color::CONTROL_PRESSED
+            color::control_pressed()
         } else if resp.hovered() {
-            color::CONTROL_HOVER
+            color::control_hover()
         } else {
             egui::Color32::TRANSPARENT
         };
@@ -180,7 +189,7 @@ fn icon_btn_sized_tinted(
             painter.rect_stroke(
                 rect,
                 radius::CONTROL,
-                egui::Stroke::new(1.0_f32, color::STROKE),
+                egui::Stroke::new(1.0_f32, color::stroke()),
             );
         }
         let img = egui::Image::new(icon.svg())
@@ -203,11 +212,11 @@ pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) ->
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let bg = if selected {
-            color::ACCENT_SOFT
+            color::accent_soft()
         } else if resp.is_pointer_button_down_on() {
-            color::CONTROL_PRESSED
+            color::control_pressed()
         } else if resp.hovered() {
-            color::CONTROL_HOVER
+            color::control_hover()
         } else {
             egui::Color32::TRANSPARENT
         };
@@ -218,10 +227,14 @@ pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) ->
             painter.rect_stroke(
                 rect,
                 radius::CONTROL,
-                egui::Stroke::new(1.0_f32, color::ACCENT),
+                egui::Stroke::new(1.0_f32, color::accent()),
             );
         }
-        let tint = if selected { color::ACCENT } else { color::TEXT };
+        let tint = if selected {
+            color::accent()
+        } else {
+            color::text()
+        };
         // Fluent: filled glyph for the selected state, regular otherwise.
         let src = if selected {
             icon.svg_filled()

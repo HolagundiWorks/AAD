@@ -54,99 +54,298 @@ pub mod stroke {
     pub const THICK: f32 = 2.0;
 }
 
-/// Light theme: Fluent neutrals + shared semantic + AADT brand.
+/// Chrome appearance — Light (default) or Dark. Persisted in `UserPrefs`
+/// and installed via [`apply_fluent_visuals`]; drives both the egui `Visuals`
+/// and the runtime [`color`] palette the custom painters read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Theme {
+    #[default]
+    Light,
+    Dark,
+}
+
+impl Theme {
+    pub fn is_dark(self) -> bool {
+        matches!(self, Theme::Dark)
+    }
+
+    /// Human label for the toggle tooltip / menu.
+    pub fn label(self) -> &'static str {
+        match self {
+            Theme::Light => "Light",
+            Theme::Dark => "Dark",
+        }
+    }
+
+    /// The other theme (for a toggle).
+    pub fn toggled(self) -> Theme {
+        match self {
+            Theme::Light => Theme::Dark,
+            Theme::Dark => Theme::Light,
+        }
+    }
+
+    /// Token palette backing the custom painters for this theme.
+    pub fn palette(self) -> color::Palette {
+        match self {
+            Theme::Light => color::Palette::LIGHT,
+            Theme::Dark => color::Palette::DARK,
+        }
+    }
+}
+
+impl From<bool> for Theme {
+    /// `true` → dark (the persisted `UserPrefs::dark_theme` flag).
+    fn from(dark: bool) -> Self {
+        if dark {
+            Theme::Dark
+        } else {
+            Theme::Light
+        }
+    }
+}
+
+/// Fluent neutrals + shared semantic + AADT brand, resolved for the active
+/// [`Theme`] at runtime.
+///
+/// The tokens are accessed as functions (`color::text()`, …) rather than
+/// constants: each reads the [`Palette`] installed by [`apply_fluent_visuals`]
+/// from a thread-local (egui runs the whole UI on one thread), so a theme
+/// switch recolors every custom-painted surface without touching call sites.
 /// <https://fluent2.microsoft.design/color>
 #[allow(dead_code)] // semantic / disabled tokens reserved for status UI
 pub mod color {
     use eframe::egui::Color32;
+    use std::cell::Cell;
 
-    // --- Neutral palette (surfaces / text / layout) ---
+    /// A complete set of chrome tokens for one theme.
+    #[derive(Clone, Copy)]
+    pub struct Palette {
+        pub layer_base: Color32,
+        pub layer_card: Color32,
+        pub canvas: Color32,
+        pub control: Color32,
+        pub control_hover: Color32,
+        pub control_pressed: Color32,
+        pub text: Color32,
+        pub text_secondary: Color32,
+        pub text_disabled: Color32,
+        pub stroke: Color32,
+        pub divider: Color32,
+        pub border: Color32,
+        pub accent: Color32,
+        pub accent_dark: Color32,
+        pub accent_soft: Color32,
+        pub success: Color32,
+        pub warning: Color32,
+        pub danger: Color32,
+        pub info: Color32,
+        /// Ink for ByLayer / black (ACI 0·7) geometry, so default lines stay
+        /// visible when the paper goes dark. Light: black; Dark: near-white.
+        pub ink: Color32,
+    }
+
+    impl Palette {
+        /// Light theme: Fluent neutrals on white paper, black ink.
+        pub const LIGHT: Palette = Palette {
+            layer_base: Color32::from_rgb(243, 243, 243), // #F3F3F3
+            layer_card: Color32::from_rgb(255, 255, 255), // #FFFFFF
+            canvas: Color32::from_rgb(255, 255, 255),     // white paper
+            control: Color32::from_rgb(243, 243, 243),
+            control_hover: Color32::from_rgb(234, 234, 234),
+            control_pressed: Color32::from_rgb(224, 224, 224),
+            text: Color32::from_rgb(36, 36, 36), // #242424
+            text_secondary: Color32::from_rgb(97, 97, 97), // #616161
+            text_disabled: Color32::from_rgb(161, 161, 161),
+            stroke: Color32::from_rgb(229, 229, 229), // #E5E5E5
+            divider: Color32::from_rgb(209, 209, 209),
+            border: Color32::from_rgb(200, 200, 200),
+            accent: Color32::from_rgb(232, 93, 4), // #E85D04
+            accent_dark: Color32::from_rgb(194, 65, 12), // #C2410C
+            accent_soft: Color32::from_rgb(255, 240, 230), // #FFF0E6
+            success: Color32::from_rgb(15, 123, 50), // #0F7B32
+            warning: Color32::from_rgb(157, 93, 0), // #9D5D00
+            danger: Color32::from_rgb(196, 43, 28), // #C42B1C
+            info: Color32::from_rgb(15, 108, 189), // #0F6CBD
+            ink: Color32::from_rgb(0, 0, 0),
+        };
+
+        /// Dark theme: Fluent 2 dark neutrals on a dark model space, near-white
+        /// ink. Brand orange is lifted slightly and its soft fill goes warm-dark
+        /// so it still reads on the dark chrome; status hues are lightened for
+        /// contrast (AA on the dark surfaces).
+        pub const DARK: Palette = Palette {
+            layer_base: Color32::from_rgb(32, 32, 32),        // #202020
+            layer_card: Color32::from_rgb(43, 43, 43),        // #2B2B2B
+            canvas: Color32::from_rgb(30, 30, 30),            // #1E1E1E dark paper
+            control: Color32::from_rgb(50, 50, 50),           // #323232
+            control_hover: Color32::from_rgb(61, 61, 61),     // #3D3D3D
+            control_pressed: Color32::from_rgb(71, 71, 71),   // #474747
+            text: Color32::from_rgb(255, 255, 255),           // #FFFFFF
+            text_secondary: Color32::from_rgb(200, 200, 200), // #C8C8C8
+            text_disabled: Color32::from_rgb(122, 122, 122),
+            stroke: Color32::from_rgb(64, 64, 64),   // #404040
+            divider: Color32::from_rgb(77, 77, 77),  // #4D4D4D
+            border: Color32::from_rgb(87, 87, 87),   // #575757
+            accent: Color32::from_rgb(240, 122, 46), // #F07A2E (lifted brand)
+            accent_dark: Color32::from_rgb(194, 65, 12), // #C2410C
+            accent_soft: Color32::from_rgb(61, 43, 30), // warm-dark fill
+            success: Color32::from_rgb(108, 203, 142),
+            warning: Color32::from_rgb(240, 179, 90),
+            danger: Color32::from_rgb(255, 153, 141),
+            info: Color32::from_rgb(118, 185, 237),
+            ink: Color32::from_rgb(230, 230, 230), // near-white ink
+        };
+    }
+
+    thread_local! {
+        static CURRENT: Cell<Palette> = const { Cell::new(Palette::LIGHT) };
+    }
+
+    /// Install `p` as the palette every accessor reads. Call on startup and on
+    /// each theme switch (from [`super::apply_fluent_visuals`]).
+    pub fn set(p: Palette) {
+        CURRENT.with(|c| c.set(p));
+    }
+
+    /// The palette currently in effect.
+    pub fn current() -> Palette {
+        CURRENT.with(|c| c.get())
+    }
+
+    /// Whether the dark palette is active — for custom painters that need to
+    /// pick a contrasting ink against a theme-filled surface.
+    pub fn is_dark() -> bool {
+        current().layer_base.r() < 128
+    }
 
     /// Recessed app chrome (neutral background).
-    pub const LAYER_BASE: Color32 = Color32::from_rgb(243, 243, 243); // #F3F3F3
+    pub fn layer_base() -> Color32 {
+        current().layer_base
+    }
     /// Elevated card / panel surface.
-    pub const LAYER_CARD: Color32 = Color32::from_rgb(255, 255, 255); // #FFFFFF
+    pub fn layer_card() -> Color32 {
+        current().layer_card
+    }
     /// Drawing paper — primary focus region.
-    pub const CANVAS: Color32 = Color32::from_rgb(255, 255, 255);
+    pub fn canvas() -> Color32 {
+        current().canvas
+    }
     /// Control rest fill (slightly recessed vs card).
-    pub const CONTROL: Color32 = Color32::from_rgb(243, 243, 243);
-    /// Hover — Windows controls lighten/shift on interact; we darken neutrals slightly
-    /// for clear rest→hover→pressed hierarchy on light chrome.
-    pub const CONTROL_HOVER: Color32 = Color32::from_rgb(234, 234, 234);
-    pub const CONTROL_PRESSED: Color32 = Color32::from_rgb(224, 224, 224);
-
-    pub const TEXT: Color32 = Color32::from_rgb(36, 36, 36); // #242424
-    pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(97, 97, 97); // #616161
-    pub const TEXT_DISABLED: Color32 = Color32::from_rgb(161, 161, 161);
-
-    pub const STROKE: Color32 = Color32::from_rgb(229, 229, 229); // #E5E5E5
-    pub const DIVIDER: Color32 = Color32::from_rgb(209, 209, 209);
-    pub const BORDER: Color32 = Color32::from_rgb(200, 200, 200);
-
-    // --- Brand (AADT orange — sparingly) ---
-
-    /// Brand orange — selection, focus, CTAs (`#E85D04`).
-    pub const ACCENT: Color32 = Color32::from_rgb(232, 93, 4);
-    /// Pressed brand (`#C2410C`).
-    pub const ACCENT_DARK: Color32 = Color32::from_rgb(194, 65, 12);
-    /// Soft brand fill (`#FFF0E6`).
-    pub const ACCENT_SOFT: Color32 = Color32::from_rgb(255, 240, 230);
-
-    // --- Shared semantic (status; never decoration-only) ---
-
-    pub const SUCCESS: Color32 = Color32::from_rgb(15, 123, 50); // #0F7B32
-    pub const WARNING: Color32 = Color32::from_rgb(157, 93, 0); // #9D5D00
-    pub const DANGER: Color32 = Color32::from_rgb(196, 43, 28); // #C42B1C
-    pub const INFO: Color32 = Color32::from_rgb(15, 108, 189); // #0F6CBD Fluent 2 brand blue — status only, not AADT brand
+    pub fn control() -> Color32 {
+        current().control
+    }
+    pub fn control_hover() -> Color32 {
+        current().control_hover
+    }
+    pub fn control_pressed() -> Color32 {
+        current().control_pressed
+    }
+    pub fn text() -> Color32 {
+        current().text
+    }
+    pub fn text_secondary() -> Color32 {
+        current().text_secondary
+    }
+    pub fn text_disabled() -> Color32 {
+        current().text_disabled
+    }
+    /// Subtle 1px separators on controls.
+    pub fn stroke() -> Color32 {
+        current().stroke
+    }
+    pub fn divider() -> Color32 {
+        current().divider
+    }
+    pub fn border() -> Color32 {
+        current().border
+    }
+    /// Brand orange — selection, focus, CTAs.
+    pub fn accent() -> Color32 {
+        current().accent
+    }
+    /// Pressed brand.
+    pub fn accent_dark() -> Color32 {
+        current().accent_dark
+    }
+    /// Soft brand fill.
+    pub fn accent_soft() -> Color32 {
+        current().accent_soft
+    }
+    pub fn success() -> Color32 {
+        current().success
+    }
+    pub fn warning() -> Color32 {
+        current().warning
+    }
+    pub fn danger() -> Color32 {
+        current().danger
+    }
+    pub fn info() -> Color32 {
+        current().info
+    }
+    /// Ink for ByLayer / black geometry on the (possibly dark) canvas.
+    pub fn ink() -> Color32 {
+        current().ink
+    }
 }
 
-/// Apply Fluent 2 visuals: neutrals, medium rounding, Windows-style stroke elevation
-/// plus soft ambient shadow on floating surfaces.
-pub fn apply_fluent_visuals(ctx: &egui::Context) {
-    let mut visuals = egui::Visuals::light();
-    visuals.dark_mode = false;
-    visuals.panel_fill = color::LAYER_BASE;
-    visuals.window_fill = color::LAYER_CARD;
-    visuals.extreme_bg_color = color::CONTROL;
-    visuals.faint_bg_color = color::CONTROL;
-    visuals.override_text_color = Some(color::TEXT);
-    visuals.window_stroke = egui::Stroke::new(stroke::THIN, color::BORDER);
+/// Apply Fluent 2 visuals for `theme`: neutrals, medium rounding, Windows-style
+/// stroke elevation plus soft ambient shadow on floating surfaces. Installs the
+/// matching [`color`] palette first so both egui and the custom painters agree.
+pub fn apply_fluent_visuals(ctx: &egui::Context, theme: Theme) {
+    color::set(theme.palette());
+    let dark = theme.is_dark();
+    let mut visuals = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    visuals.dark_mode = dark;
+    visuals.panel_fill = color::layer_base();
+    visuals.window_fill = color::layer_card();
+    visuals.extreme_bg_color = color::control();
+    visuals.faint_bg_color = color::control();
+    visuals.override_text_color = Some(color::text());
+    visuals.window_stroke = egui::Stroke::new(stroke::THIN, color::border());
 
     // Elevation. Fluent on Windows outlines surfaces with strokes and keeps key
     // shadows subtle (see window_stroke / widget bg_strokes below). Dialogs sit
     // higher (≈ shadow28: y8/blur20), menus & tooltips lower (≈ shadow8: y4/blur8).
     // <https://fluent2.microsoft.design/elevation>
+    // Dark surfaces need a deeper key shadow to separate from the chrome.
+    let (win_alpha, pop_alpha) = if dark { (90, 96) } else { (30, 32) };
     visuals.window_shadow = egui::epaint::Shadow {
         offset: egui::vec2(0.0, 8.0),
         blur: 20.0,
         spread: 0.0,
-        color: egui::Color32::from_black_alpha(30),
+        color: egui::Color32::from_black_alpha(win_alpha),
     };
     visuals.popup_shadow = egui::epaint::Shadow {
         offset: egui::vec2(0.0, 4.0),
         blur: 8.0,
         spread: 0.0,
-        color: egui::Color32::from_black_alpha(32),
+        color: egui::Color32::from_black_alpha(pop_alpha),
     };
 
-    visuals.widgets.noninteractive.bg_fill = color::LAYER_BASE;
-    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(stroke::THIN, color::STROKE);
-    visuals.widgets.inactive.bg_fill = color::CONTROL;
-    visuals.widgets.inactive.weak_bg_fill = color::CONTROL;
-    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(stroke::THIN, color::STROKE);
-    visuals.widgets.hovered.bg_fill = color::CONTROL_HOVER;
-    visuals.widgets.hovered.weak_bg_fill = color::CONTROL_HOVER;
-    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(stroke::THIN, color::DIVIDER);
-    visuals.widgets.active.bg_fill = color::CONTROL_PRESSED;
-    visuals.widgets.active.weak_bg_fill = color::ACCENT_SOFT;
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(stroke::THIN, color::ACCENT_DARK);
-    visuals.widgets.open.bg_fill = color::LAYER_CARD;
-    visuals.widgets.open.bg_stroke = egui::Stroke::new(stroke::THIN, color::BORDER);
-    visuals.selection.bg_fill = color::ACCENT_SOFT;
-    visuals.selection.stroke = egui::Stroke::new(stroke::THICK, color::ACCENT);
-    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(stroke::THIN, color::TEXT);
-    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(stroke::THIN, color::TEXT);
-    visuals.widgets.active.fg_stroke = egui::Stroke::new(stroke::THIN, color::TEXT);
+    visuals.widgets.noninteractive.bg_fill = color::layer_base();
+    visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(stroke::THIN, color::stroke());
+    visuals.widgets.inactive.bg_fill = color::control();
+    visuals.widgets.inactive.weak_bg_fill = color::control();
+    visuals.widgets.inactive.bg_stroke = egui::Stroke::new(stroke::THIN, color::stroke());
+    visuals.widgets.hovered.bg_fill = color::control_hover();
+    visuals.widgets.hovered.weak_bg_fill = color::control_hover();
+    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(stroke::THIN, color::divider());
+    visuals.widgets.active.bg_fill = color::control_pressed();
+    visuals.widgets.active.weak_bg_fill = color::accent_soft();
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(stroke::THIN, color::accent_dark());
+    visuals.widgets.open.bg_fill = color::layer_card();
+    visuals.widgets.open.bg_stroke = egui::Stroke::new(stroke::THIN, color::border());
+    visuals.selection.bg_fill = color::accent_soft();
+    visuals.selection.stroke = egui::Stroke::new(stroke::THICK, color::accent());
+    visuals.widgets.inactive.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
+    visuals.widgets.hovered.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
+    visuals.widgets.active.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
 
     // Medium control radius (4px); dialogs use larger via window_rounding.
     let control = egui::Rounding::same(radius::CONTROL);
@@ -160,7 +359,11 @@ pub fn apply_fluent_visuals(ctx: &egui::Context) {
     visuals.widgets.open.rounding = control;
     ctx.set_visuals(visuals);
 
-    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(egui::SystemTheme::Light));
+    ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(if dark {
+        egui::SystemTheme::Dark
+    } else {
+        egui::SystemTheme::Light
+    }));
 
     let mut style = (*ctx.style()).clone();
     // Fluent Windows type ramp (Caption / Body / Subtitle).
@@ -390,9 +593,9 @@ pub fn nav_tabs(ui: &mut egui::Ui, current: &mut usize, destinations: &[NavDest]
             let text = if selected {
                 egui::RichText::new(dest.label)
                     .strong()
-                    .color(color::ACCENT)
+                    .color(color::accent())
             } else {
-                egui::RichText::new(dest.label).color(color::TEXT_SECONDARY)
+                egui::RichText::new(dest.label).color(color::text_secondary())
             };
             let resp = ui
                 .add(egui::SelectableLabel::new(selected, text))
@@ -404,7 +607,7 @@ pub fn nav_tabs(ui: &mut egui::Ui, current: &mut usize, destinations: &[NavDest]
                         egui::pos2(r.min.x, r.max.y - 1.0),
                         egui::pos2(r.max.x, r.max.y - 1.0),
                     ],
-                    egui::Stroke::new(stroke::THICK, color::ACCENT),
+                    egui::Stroke::new(stroke::THICK, color::accent()),
                 );
             }
             if resp.clicked() {
@@ -455,7 +658,7 @@ pub fn panel_title(ui: &mut egui::Ui, text: &str) {
     ui.label(
         egui::RichText::new(text)
             .font(semibold(type_scale::TITLE))
-            .color(color::TEXT),
+            .color(color::text()),
     );
 }
 
@@ -464,7 +667,7 @@ pub fn panel_subtitle(ui: &mut egui::Ui, text: impl Into<String>) {
     ui.label(
         egui::RichText::new(text.into())
             .size(type_scale::CAPTION)
-            .color(color::TEXT_SECONDARY),
+            .color(color::text_secondary()),
     );
 }
 
@@ -474,7 +677,7 @@ pub fn section_label(ui: &mut egui::Ui, text: &str) {
     ui.label(
         egui::RichText::new(text)
             .font(semibold(type_scale::CAPTION))
-            .color(color::TEXT_SECONDARY),
+            .color(color::text_secondary()),
     );
     ui.add_space(panel_space::TIGHT);
 }
@@ -484,7 +687,7 @@ pub fn section_label_first(ui: &mut egui::Ui, text: &str) {
     ui.label(
         egui::RichText::new(text)
             .font(semibold(type_scale::CAPTION))
-            .color(color::TEXT_SECONDARY),
+            .color(color::text_secondary()),
     );
     ui.add_space(panel_space::TIGHT);
 }
@@ -494,7 +697,7 @@ pub fn section_hint(ui: &mut egui::Ui, text: impl Into<String>) {
     ui.label(
         egui::RichText::new(text.into())
             .size(type_scale::CAPTION)
-            .color(color::TEXT_SECONDARY),
+            .color(color::text_secondary()),
     );
     ui.add_space(panel_space::TIGHT);
 }
@@ -508,7 +711,7 @@ pub fn section_rule(ui: &mut egui::Ui) {
     ui.painter().hline(
         ui.max_rect().left()..=ui.max_rect().left() + w,
         y,
-        egui::Stroke::new(stroke::THIN, color::DIVIDER),
+        egui::Stroke::new(stroke::THIN, color::divider()),
     );
     ui.add_space(panel_space::ROW);
 }
