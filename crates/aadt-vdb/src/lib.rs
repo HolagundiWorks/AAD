@@ -24,6 +24,7 @@
 //! ```
 
 mod buf;
+mod client;
 mod codec;
 mod objects;
 
@@ -35,6 +36,7 @@ use aadt_model::{Document, Entity, EntityId, Geometry};
 use aadt_object::{AuditLog, ObjectStore};
 
 pub use buf::VdbError;
+pub use client::{VdbClient, VdbClientError};
 // The binary codec + spatial index come from the standalone `shilpidb` engine.
 // The codec primitives are re-exported so the ShilpiDB wire protocol
 // (`aadt-vdb-proto`) frames payloads with the exact encoding used on disk — one
@@ -239,7 +241,7 @@ pub fn build_index(doc: &Document) -> SpatialGrid {
 }
 
 /// Convert an AAD geometry bounding box to the engine's plain [`shilpidb::Bbox`].
-fn to_engine_bbox(b: Bbox) -> shilpidb::Bbox {
+pub(crate) fn to_engine_bbox(b: Bbox) -> shilpidb::Bbox {
     shilpidb::Bbox::new(
         shilpidb::Point::new(b.min.x, b.min.y),
         shilpidb::Point::new(b.max.x, b.max.y),

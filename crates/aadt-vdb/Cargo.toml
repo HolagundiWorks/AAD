@@ -9,12 +9,20 @@ authors.workspace = true
 description = "AAD's CAD-specific .vdb layout over the standalone ShilpiDB engine: the drawing + Object DB stored as native vector records with a built-in spatial index."
 
 [dependencies]
-# The standalone ShilpiDB storage engine (codec + spatial index), its own repo.
-shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", tag = "v0.1.1" }
+# The standalone ShilpiDB storage engine (codec + spatial index) and its
+# network client, from the ShilpiDB repo — pinned to one commit so a single
+# `shilpidb` (and its `Bbox`/`Point`) is shared across engine and client.
+# Pinned by rev rather than tag: `shilpi-client` landed after the v0.2.0 tag.
+shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "d43285025dd706cebe34dff176e5917bcc5789f3" }
+shilpi-client = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "d43285025dd706cebe34dff176e5917bcc5789f3" }
 aadt-model.workspace = true
 aadt-geometry.workspace = true
 aadt-object.workspace = true
 aadt-graph.workspace = true
+
+[dev-dependencies]
+# For the VdbClient unit tests: build canned responses and decode sent requests.
+shilpi-protocol = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "d43285025dd706cebe34dff176e5917bcc5789f3" }
 
 [lints]
 workspace = true

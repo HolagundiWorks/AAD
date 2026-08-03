@@ -264,6 +264,22 @@ fn read_entity(r: &mut Reader) -> Result<Entity, VdbError> {
     })
 }
 
+/// Encode a single entity to a standalone payload — the exact bytes stored as a
+/// ShilpiDB record's value when a drawing is served over the network (see
+/// [`crate::VdbClient`]). The encoding is identical to an entity inside a `.vdb`
+/// file, so on-disk and on-the-wire payloads are one format.
+pub fn encode_entity(e: &Entity) -> Vec<u8> {
+    let mut w = Writer::new();
+    write_entity(&mut w, e);
+    w.into_bytes()
+}
+
+/// Decode a single entity from a payload produced by [`encode_entity`].
+pub fn decode_entity(bytes: &[u8]) -> Result<Entity, VdbError> {
+    let mut r = Reader::new(bytes);
+    read_entity(&mut r)
+}
+
 fn write_hatch(w: &mut Writer, h: &Hatch) {
     w.str(&h.layer);
     w.str(&h.pattern);

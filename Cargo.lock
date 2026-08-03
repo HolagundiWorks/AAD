@@ -224,6 +224,8 @@ dependencies = [
  "aadt-graph",
  "aadt-model",
  "aadt-object",
+ "shilpi-client",
+ "shilpi-protocol",
  "shilpidb",
 ]
 
@@ -3553,9 +3555,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "shilpi-client"
+version = "0.2.0"
+source = "git+https://github.com/HolagundiWorks/shilpidb?rev=d43285025dd706cebe34dff176e5917bcc5789f3#d43285025dd706cebe34dff176e5917bcc5789f3"
+dependencies = [
+ "shilpi-protocol",
+ "shilpidb",
+]
+
+[[package]]
+name = "shilpi-protocol"
+version = "0.2.0"
+source = "git+https://github.com/HolagundiWorks/shilpidb?rev=d43285025dd706cebe34dff176e5917bcc5789f3#d43285025dd706cebe34dff176e5917bcc5789f3"
+dependencies = [
+ "shilpidb",
+]
+
+[[package]]
 name = "shilpidb"
-version = "0.1.1"
-source = "git+https://github.com/HolagundiWorks/shilpidb?tag=v0.1.1#187e579a589422560b1b02144212139ffb0db7e9"
+version = "0.2.0"
+source = "git+https://github.com/HolagundiWorks/shilpidb?rev=d43285025dd706cebe34dff176e5917bcc5789f3#d43285025dd706cebe34dff176e5917bcc5789f3"
 
 [[package]]
 name = "shlex"
