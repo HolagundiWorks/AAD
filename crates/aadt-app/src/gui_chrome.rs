@@ -605,7 +605,7 @@ impl AadtApp {
                                     ui,
                                     self.session.document(),
                                     bname,
-                                    *label,
+                                    label,
                                     selected,
                                     tile,
                                 );
@@ -2930,7 +2930,7 @@ fn lock_panel_width(ui: &mut egui::Ui) -> f32 {
 fn fit_tile_size(available: f32, min_tile: f32, max_tile: f32, gap: f32) -> f32 {
     let avail = available.max(1.0);
     let min_t = min_tile.min(avail).max(36.0_f32.min(avail));
-    let cols = ((avail + gap) / (min_t + gap)).floor().max(1.0).min(5.0);
+    let cols = ((avail + gap) / (min_t + gap)).floor().clamp(1.0, 5.0);
     let tile = (avail - gap * (cols - 1.0)) / cols;
     tile.clamp(36.0_f32.min(avail), max_tile)
 }

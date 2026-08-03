@@ -1713,6 +1713,7 @@ impl Document {
     }
 
     /// Restore floor table from a native-file load (untracked).
+    #[allow(clippy::too_many_arguments)] // a faithful restore of every persisted field
     pub fn restore_floors(
         &mut self,
         floors: Vec<Floor>,
@@ -3073,11 +3074,19 @@ mod tests {
         assert_eq!(doc.dimensions()[1].measurement, 3.0);
 
         doc.undo();
-        assert_eq!(doc.dimensions().len(), 3, "undo reinserts at the same index");
+        assert_eq!(
+            doc.dimensions().len(),
+            3,
+            "undo reinserts at the same index"
+        );
         assert_eq!(doc.dimensions()[1].measurement, 2.0);
 
         doc.redo();
-        assert_eq!(doc.dimensions().len(), 2, "redo re-removes the middle dimension");
+        assert_eq!(
+            doc.dimensions().len(),
+            2,
+            "redo re-removes the middle dimension"
+        );
         assert_eq!(doc.dimensions()[1].measurement, 3.0);
 
         doc.transact("noop", |d| assert!(!d.remove_dimension(9)));

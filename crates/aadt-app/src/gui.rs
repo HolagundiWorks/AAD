@@ -556,17 +556,12 @@ pub(super) enum ArcMode {
 
 /// RECTANGLE corner treatment (AutoCAD Chamfer / Fillet). The value is the
 /// chamfer distance or fillet radius.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) enum RectCorner {
+    #[default]
     Square,
     Chamfer(f64),
     Fillet(f64),
-}
-
-impl Default for RectCorner {
-    fn default() -> Self {
-        RectCorner::Square
-    }
 }
 
 /// Closed-polyline vertices for a rectangle from opposite corners `a`,`c`, with
@@ -4370,7 +4365,6 @@ impl AadtApp {
                     }
                 });
             self.note = format!("Erased {n} dimension{}", if n == 1 { "" } else { "s" });
-            return;
         }
     }
 
@@ -7323,6 +7317,7 @@ impl AadtApp {
     /// AutoCAD convention (screen space):
     /// - left → right (top-left → bottom-right): **window** — fully inside only
     /// - right → left (bottom-right → top-left): **crossing** — touching or inside
+    ///
     /// Shift adds to the current set.
     fn finish_box(
         &mut self,
