@@ -17,6 +17,7 @@ dependencies = [
  "aadt-render",
  "aadt-standards",
  "aadt-store",
+ "aadt-vdb",
  "eframe",
  "egui",
  "egui_extras",

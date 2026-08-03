@@ -35,6 +35,8 @@ mod chrome;
 mod command_engine;
 #[path = "gui_icons.rs"]
 mod icons;
+#[path = "gui_net.rs"]
+mod net;
 #[path = "gui_theme.rs"]
 mod theme;
 
@@ -1208,10 +1210,14 @@ struct AadtApp {
     show_server: bool,
     /// Server address typed in the connect field (`host:port`).
     server_host: String,
-    /// Whether the last SERVER CONNECT succeeded (gates push/pull buttons).
+    /// Whether the worker reports a live connection (gates push/pull buttons).
     server_connected: bool,
-    /// Last SERVER command result, shown in the dialog.
+    /// A network op is in flight — buttons are disabled until it replies.
+    server_busy: bool,
+    /// Last server result, shown in the dialog.
     server_msg: String,
+    /// Background networking worker (spawned lazily when the dialog opens).
+    net: Option<net::NetWorker>,
 }
 
 impl AadtApp {
@@ -1310,7 +1316,9 @@ impl AadtApp {
             show_server: false,
             server_host: "127.0.0.1:7420".to_string(),
             server_connected: false,
+            server_busy: false,
             server_msg: String::new(),
+            net: None,
         }
     }
 
@@ -1767,12 +1775,19 @@ impl AadtApp {
     }
 
     /// Connect to a running `shilpid` server and push/pull the drawing's
-    /// entities over TCP (see the `SERVER` command). Blocking calls run on the
-    /// UI thread — fine for a local server; a networked one may briefly stall.
+    /// entities over TCP. All I/O runs on a background thread (see [`net`]) so a
+    /// slow or remote server never blocks the render loop; replies are applied
+    /// in [`poll_net`](Self::poll_net).
     pub(super) fn draw_server_dialog(&mut self, ctx: &egui::Context) {
         if !self.show_server {
             return;
         }
+        // Spawn the worker on first open (never for users who don't use it).
+        if self.net.is_none() {
+            self.net = Some(net::NetWorker::spawn(ctx.clone()));
+        }
+        let idle = !self.server_busy;
+        let ready = self.server_connected && idle;
         let mut open = self.show_server;
         egui::Window::new("ShilpiDB server")
             .open(&mut open)
@@ -1787,70 +1802,79 @@ impl AadtApp {
                     .rounding(theme::radius::DIALOG),
             )
             .show(ctx, |ui| {
-                ui.label(
-                    egui::RichText::new("Store this drawing in a live ShilpiDB (shilpid) server.")
-                        .color(theme::color::text_secondary()),
-                );
+                // Connection status dot.
+                let (dot, label) = if self.server_connected {
+                    (
+                        theme::color::success(),
+                        format!("connected · {}", self.server_host),
+                    )
+                } else {
+                    (theme::color::text_disabled(), "not connected".to_string())
+                };
+                ui.horizontal(|ui| {
+                    ui.colored_label(dot, "●");
+                    ui.label(egui::RichText::new(label).color(theme::color::text_secondary()));
+                });
                 ui.add_space(theme::space::MD);
                 ui.horizontal(|ui| {
                     ui.label("Host");
-                    ui.add(
+                    ui.add_enabled(
+                        idle,
                         egui::TextEdit::singleline(&mut self.server_host)
-                            .desired_width(180.0)
+                            .desired_width(170.0)
                             .hint_text("127.0.0.1:7420"),
                     );
-                    if ui.button("Connect").clicked() {
+                    if ui.add_enabled(idle, egui::Button::new("Connect")).clicked() {
                         let host = self.server_host.clone();
-                        let fb = self.app_feed(&format!("SERVER CONNECT {host}"));
-                        self.server_connected = !fb.is_err();
-                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                        self.net_send(net::NetCmd::Connect(host), "connecting…");
                     }
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
                     if ui
-                        .add_enabled(self.server_connected, egui::Button::new("Push drawing"))
+                        .add_enabled(ready, egui::Button::new("Push drawing"))
                         .on_hover_text("Send every entity to the server")
                         .clicked()
                     {
-                        let fb = self.app_feed("SERVER PUSH");
-                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                        let doc = Box::new(self.session.document().clone());
+                        self.net_send(net::NetCmd::Push(doc), "pushing…");
                     }
                     if ui
-                        .add_enabled(self.server_connected, egui::Button::new("Pull drawing"))
+                        .add_enabled(ready, egui::Button::new("Pull drawing"))
                         .on_hover_text("Load the server's entities into this drawing")
                         .clicked()
                     {
-                        let fb = self.app_feed("SERVER PULL");
-                        self.server_msg = fb.message().unwrap_or_default().to_string();
-                        self.fitted = false;
-                        self.selection.clear();
+                        self.net_send(net::NetCmd::Pull, "pulling…");
                     }
                     if ui
-                        .add_enabled(self.server_connected, egui::Button::new("Flush"))
+                        .add_enabled(ready, egui::Button::new("Flush"))
                         .on_hover_text("Ask the server to write its database to disk")
                         .clicked()
                     {
-                        let fb = self.app_feed("SERVER SAVE");
-                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                        self.net_send(net::NetCmd::Save, "flushing…");
                     }
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Status").clicked() {
-                        let fb = self.app_feed("SERVER STATUS");
-                        self.server_connected = !fb.is_err() && self.server_connected;
-                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                    if ui.add_enabled(ready, egui::Button::new("Status")).clicked() {
+                        self.net_send(net::NetCmd::Ping, "pinging…");
                     }
                     if ui
-                        .add_enabled(self.server_connected, egui::Button::new("Disconnect"))
+                        .add_enabled(ready, egui::Button::new("Disconnect"))
                         .clicked()
                     {
-                        let fb = self.app_feed("SERVER DISCONNECT");
-                        self.server_connected = false;
-                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                        self.net_send(net::NetCmd::Disconnect, "disconnecting…");
                     }
                 });
-                if !self.server_msg.is_empty() {
+                if self.server_busy {
+                    ui.add_space(theme::space::SM);
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new(&self.server_msg)
+                                .color(theme::color::text_secondary()),
+                        );
+                    });
+                } else if !self.server_msg.is_empty() {
                     ui.separator();
                     ui.label(
                         egui::RichText::new(&self.server_msg).color(theme::color::text_secondary()),
@@ -1858,6 +1882,59 @@ impl AadtApp {
                 }
             });
         self.show_server = open;
+    }
+
+    /// Enqueue a network command and enter the "busy" state until the worker
+    /// replies (drained in [`poll_net`](Self::poll_net)).
+    fn net_send(&mut self, cmd: net::NetCmd, pending: &str) {
+        if let Some(worker) = self.net.as_ref() {
+            worker.send(cmd);
+            self.server_busy = true;
+            self.server_msg = pending.to_string();
+        }
+    }
+
+    /// Drain replies from the network worker each frame: update the dialog and
+    /// restore any pulled entities into the drawing. Cheap no-op until the
+    /// Server dialog has been opened (the worker is spawned lazily).
+    pub(super) fn poll_net(&mut self) {
+        let mut events = Vec::new();
+        if let Some(worker) = self.net.as_ref() {
+            while let Some(event) = worker.try_recv() {
+                events.push(event);
+            }
+        }
+        for event in events {
+            self.server_busy = false;
+            match event {
+                net::NetEvent::Connected(host) => {
+                    self.server_connected = true;
+                    self.server_msg = format!("connected to {host}");
+                }
+                net::NetEvent::Disconnected => {
+                    self.server_connected = false;
+                    self.server_msg = "disconnected".to_string();
+                }
+                net::NetEvent::Info(msg) => self.server_msg = msg,
+                net::NetEvent::Error(msg) => {
+                    // A failed connect leaves us disconnected.
+                    if msg.starts_with("connect ") {
+                        self.server_connected = false;
+                    }
+                    self.server_msg = msg;
+                }
+                net::NetEvent::Pulled(entities) => {
+                    let n = entities.len();
+                    for entity in entities {
+                        self.session.document_mut().restore_entity(entity);
+                    }
+                    self.server_msg = format!("pulled {n} entities into the drawing");
+                    self.fitted = false;
+                    self.selection.clear();
+                    self.layer_rows_cache = None;
+                }
+            }
+        }
     }
 
     pub(super) fn draw_room_picker(&mut self, ctx: &egui::Context) {
@@ -6786,6 +6863,7 @@ impl eframe::App for AadtApp {
         self.tick_autosave();
         self.draw_recovery_prompt(ctx);
         self.draw_shortcuts_sheet(ctx);
+        self.poll_net();
         self.draw_server_dialog(ctx);
         self.draw_room_picker(ctx);
         self.draw_top_bar(ctx);
