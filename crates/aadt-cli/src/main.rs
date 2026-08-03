@@ -347,7 +347,6 @@ fn cmd_lisp(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-
 /// Plot a DXF to a vector PDF (spec §4.5).
 fn cmd_pdf(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
@@ -483,4 +482,3 @@ fn parse_num(it: &mut std::slice::Iter<'_, String>, flag: &str) -> Result<f64, S
     raw.parse::<f64>()
         .map_err(|_| format!("{flag} expects a number, got {raw:?}"))
 }
-

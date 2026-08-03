@@ -1209,6 +1209,14 @@ struct AadtApp {
     pointer_shift: bool,
     /// Active chrome theme (light / dark) — persisted in `UserPrefs`.
     theme: theme::Theme,
+    /// ShilpiDB server dialog open state.
+    show_server: bool,
+    /// Server address typed in the connect field (`host:port`).
+    server_host: String,
+    /// Whether the last SERVER CONNECT succeeded (gates push/pull buttons).
+    server_connected: bool,
+    /// Last SERVER command result, shown in the dialog.
+    server_msg: String,
 }
 
 impl AadtApp {
@@ -1304,6 +1312,10 @@ impl AadtApp {
             library_cache_at: None,
             pointer_shift: false,
             theme: theme::Theme::from(prefs.dark_theme),
+            show_server: false,
+            server_host: "127.0.0.1:7420".to_string(),
+            server_connected: false,
+            server_msg: String::new(),
         }
     }
 
@@ -1757,6 +1769,100 @@ impl AadtApp {
                 ui.label("IDO — custom room · IRECT toggle box · IHIDERECT · IHELP");
                 ui.label("UNITS ft-in|m [SECONDARY on|off] — drawing units & alt labels");
             });
+    }
+
+    /// Connect to a running `shilpid` server and push/pull the drawing's
+    /// entities over TCP (see the `SERVER` command). Blocking calls run on the
+    /// UI thread — fine for a local server; a networked one may briefly stall.
+    pub(super) fn draw_server_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_server {
+            return;
+        }
+        let mut open = self.show_server;
+        egui::Window::new("ShilpiDB server")
+            .open(&mut open)
+            .default_width(360.0)
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(
+                        theme::stroke::THIN,
+                        theme::color::border(),
+                    ))
+                    .rounding(theme::radius::DIALOG),
+            )
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new("Store this drawing in a live ShilpiDB (shilpid) server.")
+                        .color(theme::color::text_secondary()),
+                );
+                ui.add_space(theme::space::MD);
+                ui.horizontal(|ui| {
+                    ui.label("Host");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.server_host)
+                            .desired_width(180.0)
+                            .hint_text("127.0.0.1:7420"),
+                    );
+                    if ui.button("Connect").clicked() {
+                        let host = self.server_host.clone();
+                        let fb = self.app_feed(&format!("SERVER CONNECT {host}"));
+                        self.server_connected = !fb.is_err();
+                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(self.server_connected, egui::Button::new("Push drawing"))
+                        .on_hover_text("Send every entity to the server")
+                        .clicked()
+                    {
+                        let fb = self.app_feed("SERVER PUSH");
+                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                    }
+                    if ui
+                        .add_enabled(self.server_connected, egui::Button::new("Pull drawing"))
+                        .on_hover_text("Load the server's entities into this drawing")
+                        .clicked()
+                    {
+                        let fb = self.app_feed("SERVER PULL");
+                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                        self.fitted = false;
+                        self.selection.clear();
+                    }
+                    if ui
+                        .add_enabled(self.server_connected, egui::Button::new("Flush"))
+                        .on_hover_text("Ask the server to write its database to disk")
+                        .clicked()
+                    {
+                        let fb = self.app_feed("SERVER SAVE");
+                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Status").clicked() {
+                        let fb = self.app_feed("SERVER STATUS");
+                        self.server_connected = !fb.is_err() && self.server_connected;
+                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                    }
+                    if ui
+                        .add_enabled(self.server_connected, egui::Button::new("Disconnect"))
+                        .clicked()
+                    {
+                        let fb = self.app_feed("SERVER DISCONNECT");
+                        self.server_connected = false;
+                        self.server_msg = fb.message().unwrap_or_default().to_string();
+                    }
+                });
+                if !self.server_msg.is_empty() {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(&self.server_msg).color(theme::color::text_secondary()),
+                    );
+                }
+            });
+        self.show_server = open;
     }
 
     pub(super) fn draw_room_picker(&mut self, ctx: &egui::Context) {
@@ -6686,6 +6792,7 @@ impl eframe::App for AadtApp {
         self.tick_autosave();
         self.draw_recovery_prompt(ctx);
         self.draw_shortcuts_sheet(ctx);
+        self.draw_server_dialog(ctx);
         self.draw_room_picker(ctx);
         self.draw_top_bar(ctx);
         self.draw_bottom_bar(ctx);

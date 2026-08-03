@@ -1089,6 +1089,16 @@ impl AadtApp {
                     if icon_btn(ui, Icon::Plot, "Plot to PDF… (Ctrl+P)").clicked() {
                         self.seed_plot_dialog();
                     }
+                    ui.add_space(space::SM);
+                    if ui
+                        .button("Server")
+                        .on_hover_text(
+                            "Connect to a ShilpiDB (shilpid) server — push / pull this drawing",
+                        )
+                        .clicked()
+                    {
+                        self.show_server = true;
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Theme toggle (far right): moon → go dark, sun → go light.
                         let icon = if self.theme.is_dark() {

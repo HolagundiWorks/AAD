@@ -62,6 +62,9 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(SectionCmd));
     registry.register(Box::new(BlockLibCmd));
     registry.register(Box::new(HatchLibCmd));
+    registry.register(Box::new(ServerCmd {
+        st: Rc::new(RefCell::new(ServerState::default())),
+    }));
 }
 
 fn is_aadt_path(path: &str) -> bool {
@@ -194,16 +197,109 @@ impl Command for SaveCmd {
             // hasn't been run this session.
             let mut st = self.st.borrow_mut();
             st.sync(ctx);
-            aadt_vdb::save_path_with_objects(
-                &ctx.doc, &path, &st.objects, &st.graph, &st.audit,
-            )
-            .map_err(|e| e.to_string())?;
+            aadt_vdb::save_path_with_objects(&ctx.doc, &path, &st.objects, &st.graph, &st.audit)
+                .map_err(|e| e.to_string())?;
         } else {
             save_document(&ctx.doc, &path)?;
         }
         ctx.drawing_path = Some(path.clone());
         let msg = format!("saved {} entities to {path}", ctx.doc.len());
         Ok(msg)
+    }
+}
+
+/// Live connection to a `shilpid` server, shared across `SERVER` invocations.
+#[derive(Default)]
+struct ServerState {
+    client: Option<aadt_vdb::VdbClient>,
+    host: String,
+}
+
+/// Talk to a running ShilpiDB server (`shilpid`): connect, then push the
+/// current drawing's entities up, pull them back, or flush the server to disk.
+struct ServerCmd {
+    st: Rc<RefCell<ServerState>>,
+}
+impl Command for ServerCmd {
+    fn name(&self) -> &str {
+        "SERVER"
+    }
+    fn help(&self) -> &str {
+        "SERVER CONNECT [host:port] | STATUS | PUSH | PULL | SAVE | DISCONNECT — talk to a shilpid server (default 127.0.0.1:7420)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .ok_or_else(|| {
+                "SERVER: expected a subcommand (CONNECT|STATUS|PUSH|PULL|SAVE|DISCONNECT)"
+                    .to_string()
+            })?;
+        let mut st = self.st.borrow_mut();
+        match sub.as_str() {
+            "CONNECT" => {
+                let host = args
+                    .get(1)
+                    .cloned()
+                    .unwrap_or_else(|| "127.0.0.1:7420".to_string());
+                let client = aadt_vdb::VdbClient::connect(&host)
+                    .map_err(|e| format!("SERVER CONNECT {host}: {e}"))?;
+                st.client = Some(client);
+                st.host = host.clone();
+                Ok(format!("connected to shilpid at {host}"))
+            }
+            "DISCONNECT" => {
+                let was = std::mem::take(&mut st.host);
+                st.client = None;
+                Ok(if was.is_empty() {
+                    "not connected".to_string()
+                } else {
+                    format!("disconnected from {was}")
+                })
+            }
+            "STATUS" => {
+                let host = st.host.clone();
+                match st.client.as_mut() {
+                    Some(client) => {
+                        client.ping().map_err(|e| format!("SERVER STATUS: {e}"))?;
+                        Ok(format!("connected to {host} (ping ok)"))
+                    }
+                    None => Ok("not connected".to_string()),
+                }
+            }
+            "PUSH" => {
+                let host = st.host.clone();
+                let client = st.client.as_mut().ok_or_else(|| {
+                    "SERVER PUSH: not connected (run SERVER CONNECT first)".to_string()
+                })?;
+                let n = client
+                    .push_document(&ctx.doc)
+                    .map_err(|e| format!("SERVER PUSH: {e}"))?;
+                Ok(format!("pushed {n} entities to {host}"))
+            }
+            "PULL" => {
+                let host = st.host.clone();
+                let client = st.client.as_mut().ok_or_else(|| {
+                    "SERVER PULL: not connected (run SERVER CONNECT first)".to_string()
+                })?;
+                let n = client
+                    .restore_into(&mut ctx.doc)
+                    .map_err(|e| format!("SERVER PULL: {e}"))?;
+                Ok(format!("pulled {n} entities from {host} into the drawing"))
+            }
+            "SAVE" => {
+                let host = st.host.clone();
+                let client = st
+                    .client
+                    .as_mut()
+                    .ok_or_else(|| "SERVER SAVE: not connected".to_string())?;
+                client.save().map_err(|e| format!("SERVER SAVE: {e}"))?;
+                Ok(format!("asked {host} to flush its database to disk"))
+            }
+            other => Err(format!(
+                "SERVER: unknown subcommand '{other}' (CONNECT|STATUS|PUSH|PULL|SAVE|DISCONNECT)"
+            )),
+        }
     }
 }
 
@@ -1782,5 +1878,46 @@ impl Command for BoqCmd {
             ));
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod server_tests {
+    use super::*;
+    use aadt_command::Interpreter;
+
+    /// Evaluate one line against a fresh interpreter with the CLI commands
+    /// registered (a new, disconnected `ServerState` each call).
+    fn run(line: &str) -> Result<Option<String>, String> {
+        let mut interp = Interpreter::with_builtins();
+        register(&mut interp);
+        let mut ctx = Context::new();
+        interp.eval_line(&mut ctx, line)
+    }
+
+    #[test]
+    fn server_requires_a_subcommand() {
+        assert!(run("SERVER").is_err());
+    }
+
+    #[test]
+    fn unknown_subcommand_errors() {
+        let e = run("SERVER FROB").unwrap_err();
+        assert!(e.contains("unknown subcommand"), "unexpected error: {e}");
+    }
+
+    #[test]
+    fn status_and_disconnect_when_offline() {
+        assert_eq!(run("SERVER STATUS").unwrap(), Some("not connected".into()));
+        assert_eq!(
+            run("SERVER DISCONNECT").unwrap(),
+            Some("not connected".into())
+        );
+    }
+
+    #[test]
+    fn push_and_pull_require_a_connection() {
+        assert!(run("SERVER PUSH").unwrap_err().contains("not connected"));
+        assert!(run("SERVER PULL").unwrap_err().contains("not connected"));
     }
 }
