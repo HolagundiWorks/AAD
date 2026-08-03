@@ -107,15 +107,19 @@ impl<S: Read + Write> VdbClient<S> {
         Ok(true)
     }
 
-    /// Push every entity of `doc`. Returns how many records were stored (some
-    /// entities may be skipped; see [`put_entity`](Self::put_entity)).
+    /// Push every entity of `doc` in a **single** round-trip (batch insert).
+    /// Returns how many records were stored; entities with no computable extent
+    /// are skipped (see [`put_entity`](Self::put_entity)).
     pub fn push_document(&mut self, doc: &Document) -> Result<usize, VdbClientError> {
-        let mut stored = 0;
-        for entity in doc.entities() {
-            if self.put_entity(doc, entity)? {
-                stored += 1;
-            }
-        }
+        let records: Vec<_> = doc
+            .entities()
+            .into_iter()
+            .filter_map(|e| {
+                entity_bbox(doc, e).map(|bb| (e.id.0, to_engine_bbox(bb), encode_entity(e)))
+            })
+            .collect();
+        let stored = records.len();
+        self.inner.insert_many(records)?;
         Ok(stored)
     }
 
@@ -273,6 +277,25 @@ mod tests {
             }
             other => panic!("expected Insert, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn push_document_sends_a_single_insert_many() {
+        let (doc, id) = line_doc();
+        let mut client = client_with(&[Response::Ok]);
+        assert_eq!(client.push_document(&doc).unwrap(), 1);
+
+        // The whole drawing went out as one InsertMany frame.
+        let mut cur = Cursor::new(client.into_inner().into_inner().wrote);
+        match recv_request(&mut cur).unwrap().unwrap() {
+            Request::InsertMany { records } => {
+                assert_eq!(records.len(), 1);
+                assert_eq!(records[0].0, id.0);
+                assert_eq!(decode_entity(&records[0].2).unwrap(), *doc.get(id).unwrap());
+            }
+            other => panic!("expected InsertMany, got {other:?}"),
+        }
+        assert!(recv_request(&mut cur).unwrap().is_none(), "only one frame");
     }
 
     #[test]

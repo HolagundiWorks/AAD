@@ -13,8 +13,8 @@ description = "AAD's CAD-specific .vdb layout over the standalone ShilpiDB engin
 # network client, from the ShilpiDB repo — pinned to one commit so a single
 # `shilpidb` (and its `Bbox`/`Point`) is shared across engine and client.
 # Pinned by rev rather than tag: `shilpi-client` landed after the v0.2.0 tag.
-shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "d43285025dd706cebe34dff176e5917bcc5789f3" }
-shilpi-client = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "d43285025dd706cebe34dff176e5917bcc5789f3" }
+shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "3c73cc64b916f59053f62ed29b1ac3fa6681bc31" }
+shilpi-client = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "3c73cc64b916f59053f62ed29b1ac3fa6681bc31" }
 aadt-model.workspace = true
 aadt-geometry.workspace = true
 aadt-object.workspace = true
@@ -22,7 +22,7 @@ aadt-graph.workspace = true
 
 [dev-dependencies]
 # For the VdbClient unit tests: build canned responses and decode sent requests.
-shilpi-protocol = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "d43285025dd706cebe34dff176e5917bcc5789f3" }
+shilpi-protocol = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "3c73cc64b916f59053f62ed29b1ac3fa6681bc31" }
 
 [lints]
 workspace = true
