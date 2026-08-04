@@ -118,7 +118,9 @@ names (`A-WINDOW`, `A-COLUMN`, `S-COLUMN`, `A-TEXT`, `E-LIGHT`, `M-DUCT`,
 `P-SOIL`, …) for new work.
 
 On import, CAD layers are namespaced under `ORG-DWG_LAYER-*` (the `IMPORT` set)
-so they never clobber the standard. `ADOPTLAYERS` consolidates the easy wins:
+so they never clobber the standard. **`OPEN` adopts exact matches automatically**:
 any import whose base name already **is** a standard layer
 (`ORG-DWG_LAYER-A-WALL` → `A-WALL`) is moved onto it and the namespaced layer
-removed. Undoable. Remaining firm-specific layers stay for manual mapping.
+removed; the count is reported in the open message. Remaining firm-specific
+layers stay namespaced for manual mapping. `ADOPTLAYERS` re-runs the same
+consolidation on demand. Undoable.

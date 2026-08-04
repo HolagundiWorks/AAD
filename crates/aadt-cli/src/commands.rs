@@ -171,10 +171,13 @@ impl Command for OpenCmd {
         ctx.doc = doc;
         ctx.drawing_path = Some(path.clone());
         let seeded = apply_standard_layers(&mut ctx.doc);
+        // Imports whose name already is a standard layer are adopted directly
+        // (ORG-DWG_LAYER-A-WALL → A-WALL); the rest stay namespaced for mapping.
+        let (adopted, _moved) = adopt_recognized_imports(&mut ctx.doc);
         let _ = apply_layer_set(&mut ctx.doc, "IMPORT");
         ctx.doc.assign_imported_by_layer();
         let mut msg = format!(
-            "opened {path} ({} entities; seeded {seeded} AIA layers; floors=Ground; import layers ORG-DWG_LAYER-* / IMPORT)",
+            "opened {path} ({} entities; seeded {seeded} AIA layers; adopted {adopted} standard-named import layer(s); floors=Ground; import layers ORG-DWG_LAYER-* / IMPORT)",
             ctx.doc.len()
         );
         if !warnings.is_empty() {
@@ -447,6 +450,44 @@ impl Command for LayerLegendCmd {
     }
 }
 
+/// Move imported layers (`ORG-DWG_LAYER-<name>`) whose base name is exactly an
+/// HCW standard layer onto that layer, removing the namespaced one. Undoable.
+/// Returns `(layers_adopted, objects_moved)`.
+fn adopt_recognized_imports(doc: &mut aadt_model::Document) -> (usize, usize) {
+    let prefix = aadt_model::IMPORTED_LAYER_PREFIX;
+    let pairs: Vec<(String, String)> = doc
+        .layers()
+        .filter_map(|l| {
+            let base = l.name.strip_prefix(prefix)?;
+            find_layer(base).map(|_| (l.name.clone(), base.to_string()))
+        })
+        .collect();
+    if pairs.is_empty() {
+        return (0, 0);
+    }
+    let mut moved = 0usize;
+    let adopted = doc.transact("ADOPTLAYERS", |d| {
+        let mut adopted = 0usize;
+        for (import, base) in &pairs {
+            let ids: Vec<EntityId> = d
+                .iter_entities()
+                .filter(|e| &e.layer == import)
+                .map(|e| e.id)
+                .collect();
+            for id in ids {
+                if d.set_entity_layer(id, base.clone()) {
+                    moved += 1;
+                }
+            }
+            if d.remove_layer(import) {
+                adopted += 1;
+            }
+        }
+        adopted
+    });
+    (adopted, moved)
+}
+
 struct AdoptLayersCmd;
 impl Command for AdoptLayersCmd {
     fn name(&self) -> &str {
@@ -459,40 +500,10 @@ impl Command for AdoptLayersCmd {
         "ADOPTLAYERS — move imported layers whose name matches an HCW standard layer onto that standard layer"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let prefix = aadt_model::IMPORTED_LAYER_PREFIX;
-        // Imported layers (`ORG-DWG_LAYER-<name>`) whose base name is a known HCW
-        // standard layer — an exact match means it *is* that layer.
-        let pairs: Vec<(String, String)> = ctx
-            .doc
-            .layers()
-            .filter_map(|l| {
-                let base = l.name.strip_prefix(prefix)?;
-                find_layer(base).map(|_| (l.name.clone(), base.to_string()))
-            })
-            .collect();
-        if pairs.is_empty() {
+        let (adopted, moved) = adopt_recognized_imports(&mut ctx.doc);
+        if adopted == 0 {
             return Ok("no imported layers match a standard layer".into());
         }
-        let mut moved = 0usize;
-        let adopted = ctx.doc.transact("ADOPTLAYERS", |d| {
-            let mut adopted = 0usize;
-            for (import, base) in &pairs {
-                let ids: Vec<EntityId> = d
-                    .iter_entities()
-                    .filter(|e| &e.layer == import)
-                    .map(|e| e.id)
-                    .collect();
-                for id in ids {
-                    if d.set_entity_layer(id, base.clone()) {
-                        moved += 1;
-                    }
-                }
-                if d.remove_layer(import) {
-                    adopted += 1;
-                }
-            }
-            adopted
-        });
         Ok(format!(
             "adopted {adopted} imported layer(s), moved {moved} object(s) onto standard layers"
         ))
@@ -2317,5 +2328,40 @@ mod adopt_layers_tests {
         );
         let msg = interp.eval_line(&mut ctx, "ADOPTLAYERS").unwrap().unwrap();
         assert!(msg.contains("no imported layers"), "msg: {msg}");
+    }
+
+    #[test]
+    fn open_adopts_standard_named_imports() {
+        // A source drawing with geometry on a standard-named layer.
+        let mut src = aadt_model::Document::new();
+        src.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1000.0, 0.0))),
+        );
+        let dir = std::env::temp_dir().join("aadt-adopt-open");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("in.dxf");
+        aadt_dxf::export_path(&src, &path).unwrap();
+
+        let (interp, mut ctx) = interp();
+        let msg = interp
+            .eval_line(&mut ctx, &format!("OPEN {}", path.display()))
+            .unwrap()
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        // After retag → seed → adopt, the wall is back on A-WALL, not namespaced.
+        let prefix = aadt_model::IMPORTED_LAYER_PREFIX;
+        assert!(
+            ctx.doc.iter_entities().any(|e| e.layer == "A-WALL"),
+            "wall adopted onto A-WALL; msg: {msg}"
+        );
+        assert!(
+            !ctx.doc
+                .iter_entities()
+                .any(|e| e.layer.starts_with(prefix) && e.layer.contains("A-WALL")),
+            "no A-WALL geometry left under the import prefix"
+        );
+        assert!(msg.contains("adopted"), "open message reports adoption: {msg}");
     }
 }
