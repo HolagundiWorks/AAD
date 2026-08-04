@@ -189,6 +189,20 @@ objects and decides which endpoints move.
 
 Pre-selected objects skip step 1 (noun-verb) and move as a whole.
 
+**Element filter.** At the crossing-window prompt, type a keyword to limit the
+window to a building-element group (toggle on/off; combine several):
+
+| Key | Group | Layers |
+|-----|-------|--------|
+| `W` | Walls | `*WALL*` (incl. lintels) |
+| `N` | Windows | glazing / windows / doors (`A-GLAZ`, `A-WINDOW`, `A-DOOR`) |
+| `S` | Structure | `S-*` family (columns, beams, footings) |
+| `A` | All | clears the filter |
+
+The **Walls / Windows / Structure** toggles in the top bar show or hide those
+same groups; hidden (frozen) layers also drop out of every selection, STRETCH
+included.
+
 ### Grips
 
 Select an object → click a **grip** (white square) → click new location.  

@@ -517,6 +517,49 @@ pub(super) enum TrimPhase {
     Objects,
 }
 
+/// Building-element layer groups the Walls/Windows/Structure controls act on:
+/// the show/hide toggles in the top bar and the STRETCH element filter. Groups
+/// are matched by an AIA-style layer-name heuristic (A-WALL, A-GLAZ, S-*, …).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LayerGroup {
+    Walls,
+    Windows,
+    Structure,
+}
+
+impl LayerGroup {
+    pub(super) const ALL: [LayerGroup; 3] =
+        [LayerGroup::Walls, LayerGroup::Windows, LayerGroup::Structure];
+
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            LayerGroup::Walls => "Walls",
+            LayerGroup::Windows => "Windows",
+            LayerGroup::Structure => "Structure",
+        }
+    }
+
+    /// True when `layer` belongs to this group. Walls are `*WALL*` (including
+    /// lintels), Windows cover glazing / windows / doors (openings), Structure
+    /// is the `S-*` family (columns, beams, footings).
+    pub(super) fn matches_layer(self, layer: &str) -> bool {
+        let u = layer.trim().to_ascii_uppercase();
+        match self {
+            LayerGroup::Walls => u.contains("WALL"),
+            LayerGroup::Windows => {
+                u.contains("GLAZ") || u.contains("WIND") || u.contains("DOOR")
+            }
+            LayerGroup::Structure => {
+                u.starts_with("S-")
+                    || u.contains("COL")
+                    || u.contains("BEAM")
+                    || u.contains("STRUCT")
+                    || u.contains("FOOT")
+            }
+        }
+    }
+}
+
 /// Hot-grip edit modes, cycled with Space (AutoCAD: Stretch → Move → Rotate →
 /// Scale → Mirror). Stretch moves the picked grip; the others transform the
 /// whole selection about the hot grip as base point.
@@ -1071,6 +1114,11 @@ struct AadtApp {
     /// RECTANGLE is waiting for a typed chamfer distance (`Some(false)`) or
     /// fillet radius (`Some(true)`) after the C/F keyword.
     rect_corner_pending: Option<bool>,
+    /// STRETCH element filter: when non-empty, the crossing window only grabs
+    /// entities whose layer belongs to one of these groups (Walls / Windows /
+    /// Structure). Empty = every layer (the default). Toggled by the W/N/S/A
+    /// keywords at the STRETCH selection prompt.
+    stretch_filter: Vec<LayerGroup>,
     /// FILLET `[T]rim` toggle: when set, keep both source lines full-length
     /// (AutoCAD No-trim). Persists across corners until toggled or the command ends.
     fillet_notrim: bool,
@@ -1246,6 +1294,7 @@ impl AadtApp {
             xform_copy: false,
             rect_corner: RectCorner::Square,
             rect_corner_pending: None,
+            stretch_filter: Vec::new(),
             fillet_notrim: false,
             ttr_lines: Vec::new(),
             cursor: None,
@@ -2512,6 +2561,13 @@ impl AadtApp {
         // Snap-override keyword typed at the crosshair (PER/END/MID/INT/TAN/…):
         // arm the one-shot override for the next pick, then stop.
         if self.try_snap_override(&text) {
+            return;
+        }
+        // STRETCH element filter: W/N/S toggle Walls/Windows/Structure, A clears
+        // back to every layer. Only while specifying the crossing window.
+        if matches!(self.tool, Tool::Stretch { collecting: true, .. })
+            && self.try_stretch_filter_keyword(&up)
+        {
             return;
         }
         // TRIM — AutoCAD [C]utting edges option (Standard mode).
@@ -4039,6 +4095,90 @@ impl AadtApp {
         }
     }
 
+    /// Toggle a STRETCH element filter from a typed keyword. Returns true when the
+    /// token was a filter keyword (`W`/`N`/`S`/`A` or the spelled-out group).
+    fn try_stretch_filter_keyword(&mut self, up: &str) -> bool {
+        let group = match up {
+            "W" | "WALL" | "WALLS" => Some(LayerGroup::Walls),
+            "N" | "WIN" | "WINDOW" | "WINDOWS" => Some(LayerGroup::Windows),
+            "S" | "ST" | "STRUCT" | "STRUCTURE" => Some(LayerGroup::Structure),
+            _ => None,
+        };
+        if let Some(g) = group {
+            if let Some(i) = self.stretch_filter.iter().position(|x| *x == g) {
+                self.stretch_filter.remove(i);
+            } else {
+                self.stretch_filter.push(g);
+            }
+            self.note = format!(
+                "STRETCH — filter: {}; specify crossing window",
+                self.stretch_filter_label()
+            );
+            return true;
+        }
+        if matches!(up, "A" | "ALL") {
+            self.stretch_filter.clear();
+            self.note = "STRETCH — filter: All layers; specify crossing window".into();
+            return true;
+        }
+        false
+    }
+
+    /// True when every layer in `group` is currently hidden (off or frozen).
+    /// A group with no matching layers reads as shown.
+    fn layer_group_hidden(&self, group: LayerGroup) -> bool {
+        let doc = self.session.document();
+        let mut saw = false;
+        for l in doc.layers() {
+            if group.matches_layer(&l.name) {
+                saw = true;
+                if doc.layer_shown(&l.name) {
+                    return false;
+                }
+            }
+        }
+        saw
+    }
+
+    /// Show/hide toggle for a whole element group (Walls / Windows / Structure):
+    /// freezes the matching layers when any is shown, thaws them otherwise.
+    fn toggle_layer_group(&mut self, group: LayerGroup) {
+        let names: Vec<String> = self
+            .session
+            .document()
+            .layers()
+            .filter(|l| group.matches_layer(&l.name))
+            .map(|l| l.name.clone())
+            .collect();
+        if names.is_empty() {
+            self.note = format!("{} — no matching layers", group.label());
+            return;
+        }
+        let hide = !self.layer_group_hidden(group);
+        let cmd = if hide { "FREEZE" } else { "THAW" };
+        for n in &names {
+            self.app_feed(&format!("LAYER {n} {cmd}"));
+        }
+        self.note = format!(
+            "{} {}",
+            group.label(),
+            if hide { "hidden" } else { "shown" }
+        );
+    }
+
+    /// Human-readable description of the active STRETCH element filter.
+    fn stretch_filter_label(&self) -> String {
+        if self.stretch_filter.is_empty() {
+            "All layers".into()
+        } else {
+            self.stretch_filter
+                .iter()
+                .map(|g| g.label())
+                .collect::<Vec<_>>()
+                .join(" + ")
+        }
+    }
+
     /// STRETCH selection: specify the two corners of a crossing window. The first
     /// corner is recorded; the second runs a crossing box-select (touch or inside)
     /// that becomes both the selection and the stretch window. Called for clicks
@@ -4058,7 +4198,17 @@ impl AadtApp {
                 let lo = Point2::new(a.x.min(p.x), a.y.min(p.y));
                 let hi = Point2::new(a.x.max(p.x), a.y.max(p.y));
                 let doc = self.session.document();
-                self.selection = box_select(doc, lo, hi, true);
+                let mut hits = box_select(doc, lo, hi, true);
+                // Element filter: keep only walls / windows / structure when armed.
+                if !self.stretch_filter.is_empty() {
+                    let filter = &self.stretch_filter;
+                    hits.retain(|id| {
+                        doc.get(*id)
+                            .map(|e| filter.iter().any(|g| g.matches_layer(&e.layer)))
+                            .unwrap_or(false)
+                    });
+                }
+                self.selection = hits;
                 self.selected_dimensions = dimension_box_select(doc, lo, hi, true);
                 self.selected_hatches.clear();
                 let n = self.selection.len() + self.selected_dimensions.len();
@@ -6319,7 +6469,7 @@ impl AadtApp {
             } => "STRETCH — Space to continue (or window again)",
             Tool::Stretch {
                 collecting: true, ..
-            } => "STRETCH — specify crossing window: first corner (Space when done)",
+            } => "STRETCH — crossing window first corner  ·  filter [W]alls [N]windows [S]tructure [A]ll",
             Tool::Stretch {
                 collecting: false,
                 base: None,
@@ -9586,5 +9736,35 @@ mod box_select_tests {
         });
         assert!(super::pick_entity(&doc, Point2::new(1.5, 1.5), 1.0).is_none());
         assert!(box_select(&doc, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0), true).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod layer_group_tests {
+    use super::LayerGroup;
+
+    #[test]
+    fn walls_match_wall_layers_including_lintels() {
+        assert!(LayerGroup::Walls.matches_layer("A-WALL"));
+        assert!(LayerGroup::Walls.matches_layer("A-WALL-LINT"));
+        assert!(!LayerGroup::Walls.matches_layer("A-GLAZ"));
+        assert!(!LayerGroup::Walls.matches_layer("S-COLS"));
+    }
+
+    #[test]
+    fn windows_match_glazing_windows_and_doors() {
+        assert!(LayerGroup::Windows.matches_layer("A-GLAZ"));
+        assert!(LayerGroup::Windows.matches_layer("A-WINDOW"));
+        assert!(LayerGroup::Windows.matches_layer("A-DOOR"));
+        assert!(!LayerGroup::Windows.matches_layer("A-WALL"));
+    }
+
+    #[test]
+    fn structure_matches_s_family() {
+        assert!(LayerGroup::Structure.matches_layer("S-COLS"));
+        assert!(LayerGroup::Structure.matches_layer("S-BEAM"));
+        assert!(LayerGroup::Structure.matches_layer("A-COLS"));
+        assert!(LayerGroup::Structure.matches_layer("FOOTING"));
+        assert!(!LayerGroup::Structure.matches_layer("A-WALL"));
     }
 }

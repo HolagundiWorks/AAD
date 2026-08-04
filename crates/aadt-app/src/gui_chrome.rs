@@ -1097,6 +1097,27 @@ impl AadtApp {
                     {
                         self.show_server = true;
                     }
+                    ui.add_space(space::SM);
+                    ui.separator();
+                    ui.add_space(space::SM);
+                    // Element visibility toggles: show/hide whole Walls / Windows /
+                    // Structure layer groups at once. Hidden layers also drop out
+                    // of selection (STRETCH included).
+                    for group in super::LayerGroup::ALL {
+                        let hidden = self.layer_group_hidden(group);
+                        let tip = format!(
+                            "{} layers — {}",
+                            group.label(),
+                            if hidden { "hidden (click to show)" } else { "shown (click to hide)" }
+                        );
+                        if ui
+                            .selectable_label(!hidden, group.label())
+                            .on_hover_text(tip)
+                            .clicked()
+                        {
+                            self.toggle_layer_group(group);
+                        }
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // Theme toggle (far right): moon → go dark, sun → go light.
                         let icon = if self.theme.is_dark() {
