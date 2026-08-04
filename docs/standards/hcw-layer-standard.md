@@ -53,6 +53,25 @@ object model; the layer pins discipline, element, phase, and plot intent. This
 schema feeds automated drafting, quantity takeoff, clash detection, BIM
 interoperability, and AI recognition without relying solely on geometry.
 
+### Per-object overrides (`OBJMETA`)
+
+Values that vary object to object live on the entity's attribute map, not the
+layer. Set or report them on the current selection:
+
+```
+SELECT …                              # build a selection
+OBJMETA MATERIAL Reinforced Concrete  # set an override on every selected object
+OBJMETA FIRERATING 120min
+OBJMETA PHASE Existing                # New | Existing | Demolish
+OBJMETA                               # report effective metadata for the selection
+```
+
+Reporting merges the layer's catalog metadata (discipline, element, IFC class,
+phase) with the object's overrides — so a wall on `A-WALL` reads as `IfcWall`
+even before any override, and `phase` falls back to the layer's phase until the
+object sets its own. Keys: `MATERIAL`, `FIRERATING`, `PHASE`, `IFC`, `UNIFORMAT`,
+`MASTERFORMAT`. Writes are undoable.
+
 ## Layer sets (visibility presets)
 
 Discipline visibility presets are applied with `LAYER SET <name>` /
@@ -82,6 +101,13 @@ linetype, lineweight, and catalog discipline/element) onto a `G-LEGEND` layer:
 ```
 LAYERLEGEND [x y [height]]    # default origin 0,0 · text height 250
 ```
+
+## AI agents & ShilpiDB
+
+How the layer semantics and layer sets let AI agents query and act on items in
+the `.vdb` vector store — scoping by discipline, matching by element/IFC, and
+falling back to embeddings for unlabelled geometry — is covered in
+[shilpidb-layers-and-agents.md](./shilpidb-layers-and-agents.md).
 
 ## Legacy compatibility
 

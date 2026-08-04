@@ -64,6 +64,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(LayerReportCmd));
     registry.register(Box::new(LayerLegendCmd));
+    registry.register(Box::new(ObjMetaCmd));
     registry.register(Box::new(SectionCmd));
     registry.register(Box::new(BlockLibCmd));
     registry.register(Box::new(HatchLibCmd));
@@ -442,6 +443,92 @@ impl Command for LayerLegendCmd {
             }
         });
         Ok(format!("drew legend of {count} layers on {legend_layer}"))
+    }
+}
+
+struct ObjMetaCmd;
+impl ObjMetaCmd {
+    const KEYS: &'static [&'static str] =
+        &["MATERIAL", "FIRERATING", "PHASE", "IFC", "UNIFORMAT", "MASTERFORMAT"];
+}
+impl Command for ObjMetaCmd {
+    fn name(&self) -> &str {
+        "OBJMETA"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["OBJECTMETA", "META"]
+    }
+    fn help(&self) -> &str {
+        "OBJMETA [KEY VALUE] — report or set per-object metadata (MATERIAL / FIRERATING / PHASE / IFC / UNIFORMAT / MASTERFORMAT) on the SELECTION"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        if ctx.selection.is_empty() {
+            return Err("OBJMETA: no selection — SELECT objects first".into());
+        }
+        let ids = ctx.selection.clone();
+        // No args → report effective metadata for the selection.
+        if args.is_empty() {
+            let mut lines = Vec::new();
+            for id in &ids {
+                let Some(e) = ctx.doc.get(*id) else { continue };
+                let cat = find_layer(&e.layer);
+                let de = cat
+                    .map(|l| format!("{} · {}", l.discipline.label(), l.element.label()))
+                    .unwrap_or_else(|| "—".into());
+                let mut parts = vec![format!("#{} {} [{de}]", id.0, e.layer)];
+                if let Some(l) = cat {
+                    if !l.ifc().is_empty() {
+                        parts.push(format!("IFC {}", l.ifc()));
+                    }
+                }
+                // Per-object overrides fall back to the layer's phase.
+                let phase = e
+                    .attribute("PHASE")
+                    .map(|s| s.to_string())
+                    .or_else(|| cat.map(|l| l.phase.label().to_string()));
+                for (label, key) in [("material", "MATERIAL"), ("fire", "FIRERATING")] {
+                    if let Some(v) = e.attribute(key) {
+                        if !v.is_empty() {
+                            parts.push(format!("{label} {v}"));
+                        }
+                    }
+                }
+                if let Some(p) = phase {
+                    parts.push(format!("phase {p}"));
+                }
+                lines.push(parts.join("  ·  "));
+            }
+            return Ok(lines.join("\n"));
+        }
+        if args.len() < 2 {
+            return Err("OBJMETA: need KEY and VALUE to set (or no args to report)".into());
+        }
+        let key = args[0].to_ascii_uppercase();
+        if !Self::KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "OBJMETA: unknown key {key:?}; use one of {}",
+                Self::KEYS.join(" / ")
+            ));
+        }
+        let value = args[1..].join(" ");
+        if key == "PHASE"
+            && !matches!(
+                value.to_ascii_lowercase().as_str(),
+                "new" | "existing" | "demolish"
+            )
+        {
+            return Err("OBJMETA: PHASE must be New, Existing, or Demolish".into());
+        }
+        let n = ctx.doc.transact("OBJMETA", |d| {
+            let mut n = 0;
+            for id in &ids {
+                if d.set_attribute(*id, &key, value.clone()) {
+                    n += 1;
+                }
+            }
+            n
+        });
+        Ok(format!("set {key}={value:?} on {n} object(s)"))
     }
 }
 
@@ -2064,5 +2151,70 @@ mod layer_legend_tests {
         let (interp, mut ctx) = interp();
         let e = interp.eval_line(&mut ctx, "LAYERLEGEND").unwrap_err();
         assert!(e.contains("no layers in use"), "err: {e}");
+    }
+}
+
+#[cfg(test)]
+mod objmeta_tests {
+    use super::*;
+    use aadt_command::Interpreter;
+    use aadt_geometry::Segment;
+
+    fn setup() -> (Interpreter, Context, EntityId) {
+        let mut interp = Interpreter::with_builtins();
+        register(&mut interp);
+        let mut ctx = Context::new();
+        let id = ctx.doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        ctx.selection = vec![id];
+        (interp, ctx, id)
+    }
+
+    #[test]
+    fn set_then_report_metadata() {
+        let (interp, mut ctx, id) = setup();
+        let msg = interp
+            .eval_line(&mut ctx, "OBJMETA MATERIAL Reinforced Concrete")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("1 object"), "msg: {msg}");
+        assert_eq!(
+            ctx.doc.get(id).unwrap().attribute("MATERIAL"),
+            Some("Reinforced Concrete")
+        );
+        let report = interp.eval_line(&mut ctx, "OBJMETA").unwrap().unwrap();
+        assert!(report.contains("A-WALL"), "report: {report}");
+        assert!(report.contains("IFC IfcWall"), "report: {report}");
+        assert!(
+            report.contains("material Reinforced Concrete"),
+            "report: {report}"
+        );
+        assert!(report.contains("phase New"), "report: {report}");
+    }
+
+    #[test]
+    fn phase_is_validated() {
+        let (interp, mut ctx, _) = setup();
+        assert!(interp
+            .eval_line(&mut ctx, "OBJMETA PHASE Bogus")
+            .unwrap_err()
+            .contains("PHASE must be"));
+        assert!(interp.eval_line(&mut ctx, "OBJMETA PHASE Existing").is_ok());
+    }
+
+    #[test]
+    fn unknown_key_and_empty_selection_error() {
+        let (interp, mut ctx, _) = setup();
+        assert!(interp
+            .eval_line(&mut ctx, "OBJMETA FROB x")
+            .unwrap_err()
+            .contains("unknown key"));
+        ctx.selection.clear();
+        assert!(interp
+            .eval_line(&mut ctx, "OBJMETA")
+            .unwrap_err()
+            .contains("no selection"));
     }
 }
