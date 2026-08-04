@@ -1237,6 +1237,11 @@ struct AadtApp {
     autosave_secs: u64,
     /// Pending recovery file found at launch.
     recovery_prompt: Option<PathBuf>,
+    /// Unsaved-changes prompt is showing after a window-close request.
+    close_confirm: bool,
+    /// Let the next close request through without re-prompting (set once the
+    /// user has chosen Save or Don't Save).
+    force_close: bool,
     /// F1 shortcut sheet.
     show_shortcuts: bool,
     /// IROOM room-type picker dialog.
@@ -1358,6 +1363,8 @@ impl AadtApp {
             last_autosave: None,
             autosave_secs: prefs.autosave_secs.max(30),
             recovery_prompt,
+            close_confirm: false,
+            force_close: false,
             show_shortcuts: false,
             show_room_picker: false,
             osnap_state: OsnapState::default(),
@@ -1786,6 +1793,71 @@ impl AadtApp {
         self.layer_mgr_scope = LayerMgrScope::ActiveSpace;
         self.sync_layer_from_active_space();
         self.note = "Layer → space map applied (all floors yanked onto active floor)".into();
+    }
+
+    /// Remove recovery copies (sibling autosave + untitled recovery) — used when
+    /// the user explicitly discards unsaved changes on close.
+    fn discard_recovery_files(&self) {
+        if let Some(p) = &self.file_path {
+            let _ = std::fs::remove_file(Self::autosave_path(p));
+        }
+        if let Some(u) = Self::untitled_recovery_path() {
+            let _ = std::fs::remove_file(u);
+        }
+    }
+
+    /// Unsaved-changes confirmation raised when the window is closed with a dirty
+    /// document: Save (then close), Don't Save (discard + close), or Cancel.
+    pub(super) fn draw_close_confirm(&mut self, ctx: &egui::Context) {
+        if !self.close_confirm {
+            return;
+        }
+        let name = self
+            .file_path
+            .as_ref()
+            .and_then(|p| p.file_name().and_then(|n| n.to_str()))
+            .unwrap_or("untitled")
+            .to_string();
+        egui::Window::new("Unsaved changes")
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(
+                        theme::stroke::THIN,
+                        theme::color::border(),
+                    ))
+                    .rounding(theme::radius::DIALOG),
+            )
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!("Save changes to “{name}” before closing?"));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        self.quick_save();
+                        // If the save went through (or was routed to a real file),
+                        // the document is no longer dirty — proceed to close.
+                        // A cancelled Save-As leaves it dirty; keep the prompt.
+                        if !self.dirty {
+                            self.close_confirm = false;
+                            self.force_close = true;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                    }
+                    if ui.button("Don't Save").clicked() {
+                        self.discard_recovery_files();
+                        self.dirty = false; // don't let on_exit re-write a recovery
+                        self.close_confirm = false;
+                        self.force_close = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.close_confirm = false;
+                    }
+                });
+            });
     }
 
     pub(super) fn draw_recovery_prompt(&mut self, ctx: &egui::Context) {
@@ -6836,6 +6908,13 @@ impl eframe::App for AadtApp {
         if self.perf_hud {
             ctx.request_repaint();
         }
+        // Save before exit: intercept the window-close [X] while there are
+        // unsaved edits — cancel the close and raise a Save / Don't Save / Cancel
+        // prompt. `force_close` lets the close through once the user has decided.
+        if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.force_close {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.close_confirm = true;
+        }
         // Dynamic input: unless a text field is focused, keystrokes are typed at
         // the crosshair — a command token, a value, or edit/finish keys.
         if !ctx.wants_keyboard_input() {
@@ -7090,6 +7169,7 @@ impl eframe::App for AadtApp {
         self.refresh_window_title(ctx);
         self.tick_autosave();
         self.draw_recovery_prompt(ctx);
+        self.draw_close_confirm(ctx);
         self.draw_shortcuts_sheet(ctx);
         self.poll_net();
         self.draw_server_dialog(ctx);
