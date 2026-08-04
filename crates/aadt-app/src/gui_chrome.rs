@@ -573,6 +573,52 @@ impl AadtApp {
         ui.small(format!(
             "{scope_label}: {total} layers · active {space_hint}"
         ));
+        self.ui_layer_metadata(ui);
+    }
+
+    /// HCW standard metadata for the current layer (BIM / takeoff / AI schema).
+    /// Read-only: the catalog is the source of truth; per-instance values
+    /// (material, fire rating, storey) live on the objects, not the layer.
+    fn ui_layer_metadata(&mut self, ui: &mut egui::Ui) {
+        let name = self.current_layer.clone();
+        let Some(l) = aadt_standards::find_layer(&name) else {
+            return;
+        };
+        ui.add_space(space::SM);
+        egui::CollapsingHeader::new(
+            egui::RichText::new(format!("Metadata — {name}"))
+                .size(type_scale::CAPTION)
+                .strong(),
+        )
+        .default_open(true)
+        .show(ui, |ui| {
+            let row = |ui: &mut egui::Ui, k: &str, v: &str| {
+                if v.is_empty() {
+                    return;
+                }
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(k)
+                            .size(type_scale::CAPTION)
+                            .color(color::text_secondary()),
+                    );
+                    ui.label(egui::RichText::new(v).size(type_scale::CAPTION));
+                });
+            };
+            row(ui, "Discipline", l.discipline.label());
+            row(ui, "Element", l.element.label());
+            row(ui, "Phase", l.phase.label());
+            row(ui, "IFC class", l.ifc());
+            row(ui, "Uniformat", l.uniformat());
+            row(ui, "MasterFormat", l.masterformat());
+            row(
+                ui,
+                "Plot",
+                if l.plottable { "Plotted" } else { "No plot" },
+            );
+            let tags = l.ai_tags().join(", ");
+            row(ui, "AI tags", &tags);
+        });
     }
 
     pub(super) fn ui_blocks_manager(&mut self, ui: &mut egui::Ui) {

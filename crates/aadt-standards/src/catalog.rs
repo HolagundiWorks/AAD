@@ -115,6 +115,16 @@ pub enum Phase {
     Demolish,
 }
 
+impl Phase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Phase::New => "New",
+            Phase::Existing => "Existing",
+            Phase::Demolish => "Demolish",
+        }
+    }
+}
+
 /// Semantic element a layer carries. This is the join key to BIM/IFC and to the
 /// takeoff / clash / AI-recognition subsystems: one place maps an element to its
 /// IFC class, Uniformat & MasterFormat codes, and AI tags.
@@ -1016,7 +1026,9 @@ mod tests {
     #[test]
     fn phase_layers_are_tagged() {
         assert_eq!(find_layer("X-WALL").unwrap().phase, Phase::Existing);
+        assert_eq!(find_layer("X-WALL").unwrap().phase.label(), "Existing");
         assert_eq!(find_layer("D-WALL").unwrap().phase, Phase::Demolish);
+        assert_eq!(find_layer("A-WALL").unwrap().phase.label(), "New");
     }
 
     #[test]
