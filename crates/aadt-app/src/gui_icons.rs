@@ -117,12 +117,13 @@ pub fn install(ctx: &egui::Context) {
     egui_extras::install_image_loaders(ctx);
 }
 
-/// Bold monoline brand mark (soft-apex open A on orange). See `docs/branding/`.
+/// AAD brand mark — the square "AD" monogram on brand amber (source: `SQ.svg`
+/// in the repo root). See `docs/branding/`.
 pub fn brand_mark() -> egui::ImageSource<'static> {
     egui::include_image!("../assets/branding/aadt_mark.svg")
 }
 
-/// Paint the solid orange monogram at `size`.
+/// Paint the square brand mark at `size`.
 pub fn brand_mark_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
     ui.add(
         egui::Image::new(brand_mark())
