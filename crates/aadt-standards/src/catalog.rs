@@ -911,6 +911,20 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("P-DOMW", 5, Continuous, 0.35, Plumbing, Pipe),
     L!("BORDER", 7, Continuous, 0.70, General, Titleblock),
     L!("TITLEBLOCK", 7, Continuous, 0.35, General, Titleblock),
+    // Title-block / sheet composition layers used by aadt-docs::titleblock and
+    // the in-drawing nameplate templates. Kept so the logo cell, revisions, and
+    // sheet borders carry their intended style instead of an auto-created default.
+    L!("LOGO", 7, Continuous, 0.25, General, Titleblock),
+    L!("TB_TEXT", 7, Continuous, 0.25, General, Text),
+    L!("TB_ATTR", 7, Continuous, 0.25, General, Text),
+    L!("REVISION", 1, Continuous, 0.35, General, Symbol),
+    L!("A-SHEET", 7, Continuous, 0.70, Annotation, Titleblock),
+    L!("A-TTLB", 7, Continuous, 0.50, Annotation, Titleblock),
+    L!("A-TTLB-TEXT", 7, Continuous, 0.25, Annotation, Text),
+    L!("TMPL_BORDER", 7, Continuous, 0.70, General, Titleblock),
+    L!("TMPL_TEXT", 7, Continuous, 0.25, General, Text),
+    L!("TMPL_VIEW", 8, Continuous, 0.35, General, Symbol),
+    L!("A-SECT-IDEN", 1, Continuous, 0.35, Architectural, Symbol),
 ];
 
 /// Back-compat alias — the catalog used to be named `AIA_LAYERS`.
@@ -1020,6 +1034,28 @@ mod tests {
     fn legacy_aliases_still_resolve() {
         for name in ["A-GLAZ", "A-COLS", "S-COLS", "E-LITE", "M-HVAC-SUPP", "P-SANR"] {
             assert!(find_layer(name).is_some(), "legacy layer {name} missing");
+        }
+    }
+
+    #[test]
+    fn titleblock_and_logo_layers_are_catalogued() {
+        // The layer names aadt-docs::titleblock draws onto must exist in the
+        // catalog so the sheet, logo cell, and revisions carry their style.
+        for name in [
+            "LOGO",
+            "TITLEBLOCK",
+            "TB_TEXT",
+            "TB_ATTR",
+            "REVISION",
+            "BORDER",
+            "A-SHEET",
+            "A-TTLB",
+            "TMPL_BORDER",
+            "TMPL_TEXT",
+            "TMPL_VIEW",
+            "A-SECT-IDEN",
+        ] {
+            assert!(find_layer(name).is_some(), "title-block layer {name} missing");
         }
     }
 
