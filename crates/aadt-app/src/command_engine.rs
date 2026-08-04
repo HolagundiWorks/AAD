@@ -752,13 +752,7 @@ const DIMSTYLE_STEPS: &[StepKind] = &[StepKind::Text {
 
 const STRETCH_STEPS: &[StepKind] = &[
     StepKind::Selection {
-        prompt: "STRETCH — select objects (Space when done)",
-    },
-    StepKind::Point {
-        prompt: "STRETCH — first crossing-window corner",
-    },
-    StepKind::Point {
-        prompt: "STRETCH — opposite corner",
+        prompt: "STRETCH — specify crossing window (Space when done)",
     },
     StepKind::Point {
         prompt: "STRETCH — base point",

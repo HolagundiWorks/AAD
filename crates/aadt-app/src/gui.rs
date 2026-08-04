@@ -298,11 +298,17 @@ pub(super) enum Tool {
         landing: Option<Point2>,
         text_pt: Option<Point2>,
     },
-    /// Stretch: select objects → crossing window → base → destination.
+    /// Stretch (AutoCAD-style): a crossing window both *selects* the objects and
+    /// decides which endpoints move → base point → destination. Endpoints inside
+    /// the window travel; the rest stay put.
     Stretch {
+        /// True while the crossing window is being specified (the selection step).
         collecting: bool,
+        /// First crossing-window corner, awaiting the opposite corner.
         w0: Option<Point2>,
-        w1: Option<Point2>,
+        /// The crossing window `(lo, hi)` that selected the objects and drives
+        /// the stretch. Set once both corners are given.
+        window: Option<(Point2, Point2)>,
         base: Option<Point2>,
     },
     /// Distance inquiry: two clicks (DI / DIST).
@@ -923,7 +929,7 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         "S" | "STRETCH" => Some(Tool::Stretch {
             collecting: collect,
             w0: None,
-            w1: None,
+            window: None,
             base: None,
         }),
         "DI" | "DIST" | "DISTANCE" => Some(Tool::Dist { first: None }),
@@ -2025,7 +2031,7 @@ impl AadtApp {
                 landing,
                 text_pt,
             } => text_pt.or(*landing).or(*arrow),
-            Tool::Stretch { w0, w1, base, .. } => base.or(*w1).or(*w0),
+            Tool::Stretch { w0, base, .. } => base.or(*w0),
             Tool::Dist { first } => *first,
             Tool::Brush { points } => points.as_ref().and_then(|v| v.last().copied()),
             Tool::Polyline { points } => points.last().copied(),
@@ -4033,6 +4039,41 @@ impl AadtApp {
         }
     }
 
+    /// STRETCH selection: specify the two corners of a crossing window. The first
+    /// corner is recorded; the second runs a crossing box-select (touch or inside)
+    /// that becomes both the selection and the stretch window. Called for clicks
+    /// and typed coordinates while `Tool::Stretch { collecting: true }`.
+    fn stretch_window_pick(&mut self, p: Point2, w0: Option<Point2>) {
+        match w0 {
+            None => {
+                self.tool = Tool::Stretch {
+                    collecting: true,
+                    w0: Some(p),
+                    window: None,
+                    base: None,
+                };
+                self.note = "STRETCH — specify opposite corner of crossing window".into();
+            }
+            Some(a) => {
+                let lo = Point2::new(a.x.min(p.x), a.y.min(p.y));
+                let hi = Point2::new(a.x.max(p.x), a.y.max(p.y));
+                let doc = self.session.document();
+                self.selection = box_select(doc, lo, hi, true);
+                self.selected_dimensions = dimension_box_select(doc, lo, hi, true);
+                self.selected_hatches.clear();
+                let n = self.selection.len() + self.selected_dimensions.len();
+                self.tool = Tool::Stretch {
+                    collecting: true,
+                    w0: None,
+                    window: Some((lo, hi)),
+                    base: None,
+                };
+                self.note =
+                    format!("STRETCH — {n} object(s) in window; Space to continue (or window again)");
+            }
+        }
+    }
+
     fn end_collecting_phase(&mut self) -> bool {
         if self.selection.is_empty() {
             self.note = "Select objects, then Space".into();
@@ -4116,15 +4157,16 @@ impl AadtApp {
                 self.engine.advance_step();
                 self.note = "ARRAYPATH — select path (line/pline/arc/circle)".into();
             }
-            Tool::Stretch { .. } => {
+            Tool::Stretch { window, .. } => {
+                let window = *window;
                 self.tool = Tool::Stretch {
                     collecting: false,
                     w0: None,
-                    w1: None,
+                    window,
                     base: None,
                 };
                 self.engine.advance_step();
-                self.note = "STRETCH — click first crossing-window corner".into();
+                self.note = "STRETCH — base point".into();
             }
             Tool::MakeBlock { erase, .. } => {
                 let erase = *erase;
@@ -4467,6 +4509,15 @@ impl AadtApp {
         // A one-shot snap override applies to exactly this pick; consume it now
         // (`p` already reflects it via `resolve_pick`).
         self.snap_override = None;
+        // STRETCH builds its crossing window during the selection phase: the
+        // window both picks the objects and decides which endpoints move, so its
+        // corners are specified here (click / typed coords) rather than by the
+        // single-object collector.
+        if let Tool::Stretch { collecting: true, w0, .. } = &self.tool {
+            let w0 = *w0;
+            self.stretch_window_pick(p, w0);
+            return;
+        }
         if self.tool_is_collecting() {
             self.collect_selection_pick(p);
             return;
@@ -4917,47 +4968,28 @@ impl AadtApp {
                     self.note = "MLEADER — type the note and Enter".into();
                 }
             },
-            Tool::Stretch {
-                collecting,
-                w0,
-                w1,
-                base,
-            } => {
-                if collecting {
-                    return; // picks handled by collect_selection_pick
-                }
-                match (w0, w1, base) {
-                    (None, _, _) => {
+            Tool::Stretch { window, base, .. } => {
+                // `collecting` was handled above; here we only take the base point
+                // and the destination.
+                match base {
+                    None => {
                         self.tool = Tool::Stretch {
                             collecting: false,
-                            w0: Some(p),
-                            w1: None,
-                            base: None,
-                        };
-                        self.note = "STRETCH — click opposite crossing-window corner".into();
-                    }
-                    (Some(a), None, _) => {
-                        self.tool = Tool::Stretch {
-                            collecting: false,
-                            w0: Some(a),
-                            w1: Some(p),
-                            base: None,
-                        };
-                        self.note = "STRETCH — click the base point".into();
-                    }
-                    (Some(a), Some(b), None) => {
-                        self.tool = Tool::Stretch {
-                            collecting: false,
-                            w0: Some(a),
-                            w1: Some(b),
+                            w0: None,
+                            window,
                             base: Some(p),
                         };
-                        self.note = "STRETCH — click the destination".into();
+                        self.note = "STRETCH — destination point".into();
                     }
-                    (Some(a), Some(b), Some(c)) => {
+                    Some(c) => {
                         self.sync_selection();
-                        let lo = Point2::new(a.x.min(b.x), a.y.min(b.y));
-                        let hi = Point2::new(a.x.max(b.x), a.y.max(b.y));
+                        // A crossing window moves only the endpoints inside it. With
+                        // no window (noun-verb pre-selection) every point travels —
+                        // the whole selection moves, matching AutoCAD.
+                        let (lo, hi) = window.unwrap_or((
+                            Point2::new(f64::MIN * 0.25, f64::MIN * 0.25),
+                            Point2::new(f64::MAX * 0.25, f64::MAX * 0.25),
+                        ));
                         self.app_feed(&format!(
                             "STRETCH {} {} {} {} {} {} SELECTION",
                             lo.x,
@@ -4968,6 +5000,7 @@ impl AadtApp {
                             p.y - c.y
                         ));
                         self.tool = Tool::Select;
+                        self.engine.complete();
                     }
                 }
             }
@@ -6275,30 +6308,28 @@ impl AadtApp {
                 text_pt: Some(_), ..
             } => "MLEADER — type the note and Space",
             Tool::Stretch {
-                collecting: true, ..
-            } => "STRETCH — select objects (Space when done)",
-            Tool::Stretch {
-                collecting: false,
-                w0: None,
-                ..
-            } => "STRETCH — click first crossing-window corner",
-            Tool::Stretch {
-                collecting: false,
+                collecting: true,
                 w0: Some(_),
-                w1: None,
                 ..
-            } => "STRETCH — click opposite crossing-window corner",
+            } => "STRETCH — specify opposite corner of crossing window",
+            Tool::Stretch {
+                collecting: true,
+                window: Some(_),
+                ..
+            } => "STRETCH — Space to continue (or window again)",
+            Tool::Stretch {
+                collecting: true, ..
+            } => "STRETCH — specify crossing window: first corner (Space when done)",
             Tool::Stretch {
                 collecting: false,
-                w1: Some(_),
                 base: None,
                 ..
-            } => "STRETCH — click the base point",
+            } => "STRETCH — base point",
             Tool::Stretch {
                 collecting: false,
                 base: Some(_),
                 ..
-            } => "STRETCH — click the destination",
+            } => "STRETCH — destination point",
             Tool::Dist { first: None } => "DIST — click first point",
             Tool::Dist { first: Some(_) } => "DIST — click second point",
             Tool::Brush { .. } => "BRUSH — click/drag freehand; Space finishes (A-PRES-MARK)",
@@ -8624,11 +8655,7 @@ fn paint_preview(
             painter.line_segment([to_screen(*a), to_screen(*l)], stroke);
             painter.line_segment([to_screen(*l), to_screen(cursor)], stroke);
         }
-        Tool::Stretch {
-            w0: Some(a),
-            w1: None,
-            ..
-        } => {
+        Tool::Stretch { w0: Some(a), .. } => {
             paint_box(painter, to_screen(*a), to_screen(cursor));
         }
         Tool::Stretch { base: Some(b), .. } => {

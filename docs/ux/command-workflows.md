@@ -177,8 +177,17 @@ Select objects → Space confirms erase (or pre-select then `E` / Space).
 
 ### STRETCH (`S`)
 
-Verb-noun (AutoCAD-style): select objects → Space → crossing window → base → destination.  
-Pre-selected objects skip the select step (noun-verb).
+AutoCAD-style: the **crossing window** is the selection — it both picks the
+objects and decides which endpoints move.
+
+| Step | Action |
+|------|--------|
+| 1 | Specify the crossing window: first corner → opposite corner (click, type `x,y`, or drag). Endpoints inside the window will move; the rest stay put. |
+| 2 | **Space** to accept the window (or window again to reselect) |
+| 3 | Base point |
+| 4 | Destination |
+
+Pre-selected objects skip step 1 (noun-verb) and move as a whole.
 
 ### Grips
 
