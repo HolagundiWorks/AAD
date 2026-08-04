@@ -36,7 +36,7 @@ legibility. Lineweights are millimetres on the AutoCAD/ISO pen ladder
 ## Rich metadata (BIM / takeoff / AI)
 
 Each layer carries a semantic `ElementType` that is the single source of truth
-for the richer metadata an AI-native platform needs, so the ~200-layer catalog
+for the richer metadata an AI-native platform needs, so the ~320-layer catalog
 stays maintainable:
 
 | Metadata | Source | Example (`A-WINDOW`) |
