@@ -1171,6 +1171,9 @@ struct AadtApp {
     layer_filter: String,
     /// Layer Manager list scope (Space / Floor / Import / All).
     layer_mgr_scope: LayerMgrScope,
+    /// Layer Manager discipline filter (`None` = all disciplines). Filters the
+    /// list to catalog layers of one HCW discipline (A / S / C / M / E / …).
+    layer_discipline_filter: Option<aadt_standards::Discipline>,
     /// Map-layers-to-spaces review dialog.
     show_layer_map: bool,
     /// Draft map edited in the dialog (layer → category).
@@ -1319,6 +1322,7 @@ impl AadtApp {
             right_tab: 1,
             insert_block: String::new(),
             layer_filter: String::new(),
+            layer_discipline_filter: None,
             layer_mgr_scope: LayerMgrScope::ActiveSpace,
             show_layer_map: false,
             layer_map_draft: std::collections::BTreeMap::new(),
@@ -1660,7 +1664,9 @@ impl AadtApp {
     fn layer_rows_snapshot(&mut self) -> Vec<(String, u8, bool, bool, bool, f32, String)> {
         let rev = self.session.document().revision();
         let filter = self.layer_filter.to_ascii_uppercase();
-        let scope_key = format!("{}|{}", self.layer_mgr_scope.cache_key(), filter);
+        let disc = self.layer_discipline_filter;
+        let disc_key = disc.map(|d| d.label()).unwrap_or("*");
+        let scope_key = format!("{}|{}|{}", self.layer_mgr_scope.cache_key(), disc_key, filter);
         let stale = match &self.layer_rows_cache {
             Some((r, f, _)) => *r != rev || *f != scope_key,
             None => true,
@@ -1703,6 +1709,12 @@ impl AadtApp {
                 .filter(|l| {
                     if let Some(set) = &allowed {
                         if !set.contains(&l.name) {
+                            return false;
+                        }
+                    }
+                    if let Some(d) = disc {
+                        // Only catalog layers of the chosen discipline.
+                        if aadt_standards::find_layer(&l.name).map(|s| s.discipline) != Some(d) {
                             return false;
                         }
                     }

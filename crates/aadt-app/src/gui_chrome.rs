@@ -273,6 +273,42 @@ impl AadtApp {
                 self.open_layer_map_dialog();
             }
         });
+        // Discipline filter — narrows the list to one HCW discipline (A/S/C/M/…).
+        ui.horizontal_wrapped(|ui| {
+            ui.set_max_width(panel_w);
+            ui.spacing_mut().item_spacing.x = space::SM;
+            ui.label(
+                egui::RichText::new("Discipline")
+                    .size(type_scale::CAPTION)
+                    .strong()
+                    .color(color::text_secondary()),
+            );
+            let current = self
+                .layer_discipline_filter
+                .map(|d| d.label())
+                .unwrap_or("All");
+            egui::ComboBox::from_id_salt("layer_discipline")
+                .selected_text(current)
+                .width((panel_w * 0.5).clamp(120.0, 200.0))
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_label(self.layer_discipline_filter.is_none(), "All")
+                        .clicked()
+                    {
+                        self.layer_discipline_filter = None;
+                        self.layer_rows_cache = None;
+                    }
+                    for d in aadt_standards::Discipline::ALL {
+                        if ui
+                            .selectable_label(self.layer_discipline_filter == Some(*d), d.label())
+                            .clicked()
+                        {
+                            self.layer_discipline_filter = Some(*d);
+                            self.layer_rows_cache = None;
+                        }
+                    }
+                });
+        });
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.layer_filter)
