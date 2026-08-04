@@ -8,6 +8,7 @@
 
 mod aci;
 mod catalog;
+mod report;
 mod section;
 mod sets;
 mod space_map;
@@ -20,6 +21,7 @@ pub use catalog::{
     apply_standard_layers, find_layer, Discipline, ElementType, Phase, StandardLayer, AIA_LAYERS,
     STANDARD_LAYERS,
 };
+pub use report::{catalog_csv, catalog_markdown};
 pub use section::generate_section;
 pub use sets::{apply_layer_set, LayerSet, PRESETS};
 pub use space_map::{category_default_layer, category_from_layer};

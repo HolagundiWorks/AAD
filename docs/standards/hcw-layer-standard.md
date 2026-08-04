@@ -64,6 +64,18 @@ Discipline visibility presets are applied with `LAYER SET <name>` /
 The top-bar **Walls / Windows / Structure** toggles and the STRETCH element
 filter operate on layer-name groups drawn from the same convention.
 
+## Export
+
+Emit the whole standard for QA, hand-off, or spec coordination:
+
+```
+LAYERREPORT standard.csv    # every column, one row per layer
+LAYERREPORT standard.md     # grouped by discipline, one table each
+```
+
+Format follows the file extension. Also available programmatically as
+`aadt_standards::catalog_csv()` / `catalog_markdown()`.
+
 ## Legacy compatibility
 
 Earlier AIA names (`A-GLAZ`, `A-COLS`, `S-COLS`, `A-ANNO-*`, `E-LITE`,

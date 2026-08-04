@@ -16,7 +16,10 @@ use aadt_geometry::{Bbox, Point2};
 use aadt_graph::{promote::promote_with_audit, Graph};
 use aadt_model::EntityId;
 use aadt_object::{AuditLog, ObjectId, ObjectStore};
-use aadt_standards::{apply_layer_set, apply_standard_layers, generate_section, LayerSet};
+use aadt_standards::{
+    apply_layer_set, apply_standard_layers, catalog_csv, catalog_markdown, generate_section,
+    LayerSet,
+};
 use aadt_vecdb::{
     accept, find_by_text, find_duplicates, find_similar_to, map_metadata, set_class, set_layer,
     CorpusDb, Thresholds, VectorDb,
@@ -59,6 +62,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(RelationsCmd { st: objstate }));
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
+    registry.register(Box::new(LayerReportCmd));
     registry.register(Box::new(SectionCmd));
     registry.register(Box::new(BlockLibCmd));
     registry.register(Box::new(HatchLibCmd));
@@ -342,6 +346,35 @@ impl Command for StandardsCmd {
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
         let n = ctx.doc.transact("STANDARDS", apply_standard_layers);
         Ok(format!("seeded {n} AIA layers"))
+    }
+}
+
+struct LayerReportCmd;
+impl Command for LayerReportCmd {
+    fn name(&self) -> &str {
+        "LAYERREPORT"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["STANDARDSREPORT", "LAYERSTD"]
+    }
+    fn help(&self) -> &str {
+        "LAYERREPORT path.csv|path.md — export the HCW layer standard (format from extension)"
+    }
+    fn run(&self, _ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let path = path_from_args(args, "LAYERREPORT")?;
+        let is_md = Path::new(&path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"))
+            .unwrap_or(false);
+        let body = if is_md {
+            catalog_markdown()
+        } else {
+            catalog_csv()
+        };
+        std::fs::write(&path, &body).map_err(|e| format!("LAYERREPORT: {path}: {e}"))?;
+        let kind = if is_md { "Markdown" } else { "CSV" };
+        Ok(format!("wrote {kind} layer standard to {path}"))
     }
 }
 
