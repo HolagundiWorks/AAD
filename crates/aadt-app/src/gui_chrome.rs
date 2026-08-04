@@ -380,10 +380,35 @@ impl AadtApp {
                         let display = name
                             .strip_prefix(aadt_model::IMPORTED_LAYER_PREFIX)
                             .unwrap_or(&name);
+                        // HCW standard metadata (discipline · element · IFC / codes)
+                        // when this layer is part of the catalog.
+                        let meta = aadt_standards::find_layer(&name)
+                            .map(|l| {
+                                let mut s = format!(
+                                    "\n{} · {}",
+                                    l.discipline.label(),
+                                    l.element.label()
+                                );
+                                if !l.ifc().is_empty() {
+                                    s.push_str(&format!("  ·  {}", l.ifc()));
+                                }
+                                let mut codes = Vec::new();
+                                if !l.uniformat().is_empty() {
+                                    codes.push(format!("Uniformat {}", l.uniformat()));
+                                }
+                                if !l.masterformat().is_empty() {
+                                    codes.push(format!("MF {}", l.masterformat()));
+                                }
+                                if !codes.is_empty() {
+                                    s.push_str(&format!("\n{}", codes.join(" · ")));
+                                }
+                                s
+                            })
+                            .unwrap_or_default();
                         let name_resp = ui
                             .selectable_label(is_current, truncate_ui(display, 18))
                             .on_hover_text(format!(
-                                "{name}  ·  space: {mapped}\nDouble-click sets current · right-click for actions"
+                                "{name}  ·  space: {mapped}{meta}\nDouble-click sets current · right-click for actions"
                             ));
                         if name_resp.double_clicked() {
                             self.current_layer = name.clone();
