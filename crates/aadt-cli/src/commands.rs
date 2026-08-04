@@ -14,11 +14,11 @@ use aadt_command::{Command, Context, Interpreter};
 use aadt_embed::{default_classifier, Classifier, ElementClass, EMBED_DIM};
 use aadt_geometry::{Bbox, Point2};
 use aadt_graph::{promote::promote_with_audit, Graph};
-use aadt_model::EntityId;
+use aadt_model::{EntityId, Geometry, Layer, Text};
 use aadt_object::{AuditLog, ObjectId, ObjectStore};
 use aadt_standards::{
-    apply_layer_set, apply_standard_layers, catalog_csv, catalog_markdown, generate_section,
-    LayerSet,
+    apply_layer_set, apply_standard_layers, catalog_csv, catalog_markdown, find_layer,
+    generate_section, LayerSet,
 };
 use aadt_vecdb::{
     accept, find_by_text, find_duplicates, find_similar_to, map_metadata, set_class, set_layer,
@@ -63,6 +63,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(LayerReportCmd));
+    registry.register(Box::new(LayerLegendCmd));
     registry.register(Box::new(SectionCmd));
     registry.register(Box::new(BlockLibCmd));
     registry.register(Box::new(HatchLibCmd));
@@ -375,6 +376,72 @@ impl Command for LayerReportCmd {
         std::fs::write(&path, &body).map_err(|e| format!("LAYERREPORT: {path}: {e}"))?;
         let kind = if is_md { "Markdown" } else { "CSV" };
         Ok(format!("wrote {kind} layer standard to {path}"))
+    }
+}
+
+struct LayerLegendCmd;
+impl Command for LayerLegendCmd {
+    fn name(&self) -> &str {
+        "LAYERLEGEND"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["LEGEND", "LAYERKEY"]
+    }
+    fn help(&self) -> &str {
+        "LAYERLEGEND [x y [height]] — draw a text key of the layers in use (props + metadata) on G-LEGEND"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let ox = args.first().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        let oy = args.get(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        let h = args
+            .get(2)
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(250.0);
+        let used = ctx.doc.layer_usage_counts();
+        if used.is_empty() {
+            return Err("LAYERLEGEND: no layers in use".into());
+        }
+        let count = used.len();
+        let row = h * 1.8;
+        // Swatches would need to live on the real layers (colour is ByLayer),
+        // which would pollute takeoff — so the key is a text table; the ACI
+        // number identifies the colour instead.
+        let legend_layer = "G-LEGEND";
+        ctx.doc.transact("LAYERLEGEND", |d| {
+            if d.layer(legend_layer).is_none() {
+                d.add_layer(
+                    Layer::new(legend_layer)
+                        .with_color(7)
+                        .with_lineweight_mm(0.18),
+                );
+            }
+            d.add_geometry(
+                legend_layer.to_string(),
+                Geometry::Text(Text::new(
+                    "LAYER LEGEND".to_string(),
+                    Point2::new(ox, oy + row),
+                    h * 1.3,
+                    0.0,
+                )),
+            );
+            for (i, (name, n)) in used.iter().enumerate() {
+                let (aci, lt, lw) = d
+                    .layer(name)
+                    .map(|l| (l.color, format!("{:?}", l.linetype), l.lineweight_mm))
+                    .unwrap_or((7, "Continuous".to_string(), 0.25));
+                let meta = find_layer(name)
+                    .map(|l| format!("   [{} · {}]", l.discipline.label(), l.element.label()))
+                    .unwrap_or_default();
+                let text = format!("{name}   ×{n}   ACI {aci} · {lt} · {lw:.2}mm{meta}");
+                let y = oy - (i as f64) * row;
+                d.add_geometry(
+                    legend_layer.to_string(),
+                    Geometry::Text(Text::new(text, Point2::new(ox, y), h, 0.0)),
+                );
+            }
+        });
+        Ok(format!("drew legend of {count} layers on {legend_layer}"))
     }
 }
 
@@ -1952,5 +2019,50 @@ mod server_tests {
     fn push_and_pull_require_a_connection() {
         assert!(run("SERVER PUSH").unwrap_err().contains("not connected"));
         assert!(run("SERVER PULL").unwrap_err().contains("not connected"));
+    }
+}
+
+#[cfg(test)]
+mod layer_legend_tests {
+    use super::*;
+    use aadt_command::Interpreter;
+    use aadt_geometry::Segment;
+
+    fn interp() -> (Interpreter, Context) {
+        let mut interp = Interpreter::with_builtins();
+        register(&mut interp);
+        (interp, Context::new())
+    }
+
+    #[test]
+    fn draws_a_text_row_per_used_layer_plus_title() {
+        let (interp, mut ctx) = interp();
+        ctx.doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        ctx.doc.add_geometry(
+            "A-WINDOW",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(0.0, 1.0))),
+        );
+        let msg = interp
+            .eval_line(&mut ctx, "LAYERLEGEND 0 0 100")
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("2 layers"), "msg: {msg}");
+        // Title + one row per used layer.
+        let legend_texts = ctx
+            .doc
+            .iter_entities()
+            .filter(|e| e.layer == "G-LEGEND" && matches!(e.geometry, Geometry::Text(_)))
+            .count();
+        assert_eq!(legend_texts, 3, "title + 2 rows");
+    }
+
+    #[test]
+    fn empty_drawing_errors() {
+        let (interp, mut ctx) = interp();
+        let e = interp.eval_line(&mut ctx, "LAYERLEGEND").unwrap_err();
+        assert!(e.contains("no layers in use"), "err: {e}");
     }
 }

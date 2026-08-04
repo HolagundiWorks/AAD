@@ -76,6 +76,13 @@ LAYERREPORT standard.md     # grouped by discipline, one table each
 Format follows the file extension. Also available programmatically as
 `aadt_standards::catalog_csv()` / `catalog_markdown()`.
 
+Draw a key of the layers actually used **in a drawing** (name, count, ACI,
+linetype, lineweight, and catalog discipline/element) onto a `G-LEGEND` layer:
+
+```
+LAYERLEGEND [x y [height]]    # default origin 0,0 · text height 250
+```
+
 ## Legacy compatibility
 
 Earlier AIA names (`A-GLAZ`, `A-COLS`, `S-COLS`, `A-ANNO-*`, `E-LITE`,
