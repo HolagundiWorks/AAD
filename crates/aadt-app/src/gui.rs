@@ -1277,7 +1277,7 @@ struct AadtApp {
 impl AadtApp {
     fn from_session(session: Session) -> Self {
         let prefs = UserPrefs::load();
-        let recovery_prompt = Self::detect_recovery(None);
+        let recovery_prompt = Self::detect_recovery(None).or_else(Self::detect_untitled_recovery);
         Self {
             session,
             command: String::new(),
@@ -1431,6 +1431,21 @@ impl AadtApp {
         }
     }
 
+    /// Recovery file for an *untitled* drawing (no path yet): a stable location
+    /// under the config dir, so autosave / save-before-exit still protects work
+    /// that was never saved with a name.
+    fn untitled_recovery_path() -> Option<PathBuf> {
+        let cfg = UserPrefs::config_path()?;
+        let dir = cfg.parent()?.join("recovery");
+        Some(dir.join("untitled.autosave.aadt"))
+    }
+
+    /// A leftover untitled-recovery file from a previous session, if present.
+    fn detect_untitled_recovery() -> Option<PathBuf> {
+        let p = Self::untitled_recovery_path()?;
+        p.is_file().then_some(p)
+    }
+
     /// Feed a command line; tracks dirty + file path for OPEN/SAVE.
     pub(super) fn app_feed(&mut self, line: &str) -> Feedback {
         let rev0 = self.session.document().revision();
@@ -1468,6 +1483,11 @@ impl AadtApp {
                     } else if up == "SAVE" {
                         let auto = Self::autosave_path(&pb);
                         let _ = std::fs::remove_file(auto);
+                        // The drawing now has a name; drop any untitled recovery
+                        // so it can't resurface as a stale prompt next launch.
+                        if let Some(u) = Self::untitled_recovery_path() {
+                            let _ = std::fs::remove_file(u);
+                        }
                     }
                 }
             }
@@ -1578,25 +1598,47 @@ impl AadtApp {
         self.library_cache.clear();
     }
 
+    /// Periodic autosave — called every frame; writes at most every
+    /// `autosave_secs` once the document is dirty.
     fn tick_autosave(&mut self) {
+        self.write_autosave(false);
+    }
+
+    /// Write a recovery copy of the document. `force` bypasses the interval
+    /// (used on exit). Titled drawings autosave to their `*.autosave.*` sibling;
+    /// untitled drawings autosave to a recovery file under the config dir. Never
+    /// clears `dirty` or rewrites `file_path` — the real file is only touched by
+    /// an explicit SAVE. Returns true when a recovery copy was written.
+    fn write_autosave(&mut self, force: bool) -> bool {
         if !self.dirty {
-            return;
+            return false;
         }
-        let Some(path) = self.file_path.clone() else {
-            return;
-        };
         let now = Instant::now();
-        if let Some(last) = self.last_autosave {
-            if now.duration_since(last).as_secs() < self.autosave_secs {
-                return;
+        if !force {
+            if let Some(last) = self.last_autosave {
+                if now.duration_since(last).as_secs() < self.autosave_secs {
+                    return false;
+                }
             }
         }
-        let auto = Self::autosave_path(&path);
+        let Some(auto) = self
+            .file_path
+            .as_ref()
+            .map(|p| Self::autosave_path(p))
+            .or_else(Self::untitled_recovery_path)
+        else {
+            return false;
+        };
+        if let Some(dir) = auto.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let fb = self.session.feed(&format!("SAVE {}", auto.display()));
-        // Autosave must not clear dirty or rewrite file_path.
         if matches!(fb, Feedback::Ok(_)) {
             self.last_autosave = Some(now);
             self.note = format!("Autosaved {}", auto.display());
+            true
+        } else {
+            false
         }
     }
 
@@ -7434,6 +7476,12 @@ impl eframe::App for AadtApp {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Save before exit: flush the latest edits to the recovery copy (the
+        // `*.autosave.*` sibling for a named file, or the untitled recovery file)
+        // so nothing is lost when the window closes, even if the periodic
+        // autosave interval had not yet elapsed. Non-destructive — the named file
+        // is only overwritten by an explicit SAVE.
+        self.write_autosave(true);
         self.persist_prefs();
     }
 }
@@ -9766,5 +9814,28 @@ mod layer_group_tests {
         assert!(LayerGroup::Structure.matches_layer("A-COLS"));
         assert!(LayerGroup::Structure.matches_layer("FOOTING"));
         assert!(!LayerGroup::Structure.matches_layer("A-WALL"));
+    }
+}
+
+#[cfg(test)]
+mod autosave_path_tests {
+    use super::AadtApp;
+    use std::path::Path;
+
+    #[test]
+    fn autosave_sibling_keeps_stem_and_extension() {
+        let auto = AadtApp::autosave_path(Path::new("/proj/plan.aadt"));
+        assert_eq!(auto, Path::new("/proj/plan.autosave.aadt"));
+        let dxf = AadtApp::autosave_path(Path::new("/proj/plan.dxf"));
+        assert_eq!(dxf, Path::new("/proj/plan.autosave.dxf"));
+    }
+
+    #[test]
+    fn untitled_recovery_lives_in_a_recovery_dir() {
+        // Depends on the platform config dir (HOME/XDG/APPDATA). When available,
+        // it must sit in a `recovery/` dir under the config root.
+        if let Some(p) = AadtApp::untitled_recovery_path() {
+            assert!(p.ends_with("recovery/untitled.autosave.aadt"), "got {p:?}");
+        }
     }
 }
