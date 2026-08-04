@@ -71,8 +71,10 @@ Recommended agent conventions:
 - **Prefer the layer's declared semantics.** Route by discipline (`Discipline`),
   match elements by `ElementType`, export by `ifc()` — never by parsing text or
   colour. Colour is ByLayer and plots black; it is not a semantic signal.
-- **Fall back to embeddings only for unlabelled geometry.** Freshly imported
-  `ORG-DWG_LAYER-*` layers (the `IMPORT` set) carry no HCW semantics yet; use
+- **Adopt exact matches first, embeddings only for the rest.** Freshly imported
+  `ORG-DWG_LAYER-*` layers (the `IMPORT` set) carry no HCW semantics yet. Run
+  `ADOPTLAYERS` to move any whose base name already **is** a standard layer
+  (`ORG-DWG_LAYER-A-WALL` → `A-WALL`) onto it directly. For the remainder, use
   similarity + `nearest_class`, then write the resolved HCW layer with
   `MAPMETA` / `set_layer` so future queries are cheap and deterministic.
 - **Respect phase.** Scope demolition work to `X-*` / `D-*` (or the `DEMOLITION`
@@ -104,4 +106,4 @@ Recommended agent conventions:
 - Vector store: [ADR-0011](../adr/0011-vector-database-store.md)
 - Standalone server design: [shilpidb-standalone-server.md](../plans/shilpidb-standalone-server.md)
 - Commands: `WITHIN` / `VSELECT`, `LAYERSET`, `OBJMETA`, `LAYERREPORT`,
-  `LAYERLEGEND`, `MAPMETA`, `FIND`.
+  `LAYERLEGEND`, `MAPMETA`, `ADOPTLAYERS`, `FIND`.

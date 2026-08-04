@@ -65,6 +65,7 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(LayerReportCmd));
     registry.register(Box::new(LayerLegendCmd));
     registry.register(Box::new(ObjMetaCmd));
+    registry.register(Box::new(AdoptLayersCmd));
     registry.register(Box::new(SectionCmd));
     registry.register(Box::new(BlockLibCmd));
     registry.register(Box::new(HatchLibCmd));
@@ -443,6 +444,58 @@ impl Command for LayerLegendCmd {
             }
         });
         Ok(format!("drew legend of {count} layers on {legend_layer}"))
+    }
+}
+
+struct AdoptLayersCmd;
+impl Command for AdoptLayersCmd {
+    fn name(&self) -> &str {
+        "ADOPTLAYERS"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["IMPORTADOPT", "ADOPT"]
+    }
+    fn help(&self) -> &str {
+        "ADOPTLAYERS — move imported layers whose name matches an HCW standard layer onto that standard layer"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let prefix = aadt_model::IMPORTED_LAYER_PREFIX;
+        // Imported layers (`ORG-DWG_LAYER-<name>`) whose base name is a known HCW
+        // standard layer — an exact match means it *is* that layer.
+        let pairs: Vec<(String, String)> = ctx
+            .doc
+            .layers()
+            .filter_map(|l| {
+                let base = l.name.strip_prefix(prefix)?;
+                find_layer(base).map(|_| (l.name.clone(), base.to_string()))
+            })
+            .collect();
+        if pairs.is_empty() {
+            return Ok("no imported layers match a standard layer".into());
+        }
+        let mut moved = 0usize;
+        let adopted = ctx.doc.transact("ADOPTLAYERS", |d| {
+            let mut adopted = 0usize;
+            for (import, base) in &pairs {
+                let ids: Vec<EntityId> = d
+                    .iter_entities()
+                    .filter(|e| &e.layer == import)
+                    .map(|e| e.id)
+                    .collect();
+                for id in ids {
+                    if d.set_entity_layer(id, base.clone()) {
+                        moved += 1;
+                    }
+                }
+                if d.remove_layer(import) {
+                    adopted += 1;
+                }
+            }
+            adopted
+        });
+        Ok(format!(
+            "adopted {adopted} imported layer(s), moved {moved} object(s) onto standard layers"
+        ))
     }
 }
 
@@ -2216,5 +2269,53 @@ mod objmeta_tests {
             .eval_line(&mut ctx, "OBJMETA")
             .unwrap_err()
             .contains("no selection"));
+    }
+}
+
+#[cfg(test)]
+mod adopt_layers_tests {
+    use super::*;
+    use aadt_command::Interpreter;
+    use aadt_geometry::Segment;
+
+    fn interp() -> (Interpreter, Context) {
+        let mut interp = Interpreter::with_builtins();
+        register(&mut interp);
+        (interp, Context::new())
+    }
+
+    #[test]
+    fn recognized_import_moves_onto_standard_layer() {
+        let (interp, mut ctx) = interp();
+        let prefix = aadt_model::IMPORTED_LAYER_PREFIX;
+        // Simulate a retagged import: an entity on ORG-DWG_LAYER-A-WALL, plus an
+        // unrecognized import that must be left alone.
+        let good = format!("{prefix}A-WALL");
+        let junk = format!("{prefix}RANDOM_FIRM_LAYER");
+        let gid = ctx.doc.add_geometry(
+            good.clone(),
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        let jid = ctx.doc.add_geometry(
+            junk.clone(),
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(0.0, 1.0))),
+        );
+        let msg = interp.eval_line(&mut ctx, "ADOPTLAYERS").unwrap().unwrap();
+        assert!(msg.contains("adopted 1"), "msg: {msg}");
+        assert_eq!(ctx.doc.get(gid).unwrap().layer, "A-WALL");
+        assert!(ctx.doc.layer(&good).is_none(), "import layer removed");
+        // Unrecognized import untouched.
+        assert_eq!(ctx.doc.get(jid).unwrap().layer, junk);
+    }
+
+    #[test]
+    fn nothing_to_adopt_is_reported() {
+        let (interp, mut ctx) = interp();
+        ctx.doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        let msg = interp.eval_line(&mut ctx, "ADOPTLAYERS").unwrap().unwrap();
+        assert!(msg.contains("no imported layers"), "msg: {msg}");
     }
 }

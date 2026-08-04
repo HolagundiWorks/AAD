@@ -116,3 +116,9 @@ Earlier AIA names (`A-GLAZ`, `A-COLS`, `S-COLS`, `A-ANNO-*`, `E-LITE`,
 imported drawings, detection maps, and fixtures keep resolving. Prefer the HCW
 names (`A-WINDOW`, `A-COLUMN`, `S-COLUMN`, `A-TEXT`, `E-LIGHT`, `M-DUCT`,
 `P-SOIL`, …) for new work.
+
+On import, CAD layers are namespaced under `ORG-DWG_LAYER-*` (the `IMPORT` set)
+so they never clobber the standard. `ADOPTLAYERS` consolidates the easy wins:
+any import whose base name already **is** a standard layer
+(`ORG-DWG_LAYER-A-WALL` → `A-WALL`) is moved onto it and the namespaced layer
+removed. Undoable. Remaining firm-specific layers stay for manual mapping.
