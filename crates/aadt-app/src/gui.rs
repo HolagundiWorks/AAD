@@ -26,7 +26,7 @@ use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
 use crate::prefs::UserPrefs;
-use crate::selection::{point_in_polygon, select_by_fence, select_in_polygon, RegionMode};
+use crate::selection::{select_by_fence, select_in_polygon, RegionMode};
 use crate::{Feedback, Session};
 
 #[path = "gui_chrome.rs"]
@@ -1050,8 +1050,8 @@ struct AadtApp {
     current_layer: String,
     /// Screen anchor of an in-progress box selection.
     box_start: Option<egui::Pos2>,
-    /// Screen path of an in-progress drag select; a near-straight drag is a box,
-    /// a meandering one is a lasso (free-drag region select).
+    /// Screen path of the in-progress TRIM freehand stroke (quick-trim); each
+    /// object the path crosses is trimmed once per stroke.
     drag_path: Vec<egui::Pos2>,
     /// Entities already trimmed by the current TRIM drag stroke (AutoCAD
     /// freehand quick-trim), so a single stroke never trims one twice.
@@ -1406,7 +1406,6 @@ impl AadtApp {
                         let mfb = self.session.feed("MAPMETA");
                         if self.session.document().revision() != rev_before {
                             self.dirty = true;
-                            self.fitted = false;
                         }
                         if let Some(m) = mfb.message() {
                             self.note = m.to_string();
@@ -1419,8 +1418,6 @@ impl AadtApp {
             }
         } else if self.session.document().revision() != rev0 {
             self.dirty = true;
-            // New geometry (ASK / LINE / …) — reframe so it isn't off-camera.
-            self.fitted = false;
         }
         if ok
             && matches!(
@@ -1471,7 +1468,6 @@ impl AadtApp {
         aadt_standards::apply_standard_layers(&mut d);
         self.session.set_document(d);
         self.selection.clear();
-        self.fitted = false;
         self.file_path = None;
         self.dirty = false;
         self.recovery_prompt = None;
@@ -1707,7 +1703,6 @@ impl AadtApp {
                         let p = auto.display().to_string();
                         self.app_feed(&format!("OPEN {p}"));
                         self.dirty = true;
-                        self.fitted = false;
                         self.recovery_prompt = None;
                         self.note = "Restored from autosave — save to keep".into();
                     }
@@ -1929,7 +1924,6 @@ impl AadtApp {
                         self.session.document_mut().restore_entity(entity);
                     }
                     self.server_msg = format!("pulled {n} entities into the drawing");
-                    self.fitted = false;
                     self.selection.clear();
                     self.layer_rows_cache = None;
                 }
@@ -6697,7 +6691,6 @@ impl eframe::App for AadtApp {
                                         if let Some(m) = fb.message() {
                                             self.note = m.to_string();
                                         }
-                                        self.fitted = false;
                                         self.selection.clear();
                                     }
                                 }
@@ -6925,43 +6918,21 @@ impl eframe::App for AadtApp {
                         // Use press origin so window/crossing direction matches the
                         // true drag (AutoCAD: L→R window, R→L crossing).
                         if resp.drag_started() {
-                            let start = ui
+                            self.box_start = ui
                                 .input(|i| i.pointer.press_origin())
                                 .or_else(|| resp.interact_pointer_pos());
-                            self.box_start = start;
-                            self.drag_path.clear();
-                            if let Some(p) = start {
-                                self.drag_path.push(p);
-                            }
-                        }
-                        // Trail the drag so a curved gesture reads as a lasso.
-                        if resp.dragged() && self.box_start.is_some() {
-                            if let Some(pos) = resp.interact_pointer_pos() {
-                                if self
-                                    .drag_path
-                                    .last()
-                                    .map(|p| (*p - pos).length() > 2.0)
-                                    .unwrap_or(true)
-                                {
-                                    self.drag_path.push(pos);
-                                }
-                            }
                         }
                         let mut box_done = false;
                         if resp.drag_stopped() {
                             if let (Some(s), Some(e)) =
                                 (self.box_start, resp.interact_pointer_pos())
                             {
-                                if drag_is_lasso(&self.drag_path) {
-                                    self.finish_lasso(&to_world, ui);
-                                    box_done = true;
-                                } else if (s - e).length() >= 3.0 {
+                                if (s - e).length() >= 3.0 {
                                     self.finish_box(s, e, &to_world, ui);
                                     box_done = true;
                                 }
                             }
                             self.box_start = None;
-                            self.drag_path.clear();
                         }
                         // Skip click-select after a real box so release doesn't clear.
                         if resp.clicked() && !box_done {
@@ -7189,26 +7160,9 @@ impl eframe::App for AadtApp {
                         }
                     }
                 }
-                // The selection box (straight drag) or lasso trail (curved drag).
+                // The selection box (straight drag).
                 if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {
-                    if drag_is_lasso(&self.drag_path) {
-                        let col = if self.drag_path.first().map(|p| cur.x < p.x).unwrap_or(false) {
-                            egui::Color32::from_rgb(90, 160, 90) // crossing (green)
-                        } else {
-                            egui::Color32::from_rgb(80, 130, 200) // window (blue)
-                        };
-                        let lstroke = egui::Stroke::new(1.0_f32, col);
-                        for pair in self.drag_path.windows(2) {
-                            painter.line_segment([pair[0], pair[1]], lstroke);
-                        }
-                        if let (Some(&first), Some(&last)) =
-                            (self.drag_path.first(), self.drag_path.last())
-                        {
-                            painter.line_segment([last, first], lstroke);
-                        }
-                    } else {
-                        paint_box(&painter, s, cur);
-                    }
+                    paint_box(&painter, s, cur);
                 }
                 // UCS marker (bottom-left of viewport).
                 {
@@ -7437,70 +7391,6 @@ impl AadtApp {
             format!("Window: {n} selected")
         };
     }
-
-    /// Free-drag lasso select: the drag path is the region polygon. Direction
-    /// (screen L→R vs R→L) picks window vs crossing, like the box.
-    fn finish_lasso(&mut self, to_world: &impl Fn(&Camera, egui::Pos2) -> Point2, ui: &egui::Ui) {
-        if self.drag_path.len() < 3 {
-            return;
-        }
-        let polygon: Vec<Point2> = self
-            .drag_path
-            .iter()
-            .map(|p| to_world(&self.camera, *p))
-            .collect();
-        let (a, b) = (self.drag_path[0], self.drag_path[self.drag_path.len() - 1]);
-        let crossing = b.x < a.x;
-        let mode = if crossing {
-            RegionMode::Crossing
-        } else {
-            RegionMode::Window
-        };
-        let hits = select_in_polygon(self.session.document(), &polygon, mode);
-        let dim_hits = dimension_polygon_select(self.session.document(), &polygon, crossing);
-        if ui.input(|i| i.modifiers.shift) {
-            for id in hits {
-                if !self.selection.contains(&id) {
-                    self.selection.push(id);
-                }
-            }
-            for idx in dim_hits {
-                if !self.selected_dimensions.contains(&idx) {
-                    self.selected_dimensions.push(idx);
-                }
-            }
-        } else {
-            self.selection = hits;
-            self.selected_dimensions = dim_hits;
-            self.selected_hatches.clear();
-        }
-        self.sync_selection();
-        let n = self.selection.len() + self.selected_dimensions.len();
-        self.note = format!(
-            "Lasso {}: {n} selected",
-            if crossing { "crossing" } else { "window" }
-        );
-    }
-}
-
-/// True when a drag path curves enough to be a lasso rather than a box: some
-/// point lies well off the straight line from start to end (or it loops back).
-fn drag_is_lasso(path: &[egui::Pos2]) -> bool {
-    if path.len() < 4 {
-        return false;
-    }
-    let (a, b) = (path[0], path[path.len() - 1]);
-    let ab = b - a;
-    let len = ab.length();
-    if len < 6.0 {
-        return true; // returned near the start → a loop, not a box
-    }
-    let normal = egui::vec2(-ab.y, ab.x) / len;
-    let max_dev = path
-        .iter()
-        .map(|p| (*p - a).dot(normal).abs())
-        .fold(0.0_f32, f32::max);
-    max_dev > 12.0
 }
 
 /// Zoom about the cursor on scroll.
@@ -7720,44 +7610,6 @@ fn dimension_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) 
         }
         let selected = saw && if crossing { any_in || crosses } else { all_in };
         if selected {
-            hits.push(i);
-        }
-    }
-    hits
-}
-
-/// Dimensions caught by a lasso polygon. Window needs every drawn point inside;
-/// crossing needs any point inside (segment-edge crossings are not tested — a
-/// dimension line that only clips the lasso boundary is a rare case).
-fn dimension_polygon_select(doc: &Document, polygon: &[Point2], crossing: bool) -> Vec<usize> {
-    let active = doc.active_space();
-    let props = doc.properties();
-    let mut hits = Vec::new();
-    for (i, dim) in doc.dimensions().iter().enumerate() {
-        if dim.space != active || !entity_pickable(doc, &dim.layer) {
-            continue;
-        }
-        let (mut all_in, mut any_in, mut saw) = (true, false, false);
-        for cmd in dimension_commands(dim, props) {
-            match cmd {
-                DrawCommand::Polyline { points, .. } => {
-                    for pt in points {
-                        saw = true;
-                        let inside = point_in_polygon(polygon, pt);
-                        any_in |= inside;
-                        all_in &= inside;
-                    }
-                }
-                DrawCommand::Text { position, .. } => {
-                    saw = true;
-                    let inside = point_in_polygon(polygon, position);
-                    any_in |= inside;
-                    all_in &= inside;
-                }
-                _ => {}
-            }
-        }
-        if saw && if crossing { any_in } else { all_in } {
             hits.push(i);
         }
     }

@@ -1005,7 +1005,6 @@ impl AadtApp {
                                 );
                                 if ui.small_button("Restore").clicked() {
                                     self.app_feed(&format!("HISTORY RESTORE {}", c.id));
-                                    self.fitted = false;
                                     if let Some(fb) = self.session.transcript().last() {
                                         if let Some(msg) = fb.message() {
                                             self.note = msg.to_string();
@@ -1066,7 +1065,6 @@ impl AadtApp {
                             if let Some(m) = fb.message() {
                                 self.note = m.to_string();
                             }
-                            self.fitted = false;
                             self.selection.clear();
                         }
                     }

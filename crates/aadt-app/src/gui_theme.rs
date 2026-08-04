@@ -32,20 +32,21 @@ pub mod space {
     pub const XL: f32 = 16.0;
 }
 
-/// Fluent corner radii.
-/// <https://fluent2.microsoft.design/shapes>
+/// Corner radii. Squared off (all `0.0`) — the UI uses sharp corners on every
+/// button, control, card, and dialog. Kept as named tokens (rather than
+/// inlining `0.0`) so a future rounding scheme is a one-file change.
 #[allow(dead_code)]
 pub mod radius {
-    /// Navigation bars / edge-docked panels (no rounding at screen edge).
+    /// Navigation bars / edge-docked panels.
     pub const NONE: f32 = 0.0;
     /// Small badges / dense controls (&lt; 32px).
-    pub const SMALL: f32 = 2.0;
-    /// Buttons, dropdowns, icon buttons, preview tiles (default medium).
-    pub const CONTROL: f32 = 4.0;
+    pub const SMALL: f32 = 0.0;
+    /// Buttons, dropdowns, icon buttons, preview tiles.
+    pub const CONTROL: f32 = 0.0;
     /// Cards, raised surfaces, popovers.
-    pub const CARD: f32 = 8.0;
+    pub const CARD: f32 = 0.0;
     /// Dialogs / sheets.
-    pub const DIALOG: f32 = 12.0;
+    pub const DIALOG: f32 = 0.0;
 }
 
 /// Fluent stroke weights.
