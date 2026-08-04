@@ -31,26 +31,66 @@ impl LayerSet {
 
 use Discipline::*;
 
-/// Built-in presets from the product plan.
+/// Built-in discipline visibility presets over the HCW catalog.
 pub const PRESETS: &[LayerSet] = &[
     LayerSet {
         name: "CONSTRUCTION",
-        primary: &[Architectural, Structural, Annotation],
-        underlay: &[],
+        primary: &[Architectural, Structural, Annotation, General],
+        underlay: &[Existing],
+    },
+    LayerSet {
+        name: "STRUCTURAL",
+        primary: &[Structural, Annotation, General],
+        underlay: &[Architectural],
+    },
+    LayerSet {
+        name: "CIVIL",
+        primary: &[Civil, Survey, Annotation, General],
+        underlay: &[Architectural],
     },
     LayerSet {
         name: "SERVICES",
-        primary: &[Mechanical, Plumbing, Annotation],
+        primary: &[Mechanical, Plumbing, Annotation, General],
         underlay: &[Architectural, Structural],
     },
     LayerSet {
         name: "ELECTRICAL",
-        primary: &[Electrical, Annotation],
+        primary: &[Electrical, Telecom, Annotation, General],
+        underlay: &[Architectural],
+    },
+    LayerSet {
+        name: "PLUMBING",
+        primary: &[Plumbing, Annotation, General],
+        underlay: &[Architectural],
+    },
+    LayerSet {
+        name: "FIRE",
+        primary: &[FireFighting, Annotation, General],
+        underlay: &[Architectural],
+    },
+    LayerSet {
+        name: "ELV",
+        primary: &[Telecom, Annotation, General],
+        underlay: &[Architectural],
+    },
+    LayerSet {
+        name: "LANDSCAPE",
+        primary: &[Landscape, Civil, Annotation, General],
+        underlay: &[Architectural],
+    },
+    LayerSet {
+        name: "INTERIOR",
+        primary: &[Interior, Architectural, Annotation, General],
+        underlay: &[],
+    },
+    LayerSet {
+        name: "DEMOLITION",
+        primary: &[Demolition, Existing, Annotation, General],
         underlay: &[Architectural],
     },
     LayerSet {
         name: "PRESENTATION",
-        primary: &[Presentation, Architectural],
+        primary: &[Presentation, Architectural, Landscape],
         underlay: &[],
     },
     // CAD import layers retagged as `ORG-DWG_LAYER-*` (see
@@ -69,7 +109,8 @@ pub const PRESETS: &[LayerSet] = &[
 pub fn apply_layer_set(doc: &mut Document, set_name: &str) -> Result<String, String> {
     let set = LayerSet::find(set_name).ok_or_else(|| {
         format!(
-            "unknown layer set {set_name:?}; try CONSTRUCTION, SERVICES, ELECTRICAL, PRESENTATION, IMPORT"
+            "unknown layer set {set_name:?}; try CONSTRUCTION, STRUCTURAL, CIVIL, SERVICES, \
+             ELECTRICAL, PLUMBING, FIRE, ELV, LANDSCAPE, INTERIOR, DEMOLITION, PRESENTATION, IMPORT"
         )
     })?;
     apply_standard_layers(doc);

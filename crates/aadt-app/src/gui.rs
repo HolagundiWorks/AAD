@@ -686,10 +686,10 @@ impl PlaceKind {
     fn layer(self) -> &'static str {
         match self {
             Self::Door => "A-DOOR",
-            Self::Window => "A-GLAZ",
-            Self::Column => "S-COLS",
+            Self::Window => "A-WINDOW",
+            Self::Column => "S-COLUMN",
             Self::Beam => "S-BEAM",
-            Self::Slab | Self::Toilet => "A-FLOR",
+            Self::Slab | Self::Toilet => "A-SLAB",
             Self::Tree | Self::Shrub => "S-TREE",
             Self::Chair | Self::Desk | Self::Sofa | Self::Bed | Self::Table => "A-FURN",
         }

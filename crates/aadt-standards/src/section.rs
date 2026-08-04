@@ -40,7 +40,8 @@ pub fn generate_section(
     for (layer, geometry) in &entities {
         let u = layer.to_ascii_uppercase();
         let is_wall = u.starts_with("A-WALL");
-        let is_open = u.starts_with("A-DOOR") || u.starts_with("A-GLAZ");
+        let is_open =
+            u.starts_with("A-DOOR") || u.starts_with("A-GLAZ") || u.starts_with("A-WINDOW");
         if !is_wall && !is_open {
             continue;
         }
