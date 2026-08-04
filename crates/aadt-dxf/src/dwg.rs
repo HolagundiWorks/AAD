@@ -9,8 +9,10 @@ use acadrust::entities::{
     Line as AcadLine, LwPolyline, Text as AcadText,
 };
 use acadrust::io::dwg::{DwgReader, DwgWriter};
-use acadrust::types::{Handle, Vector2, Vector3};
+use acadrust::tables::{Layer as AcadLayer, TableEntry};
+use acadrust::types::{Color, Handle, LineWeight, Vector2, Vector3};
 use acadrust::{CadDocument, Entity};
+use std::collections::BTreeSet;
 
 use crate::DxfError;
 
@@ -161,18 +163,60 @@ fn from_cad_document(cad: &CadDocument) -> Document {
     doc
 }
 
+/// Build an acadrust LAYER table entry from an AADT layer definition, so the
+/// exported DWG carries real layer records (colour / lineweight / frozen /
+/// locked) instead of leaving entities pointing at an undefined layer.
+fn to_cad_layer(doc: &Document, name: &str) -> AcadLayer {
+    let mut al = AcadLayer::new(name);
+    if let Some(l) = doc.layer(name) {
+        al.color = Color::from_index(l.color as i16);
+        al.line_weight = if l.lineweight_mm > 0.0 {
+            // DWG lineweights are hundredths of a millimetre.
+            LineWeight::from_value((l.lineweight_mm * 100.0).round() as i16)
+        } else {
+            LineWeight::Default
+        };
+        al.is_plottable = true;
+        if l.frozen {
+            al.freeze();
+        }
+        if l.locked {
+            al.lock();
+        }
+    }
+    al
+}
+
 fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
     let mut cad = CadDocument::new();
     let mut skipped = 0usize;
+    // Layers referenced by the entities we actually export; "0" always exists.
+    let mut used: BTreeSet<String> = BTreeSet::new();
     for e in doc.entities() {
         match geometry_to_entity(&e.layer, &e.geometry) {
             Some(ent) => {
                 if cad.add_entity(ent).is_err() {
                     skipped += 1;
+                } else {
+                    used.insert(if e.layer.is_empty() {
+                        "0".to_string()
+                    } else {
+                        e.layer.clone()
+                    });
                 }
             }
             None => skipped += 1,
         }
+    }
+    // Write a LAYER table record for every referenced layer (skip the built-in
+    // "0", which CadDocument::new already defines with a handle).
+    for name in &used {
+        if cad.layers.get(name).is_some() {
+            continue;
+        }
+        let mut al = to_cad_layer(doc, name);
+        al.set_handle(cad.allocate_handle());
+        cad.layers.add_or_replace(al);
     }
     // Annotation tables are not mapped to DWG in this subset.
     skipped += doc.hatches().len() + doc.dimensions().len();
@@ -690,6 +734,56 @@ mod tests {
             }
             _ => panic!("expected line"),
         }
+    }
+
+    #[test]
+    fn export_writes_layer_table_records() {
+        // A drawing with a distinctively named, coloured layer (a name not
+        // pre-seeded by Document::new, so its colour is our value).
+        let mut doc = Document::new();
+        doc.add_layer(
+            Layer::new("ZZ-CUSTOM")
+                .with_color(1)
+                .with_lineweight_mm(0.50),
+        );
+        doc.add_geometry(
+            "ZZ-CUSTOM",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+        );
+
+        // Build the CAD document directly and assert the LAYER table is populated
+        // (the bug was: entities referenced a layer that had no table record, so
+        // the writer emitted a null layer handle).
+        let cad = to_cad_document(&doc).expect("to cad");
+        let al = cad
+            .layers
+            .get("ZZ-CUSTOM")
+            .expect("ZZ-CUSTOM layer record written");
+        assert!(!al.handle.is_null(), "layer must have a real handle");
+        assert_eq!(al.color, Color::from_index(1));
+        assert_eq!(al.line_weight, LineWeight::from_value(50));
+        assert!(cad.layers.get("0").is_some(), "default 0 preserved");
+
+        // And it survives a real file round-trip through the DWG writer/reader.
+        let dir = std::env::temp_dir().join("aadt-dwg-layers");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("layers.dwg");
+        export_dwg_path(&doc, &path).expect("export");
+        let reader_cad = DwgReader::from_file(&path).unwrap().read().unwrap();
+        assert!(
+            reader_cad.layers.get("ZZ-CUSTOM").is_some(),
+            "ZZ-CUSTOM present in the exported DWG's layer table"
+        );
+
+        // And through our own importer the entity keeps its layer name — before
+        // the fix the null layer handle collapsed everything onto "0", which is
+        // what made re-imported drawings show a single ORG-DWG_LAYER-0.
+        let back = import_dwg_path(&path).expect("re-import");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            back.entities().iter().any(|e| e.layer == "ZZ-CUSTOM"),
+            "entity layer name survives the DWG round-trip (not collapsed to 0)"
+        );
     }
 
     #[test]
