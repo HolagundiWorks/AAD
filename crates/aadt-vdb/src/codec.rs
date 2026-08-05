@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 use aadt_geometry::{Arc, Circle, Polyline, Segment};
 use aadt_model::{
     Block, BlockParam, BlockParamKind, Dimension, DimensionKind, Document, DrawingProperties,
-    Entity, EntityId, Floor, Geometry, Hatch, Insert, Layer, LevelId, LineType, ModelSpace,
+    Entity, EntityId, Floor, Geometry, Hatch, ImageRef, Insert, Layer, LevelId, LineType, ModelSpace,
     ModelSpaceId, SpaceCategory, Text, VisibilityState,
 };
 
@@ -55,6 +55,15 @@ fn write_geometry(w: &mut Writer, g: &Geometry) {
             w.f64(i.scale_x);
             w.f64(i.scale_y);
         }
+        Geometry::Image(img) => {
+            w.u8(6);
+            w.str(&img.path);
+            w.point(img.position);
+            w.f64(img.rotation);
+            w.f64(img.width);
+            w.f64(img.height);
+            w.f64(img.opacity as f64);
+        }
     }
 }
 
@@ -78,6 +87,19 @@ fn read_geometry(r: &mut Reader) -> Result<Geometry, VdbError> {
             let sx = r.f64()?;
             let sy = r.f64()?;
             Geometry::Insert(Insert::new(name, position, rotation).with_scale(sx, sy))
+        }
+        6 => {
+            let path = r.str()?;
+            let position = r.point()?;
+            let rotation = r.f64()?;
+            let width = r.f64()?;
+            let height = r.f64()?;
+            let opacity = r.f64()? as f32;
+            Geometry::Image(
+                ImageRef::new(path, position, width, height)
+                    .with_rotation(rotation)
+                    .with_opacity(opacity),
+            )
         }
         k => return Err(VdbError::Format(format!("unknown geometry tag {k}"))),
     })
@@ -308,8 +330,9 @@ fn read_hatch(r: &mut Reader) -> Result<Hatch, VdbError> {
         layer,
         space: ModelSpaceId(space),
         boundaries,
-        pattern,
+        pattern: pattern.clone(),
         solid,
+        fill_kind: aadt_model::FillKind::from_pattern(&pattern),
     })
 }
 

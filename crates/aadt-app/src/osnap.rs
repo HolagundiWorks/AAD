@@ -169,6 +169,7 @@ fn snap_bbox(g: &Geometry, pad: f64) -> Option<Bbox> {
             min: Point2::new(c.center.x - c.radius, c.center.y - c.radius),
             max: Point2::new(c.center.x + c.radius, c.center.y + c.radius),
         },
+        Geometry::Image(img) => img.bbox(),
         Geometry::Text(_) | Geometry::Insert(_) => return None,
     };
     b.min.x -= pad;
@@ -220,6 +221,11 @@ pub fn snap_candidates_into(g: &Geometry, out: &mut Vec<(SnapKind, Point2)>) {
             out.push((SnapKind::Center, c.center));
             for deg in [0.0, 90.0, 180.0, 270.0] {
                 out.push((SnapKind::Quadrant, point_on_circle(c.center, c.radius, deg)));
+            }
+        }
+        Geometry::Image(img) => {
+            for c in img.corners() {
+                out.push((SnapKind::Endpoint, c));
             }
         }
         Geometry::Text(_) | Geometry::Insert(_) => {}
@@ -277,6 +283,23 @@ fn nearest_on_geometry(g: &Geometry, p: Point2) -> Option<Point2> {
                     ep
                 })
             }
+        }
+        Geometry::Image(img) => {
+            let c = img.corners();
+            let mut best: Option<(f64, Point2)> = None;
+            for seg in [
+                Segment::new(c[0], c[1]),
+                Segment::new(c[1], c[2]),
+                Segment::new(c[2], c[3]),
+                Segment::new(c[3], c[0]),
+            ] {
+                let np = nearest_on_segment(seg, p);
+                let d = p.distance(np);
+                if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                    best = Some((d, np));
+                }
+            }
+            best.map(|(_, np)| np)
         }
         Geometry::Text(_) | Geometry::Insert(_) => None,
     }
@@ -530,7 +553,7 @@ pub fn perp_feet_on(g: &Geometry, base: Point2, out: &mut Vec<Point2>) {
                 }
             }
         }
-        Geometry::Text(_) | Geometry::Insert(_) => {}
+        Geometry::Text(_) | Geometry::Insert(_) | Geometry::Image(_) => {}
     }
 }
 

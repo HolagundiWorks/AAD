@@ -9,7 +9,7 @@ use acadrust::entities::{
     Line as AcadLine, LwPolyline, Text as AcadText,
 };
 use acadrust::io::dwg::{DwgReader, DwgWriter};
-use acadrust::tables::{Layer as AcadLayer, TableEntry};
+use acadrust::tables::{BlockRecord, Layer as AcadLayer, TableEntry};
 use acadrust::types::{Color, Handle, LineWeight, Vector2, Vector3};
 use acadrust::{CadDocument, Entity};
 use std::collections::BTreeSet;
@@ -160,6 +160,16 @@ fn from_cad_document(cad: &CadDocument) -> Document {
         ));
         doc.set_properties(props);
     }
+    if !cad.block_visibility_params.is_empty() {
+        let mut props = doc.properties().clone();
+        if !props.comments.is_empty() {
+            props.comments.push(' ');
+        }
+        props
+            .comments
+            .push_str("[DWG: dynamic actions not editable in AADT]");
+        doc.set_properties(props);
+    }
     doc
 }
 
@@ -192,8 +202,72 @@ fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
     let mut skipped = 0usize;
     // Layers referenced by the entities we actually export; "0" always exists.
     let mut used: BTreeSet<String> = BTreeSet::new();
+
+    // Named block definitions first so INSERT references resolve.
+    for block in doc.blocks() {
+        if block.name.starts_with('*') {
+            continue;
+        }
+        let mut br = BlockRecord::new(&block.name);
+        br.set_handle(cad.allocate_handle());
+        br.block_entity_handle = cad.allocate_handle();
+        br.block_end_handle = cad.allocate_handle();
+        br.base_point = Vector3::new(block.base.x, block.base.y, 0.0);
+        let br_handle = br.handle;
+        if cad.block_records.add(br).is_err() {
+            skipped += 1;
+            continue;
+        }
+        for be in &block.entities {
+            let Some(mut ent) = geometry_to_entity(&be.layer, &be.geometry) else {
+                skipped += 1;
+                continue;
+            };
+            ent.common_mut().owner_handle = br_handle;
+            if cad.add_entity(ent).is_err() {
+                skipped += 1;
+            } else {
+                used.insert(if be.layer.is_empty() {
+                    "0".to_string()
+                } else {
+                    be.layer.clone()
+                });
+            }
+        }
+    }
+
     for e in doc.entities() {
-        match geometry_to_entity(&e.layer, &e.geometry) {
+        // Skip inserts whose block definition is missing (silent when possible).
+        if let Geometry::Insert(ins) = &e.geometry {
+            if doc.block(&ins.name).is_none() {
+                eprintln!(
+                    "aadt-dxf: skipping INSERT '{}' — block definition missing",
+                    ins.name
+                );
+                skipped += 1;
+                continue;
+            }
+        }
+        let g = match &e.geometry {
+            Geometry::Insert(ins) => {
+                let flipped = e
+                    .attribute(aadt_model::BLOCK_FLIP_ATTR)
+                    .or_else(|| e.attribute(aadt_model::BLOCK_FLIP_PARAM))
+                    .map(|v| {
+                        v == "1"
+                            || v.eq_ignore_ascii_case("true")
+                            || v.eq_ignore_ascii_case("yes")
+                    })
+                    .unwrap_or(false);
+                let mut baked = ins.clone();
+                if flipped && baked.scale_x > 0.0 {
+                    baked.scale_x = -baked.scale_x;
+                }
+                Geometry::Insert(baked)
+            }
+            other => other.clone(),
+        };
+        match geometry_to_entity(&e.layer, &g) {
             Some(ent) => {
                 if cad.add_entity(ent).is_err() {
                     skipped += 1;
@@ -221,9 +295,6 @@ fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
     // Annotation tables are not mapped to DWG in this subset.
     skipped += doc.hatches().len() + doc.dimensions().len();
     if skipped > 0 {
-        // Persist skip count on the AADT side only when re-imported; CadDocument
-        // has no free-form comments we map. Count is returned via Ok and tests
-        // assert entity counts — callers may inspect after re-import.
         let _ = skipped;
     }
     Ok(cad)
@@ -284,6 +355,22 @@ fn geometry_to_entity(layer: &str, g: &Geometry) -> Option<EntityType> {
             insert.set_y_scale(ins.scale_y);
             insert.common = with_layer(EntityCommon::new(), layer);
             Some(EntityType::Insert(insert))
+        }
+        // Raster IMAGE is not written to DWG; emit the footprint as LwPolyline.
+        Geometry::Image(img) => {
+            eprintln!(
+                "aadt-dxf: exporting IMAGE '{}' as LwPolyline rectangle footprint (raster not written)",
+                img.path
+            );
+            let pts: Vec<Vector2> = img
+                .corners()
+                .iter()
+                .map(|v| Vector2::new(v.x, v.y))
+                .collect();
+            let mut pl = LwPolyline::from_points(pts);
+            pl.is_closed = true;
+            pl.common = with_layer(EntityCommon::new(), layer);
+            Some(EntityType::LwPolyline(pl))
         }
     }
 }

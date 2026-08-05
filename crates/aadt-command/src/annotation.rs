@@ -170,6 +170,7 @@ fn geom_kind(g: &Geometry) -> String {
         Geometry::Arc(_) => "ARC".into(),
         Geometry::Text(_) => "TEXT".into(),
         Geometry::Insert(_) => "INSERT".into(),
+        Geometry::Image(_) => "IMAGE".into(),
     }
 }
 

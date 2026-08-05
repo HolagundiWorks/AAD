@@ -178,6 +178,78 @@ impl Insert {
     }
 }
 
+/// A raster image placed in model space (presentation furniture, logos, …).
+///
+/// Path is project-relative or absolute; width/height are in model units.
+/// On DWG export without IMAGEDEF support, a rectangle footprint is written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageRef {
+    /// Filesystem path to PNG/JPEG/WebP (preferably project-relative).
+    pub path: String,
+    pub position: Point2,
+    /// Rotation in degrees (CCW from +X).
+    pub rotation: f64,
+    /// Display width in model units.
+    pub width: f64,
+    /// Display height in model units (aspect usually preserved from the file).
+    pub height: f64,
+    /// Draw opacity 0..1.
+    pub opacity: f32,
+}
+
+impl ImageRef {
+    pub fn new(
+        path: impl Into<String>,
+        position: Point2,
+        width: f64,
+        height: f64,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            position,
+            rotation: 0.0,
+            width: width.max(1e-9),
+            height: height.max(1e-9),
+            opacity: 1.0,
+        }
+    }
+
+    pub fn with_rotation(mut self, rotation: f64) -> Self {
+        self.rotation = rotation;
+        self
+    }
+
+    pub fn with_opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Axis-aligned footprint corners before rotation (lower-left origin at position).
+    pub fn corners(&self) -> [Point2; 4] {
+        let rad = self.rotation.to_radians();
+        let (c, s) = (rad.cos(), rad.sin());
+        let local = [
+            Point2::new(0.0, 0.0),
+            Point2::new(self.width, 0.0),
+            Point2::new(self.width, self.height),
+            Point2::new(0.0, self.height),
+        ];
+        local.map(|p| {
+            Point2::new(
+                self.position.x + p.x * c - p.y * s,
+                self.position.y + p.x * s + p.y * c,
+            )
+        })
+    }
+
+    pub fn bbox(&self) -> Bbox {
+        Bbox::of_points(self.corners()).unwrap_or(Bbox {
+            min: self.position,
+            max: self.position,
+        })
+    }
+}
+
 /// Prefix applied to layers brought in from DXF/DWG so they stay distinct from
 /// AADT AIA layers. Example: `A-WALL` → `ORG-DWG_LAYER-A-WALL`.
 pub const IMPORTED_LAYER_PREFIX: &str = "ORG-DWG_LAYER-";
@@ -325,6 +397,15 @@ pub struct VisibilityState {
 /// Attribute key on an INSERT for the active visibility state name.
 pub const BLOCK_VIS_ATTR: &str = "VISIBILITY";
 
+/// Attribute key on an INSERT for flip (0/1). Mirrors block geometry about local Y.
+pub const BLOCK_FLIP_ATTR: &str = "AADT-FLIP";
+
+/// Block parameter / attribute name for nominal width (metres).
+pub const BLOCK_WIDTH_PARAM: &str = "WIDTH";
+
+/// Block parameter name for flip default (0/1).
+pub const BLOCK_FLIP_PARAM: &str = "FLIP";
+
 /// One piece of geometry inside a [`Block`] definition.
 ///
 /// Deliberately not an [`Entity`]: entity ids are document-scoped and identify
@@ -435,6 +516,57 @@ impl Block {
     }
 }
 
+/// Architectural role of a hatch / fill (UI: Technical / Floor / Presentation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FillKind {
+    /// Wall cut, material section (ANSI*, AR-*, brick, insulation, …).
+    #[default]
+    Technical,
+    /// Room / floor finishes (`FLOOR-*` patterns).
+    Floor,
+    /// Soft solid / pastel washes for client boards (`SOLID` and presentation fills).
+    Presentation,
+}
+
+impl FillKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Technical => "Technical",
+            Self::Floor => "Floor",
+            Self::Presentation => "Presentation",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "floor" => Self::Floor,
+            "presentation" | "pres" => Self::Presentation,
+            _ => Self::Technical,
+        }
+    }
+
+    /// Infer kind from a hatch pattern name.
+    pub fn from_pattern(pattern: &str) -> Self {
+        let u = pattern.trim().to_ascii_uppercase();
+        if u == "SOLID" || u.starts_with("PRES-") || u.starts_with("PRESENTATION") {
+            return Self::Presentation;
+        }
+        if u.starts_with("FLOOR-") || u.starts_with("FLOR-") {
+            return Self::Floor;
+        }
+        Self::Technical
+    }
+
+    /// Default AIA-style layer when none is set.
+    pub fn default_layer(self) -> &'static str {
+        match self {
+            Self::Technical => "A-HATCH-TECH",
+            Self::Floor => "A-FLOOR-FIN",
+            Self::Presentation => "A-ANNO-PRES",
+        }
+    }
+}
+
 /// A hatched or filled region (DXF `HATCH`): closed boundary path(s) plus a fill
 /// pattern.
 ///
@@ -456,18 +588,22 @@ pub struct Hatch {
     pub pattern: String,
     /// Whether the fill is solid (DXF group 70).
     pub solid: bool,
+    /// Architectural fill role (Technical / Floor / Presentation).
+    pub fill_kind: FillKind,
 }
 
 impl Hatch {
     pub fn new(layer: impl Into<String>, boundary: Polyline, pattern: impl Into<String>) -> Self {
         let pattern = pattern.into();
         let solid = pattern.eq_ignore_ascii_case("SOLID");
+        let fill_kind = FillKind::from_pattern(&pattern);
         Self {
             layer: layer.into(),
             space: ModelSpaceId::default(),
             boundaries: vec![boundary],
             pattern,
             solid,
+            fill_kind,
         }
     }
 
@@ -543,6 +679,8 @@ pub enum Geometry {
     Arc(Arc),
     Text(Text),
     Insert(Insert),
+    /// Raster image (PNG/JPEG) in model space — presentation furniture, etc.
+    Image(ImageRef),
 }
 
 impl Geometry {
@@ -559,9 +697,11 @@ impl Geometry {
         match self {
             Geometry::Line(s) => vec![*s],
             Geometry::Polyline(p) => p.segments(),
-            Geometry::Circle(_) | Geometry::Arc(_) | Geometry::Text(_) | Geometry::Insert(_) => {
-                Vec::new()
-            }
+            Geometry::Circle(_)
+            | Geometry::Arc(_)
+            | Geometry::Text(_)
+            | Geometry::Insert(_)
+            | Geometry::Image(_) => Vec::new(),
         }
     }
 
@@ -589,6 +729,11 @@ impl Geometry {
                 t.rotation,
             )),
             Geometry::Insert(i) => Geometry::Insert(i.at(shift(i.position), i.rotation)),
+            Geometry::Image(img) => {
+                let mut img = img.clone();
+                img.position = shift(img.position);
+                Geometry::Image(img)
+            }
         }
     }
 
@@ -618,6 +763,12 @@ impl Geometry {
                 t.rotation + ddeg,
             )),
             Geometry::Insert(i) => Geometry::Insert(i.at(rot(i.position), i.rotation + ddeg)),
+            Geometry::Image(img) => {
+                let mut img = img.clone();
+                img.position = rot(img.position);
+                img.rotation += ddeg;
+                Geometry::Image(img)
+            }
         }
     }
 
@@ -680,6 +831,13 @@ impl Geometry {
                 i.at(sc(i.position), i.rotation)
                     .with_scale(i.scale_x * scale_x, i.scale_y * scale_y),
             ),
+            Geometry::Image(img) => {
+                let mut img = img.clone();
+                img.position = sc(img.position);
+                img.width *= scale_x.abs();
+                img.height *= scale_y.abs();
+                Geometry::Image(img)
+            }
         }
     }
 
@@ -712,6 +870,12 @@ impl Geometry {
                 refl(t.rotation),
             )),
             Geometry::Insert(i) => Geometry::Insert(i.at(mir(i.position), refl(i.rotation))),
+            Geometry::Image(img) => {
+                let mut img = img.clone();
+                img.position = mir(img.position);
+                img.rotation = refl(img.rotation);
+                Geometry::Image(img)
+            }
         }
     }
 
@@ -743,6 +907,11 @@ impl Geometry {
                 t.rotation,
             )),
             Geometry::Insert(i) => Geometry::Insert(i.at(mv(i.position), i.rotation)),
+            Geometry::Image(img) => {
+                let mut img = img.clone();
+                img.position = mv(img.position);
+                Geometry::Image(img)
+            }
         }
     }
 
@@ -791,7 +960,7 @@ impl Geometry {
                     .then(|| Geometry::Arc(Arc::new(a.center, r, a.start_angle, a.end_angle)))
             }
             Geometry::Polyline(p) => offset_polyline(p, distance, side),
-            Geometry::Text(_) | Geometry::Insert(_) => None,
+            Geometry::Text(_) | Geometry::Insert(_) | Geometry::Image(_) => None,
         }
     }
 }
@@ -2530,10 +2699,35 @@ impl Document {
         let before = current.clone();
         let mut after = before.clone();
         after.solid = pattern.eq_ignore_ascii_case("SOLID");
+        after.fill_kind = FillKind::from_pattern(&pattern);
         after.pattern = pattern;
         if before == after {
             return false;
         }
+        self.hatches[index] = after.clone();
+        if self.open.is_some() {
+            self.record(Op::SetHatch {
+                index,
+                before,
+                after,
+            });
+        }
+        self.revision += 1;
+        true
+    }
+
+    /// Set the architectural fill kind of the hatch at `index` without changing
+    /// the pattern. Undoable via [`Op::SetHatch`] when a transaction is open.
+    pub fn set_hatch_fill_kind(&mut self, index: usize, kind: FillKind) -> bool {
+        let Some(current) = self.hatches.get(index) else {
+            return false;
+        };
+        if current.fill_kind == kind {
+            return false;
+        }
+        let before = current.clone();
+        let mut after = before.clone();
+        after.fill_kind = kind;
         self.hatches[index] = after.clone();
         if self.open.is_some() {
             self.record(Op::SetHatch {
@@ -2704,6 +2898,7 @@ impl Document {
                 // does not model.
                 Geometry::Text(t) => pts.push(t.position),
                 Geometry::Insert(ins) => pts.push(ins.position),
+                Geometry::Image(img) => pts.extend(img.corners()),
             }
         }
         // Annotation lives outside the entity store but still bounds the drawing.
@@ -3600,6 +3795,25 @@ mod tests {
         assert_eq!(sanitize_display_text(r"Line A\PLine B"), "Line A\nLine B");
         let t = Text::new(raw, Point2::new(0.0, 0.0), 2.5, 0.0);
         assert_eq!(t.value, "ROOM 101");
+    }
+
+    #[test]
+    fn stretch_moves_only_endpoints_inside_the_window() {
+        let line = Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0)));
+        let window = Bbox::from_corners(Point2::new(-1.0, -1.0), Point2::new(5.0, 1.0));
+        let after = line.stretched(window, 2.0, 0.0);
+        let Geometry::Line(s) = after else {
+            panic!("expected line");
+        };
+        assert!((s.a.x - 2.0).abs() < 1e-9, "inside end moves, got {:?}", s.a);
+        assert!((s.b.x - 10.0).abs() < 1e-9, "outside end stays, got {:?}", s.b);
+
+        let both = Bbox::from_corners(Point2::new(-1.0, -1.0), Point2::new(11.0, 1.0));
+        let moved = line.stretched(both, 3.0, 0.0);
+        let Geometry::Line(s) = moved else {
+            panic!("expected line");
+        };
+        assert!((s.a.x - 3.0).abs() < 1e-9 && (s.b.x - 13.0).abs() < 1e-9);
     }
 
     #[test]

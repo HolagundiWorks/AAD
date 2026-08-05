@@ -332,6 +332,7 @@ fn kind_of(g: &Geometry) -> &'static str {
         Geometry::Arc(_) => "arc",
         Geometry::Text(_) => "text",
         Geometry::Insert(_) => "insert",
+        Geometry::Image(_) => "image",
     }
 }
 
@@ -367,6 +368,14 @@ fn geometry_json(g: &Geometry) -> String {
             ("rotation", json::number(i.rotation)),
             ("scale_x", json::number(i.scale_x)),
             ("scale_y", json::number(i.scale_y)),
+        ]),
+        Geometry::Image(img) => json::object(&[
+            ("path", json::string(&img.path)),
+            ("position", point_json(img.position)),
+            ("rotation", json::number(img.rotation)),
+            ("width", json::number(img.width)),
+            ("height", json::number(img.height)),
+            ("opacity", json::number(img.opacity as f64)),
         ]),
     }
 }

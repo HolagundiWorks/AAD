@@ -113,6 +113,9 @@ fn stroke_entity(s: &mut String, geom: &Geometry, fit: &Fit) {
         Geometry::Arc(a) => stroke_polyline_pts(s, &arc_pts(a), false, mv, ln),
         Geometry::Text(t) => emit_text(s, t, fit),
         Geometry::Insert(i) => tick(s, i.position, fit),
+        Geometry::Image(img) => {
+            stroke_polyline_pts(s, &img.corners(), true, mv, ln);
+        }
     }
 }
 

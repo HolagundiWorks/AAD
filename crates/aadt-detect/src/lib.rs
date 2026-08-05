@@ -535,7 +535,8 @@ fn detect_walls(doc: &Document, cfg: &DetectionConfig) -> Vec<Wall> {
             | Geometry::Circle(_)
             | Geometry::Arc(_)
             | Geometry::Text(_)
-            | Geometry::Insert(_) => None,
+            | Geometry::Insert(_)
+            | Geometry::Image(_) => None,
         })
         .collect();
 

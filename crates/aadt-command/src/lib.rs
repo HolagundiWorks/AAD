@@ -29,10 +29,15 @@ mod hcw;
 mod place_blocks;
 mod room;
 mod texttools;
+mod wall_openings;
 
 pub use autodim::DEFAULT_DIM_LAYER;
 pub use place_blocks::ensure_place_blocks;
 pub use room::{room_type_for_command, RoomSettings, ROOM_TYPES};
+pub use wall_openings::{
+    cut_wall_opening, default_opening_width, default_opening_width_m, is_wall_entity,
+    nominal_wall_thicknesses, opening_width_for_block, place_opening_pose, snap_to_wall, WallSnap,
+};
 
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.
 ///
@@ -318,29 +323,7 @@ fn parse_usize(args: &[String], i: usize, flag: &str) -> Result<usize, String> {
 /// Used by MOVE and COPY. Kept here (not in `aadt-model`, which Track B consumes
 /// read-only) so the command layer owns its own edit semantics.
 fn translate_geometry(g: &Geometry, dx: f64, dy: f64) -> Geometry {
-    let d = aadt_geometry::Vec2::new(dx, dy);
-    match g {
-        Geometry::Line(s) => Geometry::Line(Segment::new(s.a + d, s.b + d)),
-        Geometry::Polyline(p) => Geometry::Polyline(Polyline::new(
-            p.vertices.iter().map(|v| *v + d).collect(),
-            p.closed,
-        )),
-        Geometry::Circle(c) => Geometry::Circle(Circle::new(c.center + d, c.radius)),
-        Geometry::Arc(a) => {
-            Geometry::Arc(Arc::new(a.center + d, a.radius, a.start_angle, a.end_angle))
-        }
-        Geometry::Text(t) => Geometry::Text(Text::new(
-            t.value.clone(),
-            t.position + d,
-            t.height,
-            t.rotation,
-        )),
-        Geometry::Insert(ins) => Geometry::Insert(Insert::new(
-            ins.name.clone(),
-            ins.position + d,
-            ins.rotation,
-        )),
-    }
+    g.translated(dx, dy)
 }
 
 /// A bounding box around a geometry's defining points — circles/arcs use their
@@ -359,6 +342,7 @@ fn entity_extent(g: &Geometry) -> Option<Bbox> {
         ],
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(i) => vec![i.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     };
     Bbox::of_points(pts)
 }
@@ -2850,6 +2834,17 @@ fn geometry_with_grip_moved(g: &Geometry, grip_idx: usize, new_pt: Point2) -> Op
             t.rotation,
         ))),
         Geometry::Insert(i) => Some(Geometry::Insert(i.at(new_pt, i.rotation))),
+        Geometry::Image(img) => {
+            let corners = img.corners();
+            if grip_idx >= corners.len() {
+                return None;
+            }
+            let dx = new_pt.x - corners[grip_idx].x;
+            let dy = new_pt.y - corners[grip_idx].y;
+            let mut img = img.clone();
+            img.position = Point2::new(img.position.x + dx, img.position.y + dy);
+            Some(Geometry::Image(img))
+        }
     }
 }
 
@@ -3633,6 +3628,7 @@ impl Command for ListCmd {
                 Geometry::Arc(_) => "ARC",
                 Geometry::Text(_) => "TEXT",
                 Geometry::Insert(_) => "INSERT",
+                Geometry::Image(_) => "IMAGE",
             };
             lines.push(format!("  {} {} [{}]", e.id.0, kind, e.layer));
         }
@@ -3737,6 +3733,7 @@ mod tests {
                 Geometry::Polyline(_) => "polyline",
                 Geometry::Insert(_) => "insert",
                 Geometry::Line(_) => "line",
+                Geometry::Image(_) => "image",
             })
             .collect();
         assert_eq!(kinds, ["circle", "arc", "text", "polyline", "insert"]);

@@ -324,7 +324,7 @@ pub(crate) fn build_vertices(
                 DrawCommand::Text { position, .. } | DrawCommand::Marker { position, .. } => {
                     crosshair(camera, *position, &mut v, color);
                 }
-                DrawCommand::Fill { points, .. } => {
+                DrawCommand::Fill { points, .. } | DrawCommand::Image { corners: points, .. } => {
                     // GPU path strokes the boundary; filled triangles need a
                     // dedicated pipeline — outline keeps solid hatches visible.
                     if points.len() >= 2 {

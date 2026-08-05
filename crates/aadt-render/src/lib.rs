@@ -87,7 +87,20 @@ pub enum DrawCommand {
         label: String,
     },
     /// Filled closed polygon (solid hatch). Drawn under strokes by backends.
-    Fill { layer: String, points: Vec<Point2> },
+    /// `alpha` is 0..1 (presentation fills often use ~0.35).
+    Fill {
+        layer: String,
+        points: Vec<Point2>,
+        alpha: f32,
+    },
+    /// Raster image footprint with source path (GUI may sample a texture).
+    Image {
+        layer: String,
+        path: String,
+        /// Quad corners in world space (typically 4).
+        corners: Vec<Point2>,
+        opacity: f32,
+    },
 }
 
 impl DrawCommand {
@@ -99,7 +112,8 @@ impl DrawCommand {
             | DrawCommand::Arc { layer, .. }
             | DrawCommand::Text { layer, .. }
             | DrawCommand::Marker { layer, .. }
-            | DrawCommand::Fill { layer, .. } => layer,
+            | DrawCommand::Fill { layer, .. }
+            | DrawCommand::Image { layer, .. } => layer,
         }
     }
 }
@@ -243,10 +257,24 @@ fn push_primitive(
                 }),
             }
         }
+        Geometry::Image(img) => {
+            let corners: Vec<Point2> = img.corners().iter().map(|p| xform.point(*p)).collect();
+            out.push(DrawCommand::Image {
+                layer: layer.clone(),
+                path: img.path.clone(),
+                corners: corners.clone(),
+                opacity: img.opacity,
+            });
+            out.push(DrawCommand::Polyline {
+                layer,
+                points: corners,
+                closed: true,
+            });
+        }
     }
 }
 
-/// The layer an instanced block entity draws on. Following the DXF convention,
+/// Layer an instanced block entity draws on. Following the DXF convention,
 /// geometry drawn on layer `"0"` inside a block *inherits the insert's layer*
 /// (so a door swing colours with its `A-DOOR` insert); geometry on any named
 /// layer keeps that layer. This matches how [`build_drawlist`] tags top-level
@@ -259,18 +287,71 @@ fn instanced_layer(block_entity_layer: &str, insert_layer: &str) -> String {
     }
 }
 
+/// Effective X/Y scales for drawing an INSERT: WIDTH param stretch + FLIP mirror.
+fn insert_draw_scales(
+    ins: &aadt_model::Insert,
+    block: &aadt_model::Block,
+    entity: &aadt_model::Entity,
+) -> (f64, f64) {
+    let mut sx = ins.scale_x;
+    let mut sy = ins.scale_y;
+    // WIDTH stretch: ratio of instance WIDTH attr to block default.
+    if let (Some(def), Some(cur)) = (
+        block
+            .param(aadt_model::BLOCK_WIDTH_PARAM)
+            .and_then(|p| p.default.parse::<f64>().ok())
+            .filter(|w| *w > 1e-9),
+        entity
+            .attribute(aadt_model::BLOCK_WIDTH_PARAM)
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|w| *w > 1e-9),
+    ) {
+        let ratio = cur / def;
+        sx *= ratio;
+        // Uniform width stretch keeps Y unless already non-uniform.
+        if (ins.scale_x - ins.scale_y).abs() < 1e-9 {
+            sy *= ratio;
+        }
+    }
+    let flipped = entity
+        .attribute(aadt_model::BLOCK_FLIP_ATTR)
+        .or_else(|| entity.attribute(aadt_model::BLOCK_FLIP_PARAM))
+        .map(|v| {
+            v == "1"
+                || v.eq_ignore_ascii_case("true")
+                || v.eq_ignore_ascii_case("yes")
+        })
+        .unwrap_or(false);
+    if flipped {
+        // Mirror about local Y (negative X scale).
+        sx = -sx;
+    }
+    (sx, sy)
+}
+
 /// Hatch boundaries as outlines; solid hatches also emit a [`DrawCommand::Fill`].
 fn hatch_commands(hatch: &Hatch) -> Vec<DrawCommand> {
     let mut out = Vec::new();
+    // Presentation solid fills use lower opacity (~0.35) for client boards.
+    let fill_alpha = if hatch.fill_kind == aadt_model::FillKind::Presentation && hatch.solid {
+        0.35
+    } else if hatch.solid {
+        0.38
+    } else {
+        0.18
+    };
     // Always fill the outer path (pattern hatches get a light wash + strokes).
     if let Some(outer) = hatch.boundaries.first() {
         if outer.vertices.len() >= 3 {
             out.push(DrawCommand::Fill {
                 layer: hatch.layer.clone(),
                 points: outer.vertices.clone(),
+                alpha: fill_alpha,
             });
         }
-        if !hatch.solid {
+        // Mute dense technical patterns on presentation fills (wash only).
+        let mute_patterns = hatch.fill_kind == aadt_model::FillKind::Presentation && !hatch.solid;
+        if !hatch.solid && !mute_patterns {
             out.extend(pattern_hatch_lines(hatch, outer));
         }
     }
@@ -842,12 +923,13 @@ fn append_space_commands(
         match &e.geometry {
             Geometry::Insert(ins) => match doc.block(&ins.name) {
                 Some(block) => {
+                    let (sx, sy) = insert_draw_scales(ins, block, e);
                     let xform = Xform {
                         base: block.base,
                         rotation_deg: ins.rotation,
                         position: ins.position,
-                        scale_x: ins.scale_x,
-                        scale_y: ins.scale_y,
+                        scale_x: sx,
+                        scale_y: sy,
                     };
                     let vis = e
                         .attribute(aadt_model::BLOCK_VIS_ATTR)

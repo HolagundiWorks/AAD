@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::f64::consts::{PI, TAU};
 
 use aadt_geometry::{Circle, Point2, Polyline, Segment};
-use aadt_model::{Block, Entity, EntityId, Geometry, Insert, Layer, Text};
+use aadt_model::{Block, Entity, EntityId, Geometry, ImageRef, Insert, Layer, Text};
+use std::path::Path;
 
 use crate::{
     entities_word, parse_entity_id, parse_f64, resolve_targets, Command, Context, Registry,
@@ -64,11 +65,8 @@ pub fn register_essentials(r: &mut Registry) {
         aliases: &["XR"],
         help: "XREF — external references (not implemented in this milestone)",
     }));
-    r.register(Box::new(StubCmd {
-        name: "IMAGEATTACH",
-        aliases: &[],
-        help: "IMAGEATTACH — attach raster underlay (not implemented in this milestone)",
-    }));
+    r.register(Box::new(ImageCmd));
+    r.register(Box::new(BlockLibCmd));
     r.register(Box::new(StubCmd {
         name: "PDFATTACH",
         aliases: &[],
@@ -1278,6 +1276,7 @@ impl Command for PropertiesCmd {
                 Geometry::Arc(_) => "ARC",
                 Geometry::Text(_) => "TEXT",
                 Geometry::Insert(_) => "INSERT",
+                Geometry::Image(_) => "IMAGE",
             };
             lines.push(format!(
                 "entity {}  type={kind}  layer={}  attrs={}",
@@ -1558,6 +1557,15 @@ impl Command for OverkillCmd {
                     quant(i.scale_x),
                     quant(i.scale_y)
                 ),
+                Geometry::Image(img) => format!(
+                    "IMAGE|{}|{}|{}|{}|{}|{}",
+                    img.path,
+                    pt(img.position),
+                    quant(img.rotation),
+                    quant(img.width),
+                    quant(img.height),
+                    quant(img.opacity as f64)
+                ),
             };
             format!("{}|{shape}", e.layer)
         };
@@ -1584,6 +1592,121 @@ impl Command for OverkillCmd {
             "overkill: removed {n} duplicate {}",
             entities_word(n)
         ))
+    }
+}
+
+// --- Image / library --------------------------------------------------------
+
+struct ImageCmd;
+impl Command for ImageCmd {
+    fn name(&self) -> &str {
+        "IMAGE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["PLACEIMAGE", "IMAGEATTACH"]
+    }
+    fn help(&self) -> &str {
+        "IMAGE path x y [width] [height] [layer] — place Geometry::Image at a point"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        // Path may contain spaces: find the first float pair (x y).
+        let mut xi = None;
+        for (i, a) in args.iter().enumerate() {
+            if a.parse::<f64>().is_ok()
+                && args
+                    .get(i + 1)
+                    .is_some_and(|b| b.parse::<f64>().is_ok())
+            {
+                xi = Some(i);
+                break;
+            }
+        }
+        let xi = xi.ok_or("IMAGE: missing path x y")?;
+        if xi == 0 {
+            return Err("IMAGE: missing path".into());
+        }
+        let path = args[..xi].join(" ");
+        let x: f64 = args[xi]
+            .parse()
+            .map_err(|_| format!("IMAGE: x {:?} is not a number", args[xi]))?;
+        let y: f64 = args[xi + 1]
+            .parse()
+            .map_err(|_| format!("IMAGE: y {:?} is not a number", args[xi + 1]))?;
+        let mut rest = &args[xi + 2..];
+        let width = rest
+            .first()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|w| *w > 0.0)
+            .unwrap_or(1.0);
+        if rest.first().is_some_and(|s| s.parse::<f64>().is_ok()) {
+            rest = &rest[1..];
+        }
+        let height = rest
+            .first()
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|h| *h > 0.0)
+            .unwrap_or(width);
+        if rest.first().is_some_and(|s| s.parse::<f64>().is_ok()) {
+            rest = &rest[1..];
+        }
+        let layer = rest
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "A-FURN-PRES".into());
+        let img = ImageRef::new(path, Point2::new(x, y), width, height);
+        let id = ctx.doc.transact("IMAGE", |d| {
+            d.add_geometry(layer, Geometry::Image(img))
+        });
+        Ok(format!("IMAGE placed as entity {}", id.0))
+    }
+}
+
+struct BlockLibCmd;
+impl Command for BlockLibCmd {
+    fn name(&self) -> &str {
+        "BLOCKLIB"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["BLIB"]
+    }
+    fn help(&self) -> &str {
+        "BLOCKLIB [list|import path [name]|load-all] — DXF/SVG library (opensource inches→m)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let root = aadt_library::default_library_root();
+        match args.first().map(|s| s.to_ascii_lowercase()).as_deref() {
+            None | Some("list") => {
+                let blocks = aadt_library::list_blocks(&root).map_err(|e| e.to_string())?;
+                if blocks.is_empty() {
+                    return Ok(format!("no blocks in {}", root.join("blocks").display()));
+                }
+                let lines: Vec<_> = blocks
+                    .iter()
+                    .map(|b| format!("  {} ({})", b.name, b.path.display()))
+                    .collect();
+                Ok(format!("{} block(s):\n{}", blocks.len(), lines.join("\n")))
+            }
+            Some("import") => {
+                let path = args.get(1).ok_or("BLOCKLIB import: missing path")?;
+                let name = args.get(2).map(String::as_str);
+                let imported = ctx.doc.transact("BLOCKLIB", |d| {
+                    aadt_library::import_block(d, Path::new(path), name).map_err(|e| e.to_string())
+                })?;
+                Ok(format!("imported block {imported:?}"))
+            }
+            Some("load-all") | Some("loadall") | Some("import-all") => {
+                let names = ctx.doc.transact("BLOCKLIB", |d| {
+                    aadt_library::import_all_blocks(d, &root).map_err(|e| e.to_string())
+                })?;
+                Ok(format!(
+                    "loaded {} library block(s) (opensource scaled inches→metres)",
+                    names.len()
+                ))
+            }
+            Some(other) => Err(format!(
+                "BLOCKLIB: unknown subcommand {other:?}; try list, import, or load-all"
+            )),
+        }
     }
 }
 

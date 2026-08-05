@@ -1,18 +1,19 @@
 //! # aadt — command-line driver (spec §2 principle 2, §6.2)
 //!
-//! The headless entry point for AADT. The interactive, command-line-first desktop
-//! shell (`aadt-app`) grows from M1; this binary drives the same command core:
+//! The headless entry point for AADT. The egui desktop shell (`aadt-app` /
+//! `aadt app`) and this binary share the same command core via
+//! [`aadt_app::Session`]:
 //!
 //! ```text
 //! aadt run <script.aadt>                          # execute a command script
 //! aadt shell                                      # interactive command prompt
+//! aadt serve [drawing]                            # local HTTP/JSON API
+//! aadt app [drawing]                              # egui desktop shell
 //! ```
 //!
 //! `run` executes a script through the command interpreter (`aadt-command`) with the
-//! drawing built-ins plus `OPEN`/`SAVE`, mirroring the CAD command-line convention
-//! users already trust. `shell` drives the same command set interactively through
-//! [`aadt_app::Session`] — the GUI-agnostic core a future desktop front-end will
-//! share (see `shell.rs`).
+//! drawing built-ins plus `OPEN`/`SAVE` and the intelligence band. `shell` drives
+//! the same set interactively (see `shell.rs`).
 
 mod commands;
 mod enterprise;

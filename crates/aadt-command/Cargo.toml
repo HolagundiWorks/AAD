@@ -11,6 +11,7 @@ description = "Command interpreter: registry, aliases, history, tab-completion (
 [dependencies]
 aadt-geometry.workspace = true
 aadt-model.workspace = true
+aadt-library.workspace = true
 
 [lints]
 workspace = true

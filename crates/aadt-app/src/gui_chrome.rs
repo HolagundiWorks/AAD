@@ -754,6 +754,105 @@ impl AadtApp {
                         };
                     }
                 });
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = space::SM;
+                    if button_sized(ui, BtnKind::Secondary, "Import PNG…", half)
+                        .on_hover_text("Copy PNG/JPEG/WebP into libraries/elements/furniture and place")
+                        .clicked()
+                    {
+                        self.begin_place_image_dialog();
+                    }
+                    if button_sized(ui, BtnKind::Subtle, "IMAGE", half)
+                        .on_hover_text("Place raster image (IMAGE / PLACEIMAGE)")
+                        .clicked()
+                    {
+                        self.begin_place_image_dialog();
+                    }
+                });
+
+                // Catalog entries with kind badges.
+                self.ensure_element_catalog(false);
+                if !self.element_catalog.is_empty() {
+                    section_label(ui, "Catalog");
+                    for entry in self.element_catalog.clone() {
+                        ui.horizontal(|ui| {
+                            let badge = match entry.kind {
+                                aadt_library::ElementKind::Vector => "VEC",
+                                aadt_library::ElementKind::Image => "PNG",
+                                aadt_library::ElementKind::Dynamic => "DYN",
+                            };
+                            ui.label(
+                                egui::RichText::new(badge)
+                                    .small()
+                                    .color(color::accent())
+                                    .strong(),
+                            );
+                            let label = if entry.display_name.is_empty() {
+                                entry.name.clone()
+                            } else {
+                                entry.display_name.clone()
+                            };
+                            if link_button(ui, &label)
+                                .on_hover_text(format!(
+                                    "{} · {} · {}",
+                                    entry.kind.as_str(),
+                                    entry.category,
+                                    entry.path
+                                ))
+                                .clicked()
+                            {
+                                match entry.kind {
+                                    aadt_library::ElementKind::Image => {
+                                        let root = aadt_library::default_library_root();
+                                        let p = root.join(&entry.path);
+                                        if p.is_file() {
+                                            self.begin_place_image_path(p);
+                                        } else {
+                                            self.begin_place_image_dialog();
+                                        }
+                                    }
+                                    _ => {
+                                        let root = aadt_library::default_library_root();
+                                        let p = root.join(&entry.path);
+                                        if p.is_file() {
+                                            let _ = self.session.feed(&format!(
+                                                "BLOCKLIB import {} {}",
+                                                p.display(),
+                                                entry.name
+                                            ));
+                                            self.insert_block = entry.name.clone();
+                                            self.tool = Tool::Insert {
+                                                name: entry.name.clone(),
+                                            };
+                                            self.note = format!(
+                                                "INSERT {} — click to place",
+                                                entry.name
+                                            );
+                                            self.blocks_cache.clear();
+                                            self.blocks_cache_rev = None;
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                }
+
+                // Image elements on disk.
+                let root = aadt_library::default_library_root();
+                if let Ok(images) = aadt_library::list_image_elements(&root) {
+                    if !images.is_empty() {
+                        section_label(ui, "Images");
+                        for img in images {
+                            if link_button(ui, &img.name)
+                                .on_hover_text(img.path.display().to_string())
+                                .clicked()
+                            {
+                                self.begin_place_image_path(img.path);
+                            }
+                        }
+                    }
+                }
 
                 section_label(ui, "Place");
                 let place = place_kinds_for_category(cat);
@@ -911,17 +1010,79 @@ impl AadtApp {
                             ui.horizontal_wrapped(|ui| {
                                 ui.set_max_width(panel_w);
                                 ui.small("Vis");
-                                for st in &states {
-                                    if link_button(ui, st).clicked() {
-                                        let fb =
-                                            self.session.feed(&format!("BSETVIS {} {}", id.0, st));
-                                        if let Some(m) = fb.message() {
-                                            self.note = m.to_string();
+                                let current = attrs
+                                    .iter()
+                                    .find(|(k, _)| k.eq_ignore_ascii_case(aadt_model::BLOCK_VIS_ATTR))
+                                    .map(|(_, v)| v.clone())
+                                    .unwrap_or_else(|| "Standard".into());
+                                egui::ComboBox::from_id_salt(format!("vis-{}", id.0))
+                                    .selected_text(&current)
+                                    .width((panel_w * 0.55).clamp(80.0, 160.0))
+                                    .show_ui(ui, |ui| {
+                                        for st in &states {
+                                            if ui
+                                                .selectable_label(current.eq_ignore_ascii_case(st), st)
+                                                .clicked()
+                                            {
+                                                let fb = self
+                                                    .session
+                                                    .feed(&format!("BSETVIS {} {}", id.0, st));
+                                                if let Some(m) = fb.message() {
+                                                    self.note = m.to_string();
+                                                }
+                                            }
                                         }
-                                    }
-                                }
+                                    });
                             });
                         }
+                        // Flip + Width for dynamic-lite elements.
+                        let flipped = attrs
+                            .iter()
+                            .find(|(k, _)| {
+                                k.eq_ignore_ascii_case(aadt_model::BLOCK_FLIP_ATTR)
+                                    || k.eq_ignore_ascii_case(aadt_model::BLOCK_FLIP_PARAM)
+                            })
+                            .map(|(_, v)| {
+                                v == "1"
+                                    || v.eq_ignore_ascii_case("true")
+                                    || v.eq_ignore_ascii_case("yes")
+                            })
+                            .unwrap_or(false);
+                        let mut flip = flipped;
+                        if ui.checkbox(&mut flip, "Flip").changed() {
+                            let fb = self.session.feed(&format!("BFLIP {}", id.0));
+                            if let Some(m) = fb.message() {
+                                self.note = m.to_string();
+                            }
+                        }
+                        let width_val = attrs
+                            .iter()
+                            .find(|(k, _)| k.eq_ignore_ascii_case(aadt_model::BLOCK_WIDTH_PARAM))
+                            .map(|(_, v)| v.clone())
+                            .unwrap_or_default();
+                        ui.horizontal(|ui| {
+                            ui.small("Width");
+                            let mut edit = width_val;
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut edit)
+                                        .desired_width(72.0)
+                                        .clip_text(true),
+                                )
+                                .changed()
+                                && !edit.is_empty()
+                            {
+                                let fb = self.session.feed(&format!(
+                                    "EATTEDIT {} {} {}",
+                                    id.0,
+                                    aadt_model::BLOCK_WIDTH_PARAM,
+                                    edit
+                                ));
+                                if let Some(m) = fb.message() {
+                                    self.note = m.to_string();
+                                }
+                            }
+                        });
                     }
                 }
 
@@ -1064,6 +1225,7 @@ impl AadtApp {
                     Geometry::Circle(_) => "CIRCLE",
                     Geometry::Arc(_) => "ARC",
                     Geometry::Text(_) => "TEXT",
+                    Geometry::Image(_) => "IMAGE",
                     Geometry::Insert(i) => {
                         ui.group(|ui| {
                             ui.label(egui::RichText::new(format!("#{} INSERT", id.0)).font(semibold(type_scale::BODY)));
@@ -1258,6 +1420,31 @@ impl AadtApp {
                     {
                         self.show_server = true;
                     }
+                    ui.add_space(space::SM);
+                    // View preset: Technical plan vs Presentation.
+                    let preset_label = format!("View: {}", self.view_preset.label());
+                    ui.menu_button(preset_label, |ui| {
+                        if ui
+                            .selectable_label(
+                                self.view_preset == super::ViewPreset::TechnicalPlan,
+                                "Technical plan",
+                            )
+                            .clicked()
+                        {
+                            self.apply_view_preset(super::ViewPreset::TechnicalPlan);
+                            ui.close_menu();
+                        }
+                        if ui
+                            .selectable_label(
+                                self.view_preset == super::ViewPreset::Presentation,
+                                "Presentation",
+                            )
+                            .clicked()
+                        {
+                            self.apply_view_preset(super::ViewPreset::Presentation);
+                            ui.close_menu();
+                        }
+                    });
                     ui.add_space(space::SM);
                     ui.separator();
                     ui.add_space(space::SM);
@@ -1926,7 +2113,7 @@ impl AadtApp {
             ui,
             match self.right_tab {
                 0 => "Quantities, publish, Ask, classify",
-                1 => "Hatch patterns",
+                1 => "Technical · Floor · Presentation fills",
                 2 => "Tables, leaders, tags",
                 3 => "Nameplate template layers",
                 4 => "Drawing units",
@@ -2325,7 +2512,10 @@ impl AadtApp {
                     if link_button(ui, format!("{{{token}}}")).clicked() {
                         self.current_layer = "TMPL_TEXT".into();
                         self.dyn_input = format!("{{{token}}}");
-                        self.tool = Tool::Text { origin: None };
+                        self.tool = Tool::Text {
+                            origin: None,
+                            height: None,
+                        };
                         self.note = format!(
                             "TEXT {{{token}}} — click point, then Space (layer TMPL_TEXT)"
                         );
@@ -2341,16 +2531,33 @@ impl AadtApp {
 
     pub(super) fn ui_hatch_manager(&mut self, ui: &mut egui::Ui) {
         let panel_w = lock_panel_width(ui);
-        section_label_first(ui, "Pattern preview");
+        section_label_first(ui, "Fill kind");
+        ui.horizontal_wrapped(|ui| {
+            ui.set_max_width(panel_w);
+            for (kind, label) in [
+                (aadt_model::FillKind::Technical, "Technical"),
+                (aadt_model::FillKind::Floor, "Floor"),
+                (aadt_model::FillKind::Presentation, "Presentation"),
+            ] {
+                if ui
+                    .selectable_label(self.fill_kind_tab == kind, label)
+                    .clicked()
+                {
+                    self.fill_kind_tab = kind;
+                }
+            }
+        });
+        ui.add_space(4.0);
+        section_label(ui, "Fill preview");
         ui.label(
             egui::RichText::new(format!("Active: {}", self.hatch_pattern))
                 .small()
                 .color(color::accent()),
         );
-        if button_sized(ui, BtnKind::Primary, "Apply Hatch (H)", panel_w).clicked() {
+        if button_sized(ui, BtnKind::Primary, "Apply Fill (H)", panel_w).clicked() {
             self.tool = Tool::Hatch;
             self.note = format!(
-                "HATCH ({}) — click a closed polyline or circle",
+                "FILL ({}) — click a closed polyline or circle",
                 self.hatch_pattern
             );
         }
@@ -2358,8 +2565,8 @@ impl AadtApp {
         let sel = self.selected_hatches.len();
         if sel > 0 {
             let label = format!(
-                "Set {sel} selected hatch{} to {}",
-                if sel == 1 { "" } else { "es" },
+                "Set {sel} selected fill{} to {}",
+                if sel == 1 { "" } else { "s" },
                 self.hatch_pattern
             );
             if button_sized(ui, BtnKind::Secondary, &label, panel_w).clicked() {
@@ -2370,15 +2577,23 @@ impl AadtApp {
         let root = aadt_library::default_library_root();
         let patterns = aadt_library::list_hatch_patterns(&root)
             .unwrap_or_else(|_| aadt_library::builtin_hatch_patterns());
+        let patterns: Vec<_> = patterns
+            .into_iter()
+            .filter(|p| aadt_model::FillKind::from_pattern(&p.name) == self.fill_kind_tab)
+            .collect();
+        if patterns.is_empty() {
+            ui.label(
+                egui::RichText::new("No patterns in this fill kind yet.")
+                    .small()
+                    .weak(),
+            );
+        }
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let gap = space::SM;
                 let avail = lock_panel_width(ui);
                 let tile = fit_tile_size(avail, panel_space::TILE_MIN, panel_space::TILE_MAX, gap);
-                // Explicit rows: `horizontal_wrapped` under-wraps inside a scroll
-                // area (tiles overflow the panel edge instead of flowing down), so
-                // chunk into a fixed column count derived from the real width.
                 let cols = (((avail + gap) / (tile + gap)).floor() as usize).clamp(1, 5);
                 for chunk in patterns.chunks(cols) {
                     ui.horizontal(|ui| {
@@ -2851,15 +3066,19 @@ impl AadtApp {
 
             section_label(ui, "Entry tips");
             match primary {
+                aadt_model::UnitSystem::Meters => {
+                    ui.label("• `3.5` → 3.5 metres");
+                    ui.label("• `12'-6\"` still parses (converted to metres)");
+                    ui.label(
+                        "• Door/window wall cut recognises faces at 100 / 115 / 150 / 200 / 230 mm",
+                    );
+                }
                 aadt_model::UnitSystem::FeetInches => {
                     ui.label("• `6` or `6.5` → inches (default)");
                     ui.label("• `6\"` → 6 inches");
                     ui.label("• `12'` → 12 feet");
                     ui.label("• `12'-6\"` → 12 ft 6 in");
-                }
-                aadt_model::UnitSystem::Meters => {
-                    ui.label("• `3.5` → 3.5 metres");
-                    ui.label("• `12'-6\"` still parses (converted to metres)");
+                    ui.label("• Door/window wall cut recognises faces at 4½″ and 9″");
                 }
             }
 
@@ -3851,6 +4070,7 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
             }
             Geometry::Text(t) => pts.push(t.position),
             Geometry::Insert(i) => pts.push(i.position),
+            Geometry::Image(img) => pts.extend(img.corners()),
         }
     }
     let Some(bb) = Bbox::of_points(pts) else {
@@ -3926,6 +4146,13 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
                     [c + egui::vec2(0.0, -3.0), c + egui::vec2(0.0, 3.0)],
                     stroke,
                 );
+            }
+            Geometry::Image(img) => {
+                let corners = img.corners();
+                let screen: Vec<_> = corners.iter().map(|p| to_screen(*p)).collect();
+                for i in 0..4 {
+                    painter.line_segment([screen[i], screen[(i + 1) % 4]], stroke);
+                }
             }
         }
     }

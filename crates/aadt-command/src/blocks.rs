@@ -1,6 +1,6 @@
-//! Parametric-lite block commands: BPARAM, BVIS, BSETVIS, BATT, BPARAMLIST.
+//! Parametric-lite block commands: BPARAM, BVIS, BSETVIS, BFLIP, BATT, BPARAMLIST.
 
-use aadt_model::{BlockParamKind, Geometry, BLOCK_VIS_ATTR};
+use aadt_model::{BlockParamKind, Geometry, BLOCK_FLIP_ATTR, BLOCK_VIS_ATTR};
 
 use crate::{parse_entity_id, Command, Context, Registry};
 
@@ -9,6 +9,7 @@ pub fn register_blocks(r: &mut Registry) {
     r.register(Box::new(BparamListCmd));
     r.register(Box::new(BvisCmd));
     r.register(Box::new(BsetVisCmd));
+    r.register(Box::new(BflipCmd));
     r.register(Box::new(BattCmd));
 }
 
@@ -159,6 +160,35 @@ impl Command for BsetVisCmd {
             d.set_attribute(id, BLOCK_VIS_ATTR, state.clone());
         });
         Ok(format!("BSETVIS: entity {} VISIBILITY={state:?}", id.0))
+    }
+}
+
+struct BflipCmd;
+impl Command for BflipCmd {
+    fn name(&self) -> &str {
+        "BFLIP"
+    }
+    fn help(&self) -> &str {
+        "BFLIP id — toggle AADT-FLIP on an INSERT (mirror about local Y)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let id = parse_entity_id(args.first().ok_or("BFLIP: missing id")?, "BFLIP")?;
+        let e = ctx
+            .doc
+            .get(id)
+            .ok_or_else(|| format!("BFLIP: no entity {}", id.0))?;
+        let Geometry::Insert(_) = &e.geometry else {
+            return Err("BFLIP: select an INSERT".into());
+        };
+        let cur = e
+            .attribute(BLOCK_FLIP_ATTR)
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        let next = if cur { "0" } else { "1" };
+        ctx.doc.transact("BFLIP", |d| {
+            d.set_attribute(id, BLOCK_FLIP_ATTR, next);
+        });
+        Ok(format!("BFLIP: entity {} AADT-FLIP={next}", id.0))
     }
 }
 

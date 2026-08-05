@@ -2,35 +2,87 @@
 
 ## Unreleased
 
-### AI-native Phase 5 (M14.1): the local API — `aadt-api` / `aadt serve`
+### Architectural workflow: Elements, typed Fills, PNG, DWG & dynamics
 
-- New `aadt-api` crate serves a **loopback-only, token-gated HTTP/JSON API over
-  a live `Session`**, started explicitly by `aadt serve [drawing]`
-  (`--port` / `--token` / `--read-only` / `--once`). Off unless you start it;
-  offline drafting never touches it.
-- **Reads project the session; the one write path is a command line.** Eleven
-  routes cover health, document summary and extents, paged entities, single
-  entity lookup, layers, selection, history, transcript, and command completion;
-  `POST /v1/command {"line": …}` runs a command. There is deliberately no
-  `POST /v1/entities` — a second door into the document would mean re-enforcing
-  every command-layer invariant behind it forever ([ADR-0015](adr/0015-local-api-layer.md)).
-- Because `aadt serve` hands the server the **CLI's own registered session**,
-  the whole band — `OPEN`, `SAVE`, `OBJECTS`, `TAKEOFF`, `BOQ`, `SUGGEST`,
-  `CHECK`, `COMPARE`, LISP — was reachable with no per-command API code. A
-  golden test proves it by calling `OBJECTS` over HTTP.
-- **Std-only:** `TcpListener`, a small HTTP/1.1 subset, and a hand-rolled JSON
-  encoder/decoder — no `tokio`, `hyper`, or `serde`. HTTP outside the subset
-  (chunked bodies, HTTP/2) is refused by status code rather than approximated.
-- **Bounded and single-threaded on purpose.** A `Session` is not `Send` and a
-  session is one editor on one drawing, so requests serialise; sockets carry
-  10 s timeouts, and request line, header count, and 1 MiB body are bounded
-  before any allocation grows to match them.
-- A rejected command answers `200` with `"status":"error"` — the request
-  succeeded, the command did not, and a client has to tell those apart.
-  Responses are byte-for-byte deterministic (id-ordered entities, name-sorted
-  layers, key-ordered attributes, `null` for non-finite numbers).
-- Docs: [endpoint reference](api/README.md), ADR-0015, ROADMAP M14, and the
-  Phase 5 section of the AI-native phase plan.
+- **Elements** manager (formerly Blocks): catalog entries (`libraries/elements/catalog.json`),
+  PNG/JPEG/WebP import into `libraries/elements/furniture/`, place via IMAGE tool.
+- **Fills** manager (formerly Hatches): Technical / Floor / Presentation tabs;
+  `FillKind` on hatch (persisted in `.aadt` schema v11); pattern heuristics
+  (`AR-*`/`ANSI*` → Technical, `FLOOR-*` → Floor, `SOLID` → Presentation).
+- **View presets:** Technical Plan vs Presentation (layer visibility + presentation fill alpha ~0.35).
+- **Geometry::Image** for model-space raster furniture; texture paint in GUI;
+  DXF/DWG export as rectangle footprint until IMAGEDEF exists.
+- **Nested INSERTs** kept inside block definitions on DXF import; recursive expand
+  on render; DWG export writes block defs + inserts.
+- **Dynamic Elements:** `BFLIP`, WIDTH stretch on expand, visibility UI on selected
+  INSERT; AutoCAD dyn-block actions remain non-editable (warning on import).
+
+### Door / window place cuts the wall
+
+- Placing **DOOR** / **WINDOW** (`DO` / `WI`) near a wall snaps the insert onto
+  the wall, aligns rotation, and cuts a `WIDTH` opening (block default: 0.9 m
+  single door, 1.2 m window).
+- **Double-line walls** (parallel faces at **4½″** or **9″** when units are
+  ft-in; **100 / 115 / 150 / 200 / 230 mm** when units are metres): both faces
+  are trimmed and closed with jambs into **closed polylines** so hatch stays
+  inside the wall body. Insert sits on the centerline between faces.
+- Opening `WIDTH` follows drawing units (block params are metres; converted for
+  ft-in). Switch via Units manager / `UNITS m` or `UNITS ft-in`.
+- **Single centerline** walls: the line/polyline still splits into residual
+  open pieces (same layer/attributes).
+- Helper: `aadt_command::{place_opening_pose, cut_wall_opening}`.
+
+### AutoCAD workflow parity (daily band)
+
+- **Verb-noun select:** MOVE/COPY/ROTATE/SCALE/MIRROR/ARRAY*/ERASE collecting
+  accept window/crossing boxes (add to set), not click-only.
+- **MOVE:** empty Enter at destination uses the base as displacement from origin.
+- **SCALE:** pick after base = factor from distance; `R` arms Reference properly.
+- **OFFSET / FILLET / CIRCLE / TEXT:** remember last distance/radius/height;
+  empty Enter accepts the default (FILLET default `0`).
+- **EXTEND:** Quick mode by default (all boundaries), `[B]`oundary like TRIM's
+  `[C]`; Shift+click trims.
+- **Idle Backspace** no longer erases the selection (Delete still does).
+- **RECTANGLE `D`** after the first corner keeps that corner.
+- **CIRCLE `[D]`** works before the center; last radius on empty Enter after center.
+- **STRETCH** only replays a *crossing* pre-select window (not L→R window).
+- **TEXT:** insertion → height → value (height default from last / dim style).
+- **ERASE** with a pre-selection erases immediately when started from the engine.
+- Docs: [command-workflows.md](ux/command-workflows.md) aligned (ARC 3-point,
+  POLYLINE `[U]/[C]`, FILLET Multiple-on).
+
+### STRETCH: crossing window required; drag defines it
+
+- STRETCH no longer falls back to moving the whole selection when there is no
+  stretch window (click-preselect used to feel like MOVE). It asks for a
+  crossing window; only endpoints **inside** that window move.
+- Dragging while STRETCH is collecting defines the crossing window (always
+  crossing / dashed green), matching the documented workflow.
+
+### Selection: free-drag Select lasso removed
+
+- Select drag is **box only** again (L→R window / R→L crossing). Free-drag
+  curved lasso (`drag_is_lasso` / `finish_lasso`) is gone. Polygon and fence
+  selection remain via GUI `WP` / `CP` / `FENCE` and headless
+  `select_in_polygon` / `select_by_fence`. Docs: ROADMAP M9.2, engineering Vol 6.
+
+### AI-native Phase 5 complete (M14): enterprise + APIs
+
+- **M14.1** — `aadt-api` / `aadt serve`: loopback-only, token-gated HTTP/JSON
+  over a live `Session`. Reads project the session; the one write path is
+  `POST /v1/command` ([ADR-0015](adr/0015-local-api-layer.md)).
+- **M14.2** — Object-level permissions: `--identity` / `--role` on serve;
+  capability gates on routes and command verbs; `PERMS GRANT|REVOKE|SHOW` with
+  per-object `acl.*` props.
+- **M14.3** — Signed audit trail: optional HMAC-SHA256 chain on `AuditEntry`
+  (`AADT_AUDIT_KEY`); `OBJECTS AUDIT VERIFY`; `.aadt` schema **v10** and
+  `.vdb` format **v3**.
+- **M14.4** — Enterprise connectors as command plugins: `CONNECTOR ERP|RFI|DMS`
+  emit sidecar CSV/text/JSON (no second HTTP write door).
+- **M14.5** — Site data ingest: `SITE INDEX` / `ASKDOCS INDEX PHOTO|PDF|REPORT`
+  → corpus text chunks (captions + PDF literals); retrieval via `ASKDOCS`.
+- Docs: [endpoint reference](api/README.md), [ADR-0016](adr/0016-m14-enterprise.md),
+  ROADMAP M14 ✅.
 
 ### Transparent commands: `'ZOOM` and `'PAN` mid-command
 
@@ -157,6 +209,15 @@
   (`selection_matches_box`) — a selection that changed since (a Shift-click,
   say) safely falls back to the old move-everything behavior instead of
   guessing.
+
+### RECTANGLE: Tab after first value no longer breaks the command
+
+- Typing a width then Tab (to enter height) was also handing Tab to egui, which
+  moved keyboard focus into the command line / toolbar. Further digits landed in
+  chrome instead of the Y field; Space could activate a focused control and
+  abort or replace the drawing. Tab is now consumed while drafting, focus is
+  surrendered, and Space on a half-finished X→Y pair asks for the second value
+  instead of distance-entry / command dispatch.
 
 ### RECTANGLE: fixed dynamic-input second-value / opposite-corner entry
 

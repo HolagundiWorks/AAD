@@ -1,5 +1,5 @@
 //! Persistence for the Object DB + Graph DB + object audit log inside `.aadt`
-//! (schema v8, AI-native Phase 1).
+//! (schema v8+; M14.3 hash columns on audit rows at v10).
 //!
 //! Objects/edges are replaced wholesale on write (they are derived, promotable
 //! state); the audit log is **append-only** — existing rows are never rewritten,

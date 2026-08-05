@@ -1,9 +1,9 @@
-//! # aadt-library — Block, hatch, and font libraries
+//! # aadt-library — Block, hatch, font, and element libraries
 //!
-//! On-disk folders under `libraries/blocks/`, `libraries/hatches/`, and
-//! `libraries/fonts/`. Block import accepts DXF block definitions and SVG path
-//! geometry; PNG is rejected. Drawing text uses Adobe Source Sans 3 (OFL) from
-//! `libraries/fonts/` (also embedded in the desktop shell).
+//! On-disk folders under `libraries/blocks/`, `libraries/hatches/`,
+//! `libraries/fonts/`, and `libraries/elements/`. Block import accepts DXF/SVG;
+//! raster PNG/JPEG/WebP are imported as presentation image elements (not vector
+//! blocks). Drawing text uses Adobe Source Sans 3 (OFL) from `libraries/fonts/`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -235,6 +235,7 @@ fn block_bbox(block: &Block) -> Option<aadt_geometry::Bbox> {
             }
             Geometry::Text(t) => pts.push(t.position),
             Geometry::Insert(i) => pts.push(i.position),
+            Geometry::Image(img) => pts.extend(img.corners()),
         }
     }
     aadt_geometry::Bbox::of_points(pts)
@@ -765,12 +766,251 @@ pub fn list_fonts(root: &Path) -> Result<Vec<FontEntry>, LibraryError> {
     Ok(out)
 }
 
+// --- Image elements & catalog ------------------------------------------------
+
+/// Metadata for a raster image copied into `libraries/elements/furniture/`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageElementMeta {
+    pub name: String,
+    pub path: PathBuf,
+    /// Suggested display width in metres.
+    pub default_width: f64,
+    /// Suggested display height in metres (aspect-aware when PNG IHDR is readable).
+    pub default_height: f64,
+}
+
+/// Copy a PNG/JPEG/WebP into `dest_root/elements/furniture/` (creates dirs).
+pub fn import_image_element(
+    src_path: &Path,
+    dest_root: &Path,
+) -> Result<ImageElementMeta, LibraryError> {
+    let ext = src_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+        return Err(LibraryError::Msg(format!(
+            "unsupported image format .{ext}; use PNG, JPEG, or WebP"
+        )));
+    }
+    if !src_path.is_file() {
+        return Err(LibraryError::Msg(format!(
+            "image not found: {}",
+            src_path.display()
+        )));
+    }
+    let furniture = dest_root.join("elements").join("furniture");
+    fs::create_dir_all(&furniture)?;
+    let stem = src_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image")
+        .to_string();
+    let dest_name = format!("{stem}.{ext}");
+    let dest = furniture.join(&dest_name);
+    fs::copy(src_path, &dest)?;
+    let (default_width, default_height) = image_default_size(src_path);
+    Ok(ImageElementMeta {
+        name: stem,
+        path: dest,
+        default_width,
+        default_height,
+    })
+}
+
+fn image_default_size(path: &Path) -> (f64, f64) {
+    const DEFAULT_W: f64 = 1.0;
+    if let Some((w, h)) = png_pixel_size(path) {
+        if w > 0 && h > 0 {
+            let aspect = h as f64 / w as f64;
+            return (DEFAULT_W, DEFAULT_W * aspect);
+        }
+    }
+    (DEFAULT_W, DEFAULT_W)
+}
+
+/// Read PNG IHDR width/height without an image crate.
+fn png_pixel_size(path: &Path) -> Option<(u32, u32)> {
+    let data = fs::read(path).ok()?;
+    if data.len() < 24 || &data[0..8] != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let w = u32::from_be_bytes(data[16..20].try_into().ok()?);
+    let h = u32::from_be_bytes(data[20..24].try_into().ok()?);
+    Some((w, h))
+}
+
+/// Kind of catalog entry for the Elements manager.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ElementKind {
+    Vector,
+    Image,
+    Dynamic,
+}
+
+impl ElementKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Vector => "vector",
+            Self::Image => "image",
+            Self::Dynamic => "dynamic",
+        }
+    }
+
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "image" | "png" | "raster" => Self::Image,
+            "dynamic" | "dyn" => Self::Dynamic,
+            _ => Self::Vector,
+        }
+    }
+}
+
+/// One row from `libraries/elements/catalog.json`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ElementCatalogEntry {
+    pub name: String,
+    pub display_name: String,
+    pub category: String,
+    pub kind: ElementKind,
+    pub path: String,
+    pub default_layer: String,
+    pub default_width: f64,
+}
+
+/// Load `root/elements/catalog.json` (returns empty on missing file).
+pub fn load_element_catalog(root: &Path) -> Result<Vec<ElementCatalogEntry>, LibraryError> {
+    let path = root.join("elements").join("catalog.json");
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(&path)?;
+    parse_element_catalog(&text)
+}
+
+/// Minimal JSON array parser for catalog entries (no serde dependency).
+fn parse_element_catalog(text: &str) -> Result<Vec<ElementCatalogEntry>, LibraryError> {
+    // Accept either a top-level array or `{ "elements": [ ... ] }`.
+    let trimmed = text.trim();
+    let array_src = if let Some(i) = trimmed.find('[') {
+        let end = trimmed.rfind(']').ok_or_else(|| {
+            LibraryError::Msg("catalog.json: missing closing ]".into())
+        })?;
+        &trimmed[i..=end]
+    } else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    // Split on `{` object starts inside the array (naive but enough for our samples).
+    for chunk in array_src.split('{').skip(1) {
+        let Some(end) = chunk.find('}') else {
+            continue;
+        };
+        let obj = &chunk[..end];
+        let name = json_str(obj, "name").unwrap_or_default();
+        if name.is_empty() {
+            continue;
+        }
+        let display_name = json_str(obj, "display_name").unwrap_or_else(|| name.clone());
+        let category = json_str(obj, "category").unwrap_or_else(|| "furniture".into());
+        let kind = ElementKind::parse(&json_str(obj, "kind").unwrap_or_else(|| "vector".into()));
+        let path = json_str(obj, "path").unwrap_or_default();
+        let default_layer =
+            json_str(obj, "default_layer").unwrap_or_else(|| "A-FURN".into());
+        let default_width = json_f64(obj, "default_width").unwrap_or(1.0);
+        out.push(ElementCatalogEntry {
+            name,
+            display_name,
+            category,
+            kind,
+            path,
+            default_layer,
+            default_width,
+        });
+    }
+    Ok(out)
+}
+
+fn json_str(obj: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\"");
+    let i = obj.find(&needle)?;
+    let after = &obj[i + needle.len()..];
+    let colon = after.find(':')?;
+    let mut rest = after[colon + 1..].trim_start();
+    if !rest.starts_with('"') {
+        return None;
+    }
+    rest = &rest[1..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
+}
+
+fn json_f64(obj: &str, key: &str) -> Option<f64> {
+    let needle = format!("\"{key}\"");
+    let i = obj.find(&needle)?;
+    let after = &obj[i + needle.len()..];
+    let colon = after.find(':')?;
+    let rest = after[colon + 1..].trim_start();
+    let num: String = rest
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    num.parse().ok()
+}
+
+/// List raster files under `root/elements` (recursive).
+pub fn list_image_elements(root: &Path) -> Result<Vec<ImageElementMeta>, LibraryError> {
+    let dir = root.join("elements");
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    list_image_elements_dir(&dir, &mut out)?;
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+fn list_image_elements_dir(
+    dir: &Path,
+    out: &mut Vec<ImageElementMeta>,
+) -> Result<(), LibraryError> {
+    for ent in fs::read_dir(dir)? {
+        let ent = ent?;
+        let path = ent.path();
+        if path.is_dir() {
+            list_image_elements_dir(&path, out)?;
+            continue;
+        }
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp") {
+            let name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("image")
+                .to_string();
+            let (default_width, default_height) = image_default_size(&path);
+            out.push(ImageElementMeta {
+                name,
+                path,
+                default_width,
+                default_height,
+            });
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn rejects_png() {
+    fn rejects_png_as_vector_block() {
         let mut doc = Document::new();
         let err = import_block(&mut doc, Path::new("door.png"), None).unwrap_err();
         assert!(err.to_string().contains("rejected"));
@@ -792,5 +1032,41 @@ mod tests {
     #[test]
     fn default_font_constant() {
         assert_eq!(DEFAULT_DRAWING_FONT, "SourceSans3");
+    }
+
+    #[test]
+    fn parses_element_catalog_sample() {
+        let json = r#"{
+  "elements": [
+    {"name":"DOOR-SWING-36","display_name":"Door 36\"","category":"doors","kind":"vector","path":"blocks/opensource/doors/DOOR-SWING-36.dxf","default_layer":"A-DOOR","default_width":0.914},
+    {"name":"sofa-png","display_name":"Sofa (PNG)","category":"furniture","kind":"image","path":"elements/furniture/sofa-png.png","default_layer":"A-FURN-PRES","default_width":2.0}
+  ]
+}"#;
+        let entries = parse_element_catalog(json).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].kind, ElementKind::Vector);
+        assert_eq!(entries[1].kind, ElementKind::Image);
+        assert!((entries[1].default_width - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn import_image_element_copies_file() {
+        let dir = std::env::temp_dir().join("aadt-lib-img-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // Minimal 1×1 PNG.
+        let png = dir.join("src.png");
+        let bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xFE,
+            0xD4, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        fs::write(&png, bytes).unwrap();
+        let meta = import_image_element(&png, &dir).unwrap();
+        assert!(meta.path.is_file());
+        assert_eq!(meta.name, "src");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

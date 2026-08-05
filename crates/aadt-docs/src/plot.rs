@@ -67,6 +67,7 @@ fn points_of_entities(model: &Document, ids: &[EntityId]) -> Vec<Point2> {
             Geometry::Arc(a) => pts.extend(a.to_polyline(16).vertices),
             Geometry::Text(t) => pts.push(t.position),
             Geometry::Insert(ins) => pts.push(ins.position),
+            Geometry::Image(img) => pts.extend(img.corners()),
         }
     }
     pts
@@ -83,6 +84,7 @@ fn geom_bbox(g: &Geometry) -> Option<Bbox> {
         Geometry::Arc(a) => a.to_polyline(16).vertices,
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(ins) => vec![ins.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     };
     Bbox::of_points(pts)
 }

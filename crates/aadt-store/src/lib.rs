@@ -5,7 +5,7 @@
 //! (time machine), and **takeoff runs**. Session undo is still RAM-only.
 //!
 //! Geometry is stored as a compact text payload (no serde). Schema version is in
-//! the `meta` table; older files migrate in place on open (currently through v9).
+//! the `meta` table; older files migrate in place on open (currently through v10).
 
 mod codec;
 mod corpus_io;
@@ -42,7 +42,7 @@ pub use takeoff_db::{
 pub use vecdb_io::{read_vecdb, read_vecdb_path, write_vecdb, write_vecdb_path};
 
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 11;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
@@ -251,7 +251,8 @@ pub(crate) fn init_schema_tables(conn: &Connection) -> Result<(), StoreError> {
             pattern TEXT NOT NULL,
             solid INTEGER NOT NULL,
             geom TEXT NOT NULL,
-            space_id INTEGER NOT NULL DEFAULT 0
+            space_id INTEGER NOT NULL DEFAULT 0,
+            fill_kind TEXT NOT NULL DEFAULT 'Technical'
         );
         CREATE TABLE dimensions (
             seq INTEGER PRIMARY KEY NOT NULL,
@@ -446,6 +447,9 @@ pub(crate) fn migrate_schema(conn: &Connection, from: i64) -> Result<(), StoreEr
     if from < 10 {
         migrate_to_v10(conn)?;
     }
+    if from < 11 {
+        migrate_to_v11(conn)?;
+    }
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -562,6 +566,15 @@ pub(crate) fn migrate_to_v10(conn: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
+/// v10 → v11: hatch fill_kind (Technical / Floor / Presentation).
+pub(crate) fn migrate_to_v11(conn: &Connection) -> Result<(), StoreError> {
+    let _ = conn.execute(
+        "ALTER TABLE hatches ADD COLUMN fill_kind TEXT NOT NULL DEFAULT 'Technical'",
+        [],
+    );
+    Ok(())
+}
+
 pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {
     let tx = conn.unchecked_transaction()?;
 
@@ -642,7 +655,7 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
 
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO hatches (seq, layer, pattern, solid, geom, space_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO hatches (seq, layer, pattern, solid, geom, space_id, fill_kind) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
         for (i, h) in doc.hatches().iter().enumerate() {
             stmt.execute(params![
@@ -652,6 +665,7 @@ pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), St
                 i64::from(h.solid),
                 encode_hatch_boundaries(&h.boundaries)?,
                 h.space.0 as i64,
+                h.fill_kind.as_str(),
             ])?;
         }
     }
@@ -1006,8 +1020,9 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
     }
 
     {
-        let mut stmt =
-            conn.prepare("SELECT layer, pattern, solid, geom, space_id FROM hatches ORDER BY seq")?;
+        let mut stmt = conn.prepare(
+            "SELECT layer, pattern, solid, geom, space_id, fill_kind FROM hatches ORDER BY seq",
+        )?;
         let rows = stmt.query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -1015,20 +1030,30 @@ pub(crate) fn read_document(conn: &Connection) -> Result<Document, StoreError> {
                 r.get::<_, i64>(2)? != 0,
                 r.get::<_, String>(3)?,
                 r.get::<_, i64>(4)? as u64,
+                r.get::<_, String>(5).unwrap_or_else(|_| "Technical".into()),
             ))
         })?;
         for row in rows {
-            let (layer, pattern, solid, geom, space) = row?;
+            let (layer, pattern, solid, geom, space, fill_kind) = row?;
             let boundaries = decode_hatch_boundaries(&geom)?;
             if boundaries.is_empty() {
                 return Err(StoreError::Format("hatch has no boundary paths".into()));
             }
+            let kind = aadt_model::FillKind::parse(&fill_kind);
+            // Migrated v10 rows default to Technical — re-infer from pattern when
+            // the stored value is still the column default.
+            let fill_kind = if fill_kind.eq_ignore_ascii_case("Technical") {
+                aadt_model::FillKind::from_pattern(&pattern)
+            } else {
+                kind
+            };
             doc.add_hatch(Hatch {
                 layer,
                 space: ModelSpaceId(space),
                 boundaries,
                 pattern,
                 solid,
+                fill_kind,
             });
         }
     }

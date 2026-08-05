@@ -1191,7 +1191,7 @@ impl Command for ObjectsCmd {
                                 e.object.0,
                                 e.user,
                                 if e.ai_suggested { " (AI)" } else { "" },
-                                if e.approved { " ✓" } else { " (pending)" },
+                                if e.approved { " [ok]" } else { " (pending)" },
                             )
                         })
                         .collect();

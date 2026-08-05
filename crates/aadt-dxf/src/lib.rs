@@ -15,9 +15,8 @@
 //! reproduces the document exactly.
 //!
 //! Still bounded for now (see `docs/ROADMAP.md` / ADR-0002): dimensions cover
-//! the linear/aligned subset on DXF (model supports more kinds), and block
-//! content is limited to single-record geometry — a nested `INSERT` inside a
-//! block is skipped (with a warning on the document) rather than mis-parsed.
+//! the linear/aligned subset on DXF (model supports more kinds). Nested
+//! `INSERT`s inside block definitions are imported as [`Geometry::Insert`].
 //! **DWG** read/write uses the open-source [`acadrust`] crate for a best-effort
 //! 2D entity subset (hatches/dims skipped on DWG export).
 
@@ -126,6 +125,7 @@ pub fn import_str_report(text: &str) -> Result<ImportReport, DxfError> {
     let mut doc = Document::new();
     let mut warnings: Vec<String> = Vec::new();
     let mut section = Section::None;
+    let mut skipped_images = 0usize;
 
     let mut i = 0;
     while i < records.len() {
@@ -161,6 +161,10 @@ pub fn import_str_report(text: &str) -> Result<ImportReport, DxfError> {
             }
             "HATCH" if section == Section::Entities => import_hatch(&mut doc, rec),
             "DIMENSION" if section == Section::Entities => import_dimension(&mut doc, rec),
+            // Raster images are not imported; count and warn (IMAGEDEF lives in OBJECTS).
+            "IMAGE" | "WIPEOUT" if section == Section::Entities => {
+                skipped_images += 1;
+            }
             _ if section == Section::Entities => {
                 if let Some((layer, geom)) = simple_geometry(rec) {
                     doc.add_geometry(layer, geom);
@@ -169,6 +173,12 @@ pub fn import_str_report(text: &str) -> Result<ImportReport, DxfError> {
             _ => {}
         }
         i += 1;
+    }
+    if skipped_images > 0 {
+        warnings.push(format!(
+            "skipped {skipped_images} IMAGE/WIPEOUT entit{} (not imported)",
+            if skipped_images == 1 { "y" } else { "ies" }
+        ));
     }
     append_import_notes(&mut doc, &warnings);
     Ok(ImportReport {
@@ -373,10 +383,10 @@ fn simple_geometry(rec: &Record) -> Option<(String, Geometry)> {
 /// Import a `BLOCK` definition at `start`, consuming its content records up to
 /// (and including) the `ENDBLK`. Returns the index of the next unconsumed record.
 ///
-/// Block content is limited to single-record geometry: nested `INSERT`s and
-/// legacy `POLYLINE`s inside a block are skipped rather than mis-parsed, so an
-/// unusual block loses detail but never corrupts the surrounding drawing.
-/// Nested `INSERT` skips are recorded in `warnings`.
+/// Nested `INSERT`s are stored as [`Geometry::Insert`] inside the block (attrs
+/// discarded for the definition). Legacy `POLYLINE`s inside a block are still
+/// skipped. Dynamic-block action geometry is not editable — a soft warning is
+/// recorded when ACAD_PROXY / unknown dyn markers appear.
 fn import_block(
     doc: &mut Document,
     records: &[Record],
@@ -391,6 +401,8 @@ fn import_block(
     );
     let mut block = Block::new(name.clone(), base);
     let mut nested_inserts = 0usize;
+    let mut skipped_images = 0usize;
+    let mut dyn_hints = 0usize;
 
     let mut j = start + 1;
     while j < records.len() {
@@ -399,11 +411,20 @@ fn import_block(
                 j += 1;
                 break;
             }
-            // Nested block refs are not modeled — skip the INSERT (+ ATTRIB/SEQEND)
-            // and warn so the user knows geometry was dropped.
             "INSERT" => {
                 nested_inserts += 1;
-                j = skip_insert_trail(records, j);
+                let (insert, next) = parse_insert_geometry(records, j);
+                block.push(records[j].layer(), Geometry::Insert(insert));
+                j = next;
+            }
+            "IMAGE" | "WIPEOUT" => {
+                skipped_images += 1;
+                j += 1;
+            }
+            // Keep geometry; flag that dyn-block actions aren't editable.
+            "ACAD_PROXY_ENTITY" | "ACAD_TABLE" => {
+                dyn_hints += 1;
+                j += 1;
             }
             _ => {
                 if let Some((layer, geom)) = simple_geometry(&records[j]) {
@@ -414,8 +435,16 @@ fn import_block(
         }
     }
     if nested_inserts > 0 && !name.is_empty() {
+        let _ = nested_inserts; // retained as Geometry::Insert; no skip warning
+    }
+    if skipped_images > 0 && !name.is_empty() {
         warnings.push(format!(
-            "skipped {nested_inserts} nested INSERT(s) in block '{name}' (not modeled)"
+            "skipped {skipped_images} IMAGE/WIPEOUT in block '{name}' (not imported)"
+        ));
+    }
+    if dyn_hints > 0 && !name.is_empty() {
+        warnings.push(format!(
+            "block '{name}': dynamic actions not editable in AADT (geometry kept)"
         ));
     }
     // A block with no name is malformed; keep only named definitions.
@@ -425,9 +454,18 @@ fn import_block(
     j
 }
 
-/// Advance past an `INSERT` at `start` and any following `ATTRIB`/`SEQEND` trail
-/// (same span as [`import_insert`], but without placing an entity).
-fn skip_insert_trail(records: &[Record], start: usize) -> usize {
+/// Parse an `INSERT` at `start` (+ ATTRIB/SEQEND) into geometry without placing
+/// a document entity. Attributes are discarded (block definitions don't store them).
+fn parse_insert_geometry(records: &[Record], start: usize) -> (Insert, usize) {
+    let header = &records[start];
+    let name = header.string(2).unwrap_or("").to_string();
+    let position = Point2::new(
+        header.float(10).unwrap_or(0.0),
+        header.float(20).unwrap_or(0.0),
+    );
+    let rotation = header.float(50).unwrap_or(0.0);
+    let scale_x = header.float(41).unwrap_or(1.0);
+    let scale_y = header.float(42).unwrap_or(scale_x);
     let mut j = start + 1;
     while j < records.len() {
         match records[j].kind.as_str() {
@@ -439,7 +477,10 @@ fn skip_insert_trail(records: &[Record], start: usize) -> usize {
             _ => break,
         }
     }
-    j
+    (
+        Insert::new(name, position, rotation).with_scale(scale_x, scale_y),
+        j,
+    )
 }
 
 /// Import a legacy `POLYLINE` header at `start`, consuming the following `VERTEX`
@@ -602,17 +643,20 @@ fn import_dimension(doc: &mut Document, rec: &Record) {
 /// Returns the index of the next unconsumed record.
 fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize {
     let header = &records[start];
-    let name = header.string(2).unwrap_or("").to_string();
-    let position = Point2::new(
-        header.float(10).unwrap_or(0.0),
-        header.float(20).unwrap_or(0.0),
-    );
-    let rotation = header.float(50).unwrap_or(0.0);
-    let scale_x = header.float(41).unwrap_or(1.0);
-    let scale_y = header.float(42).unwrap_or(scale_x);
+    let (insert, mut j) = {
+        let name = header.string(2).unwrap_or("").to_string();
+        let position = Point2::new(
+            header.float(10).unwrap_or(0.0),
+            header.float(20).unwrap_or(0.0),
+        );
+        let rotation = header.float(50).unwrap_or(0.0);
+        let scale_x = header.float(41).unwrap_or(1.0);
+        let scale_y = header.float(42).unwrap_or(scale_x);
+        let insert = Insert::new(name, position, rotation).with_scale(scale_x, scale_y);
+        (insert, start + 1)
+    };
 
     let mut attributes: HashMap<String, String> = HashMap::new();
-    let mut j = start + 1;
     while j < records.len() {
         match records[j].kind.as_str() {
             "ATTRIB" => {
@@ -629,7 +673,13 @@ fn import_insert(doc: &mut Document, records: &[Record], start: usize) -> usize 
         }
     }
 
-    let insert = Insert::new(name, position, rotation).with_scale(scale_x, scale_y);
+    // Negative scale from CAD often means flip; normalize into AADT-FLIP.
+    if insert.scale_x < 0.0 {
+        attributes
+            .entry(aadt_model::BLOCK_FLIP_ATTR.to_string())
+            .or_insert_with(|| "1".into());
+    }
+
     doc.add_entity(header.layer(), Geometry::Insert(insert), attributes);
     j
 }
@@ -837,6 +887,23 @@ fn write_geometry(
             ));
         }
         Geometry::Insert(ins) => {
+            // Bake FLIP into scale for export (negative scale_x mirrors about Y).
+            let flipped = attributes
+                .and_then(|a| {
+                    a.get(aadt_model::BLOCK_FLIP_ATTR)
+                        .or_else(|| a.get(aadt_model::BLOCK_FLIP_PARAM))
+                })
+                .map(|v| {
+                    v == "1"
+                        || v.eq_ignore_ascii_case("true")
+                        || v.eq_ignore_ascii_case("yes")
+                })
+                .unwrap_or(false);
+            let mut sx = ins.scale_x;
+            let sy = ins.scale_y;
+            if flipped && sx > 0.0 {
+                sx = -sx;
+            }
             // Attributes are emitted in sorted key order so export is
             // deterministic and round-trips exactly.
             let attrs = attributes.filter(|a| !a.is_empty());
@@ -846,8 +913,8 @@ fn write_geometry(
                 ins.name,
                 ins.position.x,
                 ins.position.y,
-                ins.scale_x,
-                ins.scale_y,
+                sx,
+                sy,
                 ins.rotation,
                 i32::from(attrs.is_some()),
             ));
@@ -858,6 +925,22 @@ fn write_geometry(
                     out.push_str(&format!("0\nATTRIB\n1\n{value}\n2\n{tag}\n"));
                 }
                 out.push_str("0\nSEQEND\n");
+            }
+        }
+        // Raster IMAGE is not written; emit the footprint as a closed LwPolyline.
+        Geometry::Image(img) => {
+            eprintln!(
+                "aadt-dxf: exporting IMAGE '{}' as LwPolyline rectangle footprint (raster not written)",
+                img.path
+            );
+            let corners = img.corners();
+            out.push_str(&format!(
+                "0\nLWPOLYLINE\n8\n{}\n90\n{}\n70\n1\n",
+                layer,
+                corners.len()
+            ));
+            for v in &corners {
+                out.push_str(&format!("10\n{}\n20\n{}\n", v.x, v.y));
             }
         }
     }
@@ -1268,7 +1351,120 @@ EOF
     }
 
     #[test]
-    fn nested_insert_inside_block_is_skipped_with_warning() {
+    fn nested_insert_inside_block_is_kept() {
+        const NESTED: &str = "\
+0
+SECTION
+2
+BLOCKS
+0
+BLOCK
+2
+CHILD
+10
+0.0
+20
+0.0
+0
+LINE
+8
+0
+10
+0.0
+20
+0.0
+11
+1.0
+21
+0.0
+0
+ENDBLK
+0
+BLOCK
+2
+PARENT
+10
+0.0
+20
+0.0
+0
+LINE
+8
+0
+10
+0.0
+20
+0.0
+11
+1.0
+21
+0.0
+0
+INSERT
+8
+0
+2
+CHILD
+10
+0.5
+20
+0.5
+50
+0.0
+41
+1.0
+42
+1.0
+0
+ENDBLK
+0
+ENDSEC
+0
+SECTION
+2
+ENTITIES
+0
+INSERT
+8
+0
+2
+PARENT
+10
+10.0
+20
+10.0
+50
+0.0
+0
+ENDSEC
+0
+EOF
+";
+        let report = import_str_report(NESTED).unwrap();
+        let block = report.document.block("PARENT").expect("parent defined");
+        assert!(
+            block
+                .entities
+                .iter()
+                .any(|e| matches!(&e.geometry, Geometry::Insert(i) if i.name == "CHILD")),
+            "nested INSERT kept in block def: {:?}",
+            block.entities
+        );
+        // Round-trip: export → reimport must retain nested insert.
+        let dxf = export_str(&report.document);
+        let back = import_str_report(&dxf).unwrap();
+        let parent = back.document.block("PARENT").expect("parent after round-trip");
+        assert!(
+            parent
+                .entities
+                .iter()
+                .any(|e| matches!(&e.geometry, Geometry::Insert(i) if i.name == "CHILD")),
+            "nested INSERT survives DXF round-trip"
+        );
+    }
+
+    #[test]
+    fn nested_insert_attribs_do_not_leak_as_entities() {
         const NESTED: &str = "\
 0
 SECTION
@@ -1330,28 +1526,8 @@ ENDSEC
 EOF
 ";
         let report = import_str_report(NESTED).unwrap();
-        assert_eq!(
-            report.warnings.len(),
-            1,
-            "expected one nested-insert warning: {:?}",
-            report.warnings
-        );
-        assert!(
-            report.warnings[0].contains("PARENT") && report.warnings[0].contains("INSERT"),
-            "warning should name the block: {}",
-            report.warnings[0]
-        );
         let block = report.document.block("PARENT").expect("parent defined");
-        assert_eq!(
-            block.entities.len(),
-            1,
-            "only the LINE is kept; nested INSERT dropped"
-        );
-        assert!(
-            report.document.properties().comments.contains("[DXF:"),
-            "warning mirrored into comments: {}",
-            report.document.properties().comments
-        );
+        assert_eq!(block.entities.len(), 2, "LINE + nested INSERT");
         // ATTRIB/SEQEND after nested INSERT must not leak as entities.
         assert_eq!(report.document.len(), 0);
     }

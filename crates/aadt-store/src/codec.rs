@@ -1,7 +1,7 @@
 //! Compact text encoding for [`Geometry`] inside SQLite TEXT columns.
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{Geometry, Insert, Text};
+use aadt_model::{Geometry, ImageRef, Insert, Text};
 
 /// Errors from native `.aadt` persistence.
 #[derive(Debug)]
@@ -74,6 +74,19 @@ pub fn encode_geometry(g: &Geometry) -> Result<String, StoreError> {
                     i.name, i.position.x, i.position.y, i.rotation
                 )
             }
+        }
+        Geometry::Image(img) => {
+            let path = img.path.replace(' ', "\\s");
+            format!(
+                "IMAGE {} {} {} {} {} {} {}",
+                img.position.x,
+                img.position.y,
+                img.rotation,
+                img.width,
+                img.height,
+                img.opacity,
+                path
+            )
         }
     })
 }
@@ -158,6 +171,22 @@ pub fn decode_geometry(s: &str) -> Result<Geometry, StoreError> {
                 }
             }
             Ok(Geometry::Insert(ins))
+        }
+        "IMAGE" => {
+            let pos = Point2::new(num(&mut it)?, num(&mut it)?);
+            let rotation = num(&mut it)?;
+            let width = num(&mut it)?;
+            let height = num(&mut it)?;
+            let opacity = num(&mut it)? as f32;
+            let path = it
+                .next()
+                .ok_or_else(|| StoreError::Format("IMAGE missing path".into()))?
+                .replace("\\s", " ");
+            Ok(Geometry::Image(
+                ImageRef::new(path, pos, width, height)
+                    .with_rotation(rotation)
+                    .with_opacity(opacity),
+            ))
         }
         other => Err(StoreError::Format(format!(
             "unknown geometry kind {other:?}"

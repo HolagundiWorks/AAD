@@ -179,6 +179,19 @@ fn fingerprints(doc: &Document) -> HashMap<Fingerprint, usize> {
                 "insert",
                 format!("{} {} {}", r(i.position.x), r(i.position.y), i.name),
             ),
+            Geometry::Image(img) => (
+                "image",
+                format!(
+                    "{} {} {} {} {} {} {}",
+                    r(img.position.x),
+                    r(img.position.y),
+                    r(img.rotation),
+                    r(img.width),
+                    r(img.height),
+                    r(img.opacity as f64),
+                    img.path
+                ),
+            ),
         };
         let fp = Fingerprint {
             kind,

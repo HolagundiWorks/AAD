@@ -73,7 +73,8 @@ pub fn save_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), VdbError>
     )
 }
 
-/// Write `doc` plus its Object DB / Graph DB / audit log (`.vdb` v2 sections).
+/// Write `doc` plus its Object DB / Graph DB / audit log (`.vdb` object sections;
+/// format version is [`FORMAT_VERSION`], currently v3).
 pub fn save_path_with_objects(
     doc: &Document,
     path: impl AsRef<Path>,
@@ -286,6 +287,7 @@ fn geometry_points(doc: &Document, g: &Geometry) -> Vec<Point2> {
             ]
         }
         Geometry::Insert(ins) => insert_points(doc, ins),
+        Geometry::Image(img) => img.corners().to_vec(),
     }
 }
 
@@ -324,6 +326,7 @@ fn raw_points(g: &Geometry) -> Vec<Point2> {
         Geometry::Arc(a) => a.to_polyline(4).vertices,
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(ins) => vec![ins.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     }
 }
 

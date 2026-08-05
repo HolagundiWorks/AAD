@@ -501,8 +501,8 @@ pub fn left_manager_nav() -> &'static [NavDest] {
         },
         NavDest {
             tab: 1,
-            label: "Blocks",
-            tip: "Blocks for the active model space",
+            label: "Elements",
+            tip: "Elements (blocks) for the active model space",
             icon: Icon::Blocks,
         },
     ]
@@ -514,8 +514,8 @@ pub fn right_manager_nav() -> &'static [NavDest] {
     &[
         NavDest {
             tab: 1,
-            label: "Hatches",
-            tip: "Hatch patterns",
+            label: "Fills",
+            tip: "Technical, floor, and presentation fills",
             icon: Icon::Hatch,
         },
         NavDest {
@@ -559,21 +559,21 @@ pub fn right_manager_nav() -> &'static [NavDest] {
 
 pub fn left_manager_title(tab: usize) -> &'static str {
     match tab {
-        1 => "Blocks",
+        1 => "Elements",
         _ => "Layers",
     }
 }
 
 pub fn right_manager_title(tab: usize) -> &'static str {
     match tab {
-        1 => "Hatches",
+        1 => "Fills",
         2 => "Annotate",
         3 => "Nameplate templates",
         4 => "Units",
         5 => "Dimensions",
         6 => "History",
         7 => "Properties",
-        _ => "Hatches",
+        _ => "Fills",
     }
 }
 

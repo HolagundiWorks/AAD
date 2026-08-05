@@ -106,6 +106,7 @@ fn geometry_points(g: &Geometry) -> Vec<Point2> {
             .collect(),
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(i) => vec![i.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     }
 }
 
@@ -129,6 +130,15 @@ fn geometry_segments(g: &Geometry) -> Vec<Segment> {
                 .map(|k| a.point_at(k as f64 / CURVE_SAMPLES as f64))
                 .collect::<Vec<_>>(),
         ),
+        Geometry::Image(img) => {
+            let c = img.corners();
+            vec![
+                Segment::new(c[0], c[1]),
+                Segment::new(c[1], c[2]),
+                Segment::new(c[2], c[3]),
+                Segment::new(c[3], c[0]),
+            ]
+        }
         Geometry::Text(_) | Geometry::Insert(_) => Vec::new(),
     }
 }

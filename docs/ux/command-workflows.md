@@ -12,6 +12,7 @@ Step-by-step interaction for the daily drafting band. Companion to
 | Hold Space / Ctrl+Space | Command palette |
 | Esc | Cancel tool → Select; clear selection if already idle |
 | Tab | Cycle dyn X ↔ Y while drafting a point |
+| Delete | Erase selection (when idle) |
 | F1 | Shortcuts sheet |
 | F3 | Object snap |
 | F8 | Ortho |
@@ -55,15 +56,17 @@ Same vertex pattern as LINE: Space finishes; `U` / `C` supported.
 
 ### ARC (`A`)
 
-Center → start → end (angles derived from vectors). Catalog-synced for repeat.
+Default **3-point** (start → through → end). Type `[C]`enter for centre → start → end (angles from vectors). Catalog-synced for repeat.
 
 ### RECTANGLE (`REC`)
 
 | Mode | Flow |
 |------|------|
 | Corners | First corner → opposite corner |
-| Dimensions | `D` → type length → type width → click first corner |
-| Relative | After first corner: `@W,H` or `W,H` |
+| Dimensions | `D` → type length → type width → click first corner (or `D` after the first corner keeps that corner) |
+| Relative | After first corner: `@W,H` or type width, **Tab**, height, Space |
+
+Tab cycles dyn X ↔ Y (and is swallowed so it cannot focus the command line mid-command). In the `D` flow, Tab advances length → width like Space.
 
 ### XLINE (`XL`)
 
@@ -75,11 +78,32 @@ Center → start → end (angles derived from vectors). Catalog-synced for repea
 
 ### TEXT (`T`)
 
-Insertion point → type value → Space/Enter.
+Insertion point → type height (Space = last / dim default) → type value → Space/Enter. Rotation stays 0 this release.
 
-### HATCH (`H`)
+### HATCH / FILL (`H`)
 
-Click a closed polyline or circle boundary.
+Click a closed polyline or circle boundary (or an internal point). Pattern from the Fills manager (Technical / Floor / Presentation); mid-command scale/angle deferred.
+
+### WALL (`WA`)
+
+Type thickness → click vertices → Space finishes. Stored as an open polyline on `A-WALL` with `AADT-ELEM=wall`.
+
+### DOOR (`DO`) / WINDOW (`WI`)
+
+Click on (or near) a wall: the insert snaps to the wall, rotates to the wall angle, and **cuts a WIDTH opening** (block default: door 0.9 m, window 1.2 m).
+
+- **Double-line walls** (faces ~4½″ / 9″ in ft-in, or ~100–230 mm in metric): both lines are trimmed and joined with jambs into closed polylines (hatch-safe). Insert on the centerline.
+- **Single wall** line/polyline: residual open pieces remain.
+
+Set drawing units in the Units manager (`UNITS m` / `UNITS ft-in`) so thickness recognition and door/window widths match. Place away from walls still inserts the block without a cut.
+
+### Elements (formerly Blocks)
+
+Library catalog + INSERT. **Import PNG…** places presentation furniture (`IMAGE` / `PLACEIMAGE`). Selected inserts: visibility state, Flip (`BFLIP`), Width.
+
+### Fills (formerly Hatches)
+
+Technical / Floor / Presentation filters. Pattern from the Fills manager; mid-command scale/angle deferred. View menu: Technical Plan vs Presentation board.
 
 ---
 
@@ -92,7 +116,7 @@ All of **MOVE / COPY / ROTATE / SCALE / MIRROR / ARRAYRECT / ARRAYPOLAR / ARRAYP
 
 ### MOVE (`M`)
 
-Select → Space (if verb-noun) → base point → destination.
+Select → Space (if verb-noun; window/crossing work while selecting) → base point → destination. Empty Space/Enter at the destination uses the base as a **displacement** from the origin (AutoCAD default).
 
 ### COPY (`CO`)
 
@@ -102,15 +126,15 @@ Select → base → destination(s). Empty Space finishes (multi-copy).
 
 | Path | Flow |
 |------|------|
-| Angle | Base → **type angle (degrees)** or pick an angle point |
+| Angle | Base → **type angle (degrees)** or pick an angle point (empty Space = `0`) |
 | Reference | Base → `R` → reference angle (2 pts) → new angle (type or 2 pts) |
 
 ### SCALE (`SC`)
 
 | Path | Flow |
 |------|------|
-| Factor | Base → type factor (e.g. `2`) + Space |
-| Reference | Base → `R` (or click) → old length (2 pts or type) → new length |
+| Factor | Base → type factor, **or pick** a point (distance = factor); empty Space = `1` |
+| Reference | Base → `R` → old length (2 pts or type) → new length |
 
 ### MIRROR (`MI`)
 
@@ -143,7 +167,7 @@ Select → pick a **path** (line / polyline / arc / circle) → **count** (≥ 2
 
 ### OFFSET (`O`)
 
-Type distance + Space → pick object → pick side (repeat) → Space finishes.
+Type distance + Space (empty Space reuses **last** distance) → pick object → pick side (repeat) → Space finishes.
 
 ### TRIM (`TR`) — AutoCAD Quick mode
 
@@ -163,35 +187,40 @@ Options while trimming:
 
 Clicking between **two** crossings removes the middle segment and splits the object (AutoCAD behavior).
 
-### EXTEND (`EX`)
+### EXTEND (`EX`) — AutoCAD Quick mode
 
-Boundary → objects near the end to grow (multi) → Space finishes.
+Default **Quick** (all entities as boundaries), mirroring TRIM:
+
+1. Start `EXTEND` / `EX`
+2. Click near the end to lengthen
+3. Repeat · **Space** finishes · `[B]`oundary for standard edge selection · **Shift+click** trims
 
 ### FILLET (`F`)
 
-Type radius + Space (`0` = sharp) → first line → second line.
+Type radius + Space (`0` = sharp; empty Space = last radius, default `0`) → first line → second line. Stays active for more corners (AutoCAD Multiple); Esc ends.
 
 ### ERASE (`E`)
 
-Select objects → Space confirms erase (or pre-select then `E` / Space).
+Select objects → Space confirms erase. Pre-select then `E` erases immediately.
 
 ### STRETCH (`S`)
 
 AutoCAD-style: the **crossing window** is the selection — it both picks the
-objects and decides which endpoints move.
+objects and decides which **endpoints** move. Endpoints outside the window stay
+put (true stretch). Covering both ends of a line moves that line as a whole.
 
 | Step | Action |
 |------|--------|
-| 1 | Specify the crossing window: first corner → opposite corner (click, type `x,y`, or drag). Endpoints inside the window will move; the rest stay put. |
+| 1 | Specify the crossing window: **drag** a box, or click two corners (typed `x,y` also works). Always treated as crossing (green dashed), regardless of drag direction. |
 | 2 | **Space** to accept the window (or window again to reselect) |
 | 3 | Base point |
 | 4 | Destination |
 
-Pre-selected objects skip step 1 (noun-verb). If the pre-selection was a plain
-rubber-band box (not individual clicks), that box is replayed as the crossing
-window, so it still stretches rather than moves — matching AutoCAD. Any other
-pre-selection (individual picks, or a selection that's since changed) moves as
-a whole, since there's no window to derive per-endpoint moves from.
+Pre-selected objects: if the pre-selection came from a **crossing** Select box
+that still matches, that box is reused as the stretch window. A plain window
+(L→R) pre-select or click-picked selection does **not** skip the window —
+STRETCH asks for a crossing window so it stretches vertices instead of moving
+entire entities.
 
 **Element filter.** At the crossing-window prompt, type a keyword to limit the
 window to a building-element group (toggle on/off; combine several):
@@ -325,7 +354,7 @@ Places optional rectangle on `ROOM-RECTANGLES` and centered name + size + area o
 | `BATT id` / `EATTEDIT id key value` | List / edit INSERT attributes |
 | `WINLABEL [AT x y] [id…]` | Label INSERTs from `WNAME` (first 2 chars) |
 
-Blocks Manager: create from selection, add params, edit selected INSERT attrs / visibility.
+Elements manager: create from selection, add params, edit selected INSERT attrs / visibility / flip / width; import PNG furniture.
 
 ### HCW / BPLT / text tools (HCW-TOOLS)
 
@@ -368,13 +397,16 @@ in this section writes geometry on its own ([ADR-0013](../adr/0013-ai-service-la
 | Command | Role |
 |---------|------|
 | `FIND <text>` / `FIND SIMILAR <id>` / `FIND DUPES` | Semantic search over labels, geometry, congruent duplicates; sets the selection |
-| `ASKDOCS <question>` / `ASKDOCS INDEX <path>` / `ASKDOCS SOURCES` | BM25 retrieval over indexed spec documents; every passage cites source + paragraph |
+| `ASKDOCS <question>` / `ASKDOCS INDEX [PHOTO\|PDF\|REPORT] <path>` / `ASKDOCS SOURCES` | BM25 retrieval over indexed specs and site data; every passage cites source + paragraph |
 | `SUGGEST DIMS\|LIST\|WHY id\|ACCEPT id\|REJECT id\|ACCEPTALL` | Proposal surface; only `ACCEPT` mutates, inside one undo transaction with an audit row |
 | `CHECK [rule\|RULES]` | Deterministic code/standards rule packs; advisory, cites governing passages |
 | `ASK <phrase>` | Routes natural language to a command *string* and shows it — never executes |
 | `COMPARE <before-path>` (`DIFF`, `REVCOMPARE`) | Narrates changes from a saved revision to the live drawing |
 | `RECOMMEND DETAIL [query]` (`DETAIL`, `DETAILS`) | Cites matching standard-detail sheets from `libraries/details/` |
-| `OBJECTS` / `RELATIONS <id>` | Inspect the Object DB and its typed relationships |
+| `OBJECTS` / `RELATIONS <id>` / `OBJECTS AUDIT [VERIFY]` | Inspect the Object DB; verify HMAC audit chain when `AADT_AUDIT_KEY` is set |
+| `PERMS WHOAMI\|SHOW\|GRANT\|REVOKE` | Principal / per-object ACL props (M14.2) |
+| `CONNECTOR LIST\|ERP\|RFI\|DMS` | Enterprise sidecar payloads over the command line (M14.4) |
+| `SITE INDEX PHOTO\|PDF\|REPORT <path>` | Ingest site photos/reports into the corpus (M14.5) |
 | `MAPMETA` | Confidence-gated element → layer/category classification with reconciliation |
 
 ### COMPARE — revision narration
@@ -454,7 +486,7 @@ Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out 
 | Window / crossing | Yes | L→R / R→L |
 | Fence / WPolygon / CPolygon | Yes | `FENCE` / `WP` / `CP` tools (click corners → Space) |
 | Select box window / crossing | Yes | Near-straight drag L→R window, R→L crossing |
-| Free-drag curved lasso | Yes | Curved Select drag → `select_in_polygon` (same L→R / R→L modes) |
+| Free-drag curved lasso | No | Select drag is box-only; use `WP`/`CP` for polygons |
 | Selection highlight + grips | Yes | Blue glow; inserts expand |
 | Dyn input near cursor | Yes | F12 / DYN status chip |
 | Ortho / Osnap / Polar | Yes | F8 / F3 / F10 |

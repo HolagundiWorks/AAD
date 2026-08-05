@@ -56,7 +56,8 @@ pub fn features_for_geometry(g: &Geometry, doc: &Document) -> Vec<f32> {
         Geometry::Circle(_) => 2,
         Geometry::Arc(_) => 3,
         Geometry::Text(_) => 4,
-        Geometry::Insert(_) => 5,
+        // Image shares Insert's one-hot slot so FEATURE_DIM / trained weights stay stable.
+        Geometry::Insert(_) | Geometry::Image(_) => 5,
     };
     f[kind] = 1.0;
 
@@ -200,6 +201,7 @@ fn geometry_points(g: &Geometry, doc: &Document) -> Vec<Point2> {
             ]
         }
         Geometry::Insert(ins) => insert_footprint(ins, doc),
+        Geometry::Image(img) => img.corners().to_vec(),
     }
 }
 
@@ -235,6 +237,7 @@ fn raw_points(g: &Geometry) -> Vec<Point2> {
         Geometry::Arc(a) => a.to_polyline(4).vertices,
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(ins) => vec![ins.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     }
 }
 

@@ -26,7 +26,7 @@ use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
 use crate::prefs::{FloatRect, PanelMode, UserPrefs};
-use crate::selection::{point_in_polygon, select_by_fence, select_in_polygon, RegionMode};
+use crate::selection::{select_by_fence, select_in_polygon, RegionMode};
 use crate::{Feedback, Session};
 
 #[path = "gui_chrome.rs"]
@@ -292,6 +292,8 @@ pub(super) enum Tool {
     Scale {
         collecting: bool,
         pivot: Option<Point2>,
+        /// After `R`: measuring a reference length then a new length.
+        reference: bool,
         /// First point of a reference length (Reference mode).
         ref_a: Option<Point2>,
         /// Measured reference length; waiting for the new length.
@@ -302,9 +304,11 @@ pub(super) enum Tool {
         dist: Option<f64>,
         entity: Option<EntityId>,
     },
-    /// Single-line text: click insertion point, then type value in dyn-input.
+    /// Single-line text: insertion point → height → value (rotation stays 0).
     Text {
         origin: Option<Point2>,
+        /// `None` after the insertion point means waiting for a typed height.
+        height: Option<f64>,
     },
     /// Multileader: arrow → landing → text point, then type value.
     Mleader {
@@ -369,9 +373,11 @@ pub(super) enum Tool {
         cutters: Vec<EntityId>,
         phase: TrimPhase,
     },
-    /// Extend: boundary first, then objects near the end (Space finishes).
+    /// Extend: Quick mode (empty boundaries = all entities) or `[B]`oundary
+    /// edges first, then objects near the end to lengthen (Space finishes).
     Extend {
-        boundary: Option<EntityId>,
+        boundaries: Vec<EntityId>,
+        phase: TrimPhase,
     },
     /// Mirror selection across two axis points; then Y/N erase source.
     Mirror {
@@ -482,6 +488,12 @@ pub(super) enum Tool {
     /// Placeholder place (door/window/column/beam/slab) at click.
     PlaceElem {
         kind: PlaceKind,
+    },
+    /// Place a raster image (PNG/JPEG/WebP) at click.
+    PlaceImage {
+        path: String,
+        width: f64,
+        height: f64,
     },
 }
 
@@ -946,7 +958,10 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             // AutoCAD Quick mode: all geometry are cutting edges; click objects to trim.
             phase: TrimPhase::Objects,
         }),
-        "EX" | "EXTEND" => Some(Tool::Extend { boundary: None }),
+        "EX" | "EXTEND" => Some(Tool::Extend {
+            boundaries: Vec::new(),
+            phase: TrimPhase::Objects,
+        }),
         "MI" | "MIRROR" => Some(Tool::Mirror {
             collecting: collect,
             a: None,
@@ -989,7 +1004,10 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             dist: None,
             entity: None,
         }),
-        "T" | "TEXT" | "DTEXT" | "DT" => Some(Tool::Text { origin: None }),
+        "T" | "TEXT" | "DTEXT" | "DT" => Some(Tool::Text {
+            origin: None,
+            height: None,
+        }),
         "MLEADER" | "LEADER" | "MLD" => Some(Tool::Mleader {
             arrow: None,
             landing: None,
@@ -1045,6 +1063,7 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         "SC" | "SCALE" => Some(Tool::Scale {
             collecting: collect,
             pivot: None,
+            reference: false,
             ref_a: None,
             old_len: None,
         }),
@@ -1091,6 +1110,7 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         "TOILET" | "WC" => Some(Tool::PlaceElem {
             kind: PlaceKind::Toilet,
         }),
+        "IMAGE" | "PLACEIMAGE" | "IMAGEATTACH" => None, // file dialog / PlaceImage in dispatch
         "IROOM" | "MROOM" => None, // opens picker in dispatch
         "IAR" | "MAR" => Some(Tool::RoomArea),
         "IDO" | "MDO" => Some(Tool::RoomLabel {
@@ -1133,8 +1153,7 @@ struct AadtApp {
     current_layer: String,
     /// Screen anchor of an in-progress box selection.
     box_start: Option<egui::Pos2>,
-    /// Screen path of an in-progress Select drag (box vs lasso) or TRIM freehand
-    /// stroke. Tools are mutually exclusive, so one buffer is enough.
+    /// Screen path of an in-progress TRIM freehand stroke.
     drag_path: Vec<egui::Pos2>,
     /// Entities already trimmed by the current TRIM drag stroke (AutoCAD
     /// freehand quick-trim), so a single stroke never trims one twice.
@@ -1156,16 +1175,19 @@ struct AadtApp {
     /// The rectangle (and window/crossing mode) behind the *last* plain
     /// (non-Shift) box selection made with the general Select tool, if any.
     /// Noun-verb STRETCH (pre-select, then invoke the command) replays this as
-    /// its implied crossing window — matching AutoCAD, where pre-selecting with
-    /// a box still stretches only the vertices that box caught, rather than
-    /// moving the whole selection. Individual (click) picks leave this `None`,
-    /// so STRETCH falls back to moving the whole selection, also AutoCAD's
-    /// behaviour. Validated (not just replayed blindly) at the point STRETCH
-    /// starts, in [`start_command_id`](Self::start_command_id): stale windows
-    /// (selection changed since, e.g. a Shift-click after the box) are
-    /// detected by re-running the box query and comparing to the live
-    /// selection before being trusted.
+    /// its implied crossing window when the live selection still matches that
+    /// box — so vertices inside the box stretch. Click-picked selections leave
+    /// this `None`; STRETCH then asks for a crossing window rather than moving
+    /// the whole selection. Validated in [`start_command_id`](Self::start_command_id).
     last_selection_window: Option<(Point2, Point2, bool)>,
+    /// Last OFFSET distance (AutoCAD `<last>` default at the distance prompt).
+    last_offset_dist: Option<f64>,
+    /// Last CIRCLE radius (empty Space after center reuses it).
+    last_circle_radius: Option<f64>,
+    /// Last TEXT height (default at the height prompt).
+    last_text_height: Option<f64>,
+    /// Last FILLET radius (empty Space accepts it; default 0).
+    last_fillet_radius: Option<f64>,
     /// FILLET `[T]rim` toggle: when set, keep both source lines full-length
     /// (AutoCAD No-trim). Persists across corners until toggled or the command ends.
     fillet_notrim: bool,
@@ -1273,8 +1295,10 @@ struct AadtApp {
     dyn_x: String,
     dyn_y: String,
     dyn_focus: CoordFocus,
-    /// Active hatch pattern for Hatch Manager / HATCH tool.
+    /// Active hatch pattern for Fills manager / HATCH tool.
     hatch_pattern: String,
+    /// Active fill-kind filter in the Fills manager (Technical / Floor / Presentation).
+    fill_kind_tab: aadt_model::FillKind,
     /// Editable autonumber prefix in Annotate panel.
     autonum_prefix: String,
     /// Editable autonumber start.
@@ -1353,6 +1377,30 @@ struct AadtApp {
     server_msg: String,
     /// Background networking worker (spawned lazily when the dialog opens).
     net: Option<net::NetWorker>,
+    /// Technical plan vs presentation view preset (layer / fill visibility).
+    view_preset: ViewPreset,
+    /// Cached egui textures for Geometry::Image paths.
+    image_textures: std::collections::HashMap<String, egui::TextureHandle>,
+    /// Element catalog cache from libraries/elements/catalog.json.
+    element_catalog: Vec<aadt_library::ElementCatalogEntry>,
+    element_catalog_at: Option<Instant>,
+}
+
+/// Viewport presentation mode: technical drafting vs client presentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ViewPreset {
+    #[default]
+    TechnicalPlan,
+    Presentation,
+}
+
+impl ViewPreset {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::TechnicalPlan => "Technical",
+            Self::Presentation => "Presentation",
+        }
+    }
 }
 
 impl AadtApp {
@@ -1377,6 +1425,10 @@ impl AadtApp {
             rect_corner_pending: None,
             stretch_filter: Vec::new(),
             last_selection_window: None,
+            last_offset_dist: None,
+            last_circle_radius: None,
+            last_text_height: None,
+            last_fillet_radius: None,
             fillet_notrim: false,
             ttr_lines: Vec::new(),
             cursor: None,
@@ -1431,6 +1483,7 @@ impl AadtApp {
             dyn_y: String::new(),
             dyn_focus: CoordFocus::X,
             hatch_pattern: "ANSI31".into(),
+            fill_kind_tab: aadt_model::FillKind::Technical,
             autonum_prefix: "A-".into(),
             autonum_start: "1".into(),
             table_rows: "5".into(),
@@ -1469,6 +1522,10 @@ impl AadtApp {
             server_busy: false,
             server_msg: String::new(),
             net: None,
+            view_preset: ViewPreset::TechnicalPlan,
+            image_textures: std::collections::HashMap::new(),
+            element_catalog: Vec::new(),
+            element_catalog_at: None,
         }
     }
 
@@ -1730,6 +1787,121 @@ impl AadtApp {
     pub(super) fn invalidate_library_cache(&mut self) {
         self.library_cache_at = None;
         self.library_cache.clear();
+        self.element_catalog_at = None;
+        self.element_catalog.clear();
+    }
+
+    pub(super) fn ensure_element_catalog(&mut self, force: bool) {
+        if !force
+            && self
+                .element_catalog_at
+                .is_some_and(|t| t.elapsed().as_secs() < 30)
+        {
+            return;
+        }
+        let root = aadt_library::default_library_root();
+        self.element_catalog = aadt_library::load_element_catalog(&root).unwrap_or_default();
+        self.element_catalog_at = Some(Instant::now());
+    }
+
+    /// Open a file dialog and arm [`Tool::PlaceImage`].
+    pub(super) fn begin_place_image_dialog(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+            .pick_file()
+        else {
+            self.note = "IMAGE cancelled".into();
+            return;
+        };
+        self.begin_place_image_path(path);
+    }
+
+    pub(super) fn begin_place_image_path(&mut self, path: PathBuf) {
+        let root = aadt_library::default_library_root();
+        let meta = aadt_library::import_image_element(&path, &root).unwrap_or(
+            aadt_library::ImageElementMeta {
+                name: path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("image")
+                    .to_string(),
+                path: path.clone(),
+                default_width: 1.0,
+                default_height: 1.0,
+            },
+        );
+        self.tool = Tool::PlaceImage {
+            path: meta.path.display().to_string(),
+            width: meta.default_width,
+            height: meta.default_height,
+        };
+        self.note = format!(
+            "IMAGE {} — click insertion point ({:.2}×{:.2} m)",
+            meta.name, meta.default_width, meta.default_height
+        );
+        self.invalidate_library_cache();
+    }
+
+    /// Apply Technical / Presentation layer visibility + mute rules.
+    pub(super) fn apply_view_preset(&mut self, preset: ViewPreset) {
+        self.view_preset = preset;
+        let doc = self.session.document_mut();
+        match preset {
+            ViewPreset::TechnicalPlan => {
+                // Show technical + floor fills; hide presentation fills; mute furniture-pres.
+                for name in ["A-HATCH-TECH", "A-FLOOR-FIN", "A-WALL", "A-DOOR", "A-GLAZ"] {
+                    if doc.layer(name).is_none() {
+                        doc.add_layer(aadt_model::Layer::new(name));
+                    }
+                    doc.set_layer_visible(name, true);
+                }
+                for name in ["A-ANNO-PRES", "A-PRES", "A-PRES-HATCH", "A-FURN-PRES"] {
+                    if doc.layer(name).is_none() {
+                        doc.add_layer(aadt_model::Layer::new(name));
+                    }
+                    doc.set_layer_visible(name, false);
+                }
+            }
+            ViewPreset::Presentation => {
+                for name in [
+                    "A-ANNO-PRES",
+                    "A-PRES",
+                    "A-PRES-HATCH",
+                    "A-FURN-PRES",
+                    "A-FLOOR-FIN",
+                ] {
+                    if doc.layer(name).is_none() {
+                        doc.add_layer(aadt_model::Layer::new(name));
+                    }
+                    doc.set_layer_visible(name, true);
+                }
+                // Mute dense technical hatch layer (patterns still muted in render for Pres fills).
+                if doc.layer("A-HATCH-TECH").is_none() {
+                    doc.add_layer(aadt_model::Layer::new("A-HATCH-TECH"));
+                }
+                doc.set_layer_visible("A-HATCH-TECH", false);
+            }
+        }
+        self.note = format!("View preset: {}", preset.label());
+        self.dirty = true;
+    }
+
+    fn texture_for(
+        &mut self,
+        ctx: &egui::Context,
+        path: &str,
+    ) -> Option<egui::TextureHandle> {
+        if let Some(t) = self.image_textures.get(path) {
+            return Some(t.clone());
+        }
+        let data = std::fs::read(path).ok()?;
+        let img = image::load_from_memory(&data).ok()?.to_rgba8();
+        let size = [img.width() as usize, img.height() as usize];
+        let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
+        let handle =
+            ctx.load_texture(path.to_owned(), color, egui::TextureOptions::LINEAR);
+        self.image_textures.insert(path.to_owned(), handle.clone());
+        Some(handle)
     }
 
     /// Periodic autosave — called every frame; writes at most every
@@ -2105,7 +2277,7 @@ impl AadtApp {
                 ui.label("F1 — this sheet");
                 ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F7 — perf HUD · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
                 ui.label("Snap override — type END/MID/INT/CEN/QUA/NEA/PER/TAN at a point, or SHIFT+right-click");
-                ui.label("Delete / Backspace — erase selection · W — WBLOCK · WA — WALL");
+                ui.label("Delete — erase selection · W — WBLOCK · WA — WALL");
                 ui.label("Z Enter — ZOOM · A Enter — All (extents) · W — Window · P — Previous");
                 ui.label("'ZOOM / 'PAN — transparent: reframe mid-command, then the prompt resumes");
                 ui.label("Ctrl+S — quick save · Ctrl+Shift+S — Save As");
@@ -2376,7 +2548,7 @@ impl AadtApp {
                 ref_a,
                 ..
             } => ref_a.or(*pivot),
-            Tool::Text { origin } => *origin,
+            Tool::Text { origin, .. } => *origin,
             Tool::Mleader {
                 arrow,
                 landing,
@@ -2426,6 +2598,7 @@ impl AadtApp {
             | Tool::RevMark
             | Tool::TablePlace
             | Tool::PlaceElem { .. }
+            | Tool::PlaceImage { .. }
             | Tool::Move {
                 collecting: true, ..
             }
@@ -2465,6 +2638,20 @@ impl AadtApp {
         let units = &self.session.document().properties().units;
         let sys = aadt_model::primary_from_props(units);
         aadt_model::parse_length(text, sys)
+    }
+
+    /// Default TEXT height: last used, else drawing dim text height, else 0.25.
+    fn default_text_height(&self) -> f64 {
+        if let Some(h) = self.last_text_height.filter(|h| *h > f64::EPSILON) {
+            return h;
+        }
+        let raw = self.session.document().properties().dim_text_height.trim();
+        if let Ok(h) = raw.parse::<f64>() {
+            if h > f64::EPSILON {
+                return h;
+            }
+        }
+        0.25
     }
 
     /// Apply Ortho (F8), Polar (F10), or temporary Shift-constrain while drafting.
@@ -2739,6 +2926,18 @@ impl AadtApp {
     fn commit_dyn(&mut self) {
         // Absolute / relative X/Y from Tab fields while drafting a point.
         if self.expects_point_coords() {
+            // Typed X, Tab into Y, Space before the second value: keep the
+            // half-finished pair instead of falling through to direct-distance
+            // / command dispatch (that path placed wrong geometry or cancelled
+            // RECTANGLE mid-command when Tab had also focused the command line).
+            if self.dyn_focus == CoordFocus::Y
+                && !self.dyn_x.trim().is_empty()
+                && self.dyn_y.trim().is_empty()
+            {
+                self.note =
+                    "Type the second value (Y), then Space — Tab returns to X".into();
+                return;
+            }
             let combined = if !self.dyn_input.is_empty() {
                 self.dyn_input.clone()
             } else if !self.dyn_x.is_empty() && self.dyn_y.is_empty() {
@@ -2937,6 +3136,22 @@ impl AadtApp {
             self.note = "TRIM — select cutting edges (Space when done)".into();
             return;
         }
+        // EXTEND — AutoCAD [B]oundary option (leave Quick mode).
+        if matches!(
+            self.tool,
+            Tool::Extend {
+                phase: TrimPhase::Objects,
+                ..
+            }
+        ) && (up == "B" || up == "BOUNDARY" || up == "BOUNDARIES")
+        {
+            self.tool = Tool::Extend {
+                boundaries: Vec::new(),
+                phase: TrimPhase::CuttingEdges,
+            };
+            self.note = "EXTEND — select boundary edges (Space when done)".into();
+            return;
+        }
         // ROTATE/SCALE [C]opy — arm "transform a clone, keep the source".
         if matches!(self.tool, Tool::Rotate { .. } | Tool::Scale { .. })
             && (up == "C" || up == "COPY")
@@ -3008,8 +3223,14 @@ impl AadtApp {
                 return;
             }
             if up == "D" || up == "DIM" || up == "DIMENSIONS" {
+                // Keep a first corner already picked (AutoCAD: Dimensions after
+                // the first corner still places from that corner).
+                let first = match self.tool {
+                    Tool::Rectangle { first, .. } => first,
+                    _ => None,
+                };
                 self.tool = Tool::Rectangle {
-                    first: None,
+                    first,
                     phase: RectPhase::DimLength,
                     dim_length: None,
                     dim_width: None,
@@ -3262,16 +3483,20 @@ impl AadtApp {
                     return;
                 }
             }
-            if let Tool::Circle {
-                mode: CircleMode::Center,
-                p1: Some(_),
-                diameter,
-                ..
-            } = &mut self.tool
-            {
-                if up == "D" || up == "DIAMETER" {
+            if up == "D" || up == "DIAMETER" {
+                if let Tool::Circle {
+                    mode: CircleMode::Center,
+                    p1,
+                    diameter,
+                    ..
+                } = &mut self.tool
+                {
                     *diameter = true;
-                    self.note = "CIRCLE — diameter (type + Space)".into();
+                    self.note = if p1.is_some() {
+                        "CIRCLE — diameter (type + Space or pick)".into()
+                    } else {
+                        "CIRCLE Diameter — specify center point".into()
+                    };
                     return;
                 }
             }
@@ -3285,6 +3510,7 @@ impl AadtApp {
                 if let Ok(len) = self.parse_model_length(&text) {
                     let r = if diameter { len * 0.5 } else { len };
                     if r > f64::EPSILON {
+                        self.last_circle_radius = Some(r);
                         let layer = self.layer();
                         self.session
                             .feed(&format!("CIRCLE {} {} {} {}", c.x, c.y, r, layer));
@@ -3498,35 +3724,44 @@ impl AadtApp {
         if let Tool::Scale {
             collecting: false,
             pivot: Some(piv),
+            reference,
             ref_a: None,
             old_len: None,
-            ..
         } = self.tool
         {
             if up == "R" || up == "REFERENCE" || up == "REF" {
+                self.tool = Tool::Scale {
+                    collecting: false,
+                    pivot: Some(piv),
+                    reference: true,
+                    ref_a: None,
+                    old_len: None,
+                };
                 self.note = "SCALE Reference — click first point of reference length".into();
                 return;
             }
-            if let Ok(factor) = text.parse::<f64>() {
-                if factor.abs() > f64::EPSILON {
-                    let sfx = self.take_copy_suffix();
-                    self.sync_selection();
-                    self.session.feed(&format!(
-                        "SCALE SELECTION {} {} {}{}",
-                        piv.x, piv.y, factor, sfx
-                    ));
-                    self.tool = Tool::Select;
-                    self.engine.complete();
-                    return;
+            if !reference {
+                if let Ok(factor) = text.parse::<f64>() {
+                    if factor.abs() > f64::EPSILON {
+                        let sfx = self.take_copy_suffix();
+                        self.sync_selection();
+                        self.session.feed(&format!(
+                            "SCALE SELECTION {} {} {}{}",
+                            piv.x, piv.y, factor, sfx
+                        ));
+                        self.tool = Tool::Select;
+                        self.engine.complete();
+                        return;
+                    }
                 }
             }
         }
         if let Tool::Scale {
             collecting: false,
             pivot: Some(piv),
+            reference: true,
             ref_a: None,
             old_len: Some(old),
-            ..
         } = self.tool
         {
             if let Ok(new_len) = self.parse_model_length(&text) {
@@ -3552,6 +3787,7 @@ impl AadtApp {
         {
             if let Ok(d) = self.parse_model_length(&text) {
                 if d > 0.0 {
+                    self.last_offset_dist = Some(d);
                     self.tool = Tool::Offset {
                         dist: Some(d),
                         entity: None,
@@ -3568,6 +3804,7 @@ impl AadtApp {
         {
             if let Ok(r) = self.parse_model_length(&text) {
                 if r >= 0.0 {
+                    self.last_fillet_radius = Some(r);
                     self.tool = Tool::Fillet {
                         radius: Some(r),
                         first: None,
@@ -3594,11 +3831,33 @@ impl AadtApp {
                 }
             }
         }
-        // TEXT / MLEADER: after the insertion point, Enter commits the label.
-        if let Tool::Text { origin: Some(o) } = self.tool {
+        // TEXT: after insertion, height first (default from last / dim style), then value.
+        if let Tool::Text {
+            origin: Some(o),
+            height: None,
+        } = self.tool
+        {
+            if let Ok(h) = self.parse_model_length(&text) {
+                if h > f64::EPSILON {
+                    self.last_text_height = Some(h);
+                    self.tool = Tool::Text {
+                        origin: Some(o),
+                        height: Some(h),
+                    };
+                    self.note = "TEXT — type the value and Space".into();
+                    return;
+                }
+            }
+        }
+        if let Tool::Text {
+            origin: Some(o),
+            height: Some(h),
+        } = self.tool
+        {
             let layer = self.layer();
+            self.last_text_height = Some(h);
             self.session
-                .feed(&format!("TEXT {} {} 0.25 {} {}", o.x, o.y, layer, text));
+                .feed(&format!("TEXT {} {} {} {} {}", o.x, o.y, h, layer, text));
             self.tool = Tool::Select;
             return;
         }
@@ -3690,6 +3949,29 @@ impl AadtApp {
         self.dyn_focus = CoordFocus::X;
     }
 
+    /// Keep `dyn_input` aligned with the X/Y fields (including a trailing comma
+    /// once Tab has moved focus to Y). Used by typing and by the Tab toggle so
+    /// a half-finished pair is never misread as a single distance token.
+    fn resync_dyn_input_from_xy(&mut self) {
+        self.dyn_input.clear();
+        self.dyn_input.push_str(&self.dyn_x);
+        if !self.dyn_y.is_empty() || self.dyn_focus == CoordFocus::Y {
+            self.dyn_input.push(',');
+            self.dyn_input.push_str(&self.dyn_y);
+        }
+    }
+
+    /// Tab was handled for drafting — stop egui from also moving focus into the
+    /// command line / toolbar (Space on a focused button has aborted commands
+    /// and, in some cases, closed or replaced the drawing).
+    fn consume_drafting_tab(ctx: &egui::Context) {
+        ctx.input_mut(|i| {
+            let _ = i.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+            let _ = i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab);
+        });
+        ctx.memory_mut(|m| m.stop_text_input());
+    }
+
     /// True while a draw tool wants an absolute typed point (not label text).
     fn expects_point_coords(&self) -> bool {
         if !self.drafting() {
@@ -3697,7 +3979,7 @@ impl AadtApp {
         }
         !matches!(
             self.tool,
-            Tool::Text { origin: Some(_) }
+            Tool::Text { origin: Some(_), .. }
                 | Tool::Mleader {
                     arrow: Some(_),
                     landing: Some(_),
@@ -3768,13 +4050,7 @@ impl AadtApp {
                 CoordFocus::X => self.dyn_x.push(ch),
                 CoordFocus::Y => self.dyn_y.push(ch),
             }
-            // Keep dyn_input in sync for comma-entry convenience on the active field.
-            self.dyn_input.clear();
-            self.dyn_input.push_str(&self.dyn_x);
-            if !self.dyn_y.is_empty() || self.dyn_focus == CoordFocus::Y {
-                self.dyn_input.push(',');
-                self.dyn_input.push_str(&self.dyn_y);
-            }
+            self.resync_dyn_input_from_xy();
         } else {
             self.dyn_input.push(ch);
         }
@@ -3790,12 +4066,7 @@ impl AadtApp {
                     self.dyn_y.pop();
                 }
             }
-            self.dyn_input.clear();
-            self.dyn_input.push_str(&self.dyn_x);
-            if !self.dyn_y.is_empty() || self.dyn_focus == CoordFocus::Y {
-                self.dyn_input.push(',');
-                self.dyn_input.push_str(&self.dyn_y);
-            }
+            self.resync_dyn_input_from_xy();
         } else {
             self.dyn_input.pop();
         }
@@ -3851,22 +4122,38 @@ impl AadtApp {
             let has_sel = !self.selection.is_empty();
             match tool_for(tool_token, has_sel) {
                 Some(mut t) => {
-                    // Noun-verb STRETCH (objects pre-selected, then the command
-                    // typed/clicked): replay the box behind that selection, if
-                    // it still reproduces it exactly, as the implied crossing
-                    // window — so it stretches the caught vertices instead of
-                    // moving the whole selection. Anything that makes the live
-                    // selection diverge from that box (a Shift-click, a delete,
-                    // …) fails the check and falls back to a full move.
+                    // Noun-verb ERASE: pre-selected objects erase immediately
+                    // (AutoCAD), same as bare `E` in the command line.
+                    if matches!(t, Tool::Erase)
+                        && !(self.selection.is_empty()
+                            && self.selected_hatches.is_empty()
+                            && self.selected_dimensions.is_empty())
+                    {
+                        self.erase_selection();
+                        self.engine.complete();
+                        self.tool = Tool::Select;
+                        return;
+                    }
+                    // Noun-verb STRETCH: replay the Select box as the stretch
+                    // window when it still matches the selection. Without a
+                    // window, stay in collecting mode and ask for a crossing
+                    // window — never silently move the whole selection (that
+                    // made STRETCH feel like MOVE when entities were click-picked).
                     if let Tool::Stretch {
-                        collecting: false,
+                        collecting,
                         window,
                         ..
                     } = &mut t
                     {
-                        if let Some((lo, hi, crossing)) = self.last_selection_window {
-                            if self.selection_matches_box(lo, hi, crossing) {
-                                *window = Some((lo, hi));
+                        if !*collecting {
+                            if let Some((lo, hi, crossing)) = self.last_selection_window {
+                                // Stretch selection is crossing-only (AutoCAD).
+                                if crossing && self.selection_matches_box(lo, hi, crossing) {
+                                    *window = Some((lo, hi));
+                                }
+                            }
+                            if window.is_none() {
+                                *collecting = true;
                             }
                         }
                     }
@@ -3927,6 +4214,39 @@ impl AadtApp {
                         cmd_id.to_ascii_uppercase(),
                         self.engine.prompt().unwrap_or("ready")
                     );
+                    // Prefer AutoCAD-style defaults in the live note when known.
+                    match &self.tool {
+                        Tool::Offset { dist: None, .. } => {
+                            if let Some(d) = self.last_offset_dist {
+                                self.note = format!("OFFSET — Specify offset distance <{d}>:");
+                            }
+                        }
+                        Tool::Fillet {
+                            radius: None,
+                            first: None,
+                        } => {
+                            let r = self.last_fillet_radius.unwrap_or(0.0);
+                            self.note = format!("FILLET — Specify fillet radius <{r}>:");
+                        }
+                        Tool::Extend {
+                            phase: TrimPhase::Objects,
+                            ..
+                        } => {
+                            self.note =
+                                "EXTEND — click near the end to lengthen or [B]oundary (Space finishes)"
+                                    .into();
+                        }
+                        Tool::Circle {
+                            mode: CircleMode::Center,
+                            p1: None,
+                            ..
+                        } => {
+                            self.note =
+                                "CIRCLE — specify center point or [D]iameter/[2P]/[3P]/[T]TR"
+                                    .into();
+                        }
+                        _ => {}
+                    }
                 }
                 None => {
                     // Inquiry / manager / CLI-backed commands with no interactive Tool yet.
@@ -4066,6 +4386,134 @@ impl AadtApp {
             self.commit_dyn();
             return;
         }
+        // MOVE: empty Enter at destination = use base as displacement (AutoCAD).
+        if let Tool::Move {
+            collecting: false,
+            base: Some(b),
+        } = self.tool
+        {
+            self.sync_selection();
+            self.session
+                .feed(&format!("MOVE SELECTION {} {}", b.x, b.y));
+            self.tool = Tool::Select;
+            self.engine.complete();
+            self.note = "MOVE complete (displacement from origin)".into();
+            return;
+        }
+        // OFFSET: empty Enter reuses last distance.
+        if let Tool::Offset {
+            dist: None,
+            entity: None,
+        } = self.tool
+        {
+            if let Some(d) = self.last_offset_dist {
+                self.tool = Tool::Offset {
+                    dist: Some(d),
+                    entity: None,
+                };
+                self.engine.advance_step();
+                self.note = format!("OFFSET distance {d} — click object to offset");
+                return;
+            }
+            self.note = "OFFSET — type a distance and Space (no previous distance)".into();
+            return;
+        }
+        // FILLET: empty Enter accepts last radius (default 0).
+        if let Tool::Fillet {
+            radius: None,
+            first: None,
+        } = self.tool
+        {
+            let r = self.last_fillet_radius.unwrap_or(0.0);
+            self.tool = Tool::Fillet {
+                radius: Some(r),
+                first: None,
+            };
+            self.note = format!("FILLET radius {r} — click first line");
+            return;
+        }
+        // CIRCLE: empty Enter after center reuses last radius.
+        if let Tool::Circle {
+            mode: CircleMode::Center,
+            p1: Some(c),
+            ..
+        } = self.tool
+        {
+            if let Some(r) = self.last_circle_radius.filter(|r| *r > f64::EPSILON) {
+                let layer = self.layer();
+                self.session
+                    .feed(&format!("CIRCLE {} {} {} {}", c.x, c.y, r, layer));
+                self.tool = Tool::Select;
+                self.engine.complete();
+                return;
+            }
+            self.note = "CIRCLE — type radius (or [D]iameter) and Space, or pick".into();
+            return;
+        }
+        // TEXT: empty Enter at height prompt accepts the default height.
+        if let Tool::Text {
+            origin: Some(o),
+            height: None,
+        } = self.tool
+        {
+            let h = self.default_text_height();
+            self.tool = Tool::Text {
+                origin: Some(o),
+                height: Some(h),
+            };
+            self.note = format!("TEXT height {h} — type the value and Space");
+            return;
+        }
+        // ROTATE: empty Enter = 0°.
+        if let Tool::Rotate {
+            collecting: false,
+            pivot: Some(piv),
+            reference: false,
+            ref_ang: None,
+            ..
+        } = self.tool
+        {
+            let sfx = self.take_copy_suffix();
+            self.sync_selection();
+            self.session
+                .feed(&format!("ROTATE SELECTION {} {} 0{}", piv.x, piv.y, sfx));
+            self.tool = Tool::Select;
+            self.engine.complete();
+            return;
+        }
+        // SCALE: empty Enter = factor 1.
+        if let Tool::Scale {
+            collecting: false,
+            pivot: Some(piv),
+            reference: false,
+            ref_a: None,
+            old_len: None,
+        } = self.tool
+        {
+            let sfx = self.take_copy_suffix();
+            self.sync_selection();
+            self.session
+                .feed(&format!("SCALE SELECTION {} {} 1{}", piv.x, piv.y, sfx));
+            self.tool = Tool::Select;
+            self.engine.complete();
+            return;
+        }
+        // EXTEND: Space after selecting boundaries → objects phase (like TRIM).
+        if let Tool::Extend {
+            phase: TrimPhase::CuttingEdges,
+            boundaries,
+        } = &self.tool
+        {
+            let boundaries = boundaries.clone();
+            self.tool = Tool::Extend {
+                boundaries,
+                phase: TrimPhase::Objects,
+            };
+            self.engine.advance_step();
+            self.note =
+                "EXTEND — click near the end to lengthen (Shift trims; Space finishes)".into();
+            return;
+        }
         // Hot grip: Space cycles the edit mode (Stretch→Move→Rotate→Scale→Mirror).
         if let Tool::GripEdit {
             id,
@@ -4129,7 +4577,13 @@ impl AadtApp {
             self.note = "Command complete".into();
             return;
         }
-        if matches!(self.tool, Tool::Extend { boundary: Some(_) }) {
+        if matches!(
+            self.tool,
+            Tool::Extend {
+                phase: TrimPhase::Objects,
+                ..
+            }
+        ) {
             self.tool = Tool::Select;
             self.engine.complete();
             self.note = "Command complete".into();
@@ -4568,35 +5022,39 @@ impl AadtApp {
                 };
                 self.note = "STRETCH — specify opposite corner of crossing window".into();
             }
-            Some(a) => {
-                let lo = Point2::new(a.x.min(p.x), a.y.min(p.y));
-                let hi = Point2::new(a.x.max(p.x), a.y.max(p.y));
-                let doc = self.session.document();
-                let mut hits = box_select(doc, lo, hi, true);
-                // Element filter: keep only walls / windows / structure when armed.
-                if !self.stretch_filter.is_empty() {
-                    let filter = &self.stretch_filter;
-                    hits.retain(|id| {
-                        doc.get(*id)
-                            .map(|e| filter.iter().any(|g| g.matches_layer(&e.layer)))
-                            .unwrap_or(false)
-                    });
-                }
-                self.selection = hits;
-                self.selected_dimensions = dimension_box_select(doc, lo, hi, true);
-                self.selected_hatches.clear();
-                let n = self.selection.len() + self.selected_dimensions.len();
-                self.tool = Tool::Stretch {
-                    collecting: true,
-                    w0: None,
-                    window: Some((lo, hi)),
-                    base: None,
-                };
-                self.note = format!(
-                    "STRETCH — {n} object(s) in window; Space to continue (or window again)"
-                );
-            }
+            Some(a) => self.apply_stretch_window(a, p),
         }
+    }
+
+    /// Commit a STRETCH crossing window from two world corners (clicks or drag).
+    /// Always uses crossing membership so only endpoints *inside* the window
+    /// move — entities that merely cross are selected but not wholly translated.
+    fn apply_stretch_window(&mut self, a: Point2, b: Point2) {
+        let lo = Point2::new(a.x.min(b.x), a.y.min(b.y));
+        let hi = Point2::new(a.x.max(b.x), a.y.max(b.y));
+        let doc = self.session.document();
+        let mut hits = box_select(doc, lo, hi, true);
+        if !self.stretch_filter.is_empty() {
+            let filter = &self.stretch_filter;
+            hits.retain(|id| {
+                doc.get(*id)
+                    .map(|e| filter.iter().any(|g| g.matches_layer(&e.layer)))
+                    .unwrap_or(false)
+            });
+        }
+        self.selection = hits;
+        self.selected_dimensions = dimension_box_select(doc, lo, hi, true);
+        self.selected_hatches.clear();
+        let n = self.selection.len() + self.selected_dimensions.len();
+        self.tool = Tool::Stretch {
+            collecting: true,
+            w0: None,
+            window: Some((lo, hi)),
+            base: None,
+        };
+        self.note = format!(
+            "STRETCH — {n} object(s); endpoints inside window will move — Space to continue"
+        );
     }
 
     fn end_collecting_phase(&mut self) -> bool {
@@ -4637,6 +5095,7 @@ impl AadtApp {
                 self.tool = Tool::Scale {
                     collecting: false,
                     pivot: None,
+                    reference: false,
                     ref_a: None,
                     old_len: None,
                 };
@@ -4684,6 +5143,11 @@ impl AadtApp {
             }
             Tool::Stretch { window, .. } => {
                 let window = *window;
+                if window.is_none() {
+                    self.note =
+                        "STRETCH — specify a crossing window first (drag or two corners)".into();
+                    return false;
+                }
                 self.tool = Tool::Stretch {
                     collecting: false,
                     w0: None,
@@ -4848,7 +5312,11 @@ impl AadtApp {
             if matches!(up.as_str(), "BLOCKS" | "I" | "INSERT") {
                 self.left_tab = 1;
                 self.reveal_left_mgr();
-                self.note = "Blocks Manager — pick a block to INSERT".into();
+                self.note = "Elements — pick an element to INSERT".into();
+                return;
+            }
+            if matches!(up.as_str(), "IMAGE" | "PLACEIMAGE" | "IMAGEATTACH") {
+                self.begin_place_image_dialog();
                 return;
             }
             if matches!(up.as_str(), "D" | "DIMSTYLE") {
@@ -5191,6 +5659,7 @@ impl AadtApp {
                             r *= 0.5;
                         }
                         if r > f64::EPSILON {
+                            self.last_circle_radius = Some(r);
                             self.session
                                 .feed(&format!("CIRCLE {} {} {} {}", c.x, c.y, r, layer));
                         }
@@ -5501,35 +5970,53 @@ impl AadtApp {
             Tool::Scale {
                 collecting: false,
                 pivot,
+                reference,
                 ref_a,
                 old_len,
-            } => match (pivot, ref_a, old_len) {
-                (None, _, _) => {
+            } => match (pivot, reference, ref_a, old_len) {
+                (None, _, _, _) => {
                     self.tool = Tool::Scale {
                         collecting: false,
                         pivot: Some(p),
+                        reference: false,
                         ref_a: None,
                         old_len: None,
                     };
                     self.engine.accept_point();
-                    self.note = "SCALE — type factor and Space (or R / click for Reference)".into();
+                    self.note =
+                        "SCALE — type factor and Space, pick for factor, or [R]eference".into();
                 }
-                (Some(piv), None, None) => {
-                    // Click after base starts Reference (first point of old length).
+                (Some(piv), false, None, None) => {
+                    // Pick after base = scale factor from base→pick distance.
+                    let factor = piv.distance(p);
+                    if factor > f64::EPSILON {
+                        let sfx = self.take_copy_suffix();
+                        self.sync_selection();
+                        self.session.feed(&format!(
+                            "SCALE SELECTION {} {} {}{}",
+                            piv.x, piv.y, factor, sfx
+                        ));
+                        self.engine.complete();
+                    }
+                    self.tool = Tool::Select;
+                }
+                (Some(piv), true, None, None) => {
                     self.tool = Tool::Scale {
                         collecting: false,
                         pivot: Some(piv),
+                        reference: true,
                         ref_a: Some(p),
                         old_len: None,
                     };
                     self.note = "SCALE Reference — click second point of reference length".into();
                 }
-                (Some(piv), Some(a), None) => {
+                (Some(piv), true, Some(a), None) => {
                     let old = a.distance(p);
                     if old > f64::EPSILON {
                         self.tool = Tool::Scale {
                             collecting: false,
                             pivot: Some(piv),
+                            reference: true,
                             ref_a: None,
                             old_len: Some(old),
                         };
@@ -5538,16 +6025,17 @@ impl AadtApp {
                                 .into();
                     }
                 }
-                (Some(piv), None, Some(old)) => {
+                (Some(piv), true, None, Some(old)) => {
                     self.tool = Tool::Scale {
                         collecting: false,
                         pivot: Some(piv),
+                        reference: true,
                         ref_a: Some(p),
                         old_len: Some(old),
                     };
                     self.note = "SCALE Reference — click second point of new length".into();
                 }
-                (Some(piv), Some(a), Some(old)) => {
+                (Some(piv), true, Some(a), Some(old)) => {
                     let new_len = a.distance(p);
                     if old > f64::EPSILON && new_len > f64::EPSILON {
                         let factor = new_len / old;
@@ -5561,6 +6049,7 @@ impl AadtApp {
                     }
                     self.tool = Tool::Select;
                 }
+                _ => {}
             },
             Tool::Offset {
                 dist: Some(d),
@@ -5573,12 +6062,39 @@ impl AadtApp {
                     entity: None,
                 };
             }
-            Tool::Text { origin: None } => {
-                self.tool = Tool::Text { origin: Some(p) };
-                self.note = "TEXT — type the value and Enter".into();
+            Tool::Text {
+                origin: None,
+                height: None,
+            } => {
+                self.tool = Tool::Text {
+                    origin: Some(p),
+                    height: None,
+                };
+                let h = self.default_text_height();
+                self.note = format!("TEXT — type height and Space <{h}>");
             }
-            Tool::Text { origin: Some(_) } => {
-                self.note = "TEXT — type the value and Enter".into();
+            Tool::Text {
+                origin: None,
+                height: Some(h),
+            } => {
+                // Height was set before the insertion point (unusual); place at click.
+                self.tool = Tool::Text {
+                    origin: Some(p),
+                    height: Some(h),
+                };
+                self.note = "TEXT — type the value and Space".into();
+            }
+            Tool::Text {
+                origin: Some(_),
+                height: None,
+            } => {
+                self.note = "TEXT — type height and Space (or Space for default)".into();
+            }
+            Tool::Text {
+                origin: Some(_),
+                height: Some(_),
+            } => {
+                self.note = "TEXT — type the value and Space".into();
             }
             Tool::Mleader {
                 arrow,
@@ -5626,13 +6142,19 @@ impl AadtApp {
                     }
                     Some(c) => {
                         self.sync_selection();
-                        // A crossing window moves only the endpoints inside it. With
-                        // no window (noun-verb pre-selection) every point travels —
-                        // the whole selection moves, matching AutoCAD.
-                        let (lo, hi) = window.unwrap_or((
-                            Point2::new(f64::MIN * 0.25, f64::MIN * 0.25),
-                            Point2::new(f64::MAX * 0.25, f64::MAX * 0.25),
-                        ));
+                        let Some((lo, hi)) = window else {
+                            self.note =
+                                "STRETCH — crossing window missing; restart and drag a window over the endpoints to move"
+                                    .into();
+                            self.tool = Tool::Stretch {
+                                collecting: true,
+                                w0: None,
+                                window: None,
+                                base: None,
+                            };
+                            return;
+                        };
+                        // Only endpoints inside the window travel; others stay put.
                         self.app_feed(&format!(
                             "STRETCH {} {} {} {} {} {} SELECTION",
                             lo.x,
@@ -5848,15 +6370,26 @@ impl AadtApp {
                 aadt_command::ensure_place_blocks(self.session.document_mut());
                 let layer = kind.layer();
                 let block = kind.block_name();
-                let fb = self.app_feed(&format!("INSERT {} {} {} 0 {}", block, p.x, p.y, layer));
+                let cuts_wall = matches!(kind, PlaceKind::Door | PlaceKind::Window);
+                let width = aadt_command::opening_width_for_block(self.session.document(), block);
+                let (place, rot) = if cuts_wall {
+                    aadt_command::place_opening_pose(self.session.document(), p, width)
+                        .unwrap_or((p, 0.0))
+                } else {
+                    (p, 0.0)
+                };
+                let fb = self.app_feed(&format!(
+                    "INSERT {} {} {} {} {}",
+                    block, place.x, place.y, rot, layer
+                ));
                 let id = parse_entity_id_from_feedback(fb.message()).or_else(|| {
                     let s = 0.45;
                     let fb2 = self.app_feed(&format!(
                         "RECTANGLE {} {} {} {} {}",
-                        p.x - s,
-                        p.y - s,
-                        p.x + s,
-                        p.y + s,
+                        place.x - s,
+                        place.y - s,
+                        place.x + s,
+                        place.y + s,
                         layer
                     ));
                     parse_entity_id_from_feedback(fb2.message())
@@ -5865,6 +6398,45 @@ impl AadtApp {
                     self.session
                         .feed(&format!("EATTEDIT {id} AADT-ELEM {}", kind.elem()));
                 }
+                if cuts_wall {
+                    match aadt_command::cut_wall_opening(
+                        self.session.document_mut(),
+                        place,
+                        rot,
+                        width,
+                    ) {
+                        Ok(n) => {
+                            self.note = format!(
+                                "{} placed — wall opening cut ({n} closed wall body/bodies)",
+                                kind.elem()
+                            );
+                            self.dirty = true;
+                        }
+                        Err(_) => {
+                            self.note = format!(
+                                "{} placed — no wall nearby to cut (place on a wall)",
+                                kind.elem()
+                            );
+                        }
+                    }
+                }
+                self.tool = Tool::Select;
+                self.engine.accept_point();
+                self.engine.complete();
+            }
+            Tool::PlaceImage {
+                path,
+                width,
+                height,
+            } => {
+                let fb = self.app_feed(&format!(
+                    "IMAGE {path} {} {} {} {} A-FURN-PRES",
+                    p.x, p.y, width, height
+                ));
+                if let Some(m) = fb.message() {
+                    self.note = m.to_string();
+                }
+                self.dirty = true;
                 self.tool = Tool::Select;
                 self.engine.accept_point();
                 self.engine.complete();
@@ -5946,23 +6518,56 @@ impl AadtApp {
                     }
                 }
             }
-            Tool::Extend { boundary } => {
+            Tool::Extend {
+                boundaries,
+                phase,
+            } => {
                 let tol = PICK_PIXELS / self.camera.scale;
                 let Some(id) = pick_entity(self.session.document(), p, tol) else {
-                    self.note = "EXTEND — click an object".into();
+                    self.note = match phase {
+                        TrimPhase::CuttingEdges => "EXTEND — click a boundary edge".into(),
+                        TrimPhase::Objects => "EXTEND — click near the end to lengthen".into(),
+                    };
                     return;
                 };
-                match boundary {
-                    None => {
-                        self.tool = Tool::Extend { boundary: Some(id) };
-                        self.note = "EXTEND — click near the end to lengthen".into();
+                match phase {
+                    TrimPhase::CuttingEdges => {
+                        let mut boundaries = boundaries.clone();
+                        if !boundaries.contains(&id) {
+                            boundaries.push(id);
+                        }
+                        let n = boundaries.len();
+                        self.tool = Tool::Extend {
+                            boundaries,
+                            phase: TrimPhase::CuttingEdges,
+                        };
+                        self.note = format!(
+                            "EXTEND — {n} boundary edge(s); click more or Space to extend objects"
+                        );
                     }
-                    Some(b) => {
-                        self.session
-                            .feed(&format!("EXTEND {} {} {} {}", id.0, b.0, p.x, p.y));
-                        self.tool = Tool::Extend { boundary: Some(b) };
-                        self.note =
-                            "EXTEND — click near the end to lengthen (Space finishes)".into();
+                    TrimPhase::Objects => {
+                        let boundaries = boundaries.clone();
+                        // AutoCAD: Shift+select trims instead of extends.
+                        if self.pointer_shift {
+                            let ok = if boundaries.is_empty() {
+                                self.trim_object(id, &[], p)
+                            } else {
+                                self.trim_object(id, &boundaries, p)
+                            };
+                            self.note = if ok {
+                                "EXTEND — Shift+trim applied (Space finishes)".into()
+                            } else {
+                                "EXTEND — Shift+click: nothing to trim at that pick".into()
+                            };
+                            return;
+                        }
+                        if self.extend_within_trim(id, &boundaries, p) {
+                            self.note =
+                                "EXTEND — click near more ends to lengthen (Shift trims; Space finishes)"
+                                    .into();
+                        } else {
+                            self.note = "EXTEND — nothing to extend at that pick".into();
+                        }
                     }
                 }
             }
@@ -6843,7 +7448,7 @@ impl AadtApp {
             Tool::Move {
                 collecting: false,
                 base: Some(_),
-            } => "MOVE — specify destination",
+            } => "MOVE — specify destination or <displacement>",
             Tool::Copy {
                 collecting: false,
                 base: None,
@@ -6862,7 +7467,7 @@ impl AadtApp {
                 pivot: Some(_),
                 reference: false,
                 ..
-            } => "ROTATE — angle (type degrees, pick point, or [R]eference / [C]opy)",
+            } => "ROTATE — angle (type degrees, pick point, or [R]eference / [C]opy) <0>",
             Tool::Rotate {
                 collecting: false,
                 pivot: Some(_),
@@ -6899,20 +7504,30 @@ impl AadtApp {
             Tool::Scale {
                 collecting: false,
                 pivot: Some(_),
+                reference: false,
+                ..
+            } => "SCALE — factor (type, pick, or [R]eference / [C]opy) <1>",
+            Tool::Scale {
+                collecting: false,
+                pivot: Some(_),
+                reference: true,
                 ref_a: None,
                 old_len: None,
-            } => "SCALE — factor (type) or [R]eference / [C]opy",
+            } => "SCALE Reference — first point of reference length",
             Tool::Scale {
+                reference: true,
                 ref_a: Some(_),
                 old_len: None,
                 ..
             } => "SCALE Reference — second point of reference length",
             Tool::Scale {
+                reference: true,
                 old_len: Some(_),
                 ref_a: None,
                 ..
             } => "SCALE Reference — type new length or click first point",
             Tool::Scale {
+                reference: true,
                 old_len: Some(_),
                 ref_a: Some(_),
                 ..
@@ -6926,8 +7541,18 @@ impl AadtApp {
                 dist: Some(_),
                 entity: Some(_),
             } => "OFFSET — click a point on the side to offset toward",
-            Tool::Text { origin: None } => "TEXT — click the insertion point",
-            Tool::Text { origin: Some(_) } => "TEXT — type the value and Space",
+            Tool::Text {
+                origin: None,
+                ..
+            } => "TEXT — click the insertion point",
+            Tool::Text {
+                origin: Some(_),
+                height: None,
+            } => "TEXT — type height and Space",
+            Tool::Text {
+                origin: Some(_),
+                height: Some(_),
+            } => "TEXT — type the value and Space",
             Tool::RoomLabel {
                 room_type,
                 first: None,
@@ -7005,7 +7630,7 @@ impl AadtApp {
                 name: Some(_),
                 ..
             } => "WBLOCK — pick base point",
-            Tool::Polyline { .. } => "POLYLINE — click vertices (Space finishes)",
+            Tool::Polyline { .. } => "POLYLINE — click vertices or [U]ndo/[C]lose (Space finishes)",
             Tool::RegionSelect { fence: true, .. } => {
                 "FENCE — click points; Space selects crossings"
             }
@@ -7034,10 +7659,17 @@ impl AadtApp {
                 PlaceKind::Table => "TABLE — click insertion point",
                 PlaceKind::Toilet => "TOILET — click insertion point",
             },
+            Tool::PlaceImage { .. } => "IMAGE — click insertion point",
             Tool::Hatch => "HATCH — pick a point inside a closed region",
             Tool::Trim { .. } => "TRIM",
-            Tool::Extend { boundary: None } => "EXTEND — click the boundary edge",
-            Tool::Extend { boundary: Some(_) } => "EXTEND — click near the end to lengthen",
+            Tool::Extend {
+                phase: TrimPhase::CuttingEdges,
+                ..
+            } => "EXTEND — select boundary edges (Space when done)",
+            Tool::Extend {
+                phase: TrimPhase::Objects,
+                ..
+            } => "EXTEND — click near the end to lengthen or [B]oundary (Space finishes)",
             Tool::Mirror {
                 collecting: false,
                 a: None,
@@ -7413,6 +8045,7 @@ impl eframe::App for AadtApp {
                         match key {
                             egui::Key::Enter => self.apply_space_single(),
                             egui::Key::Tab => {
+                                let mut handled = false;
                                 if matches!(
                                     self.tool,
                                     Tool::Rectangle {
@@ -7432,23 +8065,27 @@ impl eframe::App for AadtApp {
                                     // which doesn't apply here (see
                                     // `expects_point_coords`).
                                     self.commit_dyn();
+                                    handled = true;
                                 } else if self.expects_point_coords() {
+                                    // First value + Tab → second value (X → Y).
                                     self.dyn_focus = match self.dyn_focus {
                                         CoordFocus::X => CoordFocus::Y,
                                         CoordFocus::Y => CoordFocus::X,
                                     };
+                                    self.resync_dyn_input_from_xy();
+                                    handled = true;
+                                } else if self.drafting() || self.has_typed_dyn() {
+                                    // Swallow Tab while a command is live so egui
+                                    // cannot move focus into chrome controls.
+                                    handled = true;
+                                }
+                                if handled {
+                                    Self::consume_drafting_tab(ctx);
                                 }
                             }
                             egui::Key::Backspace => {
                                 if self.palette_open {
                                     self.palette_filter.pop();
-                                } else if matches!(self.tool, Tool::Select)
-                                    && !self.selection.is_empty()
-                                    && self.dyn_input.is_empty()
-                                    && self.dyn_x.is_empty()
-                                    && self.dyn_y.is_empty()
-                                {
-                                    self.erase_selection();
                                 } else {
                                     self.pop_dyn_char();
                                 }
@@ -7616,10 +8253,9 @@ impl eframe::App for AadtApp {
                     }
                 }
 
-                match self.tool {
+                match &self.tool {
                     Tool::Select => {
-                        // Box selection on a near-straight primary drag; a curved
-                        // drag is a freehand lasso (window L→R / crossing R→L).
+                        // Box selection on primary drag (window L→R / crossing R→L).
                         // Use press origin so window/crossing direction matches the
                         // true drag (AutoCAD: L→R window, R→L crossing).
                         if resp.drag_started() {
@@ -7627,44 +8263,117 @@ impl eframe::App for AadtApp {
                                 .input(|i| i.pointer.press_origin())
                                 .or_else(|| resp.interact_pointer_pos());
                             self.box_start = start;
-                            self.drag_path.clear();
-                            if let Some(p) = start {
-                                self.drag_path.push(p);
-                            }
-                        }
-                        // Trail the drag so a curved gesture reads as a lasso.
-                        if resp.dragged() && self.box_start.is_some() {
-                            if let Some(pos) = resp.interact_pointer_pos() {
-                                if self
-                                    .drag_path
-                                    .last()
-                                    .map(|p| (*p - pos).length() > 2.0)
-                                    .unwrap_or(true)
-                                {
-                                    self.drag_path.push(pos);
-                                }
-                            }
                         }
                         let mut box_done = false;
                         if resp.drag_stopped() {
                             if let (Some(s), Some(e)) =
                                 (self.box_start, resp.interact_pointer_pos())
                             {
-                                if drag_is_lasso(&self.drag_path) {
-                                    self.finish_lasso(&to_world, ui);
-                                    box_done = true;
-                                } else if (s - e).length() >= 3.0 {
+                                if (s - e).length() >= 3.0 {
                                     self.finish_box(s, e, &to_world, ui);
                                     box_done = true;
                                 }
                             }
                             self.box_start = None;
-                            self.drag_path.clear();
                         }
-                        // Skip click-select after a real box/lasso so release doesn't clear.
+                        // Skip click-select after a real box so release doesn't clear.
                         if resp.clicked() && !box_done {
                             if let Some(pos) = resp.interact_pointer_pos() {
                                 self.click_select(to_world(&self.camera, pos), ui);
+                            }
+                        }
+                    }
+                    Tool::Stretch {
+                        collecting: true, ..
+                    } => {
+                        // Crossing window by drag (AutoCAD) or two clicks via
+                        // on_pick below. Drag always means crossing — only
+                        // vertices inside the window stretch.
+                        if resp.drag_started() {
+                            let start = ui
+                                .input(|i| i.pointer.press_origin())
+                                .or_else(|| resp.interact_pointer_pos());
+                            self.box_start = start;
+                            // A fresh drag replaces a half-finished two-click window.
+                            if let Tool::Stretch { w0, .. } = &mut self.tool {
+                                *w0 = None;
+                            }
+                        }
+                        let mut stretch_drag_done = false;
+                        if resp.drag_stopped() {
+                            if let (Some(s), Some(e)) =
+                                (self.box_start, resp.interact_pointer_pos())
+                            {
+                                if (s - e).length() >= 3.0 {
+                                    let a = to_world(&self.camera, s);
+                                    let b = to_world(&self.camera, e);
+                                    self.apply_stretch_window(a, b);
+                                    stretch_drag_done = true;
+                                }
+                            }
+                            self.box_start = None;
+                        }
+                        if !stretch_drag_done {
+                            let place = if resp.clicked() {
+                                resp.interact_pointer_pos()
+                            } else if resp.drag_stopped() {
+                                let origin = ui.input(|i| i.pointer.press_origin());
+                                let end = resp.interact_pointer_pos();
+                                match (origin, end) {
+                                    (Some(s), Some(e)) if (s - e).length() < PLACE_DRAG_PX => {
+                                        Some(e)
+                                    }
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
+                            if let Some(pos) = place {
+                                let world = to_world(&self.camera, pos);
+                                let p = self.resolve_pick(world, shift);
+                                self.on_pick(p);
+                            }
+                        }
+                    }
+                    _ if self.tool_is_collecting() => {
+                        // Verb-noun Select objects: window / crossing like Select.
+                        if resp.drag_started() {
+                            let start = ui
+                                .input(|i| i.pointer.press_origin())
+                                .or_else(|| resp.interact_pointer_pos());
+                            self.box_start = start;
+                        }
+                        let mut box_done = false;
+                        if resp.drag_stopped() {
+                            if let (Some(s), Some(e)) =
+                                (self.box_start, resp.interact_pointer_pos())
+                            {
+                                if (s - e).length() >= 3.0 {
+                                    self.finish_collecting_box(s, e, &to_world);
+                                    box_done = true;
+                                }
+                            }
+                            self.box_start = None;
+                        }
+                        if !box_done {
+                            let place = if resp.clicked() {
+                                resp.interact_pointer_pos()
+                            } else if resp.drag_stopped() {
+                                let origin = ui.input(|i| i.pointer.press_origin());
+                                let end = resp.interact_pointer_pos();
+                                match (origin, end) {
+                                    (Some(s), Some(e)) if (s - e).length() < PLACE_DRAG_PX => {
+                                        Some(e)
+                                    }
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
+                            if let Some(pos) = place {
+                                let world = to_world(&self.camera, pos);
+                                let p = self.resolve_pick(world, shift);
+                                self.on_pick(p);
                             }
                         }
                     }
@@ -7792,6 +8501,19 @@ impl eframe::App for AadtApp {
                 self.perf
                     .build_ms
                     .push(build_t0.elapsed().as_secs_f32() * 1000.0);
+                let image_paths: Vec<String> = self
+                    .session
+                    .cached_drawlist()
+                    .commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        DrawCommand::Image { path, .. } => Some(path.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                for path in &image_paths {
+                    let _ = self.texture_for(ui.ctx(), path);
+                }
                 let list = self.session.cached_drawlist();
                 let painter = ui.painter_at(rect);
                 let paint_t0 = std::time::Instant::now();
@@ -7802,6 +8524,8 @@ impl eframe::App for AadtApp {
                     list,
                     self.session.document(),
                     self.show_lweights,
+                    &self.image_textures,
+                    self.view_preset,
                 );
                 self.perf
                     .paint_ms
@@ -7887,28 +8611,17 @@ impl eframe::App for AadtApp {
                         }
                     }
                 }
-                // The selection box (straight drag) or lasso trail (curved drag).
+                // The selection / stretch box.
                 if let (Some(s), Some(cur)) = (self.box_start, resp.hover_pos()) {
-                    if drag_is_lasso(&self.drag_path) {
-                        let crossing = self
-                            .drag_path
-                            .first()
-                            .map(|p| cur.x < p.x)
-                            .unwrap_or(false);
-                        let col = if crossing {
-                            theme::canvas::crossing_edge()
-                        } else {
-                            theme::canvas::window_edge()
-                        };
-                        let lstroke = egui::Stroke::new(1.0_f32, col);
-                        for pair in self.drag_path.windows(2) {
-                            painter.line_segment([pair[0], pair[1]], lstroke);
+                    if matches!(
+                        self.tool,
+                        Tool::Stretch {
+                            collecting: true,
+                            ..
                         }
-                        if let (Some(&first), Some(&last)) =
-                            (self.drag_path.first(), self.drag_path.last())
-                        {
-                            painter.line_segment([last, first], lstroke);
-                        }
+                    ) {
+                        // STRETCH is always crossing (dashed green).
+                        paint_crossing_box(&painter, s, cur);
                     } else {
                         paint_box(&painter, s, cur);
                     }
@@ -8072,7 +8785,7 @@ impl AadtApp {
                 self.selection.clear();
                 self.selected_dimensions.clear();
             }
-            self.note = "Hatch selected — Del/E to erase, or apply a pattern in Hatches".into();
+            self.note = "Fill selected — Del/E to erase, or apply a pattern in Fills".into();
             return;
         }
         // Hit a dimension's drawn geometry.
@@ -8168,76 +8881,36 @@ impl AadtApp {
         };
     }
 
-    /// Free-drag lasso select: the drag path is the region polygon. Direction
-    /// (screen L→R vs R→L) picks window vs crossing, like the box.
-    fn finish_lasso(
+    /// Window/crossing box while a modify tool is collecting objects (verb-noun).
+    /// Always *adds* to the selection set (AutoCAD Select objects), and does not
+    /// update `last_selection_window` (that is reserved for idle Select → STRETCH).
+    fn finish_collecting_box(
         &mut self,
+        s: egui::Pos2,
+        e: egui::Pos2,
         to_world: &impl Fn(&Camera, egui::Pos2) -> Point2,
-        ui: &egui::Ui,
     ) {
-        if self.drag_path.len() < 3 {
+        if (s - e).length() < 3.0 {
             return;
         }
-        let polygon: Vec<Point2> = self
-            .drag_path
-            .iter()
-            .map(|p| to_world(&self.camera, *p))
-            .collect();
-        let (a, b) = (self.drag_path[0], self.drag_path[self.drag_path.len() - 1]);
-        let crossing = b.x < a.x;
-        let mode = if crossing {
-            RegionMode::Crossing
-        } else {
-            RegionMode::Window
-        };
-        let hits = select_in_polygon(self.session.document(), &polygon, mode);
-        let dim_hits = dimension_polygon_select(self.session.document(), &polygon, crossing);
-        if ui.input(|i| i.modifiers.shift) {
-            for id in hits {
-                if !self.selection.contains(&id) {
-                    self.selection.push(id);
-                }
+        let (ws, we) = (to_world(&self.camera, s), to_world(&self.camera, e));
+        let lo = Point2::new(ws.x.min(we.x), ws.y.min(we.y));
+        let hi = Point2::new(ws.x.max(we.x), ws.y.max(we.y));
+        let crossing = e.x < s.x;
+        let hits = box_select(self.session.document(), lo, hi, crossing);
+        let dim_hits = dimension_box_select(self.session.document(), lo, hi, crossing);
+        for id in hits {
+            if !self.selection.contains(&id) {
+                self.selection.push(id);
             }
-            for idx in dim_hits {
-                if !self.selected_dimensions.contains(&idx) {
-                    self.selected_dimensions.push(idx);
-                }
-            }
-            self.last_selection_window = None;
-        } else {
-            self.selection = hits;
-            self.selected_dimensions = dim_hits;
-            self.selected_hatches.clear();
-            // Lasso is not a rectangle — noun-verb STRETCH cannot replay a window.
-            self.last_selection_window = None;
         }
-        self.sync_selection();
-        let n = self.selection.len() + self.selected_dimensions.len();
-        self.note = format!(
-            "Lasso {}: {n} selected",
-            if crossing { "crossing" } else { "window" }
-        );
+        for idx in dim_hits {
+            if !self.selected_dimensions.contains(&idx) {
+                self.selected_dimensions.push(idx);
+            }
+        }
+        self.note = format!("{} object(s) — Space when done", self.selection.len());
     }
-}
-
-/// True when a drag path curves enough to be a lasso rather than a box: some
-/// point lies well off the straight line from start to end (or it loops back).
-fn drag_is_lasso(path: &[egui::Pos2]) -> bool {
-    if path.len() < 4 {
-        return false;
-    }
-    let (a, b) = (path[0], path[path.len() - 1]);
-    let ab = b - a;
-    let len = ab.length();
-    if len < 6.0 {
-        return true; // returned near the start → a loop, not a box
-    }
-    let normal = egui::vec2(-ab.y, ab.x) / len;
-    let max_dev = path
-        .iter()
-        .map(|p| (*p - a).dot(normal).abs())
-        .fold(0.0_f32, f32::max);
-    max_dev > 12.0
 }
 
 /// Zoom about the cursor on scroll.
@@ -8307,6 +8980,18 @@ fn entity_distance_primitive(g: &Geometry, p: Point2) -> f64 {
         }
         Geometry::Text(t) => p.distance(t.position),
         Geometry::Insert(i) => p.distance(i.position),
+        Geometry::Image(img) => {
+            let c = img.corners();
+            let segs = [
+                aadt_geometry::Segment::new(c[0], c[1]),
+                aadt_geometry::Segment::new(c[1], c[2]),
+                aadt_geometry::Segment::new(c[2], c[3]),
+                aadt_geometry::Segment::new(c[3], c[0]),
+            ];
+            segs.iter()
+                .map(|s| s.distance_to_point(p))
+                .fold(f64::INFINITY, f64::min)
+        }
     }
 }
 
@@ -8422,7 +9107,7 @@ fn dimension_hit_dist(
     best
 }
 
-/// Dimensions caught by a box/lasso rectangle. Window (L→R) needs every drawn
+/// Dimensions caught by a box rectangle. Window (L→R) needs every drawn
 /// point inside; crossing (R→L) needs any point inside or any segment crossing.
 fn dimension_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<usize> {
     let active = doc.active_space();
@@ -8457,44 +9142,6 @@ fn dimension_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) 
         }
         let selected = saw && if crossing { any_in || crosses } else { all_in };
         if selected {
-            hits.push(i);
-        }
-    }
-    hits
-}
-
-/// Dimensions caught by a lasso polygon. Window needs every drawn point inside;
-/// crossing needs any point inside (segment-edge crossings are not tested — a
-/// dimension line that only clips the lasso boundary is a rare case).
-fn dimension_polygon_select(doc: &Document, polygon: &[Point2], crossing: bool) -> Vec<usize> {
-    let active = doc.active_space();
-    let props = doc.properties();
-    let mut hits = Vec::new();
-    for (i, dim) in doc.dimensions().iter().enumerate() {
-        if dim.space != active || !entity_pickable(doc, &dim.layer) {
-            continue;
-        }
-        let (mut all_in, mut any_in, mut saw) = (true, false, false);
-        for cmd in dimension_commands(dim, props) {
-            match cmd {
-                DrawCommand::Polyline { points, .. } => {
-                    for pt in points {
-                        saw = true;
-                        let inside = point_in_polygon(polygon, pt);
-                        any_in |= inside;
-                        all_in &= inside;
-                    }
-                }
-                DrawCommand::Text { position, .. } => {
-                    saw = true;
-                    let inside = point_in_polygon(polygon, position);
-                    any_in |= inside;
-                    all_in &= inside;
-                }
-                _ => {}
-            }
-        }
-        if saw && if crossing { any_in } else { all_in } {
             hits.push(i);
         }
     }
@@ -8568,6 +9215,7 @@ fn entity_bbox_primitive(g: &Geometry) -> Option<Bbox> {
         ],
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(i) => vec![i.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     };
     Bbox::of_points(pts)
 }
@@ -8686,11 +9334,21 @@ fn geometry_fully_inside_primitive(g: &Geometry, lo: Point2, hi: Point2) -> bool
             const N: usize = 24;
             (0..=N).all(|i| {
                 let t = i as f64 / N as f64;
-                point_in_sel(a.point_at(t), lo, hi)
+                // sample along the arc
+                let ang = (a.start_angle + a.sweep() * t).to_radians();
+                point_in_sel(
+                    Point2::new(
+                        a.center.x + a.radius * ang.cos(),
+                        a.center.y + a.radius * ang.sin(),
+                    ),
+                    lo,
+                    hi,
+                )
             })
         }
         Geometry::Text(t) => point_in_sel(t.position, lo, hi),
         Geometry::Insert(i) => point_in_sel(i.position, lo, hi),
+        Geometry::Image(img) => img.corners().iter().all(|c| point_in_sel(*c, lo, hi)),
     }
 }
 
@@ -8727,6 +9385,18 @@ fn geometry_touches_sel_primitive(g: &Geometry, lo: Point2, hi: Point2) -> bool 
         Geometry::Arc(a) => arc_crosses_sel(a, lo, hi),
         Geometry::Text(t) => point_in_sel(t.position, lo, hi),
         Geometry::Insert(i) => point_in_sel(i.position, lo, hi),
+        Geometry::Image(img) => img.corners().iter().any(|c| point_in_sel(*c, lo, hi))
+            || {
+                let c = img.corners();
+                [
+                    aadt_geometry::Segment::new(c[0], c[1]),
+                    aadt_geometry::Segment::new(c[1], c[2]),
+                    aadt_geometry::Segment::new(c[2], c[3]),
+                    aadt_geometry::Segment::new(c[3], c[0]),
+                ]
+                .iter()
+                .any(|s| segment_crosses_sel(*s, lo, hi))
+            },
     }
 }
 
@@ -8764,6 +9434,7 @@ fn grip_points(g: &Geometry) -> Vec<Point2> {
         Geometry::Arc(a) => vec![a.center, a.start_point(), a.end_point()],
         Geometry::Text(t) => vec![t.position],
         Geometry::Insert(i) => vec![i.position],
+        Geometry::Image(img) => img.corners().to_vec(),
     }
 }
 
@@ -8884,6 +9555,17 @@ fn geometry_with_grip_moved_local(
             t.rotation,
         ))),
         Geometry::Insert(i) => Some(Geometry::Insert(i.at(new_pt, i.rotation))),
+        Geometry::Image(img) => {
+            let corners = img.corners();
+            if grip_idx >= corners.len() {
+                return None;
+            }
+            let dx = new_pt.x - corners[grip_idx].x;
+            let dy = new_pt.y - corners[grip_idx].y;
+            let mut img = img.clone();
+            img.position = Point2::new(img.position.x + dx, img.position.y + dy);
+            Some(Geometry::Image(img))
+        }
     }
 }
 
@@ -9008,6 +9690,8 @@ fn paint(
     list: &DrawList,
     doc: &Document,
     show_lweights: bool,
+    textures: &std::collections::HashMap<String, egui::TextureHandle>,
+    view_preset: ViewPreset,
 ) {
     let view = world_view_bbox(camera).expanded(32.0 / camera.scale.max(1e-9));
     let mut stroke_cache: std::collections::HashMap<String, (egui::Color32, egui::Stroke)> =
@@ -9029,7 +9713,16 @@ fn paint(
             color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 90);
             stroke = egui::Stroke::new(stroke.width.max(0.6), color);
         }
-        draw_command(painter, rect, camera, cmd, stroke, color);
+        // Presentation mode mutes technical pattern washes slightly.
+        if matches!(view_preset, ViewPreset::Presentation) {
+            if let DrawCommand::Fill { alpha, .. } = cmd {
+                if *alpha > 0.3 {
+                    // keep presentation fills; technical washes already lower
+                    let _ = alpha;
+                }
+            }
+        }
+        draw_command(painter, rect, camera, cmd, stroke, color, textures);
     }
 }
 
@@ -9056,11 +9749,13 @@ impl BboxExpand for Bbox {
 
 fn cmd_intersects_view(cmd: &DrawCommand, view: Bbox) -> bool {
     match cmd {
-        DrawCommand::Polyline { points, .. } | DrawCommand::Fill { points, .. } => {
-            Bbox::of_points(points.iter().copied())
-                .map(|b| b.intersects(view))
-                .unwrap_or(false)
-        }
+        DrawCommand::Polyline { points, .. }
+        | DrawCommand::Fill { points, .. }
+        | DrawCommand::Image {
+            corners: points, ..
+        } => Bbox::of_points(points.iter().copied())
+            .map(|b| b.intersects(view))
+            .unwrap_or(false),
         DrawCommand::Circle { center, radius, .. } | DrawCommand::Arc { center, radius, .. } => {
             let r = *radius;
             Bbox {
@@ -9321,6 +10016,21 @@ fn draw_geometry(
             painter.line_segment([c + egui::vec2(-d, 0.0), c + egui::vec2(d, 0.0)], stroke);
             painter.line_segment([c + egui::vec2(0.0, -d), c + egui::vec2(0.0, d)], stroke);
         }
+        Geometry::Image(img) => {
+            let corners = img.corners();
+            let screen: Vec<_> = corners.iter().map(|p| to_screen(*p)).collect();
+            let alpha = (img.opacity.clamp(0.0, 1.0) * 64.0) as u8;
+            let fill = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                points: screen.clone(),
+                closed: true,
+                fill,
+                stroke: egui::Stroke::NONE.into(),
+            }));
+            for i in 0..4 {
+                painter.line_segment([screen[i], screen[(i + 1) % 4]], stroke);
+            }
+        }
     }
 }
 
@@ -9332,6 +10042,7 @@ fn draw_command(
     cmd: &DrawCommand,
     stroke: egui::Stroke,
     color: egui::Color32,
+    textures: &std::collections::HashMap<String, egui::TextureHandle>,
 ) {
     let to_screen = |p: Point2| world_to_screen(camera, rect, p);
     match cmd {
@@ -9381,7 +10092,6 @@ fn draw_command(
             if value.trim().is_empty() {
                 return;
             }
-            // Keep labels readable at any zoom; CAD heights vary wildly.
             let px = ((*height * camera.scale) as f32).clamp(8.0, 72.0);
             let galley = painter.layout_no_wrap(value.clone(), theme::drawing_font(px), color);
             if galley.size().x <= 0.5 || galley.size().y <= 0.5 {
@@ -9397,18 +10107,69 @@ fn draw_command(
             painter.line_segment([c + egui::vec2(-d, 0.0), c + egui::vec2(d, 0.0)], stroke);
             painter.line_segment([c + egui::vec2(0.0, -d), c + egui::vec2(0.0, d)], stroke);
         }
-        DrawCommand::Fill { points, .. } => {
+        DrawCommand::Fill { points, alpha, .. } => {
             if points.len() >= 3 {
                 let shape: Vec<egui::Pos2> = points.iter().map(|p| to_screen(*p)).collect();
-                // Path fill supports concave hatch boundaries; convex_polygon does not.
+                let a = (alpha.clamp(0.0, 1.0) * 255.0) as u8;
                 let fill =
-                    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 96);
+                    egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a);
                 painter.add(egui::Shape::Path(egui::epaint::PathShape {
                     points: shape,
                     closed: true,
                     fill,
                     stroke: egui::Stroke::NONE.into(),
                 }));
+            }
+        }
+        DrawCommand::Image {
+            path,
+            corners,
+            opacity,
+            ..
+        } => {
+            if corners.len() >= 4 {
+                let screen: [egui::Pos2; 4] = [
+                    to_screen(corners[0]),
+                    to_screen(corners[1]),
+                    to_screen(corners[2]),
+                    to_screen(corners[3]),
+                ];
+                if let Some(tex) = textures.get(path) {
+                    let mesh = egui::Mesh::with_texture(tex.id());
+                    let mut mesh = mesh;
+                    let tint = egui::Color32::from_rgba_unmultiplied(
+                        255,
+                        255,
+                        255,
+                        (opacity.clamp(0.0, 1.0) * 255.0) as u8,
+                    );
+                    // UV quad: bl, br, tr, tl matching ImageRef corner order.
+                    let uvs = [
+                        egui::pos2(0.0, 1.0),
+                        egui::pos2(1.0, 1.0),
+                        egui::pos2(1.0, 0.0),
+                        egui::pos2(0.0, 0.0),
+                    ];
+                    for i in 0..4 {
+                        mesh.vertices.push(egui::epaint::Vertex {
+                            pos: screen[i],
+                            uv: uvs[i],
+                            color: tint,
+                        });
+                    }
+                    mesh.indices.extend_from_slice(&[0, 1, 2, 0, 2, 3]);
+                    painter.add(egui::Shape::mesh(mesh));
+                } else {
+                    let a = (opacity.clamp(0.0, 1.0) * 64.0) as u8;
+                    let fill =
+                        egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), a);
+                    painter.add(egui::Shape::Path(egui::epaint::PathShape {
+                        points: screen.to_vec(),
+                        closed: true,
+                        fill,
+                        stroke: egui::Stroke::NONE.into(),
+                    }));
+                }
             }
         }
     }
@@ -9510,7 +10271,7 @@ fn paint_preview(
             painter.line_segment([to_screen(*l), to_screen(cursor)], stroke);
         }
         Tool::Stretch { w0: Some(a), .. } => {
-            paint_box(painter, to_screen(*a), to_screen(cursor));
+            paint_crossing_box(painter, to_screen(*a), to_screen(cursor));
         }
         Tool::Stretch { base: Some(b), .. } => {
             painter.line_segment([to_screen(*b), to_screen(cursor)], stroke);
@@ -9684,6 +10445,24 @@ fn paint_preview(
                 cursor,
                 stroke,
             );
+        }
+        Tool::PlaceImage {
+            width, height, ..
+        } => {
+            let w = *width;
+            let h = *height;
+            let corners = [
+                cursor,
+                Point2::new(cursor.x + w, cursor.y),
+                Point2::new(cursor.x + w, cursor.y + h),
+                Point2::new(cursor.x, cursor.y + h),
+            ];
+            for i in 0..4 {
+                painter.line_segment(
+                    [to_screen(corners[i]), to_screen(corners[(i + 1) % 4])],
+                    stroke,
+                );
+            }
         }
         Tool::Move {
             collecting: false,
@@ -9927,18 +10706,24 @@ fn paint_crosshair_and_pickbox(painter: &egui::Painter, sp: egui::Pos2, drafting
 /// Window (L→R, solid blue) or crossing (R→L, dashed green) selection box.
 fn paint_box(painter: &egui::Painter, start: egui::Pos2, cur: egui::Pos2) {
     let crossing = cur.x < start.x;
-    let (edge, fill) = if crossing {
-        (theme::canvas::crossing_edge(), theme::canvas::crossing_fill())
-    } else {
-        (theme::canvas::window_edge(), theme::canvas::window_fill())
-    };
-    let r = egui::Rect::from_two_pos(start, cur);
-    painter.rect_filled(r, 0.0, fill);
     if crossing {
-        paint_dashed_rect(painter, r, egui::Stroke::new(1.0_f32, edge), 6.0, 4.0);
+        paint_crossing_box(painter, start, cur);
     } else {
+        let edge = theme::canvas::window_edge();
+        let fill = theme::canvas::window_fill();
+        let r = egui::Rect::from_two_pos(start, cur);
+        painter.rect_filled(r, 0.0, fill);
         painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0_f32, edge));
     }
+}
+
+/// Crossing selection / STRETCH window (dashed green), regardless of drag direction.
+fn paint_crossing_box(painter: &egui::Painter, start: egui::Pos2, cur: egui::Pos2) {
+    let edge = theme::canvas::crossing_edge();
+    let fill = theme::canvas::crossing_fill();
+    let r = egui::Rect::from_two_pos(start, cur);
+    painter.rect_filled(r, 0.0, fill);
+    paint_dashed_rect(painter, r, egui::Stroke::new(1.0_f32, edge), 6.0, 4.0);
 }
 
 fn paint_dashed_rect(
@@ -10205,6 +10990,13 @@ mod dyn_coord_tests {
         assert_eq!(parse_relative_xy("@3,4", a), Some(Point2::new(13.0, 24.0)));
         assert!(parse_relative_xy("3,4", a).is_none());
     }
+
+    #[test]
+    fn incomplete_pair_after_tab_does_not_parse() {
+        assert!(parse_comma_xy("4,").is_none());
+        assert!(parse_dyn_xy("4", "").is_none());
+        assert!(parse_dyn_xy("4", "3").is_some());
+    }
 }
 
 #[cfg(test)]
@@ -10343,10 +11135,9 @@ mod rect_corner_tests {
 
 #[cfg(test)]
 mod box_select_tests {
-    use super::{box_select, drag_is_lasso, geometry_fully_inside, geometry_touches_sel};
+    use super::{box_select, geometry_fully_inside, geometry_touches_sel};
     use aadt_geometry::{Point2, Segment};
     use aadt_model::{Document, EntityId, Geometry, Layer};
-    use eframe::egui;
 
     struct Sample {
         doc: Document,
@@ -10462,39 +11253,6 @@ mod box_select_tests {
         });
         assert!(super::pick_entity(&doc, Point2::new(1.5, 1.5), 1.0).is_none());
         assert!(box_select(&doc, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0), true).is_empty());
-    }
-
-    #[test]
-    fn straight_drag_is_not_lasso() {
-        let path = vec![
-            egui::pos2(0.0, 0.0),
-            egui::pos2(20.0, 1.0),
-            egui::pos2(40.0, 0.0),
-            egui::pos2(60.0, 1.0),
-        ];
-        assert!(!drag_is_lasso(&path));
-    }
-
-    #[test]
-    fn bowed_drag_is_lasso() {
-        let path = vec![
-            egui::pos2(0.0, 0.0),
-            egui::pos2(20.0, 20.0),
-            egui::pos2(40.0, 20.0),
-            egui::pos2(60.0, 0.0),
-        ];
-        assert!(drag_is_lasso(&path));
-    }
-
-    #[test]
-    fn tiny_loop_counts_as_lasso() {
-        let path = vec![
-            egui::pos2(10.0, 10.0),
-            egui::pos2(12.0, 20.0),
-            egui::pos2(8.0, 20.0),
-            egui::pos2(11.0, 11.0),
-        ];
-        assert!(drag_is_lasso(&path));
     }
 }
 

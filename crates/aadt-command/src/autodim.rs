@@ -87,7 +87,7 @@ fn collect_def_points(ctx: &Context, ids: &[EntityId]) -> Vec<Point2> {
                 pts.push(a.start_point());
                 pts.push(a.end_point());
             }
-            Geometry::Text(_) | Geometry::Insert(_) => {}
+            Geometry::Text(_) | Geometry::Insert(_) | Geometry::Image(_) => {}
         }
         // Also harvest segment endpoints (covers line/polyline consistently).
         for seg in e.geometry.segments() {
