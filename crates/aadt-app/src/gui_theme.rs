@@ -588,7 +588,7 @@ pub fn nav_tabs(ui: &mut egui::Ui, current: &mut usize, destinations: &[NavDest]
             let selected = *current == dest.tab;
             let text = if selected {
                 egui::RichText::new(dest.label)
-                    .strong()
+                    .font(semibold(type_scale::BODY))
                     .color(color::accent())
             } else {
                 egui::RichText::new(dest.label).color(color::text_secondary())
@@ -779,9 +779,39 @@ pub mod canvas {
         Color32::from_rgba_unmultiplied(40, 140, 255, 110)
     }
 
+    /// Plate behind selected text labels.
+    pub fn selection_plate() -> Color32 {
+        Color32::from_rgba_unmultiplied(30, 120, 255, 60)
+    }
+
     /// Rubber-band / ghost preview stroke (in-progress geometry).
     pub fn ghost() -> Color32 {
         Color32::from_rgb(80, 140, 220)
+    }
+
+    /// TRIM preview — segment about to be removed.
+    pub fn trim_ghost() -> Color32 {
+        Color32::from_rgba_unmultiplied(230, 70, 70, 210)
+    }
+
+    /// Grip fill (on selection handles).
+    pub fn grip() -> Color32 {
+        Color32::from_rgb(255, 255, 255)
+    }
+
+    /// UCS X axis.
+    pub fn ucs_x() -> Color32 {
+        Color32::from_rgb(200, 40, 40)
+    }
+
+    /// UCS Y axis.
+    pub fn ucs_y() -> Color32 {
+        Color32::from_rgb(40, 160, 40)
+    }
+
+    /// Shared building reference-origin mark.
+    pub fn reference_mark() -> Color32 {
+        Color32::from_rgb(180, 80, 20)
     }
 
     /// Window box (L→R) edge / fill.
@@ -944,6 +974,30 @@ pub fn button(ui: &mut egui::Ui, kind: BtnKind, label: &str) -> egui::Response {
         )
         .fill(fill)
         .stroke(egui::Stroke::new(stroke::THIN, stroke_c))
+        .rounding(radius::CONTROL),
+    )
+}
+
+/// Gated chrome button — disabled state uses egui's enabled overlay.
+pub fn button_enabled(
+    ui: &mut egui::Ui,
+    enabled: bool,
+    kind: BtnKind,
+    label: &str,
+) -> egui::Response {
+    ui.add_enabled_ui(enabled, |ui| button(ui, kind, label)).inner
+}
+
+/// Dense tertiary link (replaces `ui.small_button` in chrome).
+pub fn link_button(ui: &mut egui::Ui, label: impl Into<String>) -> egui::Response {
+    ui.add(
+        egui::Button::new(
+            egui::RichText::new(label.into())
+                .size(type_scale::CAPTION)
+                .color(color::text_secondary()),
+        )
+        .fill(egui::Color32::TRANSPARENT)
+        .stroke(egui::Stroke::NONE)
         .rounding(radius::CONTROL),
     )
 }

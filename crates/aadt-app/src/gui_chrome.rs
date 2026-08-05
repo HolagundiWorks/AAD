@@ -12,9 +12,9 @@ use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, 
 use super::theme::{
     self, bar_frame, button, button_sized, BtnKind, chip_accent, chip_toggle, chrome, color,
     color_swatch, dialog_defaults, dock_frame, full_width_button, full_width_edit, icon as icon_sz,
-    layout, left_manager_title, nav_dest_label, NoteKind, note_line, panel_space, panel_subtitle,
-    panel_title, radius, right_manager_title, section_hint, section_label, section_label_first,
-    semibold, space, stroke, two_col_buttons, type_scale,
+    layout, left_manager_title, link_button, nav_dest_label, NoteKind, note_line, panel_space,
+    panel_subtitle, panel_title, radius, right_manager_title, section_hint, section_label,
+    section_label_first, semibold, space, stroke, two_col_buttons, type_scale,
 };
 use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
@@ -78,8 +78,7 @@ impl AadtApp {
             }
             // The active shim layer now lives in the breadcrumb's Layer segment.
             if !self.selection.is_empty()
-                && ui
-                    .small_button("To space")
+                && link_button(ui, "To space")
                     .on_hover_text("Move selection into the active model space (CHSPACE)")
                     .clicked()
             {
@@ -912,7 +911,7 @@ impl AadtApp {
                                 ui.set_max_width(panel_w);
                                 ui.small("Vis");
                                 for st in &states {
-                                    if ui.small_button(st).clicked() {
+                                    if link_button(ui, st).clicked() {
                                         let fb =
                                             self.session.feed(&format!("BSETVIS {} {}", id.0, st));
                                         if let Some(m) = fb.message() {
@@ -1170,7 +1169,7 @@ impl AadtApp {
                                     ))
                                     .size(type_scale::CAPTION),
                                 );
-                                if ui.small_button("Restore").clicked() {
+                                if link_button(ui, "Restore").clicked() {
                                     self.app_feed(&format!("HISTORY RESTORE {}", c.id));
                                     if let Some(fb) = self.session.transcript().last() {
                                         if let Some(msg) = fb.message() {
@@ -1565,7 +1564,7 @@ impl AadtApp {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = space::XS;
                         for m in completions.iter().take(5) {
-                            if ui.small_button(m).clicked() {
+                            if link_button(ui, m).clicked() {
                                 let up = m.to_ascii_uppercase();
                                 if matches!(up.as_str(), "E" | "ERASE")
                                     || tool_for(m, !self.selection.is_empty()).is_some()
@@ -2324,7 +2323,7 @@ impl AadtApp {
                     "checked_by",
                     "units",
                 ] {
-                    if ui.small_button(format!("{{{token}}}")).clicked() {
+                    if link_button(ui, format!("{{{token}}}")).clicked() {
                         self.current_layer = "TMPL_TEXT".into();
                         self.dyn_input = format!("{{{token}}}");
                         self.tool = Tool::Text { origin: None };
@@ -2496,7 +2495,7 @@ impl AadtApp {
                     self.note = "DIMANGULAR — click vertex".into();
                 }
             });
-            if ui.small_button("Restore layers (after Auto Dim)").clicked() {
+            if link_button(ui, "Restore layers (after Auto Dim)").clicked() {
                 self.app_feed("AUTODIMRESTORE");
                 if let Some(fb) = self.session.transcript().last() {
                     if let Some(msg) = fb.message() {
@@ -2504,7 +2503,7 @@ impl AadtApp {
                     }
                 }
             }
-            if ui.small_button("Open Dimension manager…").clicked() {
+            if link_button(ui, "Open Dimension manager…").clicked() {
                 self.right_tab = 5; // Dims
                 self.reveal_right_mgr();
             }
@@ -2615,7 +2614,7 @@ impl AadtApp {
                         self.props_edit.logo_path = path.display().to_string();
                     }
                 }
-                if ui.small_button("Clear").clicked() {
+                if link_button(ui, "Clear").clicked() {
                     self.props_edit.logo_path.clear();
                 }
             });
@@ -2901,7 +2900,7 @@ impl AadtApp {
                     &self.props_edit.dimstyle
                 }
             ));
-            if ui.small_button("Open Dimension manager…").clicked() {
+            if link_button(ui, "Open Dimension manager…").clicked() {
                 self.right_tab = 5; // Dims
                 self.reveal_right_mgr();
             }
@@ -3012,7 +3011,7 @@ impl AadtApp {
                     self.note = "DIMANGULAR — click vertex".into();
                 }
             });
-            if ui.small_button("Restore layers (AUTODIMRESTORE)").clicked() {
+            if link_button(ui, "Restore layers (AUTODIMRESTORE)").clicked() {
                 self.app_feed("AUTODIMRESTORE");
                 if let Some(fb) = self.session.transcript().last() {
                     if let Some(msg) = fb.message() {
@@ -3048,7 +3047,7 @@ impl AadtApp {
             ui.label(format!("Label preview: {preview}"));
 
             ui.add_space(panel_space::ROW);
-            if ui.small_button("Open Units manager…").clicked() {
+            if link_button(ui, "Open Units manager…").clicked() {
                 self.right_tab = 4; // Units
                 self.reveal_right_mgr();
             }

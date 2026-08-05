@@ -2184,30 +2184,28 @@ impl AadtApp {
                             .desired_width(170.0)
                             .hint_text("127.0.0.1:7420"),
                     );
-                    if ui.add_enabled(idle, egui::Button::new("Connect")).clicked() {
+                    if theme::button_enabled(ui, idle, theme::BtnKind::Primary, "Connect").clicked()
+                    {
                         let host = self.server_host.clone();
                         self.net_send(net::NetCmd::Connect(host), "connecting…");
                     }
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(ready, egui::Button::new("Push drawing"))
+                    if theme::button_enabled(ui, ready, theme::BtnKind::Secondary, "Push drawing")
                         .on_hover_text("Send every entity to the server")
                         .clicked()
                     {
                         let doc = Box::new(self.session.document().clone());
                         self.net_send(net::NetCmd::Push(doc), "pushing…");
                     }
-                    if ui
-                        .add_enabled(ready, egui::Button::new("Pull drawing"))
+                    if theme::button_enabled(ui, ready, theme::BtnKind::Secondary, "Pull drawing")
                         .on_hover_text("Load the server's entities into this drawing")
                         .clicked()
                     {
                         self.net_send(net::NetCmd::Pull, "pulling…");
                     }
-                    if ui
-                        .add_enabled(ready, egui::Button::new("Flush"))
+                    if theme::button_enabled(ui, ready, theme::BtnKind::Secondary, "Flush")
                         .on_hover_text("Ask the server to write its database to disk")
                         .clicked()
                     {
@@ -2215,11 +2213,10 @@ impl AadtApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(ready, egui::Button::new("Status")).clicked() {
+                    if theme::button_enabled(ui, ready, theme::BtnKind::Subtle, "Status").clicked() {
                         self.net_send(net::NetCmd::Ping, "pinging…");
                     }
-                    if ui
-                        .add_enabled(ready, egui::Button::new("Disconnect"))
+                    if theme::button_enabled(ui, ready, theme::BtnKind::Danger, "Disconnect")
                         .clicked()
                     {
                         self.net_send(net::NetCmd::Disconnect, "disconnecting…");
@@ -2630,8 +2627,14 @@ impl AadtApp {
                     .fill(if theme::color::is_dark() {
                         theme::color::layer_card()
                     } else {
-                        egui::Color32::from_rgba_unmultiplied(18, 18, 18, 224)
+                        egui::Color32::from_rgba_unmultiplied(
+                            theme::color::ink().r(),
+                            theme::color::ink().g(),
+                            theme::color::ink().b(),
+                            224,
+                        )
                     })
+                    .rounding(theme::radius::CONTROL)
                     .show(ui, |ui| {
                         ui.set_width(200.0);
                         ui.label(
@@ -7816,7 +7819,7 @@ impl eframe::App for AadtApp {
                         ..
                     }
                 ) {
-                    let ghost = egui::Color32::from_rgba_unmultiplied(230, 70, 70, 210);
+                    let ghost = theme::canvas::trim_ghost();
                     if self.drag_path.len() >= 2 && self.box_start.is_none() {
                         let lstroke = egui::Stroke::new(1.5_f32, ghost);
                         for pair in self.drag_path.windows(2) {
@@ -7862,26 +7865,26 @@ impl eframe::App for AadtApp {
                     painter.arrow(
                         origin,
                         egui::vec2(36.0, 0.0),
-                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(200, 40, 40)),
+                        egui::Stroke::new(1.5_f32, theme::canvas::ucs_x()),
                     );
                     painter.arrow(
                         origin,
                         egui::vec2(0.0, -36.0),
-                        egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(40, 160, 40)),
+                        egui::Stroke::new(1.5_f32, theme::canvas::ucs_y()),
                     );
                     painter.text(
                         x_end + egui::vec2(4.0, 0.0),
                         egui::Align2::LEFT_CENTER,
                         "X",
                         egui::FontId::proportional(11.0),
-                        egui::Color32::from_rgb(200, 40, 40),
+                        theme::canvas::ucs_x(),
                     );
                     painter.text(
                         y_end + egui::vec2(0.0, -4.0),
                         egui::Align2::CENTER_BOTTOM,
                         "Y",
                         egui::FontId::proportional(11.0),
-                        egui::Color32::from_rgb(40, 160, 40),
+                        theme::canvas::ucs_y(),
                     );
                     let _ = x_end;
                 }
@@ -7889,7 +7892,7 @@ impl eframe::App for AadtApp {
                 {
                     let o = self.session.document().reference_origin();
                     let sp = world_to_screen(&self.camera, rect, o);
-                    let mark = egui::Color32::from_rgb(180, 80, 20);
+                    let mark = theme::canvas::reference_mark();
                     let stroke = egui::Stroke::new(1.5_f32, mark);
                     painter.line_segment(
                         [sp + egui::vec2(-8.0, 0.0), sp + egui::vec2(8.0, 0.0)],
@@ -8939,7 +8942,7 @@ fn paint_selection(
     }
     let hi = theme::canvas::selection();
     let glow = theme::canvas::selection_glow();
-    let grip = egui::Color32::from_rgb(255, 255, 255);
+    let grip = theme::canvas::grip();
     let grip_edge = theme::canvas::selection();
     let n = selection.len();
     for (i, id) in selection.iter().enumerate() {
@@ -9138,8 +9141,8 @@ fn draw_geometry(
                 );
                 painter.rect_filled(
                     r,
-                    2.0,
-                    egui::Color32::from_rgba_unmultiplied(30, 120, 255, 60),
+                    theme::radius::CONTROL,
+                    theme::canvas::selection_plate(),
                 );
             }
             let mut text_shape = egui::epaint::TextShape::new(pos, galley, color);
@@ -9826,7 +9829,7 @@ fn paint_dyn_box(painter: &egui::Painter, sp: egui::Pos2, lines: &[String]) {
         .iter()
         .map(|l| painter.layout_no_wrap(l.clone(), font.clone(), color))
         .collect();
-    let pad = 6.0_f32;
+    let pad = theme::space::SM + 2.0;
     let w = galleys.iter().map(|g| g.size().x).fold(0.0_f32, f32::max);
     let h = galleys.iter().map(|g| g.size().y).sum::<f32>();
     let origin = sp + egui::vec2(18.0, 18.0);
@@ -9834,10 +9837,14 @@ fn paint_dyn_box(painter: &egui::Painter, sp: egui::Pos2, lines: &[String]) {
     let card = theme::color::layer_card();
     painter.rect_filled(
         bg,
-        4.0,
+        theme::radius::CONTROL,
         egui::Color32::from_rgba_unmultiplied(card.r(), card.g(), card.b(), 235),
     );
-    painter.rect_stroke(bg, 4.0, egui::Stroke::new(1.0_f32, theme::color::border()));
+    painter.rect_stroke(
+        bg,
+        theme::radius::CONTROL,
+        egui::Stroke::new(theme::stroke::THIN, theme::color::border()),
+    );
     let mut y = origin.y + pad;
     for g in galleys {
         let dy = g.size().y;
