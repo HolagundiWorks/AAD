@@ -309,13 +309,14 @@ returns proposals, and one audited function commits them.
 | M12.3 | **Code-check rule packs**: min room area / min room width / min door width, graded violation vs warning | ✅ | Advisory only — resolving a violation is a design decision, never auto-applied |
 | M12.4 | **NL command routing**: phrase → command *string*, never geometry | ✅ | Refuses unmatched phrasings with candidates rather than guessing |
 | M12.5 | Surface: `SUGGEST` / `CHECK` / `ASK` commands | ✅ | `ASK` shows the routed command; running it stays the user's call |
+| M12.6 | **Revision-comparison narration** — fingerprint diff + detection deltas + optional corpus citations as an advisory suggestion | ✅ | `aadt-assist::narrate_revision` / `COMPARE <before>`; `Action::None` (transmittal note, never auto-edits). CLI `aadt compare` prints the same enriched note |
 
 **Deliberately not in M12:** auto-fixing code findings, and any NL path that
 reaches geometry without passing through the command band. Both would move a
 decision from the engineer to the tool.
 
-**Still open from the phase plan:** revision-comparison narration and
-standard-detail recommendation (both retrieval-shaped, deferred to a later pass).
+**Still open from the phase plan:** standard-detail recommendation (retrieval
+half exists via `ASKDOCS`; the detail library content does not).
 
 ## M13 — AI-Native Phase 4: quantity takeoff, on objects ✅ (core)
 

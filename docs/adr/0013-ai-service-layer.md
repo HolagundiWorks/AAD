@@ -43,13 +43,19 @@ an append-only audit row. Services themselves never receive `&mut Document`.
 between a suggestion that was *considered and declined* and one that was never
 raised — which is the question that actually matters in a review.
 
-### Three services
+### Services
 
 | Service | Confidence | Applies? |
 |---|---|---|
 | `dims` — dimension prediction | derived from detection quality | yes, adds a `Dimension` |
 | `rules` — code-check rule packs | always `1.0` (deterministic geometry) | **no** — advisory only |
+| `compare` — revision-comparison narration | always `1.0` (fingerprint diff + detection) | **no** — advisory only |
 | `nl` — natural-language routing | pattern-match strength | **no** — emits a command *string* |
+
+`compare` wraps the M7 fingerprint diff (`aadt_pdf::compare`) with detection
+count deltas and optional BM25 citations for changed layers. It never edits
+geometry; `COMPARE <before>` registers one `SuggestionKind::RevisionCompare`
+proposal that can be rejected (audited) but not accepted.
 
 **Code findings are deliberately not auto-fixable.** Resolving a code violation
 is a design decision — move a wall, re-plan the room, or seek relief. Software
@@ -76,8 +82,9 @@ what the code requires.
 - One audited path to mutation. A new service gets undo, audit, and the
   confidence gate by construction; it cannot opt out, because it never holds a
   mutable document.
-- `aadt-assist` depends on `aadt-detect`, `aadt-object` (audit), and `aadt-vecdb`
-  (citations). Layering stays acyclic; the CLI wires the surfaces.
+- `aadt-assist` depends on `aadt-detect`, `aadt-object` (audit), `aadt-vecdb`
+  (citations), and `aadt-pdf` (fingerprint compare for revision narration).
+  Layering stays acyclic; the CLI wires the surfaces.
 - Suggestion sets are **session-scoped and derived** — regenerated from current
   geometry rather than persisted. The *decisions* persist, in the same
   append-only audit log as every other object mutation.

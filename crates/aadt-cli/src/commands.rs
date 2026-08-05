@@ -50,6 +50,10 @@ pub fn register(interp: &mut Interpreter) {
         st: suggestions.clone(),
     }));
     registry.register(Box::new(CheckCmd {
+        st: suggestions.clone(),
+        corpus: corpus.clone(),
+    }));
+    registry.register(Box::new(CompareCmd {
         st: suggestions,
         corpus,
     }));
@@ -1716,7 +1720,7 @@ impl SuggestCmd {
     fn do_list(&self) -> Result<String, String> {
         let st = self.st.borrow();
         if st.set.is_empty() {
-            return Ok("SUGGEST: no proposals — run SUGGEST DIMS or CHECK first".into());
+            return Ok("SUGGEST: no proposals — run SUGGEST DIMS, CHECK, or COMPARE first".into());
         }
         let lines: Vec<String> = st.set.iter().map(suggestion_line).collect();
         let counts: Vec<String> = st
@@ -1904,6 +1908,55 @@ impl Command for CheckCmd {
         Ok(format!(
             "CHECK: {n} finding(s) — advisory, nothing changed:\n{}",
             lines.join("\n")
+        ))
+    }
+}
+
+/// `COMPARE` — revision-comparison narration (AI-native Phase 3). Diffs a
+/// saved revision against the live document via the M7 fingerprint engine,
+/// enriches with detection deltas + optional corpus citations, and registers
+/// one advisory suggestion (`Action::None`). Nothing is applied.
+struct CompareCmd {
+    st: SharedSuggestions,
+    corpus: SharedCorpus,
+}
+
+impl Command for CompareCmd {
+    fn name(&self) -> &str {
+        "COMPARE"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DIFF", "REVCOMPARE"]
+    }
+    fn help(&self) -> &str {
+        "COMPARE <before-path> — narrate changes from a saved revision to the live drawing (advisory)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let path = path_from_args(args, "COMPARE")?;
+        let (before, _warnings) = open_document(&path)?;
+        self.st.borrow_mut().sync(ctx);
+        let found = {
+            let cg = self.corpus.borrow();
+            let corpus = cg.as_ref().map(|c| &c.corpus);
+            aadt_assist::narrate_revision(&before, &ctx.doc, corpus)
+        };
+        let n = found.len();
+        {
+            let mut st = self.st.borrow_mut();
+            st.set
+                .replace_kind(aadt_assist::SuggestionKind::RevisionCompare, found);
+        }
+        let st = self.st.borrow();
+        let Some(s) = st
+            .set
+            .iter()
+            .find(|s| s.kind == aadt_assist::SuggestionKind::RevisionCompare)
+        else {
+            return Ok("COMPARE: no narration produced".into());
+        };
+        Ok(format!(
+            "COMPARE {path} → live ({n} advisory):\n{}\n\n{}",
+            s.summary, s.rationale
         ))
     }
 }
@@ -2381,5 +2434,58 @@ mod adopt_layers_tests {
             msg.contains("adopted"),
             "open message reports adoption: {msg}"
         );
+    }
+}
+
+#[cfg(test)]
+mod compare_tests {
+    use super::*;
+    use aadt_command::Interpreter;
+    use aadt_geometry::Segment;
+
+    fn interp() -> (Interpreter, Context) {
+        let mut interp = Interpreter::with_builtins();
+        register(&mut interp);
+        (interp, Context::new())
+    }
+
+    #[test]
+    fn compare_narrates_added_entities_against_live_doc() {
+        let dir = std::env::temp_dir().join(format!("aadt-compare-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let before_path = dir.join("before.dxf");
+
+        // Build a minimal before document and save as DXF.
+        let mut before = aadt_model::Document::new();
+        before.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+        );
+        aadt_dxf::export_path(&before, &before_path).unwrap();
+
+        let (interp, mut ctx) = interp();
+        // Live doc has the original wall plus one more.
+        ctx.doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0))),
+        );
+        ctx.doc.add_geometry(
+            "A-WALL",
+            Geometry::Line(Segment::new(Point2::new(0.0, 8.0), Point2::new(10.0, 8.0))),
+        );
+
+        let msg = interp
+            .eval_line(&mut ctx, &format!("COMPARE {}", before_path.display()))
+            .unwrap()
+            .unwrap();
+        assert!(msg.contains("1 entit"), "msg: {msg}");
+        assert!(msg.contains("+ 1 line on A-WALL"), "msg: {msg}");
+        assert!(msg.contains("Engineering intent"), "msg: {msg}");
+
+        // Registered as an advisory suggestion.
+        let list = interp.eval_line(&mut ctx, "SUGGEST LIST").unwrap().unwrap();
+        assert!(list.contains("revision-compare"), "list: {list}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

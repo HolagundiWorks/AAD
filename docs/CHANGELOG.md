@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### M12.6 — Revision-comparison narration
+
+- New `aadt-assist::compare` service wraps the M7 fingerprint diff
+  (`aadt_pdf::compare`) with detection count deltas (walls / rooms / openings /
+  …) and optional BM25 citations for changed layers from an indexed corpus.
+- Session command **`COMPARE <before-path>`** (aliases `DIFF`, `REVCOMPARE`)
+  diffs a saved revision against the live drawing and registers one advisory
+  `SuggestionKind::RevisionCompare` proposal (`Action::None` — rejectable /
+  auditable, never auto-applied). CLI `aadt compare` prints the same enriched
+  narration.
+- Marks the deferred Phase-3 revision-narration item done; standard-detail
+  recommendation remains open pending a detail library.
+
 ### M9.6 — Floating panels + auto-hide (§28 docking)
 
 - Left and right managers now support three presentation modes, persisted in
