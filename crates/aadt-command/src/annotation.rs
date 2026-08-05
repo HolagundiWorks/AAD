@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use aadt_geometry::{Circle, Point2, Polyline, Segment};
-use aadt_model::{Geometry, Text};
+use aadt_model::{EntityId, Geometry, Text};
 
 use crate::{entities_word, parse_f64, resolve_targets, Command, Context, Registry};
 
@@ -13,6 +13,8 @@ pub fn register_annotation(r: &mut Registry) {
     r.register(Box::new(TableCmd));
     r.register(Box::new(CountCmd));
     r.register(Box::new(AutoNumCmd));
+    r.register(Box::new(TextBoxCmd));
+    r.register(Box::new(TextCircleCmd));
     r.register(Box::new(SectionLineCmd));
     r.register(Box::new(CalloutCmd));
     r.register(Box::new(RevMarkCmd));
@@ -179,10 +181,11 @@ impl Command for AutoNumCmd {
         "AUTONUM"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["NUMBER", "NUM"]
+        // AutoCAD calls this TCOUNT when the target is TEXT/MTEXT.
+        &["NUMBER", "NUM", "TCOUNT"]
     }
     fn help(&self) -> &str {
-        "AUTONUM target prefix start [height] — number TEXT entities (or place tags at inserts)"
+        "AUTONUM target prefix start [height] — number TEXT entities (or place tags at inserts); alias TCOUNT"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let token = args.first().ok_or("AUTONUM: missing target")?;
@@ -242,6 +245,123 @@ impl Command for AutoNumCmd {
             "autonumbered {n} {} (next = {prefix}{next})",
             entities_word(n as usize)
         ))
+    }
+}
+
+// --- TEXTBOX / TEXTCIRCLE -----------------------------------------------------
+
+/// The (rotated) rectangle a TEXTBOX/TEXTCIRCLE would wrap around `t`, given
+/// `margin` clearance on every side. Width is estimated the same way the
+/// embedding/vector-search feature builders do (`chars * height * 0.6` — see
+/// `aadt-vdb`/`aadt-embed`), since TEXT carries no measured glyph metrics.
+fn text_box_geometry(t: &Text, margin: f64) -> (Point2, [Point2; 4], f64) {
+    let w = (t.value.chars().count().max(1) as f64) * t.height * 0.6;
+    let h = t.height;
+    let ang = t.rotation.to_radians();
+    let (s, c) = ang.sin_cos();
+    // DXF TEXT's insertion point is the baseline-left corner; rotate the local
+    // (unrotated) box corners about it by the text's own rotation.
+    let to_world = |local: Point2| {
+        Point2::new(
+            t.position.x + local.x * c - local.y * s,
+            t.position.y + local.x * s + local.y * c,
+        )
+    };
+    let corners = [
+        to_world(Point2::new(-margin, -margin)),
+        to_world(Point2::new(w + margin, -margin)),
+        to_world(Point2::new(w + margin, h + margin)),
+        to_world(Point2::new(-margin, h + margin)),
+    ];
+    let center = to_world(Point2::new(w / 2.0, h / 2.0));
+    let radius = ((w + 2.0 * margin).powi(2) + (h + 2.0 * margin).powi(2)).sqrt() / 2.0;
+    (center, corners, radius)
+}
+
+/// Shared TEXTBOX/TEXTCIRCLE arg parsing: `target [margin]`, margin defaulting
+/// to a quarter of each text's own height so it scales with mixed sizes.
+fn text_wrap_targets(
+    ctx: &Context,
+    args: &[String],
+    cmd: &str,
+) -> Result<(Vec<EntityId>, Option<f64>), String> {
+    let token = args.first().ok_or(format!("{cmd}: missing target"))?;
+    let margin = match args.get(1) {
+        Some(v) => Some(
+            v.parse::<f64>()
+                .map_err(|_| format!("{cmd}: invalid margin {v:?}"))?,
+        ),
+        None => None,
+    };
+    Ok((resolve_targets(ctx, token, cmd)?, margin))
+}
+
+struct TextBoxCmd;
+impl Command for TextBoxCmd {
+    fn name(&self) -> &str {
+        "TEXTBOX"
+    }
+    fn help(&self) -> &str {
+        "TEXTBOX target [margin] — draw a rectangle around each selected TEXT (SELECTION|ALL|id|group)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let (ids, margin) = text_wrap_targets(ctx, args, "TEXTBOX")?;
+        let mut placed = Vec::new();
+        for id in &ids {
+            let Some(e) = ctx.doc.get(*id) else { continue };
+            let Geometry::Text(t) = &e.geometry else {
+                continue;
+            };
+            let m = margin.unwrap_or(t.height * 0.25);
+            let (_, corners, _) = text_box_geometry(t, m);
+            placed.push((e.layer.clone(), corners));
+        }
+        let n = placed.len();
+        if n == 0 {
+            return Err("TEXTBOX: no TEXT entities in target".into());
+        }
+        ctx.doc.transact("TEXTBOX", |d| {
+            for (layer, corners) in placed {
+                d.add_geometry(
+                    layer,
+                    Geometry::Polyline(Polyline::new(corners.to_vec(), true)),
+                );
+            }
+        });
+        Ok(format!("TEXTBOX — boxed {n} {}", entities_word(n)))
+    }
+}
+
+struct TextCircleCmd;
+impl Command for TextCircleCmd {
+    fn name(&self) -> &str {
+        "TEXTCIRCLE"
+    }
+    fn help(&self) -> &str {
+        "TEXTCIRCLE target [margin] — draw a circle around each selected TEXT (SELECTION|ALL|id|group)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let (ids, margin) = text_wrap_targets(ctx, args, "TEXTCIRCLE")?;
+        let mut placed = Vec::new();
+        for id in &ids {
+            let Some(e) = ctx.doc.get(*id) else { continue };
+            let Geometry::Text(t) = &e.geometry else {
+                continue;
+            };
+            let m = margin.unwrap_or(t.height * 0.25);
+            let (center, _, radius) = text_box_geometry(t, m);
+            placed.push((e.layer.clone(), center, radius));
+        }
+        let n = placed.len();
+        if n == 0 {
+            return Err("TEXTCIRCLE: no TEXT entities in target".into());
+        }
+        ctx.doc.transact("TEXTCIRCLE", |d| {
+            for (layer, center, radius) in placed {
+                d.add_geometry(layer, Geometry::Circle(Circle::new(center, radius)));
+            }
+        });
+        Ok(format!("TEXTCIRCLE — circled {n} {}", entities_word(n)))
     }
 }
 
@@ -551,5 +671,71 @@ mod tests {
             .entities()
             .iter()
             .any(|e| matches!(e.geometry, Geometry::Circle(_))));
+    }
+
+    #[test]
+    fn tcount_is_autonum() {
+        let i = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        i.eval_line(&mut ctx, "TEXT 0 0 1 A-ANNO-TEXT room")
+            .unwrap();
+        let msg = i.eval_line(&mut ctx, "TCOUNT 0 R 1").unwrap().unwrap();
+        assert!(msg.contains("autonumbered 1"));
+        let Geometry::Text(t) = &ctx.doc.entities()[0].geometry else {
+            panic!("expected text");
+        };
+        assert_eq!(t.value, "R1");
+    }
+
+    #[test]
+    fn textbox_wraps_text_in_a_closed_rectangle() {
+        let i = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        i.eval_line(&mut ctx, "TEXT 0 0 1 A-ANNO-TEXT AB").unwrap();
+        let msg = i.eval_line(&mut ctx, "TEXTBOX 0").unwrap().unwrap();
+        assert!(msg.contains("boxed 1"));
+        let entities = ctx.doc.entities();
+        let boxes: Vec<_> = entities
+            .iter()
+            .filter(|e| matches!(e.geometry, Geometry::Polyline(_)))
+            .collect();
+        assert_eq!(boxes.len(), 1);
+        let Geometry::Polyline(p) = &boxes[0].geometry else {
+            unreachable!()
+        };
+        assert!(p.closed);
+        assert_eq!(p.vertices.len(), 4);
+        // The box has a margin on every side of the text's local frame.
+        let bbox = aadt_geometry::Bbox::of_points(p.vertices.iter().copied()).unwrap();
+        assert!(bbox.min.x < 0.0 && bbox.min.y < 0.0);
+        assert!(bbox.max.x > 0.0 && bbox.max.y > 0.0);
+    }
+
+    #[test]
+    fn textcircle_encloses_the_text_box() {
+        let i = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        i.eval_line(&mut ctx, "TEXT 0 0 1 A-ANNO-TEXT AB").unwrap();
+        let msg = i.eval_line(&mut ctx, "TEXTCIRCLE 0 0.1").unwrap().unwrap();
+        assert!(msg.contains("circled 1"));
+        let entities = ctx.doc.entities();
+        let circles: Vec<_> = entities
+            .iter()
+            .filter(|e| matches!(e.geometry, Geometry::Circle(_)))
+            .collect();
+        assert_eq!(circles.len(), 1);
+        let Geometry::Circle(c) = &circles[0].geometry else {
+            unreachable!()
+        };
+        assert!(c.radius > 0.0);
+    }
+
+    #[test]
+    fn textbox_and_textcircle_skip_non_text_targets() {
+        let i = Interpreter::with_builtins();
+        let mut ctx = Context::new();
+        i.eval_line(&mut ctx, "LINE 0 0 1 0 A-WALL").unwrap();
+        assert!(i.eval_line(&mut ctx, "TEXTBOX 0").is_err());
+        assert!(i.eval_line(&mut ctx, "TEXTCIRCLE 0").is_err());
     }
 }

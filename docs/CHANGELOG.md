@@ -2,6 +2,76 @@
 
 ## Unreleased
 
+### New/Open no longer discard unsaved work unrecoverably
+
+- Ctrl+N and Ctrl+O (and their toolbar buttons) replace the whole `Document` —
+  undo history included — with no way back once they run. Both previously did
+  this on a single keystroke/click with zero confirmation; now a dirty
+  document raises the same **Save / Don't Save / Cancel** prompt already used
+  on window-close (`draw_replace_confirm`) before either proceeds. This was
+  the mechanism behind "deleted the whole drawing and UNDO couldn't bring it
+  back" — UNDO had nothing to restore to because the old document (and its
+  op log) was already gone.
+
+### STRETCH: noun-verb pre-selection now replays the crossing window
+
+- Pre-selecting objects with a rubber-band box, then invoking STRETCH (as
+  opposed to drawing the crossing window inside the STRETCH prompt itself),
+  discarded the box and always moved the whole selection — matching AutoCAD's
+  fallback for *non*-box pre-selection, but not for a box one, where AutoCAD
+  replays it as the stretch window. The app now remembers the last plain box
+  selection's rectangle and reuses it for a noun-verb STRETCH, but only when
+  re-running that box query still reproduces the live selection exactly
+  (`selection_matches_box`) — a selection that changed since (a Shift-click,
+  say) safely falls back to the old move-everything behavior instead of
+  guessing.
+
+### RECTANGLE: fixed dynamic-input second-value / opposite-corner entry
+
+- The `D` (Dimensions) flow's length/width text entry was misclassified as
+  raw point-coordinate entry (`expects_point_coords`). Once the width field
+  had *any* input too (e.g. after pressing Tab), the two typed numbers were
+  read back as an absolute X,Y point pick instead of length/width, silently
+  discarding the width. Tab now also confirms-and-advances the current field
+  like Space already did, instead of toggling an X/Y coordinate focus that
+  doesn't apply in this mode.
+- Separately, the plain opposite-corner prompt ("opposite corner or @W,H")
+  read a typed `width Tab height` pair as an *absolute* world point rather
+  than the promised width/height relative to the first corner — landing the
+  corner nowhere near the first one. A bare typed pair there is now treated
+  the same as `@W,H`.
+
+### Layer manager: bulk Show all / Thaw all / Unlock all
+
+- New "Bulk" row above the layer grid, scoped to whatever the active
+  Scope/Discipline/search filter currently lists — turns every listed layer
+  on, thawed, and unlocked in one action. Meant for getting an entire
+  imported drawing (which lands on `ORG-DWG_LAYER-*` layers, off/frozen/
+  locked at the source's discretion) back to a scalable, editable state
+  without hunting down each layer individually.
+
+### OVERKILL now cleans up every entity kind, not just LINE
+
+- Previously only exact-duplicate `LINE` entities were detected. Extended to
+  `POLYLINE` (direction-independent — a reversed copy still counts),
+  `CIRCLE`, `ARC`, `TEXT`, and `INSERT`, all keyed per-layer with the same
+  1e-6 quantization that already absorbed import/export float noise for
+  lines.
+
+### New annotation commands: TEXTBOX, TEXTCIRCLE, and a TCOUNT alias
+
+- **`TEXTBOX target [margin]`** / **`TEXTCIRCLE target [margin]`** draw a
+  rectangle or circle around each selected TEXT entity — a closed polyline or
+  circle sized from the text's estimated glyph extents (same
+  `chars × height × 0.6` width estimate already used by `aadt-embed`/
+  `aadt-vdb`) and rotated with the text, with a default margin of a quarter
+  of each text's own height.
+- `AUTONUM` (bulk sequential TEXT numbering) now also answers to `TCOUNT`,
+  AutoCAD's name for the same job.
+- `MATCHPROP` and `OVERKILL` were already present (`essentials.rs`) —
+  reported missing, but present and covered by tests; no action needed there
+  beyond the OVERKILL extension above.
+
 ### ShilpiDB is now a standalone crate/repo AAD depends on
 
 - Extracted the domain-agnostic storage engine — the little-endian binary codec

@@ -1509,32 +1509,66 @@ impl Command for OverkillCmd {
         "OVERKILL"
     }
     fn help(&self) -> &str {
-        "OVERKILL — delete duplicate coincident line entities"
+        "OVERKILL — delete duplicate/coincident entities (LINE, POLYLINE, CIRCLE, ARC, TEXT, INSERT)"
     }
     fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
-        let mut seen: HashMap<(i64, i64, i64, i64, String), EntityId> = HashMap::new();
-        let mut kill = Vec::new();
+        // Quantize to 1e-6 so import/export float noise doesn't hide a real
+        // duplicate. Per geometry kind, per layer (two coincident entities on
+        // different layers are a legitimate overlay, not a duplicate) — and, for
+        // LINE/POLYLINE, order-independent, since a copy walked or drawn in the
+        // opposite direction is still the same duplicate line.
         let quant = |v: f64| (v * 1e6).round() as i64;
-        for e in ctx.doc.entities() {
-            if let Geometry::Line(s) = &e.geometry {
-                let (a, b) = if (s.a.x, s.a.y) <= (s.b.x, s.b.y) {
-                    (s.a, s.b)
-                } else {
-                    (s.b, s.a)
-                };
-                let key = (
-                    quant(a.x),
-                    quant(a.y),
-                    quant(b.x),
-                    quant(b.y),
-                    e.layer.clone(),
-                );
-                match seen.entry(key) {
-                    std::collections::hash_map::Entry::Vacant(v) => {
-                        v.insert(e.id);
-                    }
-                    std::collections::hash_map::Entry::Occupied(_) => kill.push(e.id),
+        let pt = |p: Point2| format!("{},{}", quant(p.x), quant(p.y));
+        let dup_key = |e: &Entity| -> String {
+            let shape = match &e.geometry {
+                Geometry::Line(s) => {
+                    let (a, b) = if (s.a.x, s.a.y) <= (s.b.x, s.b.y) {
+                        (s.a, s.b)
+                    } else {
+                        (s.b, s.a)
+                    };
+                    format!("LINE|{}|{}", pt(a), pt(b))
                 }
+                Geometry::Polyline(p) => {
+                    let fwd: Vec<String> = p.vertices.iter().map(|&v| pt(v)).collect();
+                    let rev: Vec<String> = fwd.iter().rev().cloned().collect();
+                    let canon = if fwd <= rev { &fwd } else { &rev };
+                    format!("POLYLINE|{}|{}", p.closed, canon.join(";"))
+                }
+                Geometry::Circle(c) => format!("CIRCLE|{}|{}", pt(c.center), quant(c.radius)),
+                Geometry::Arc(a) => format!(
+                    "ARC|{}|{}|{}|{}",
+                    pt(a.center),
+                    quant(a.radius),
+                    quant(a.start_angle),
+                    quant(a.end_angle)
+                ),
+                Geometry::Text(t) => format!(
+                    "TEXT|{}|{}|{}|{}",
+                    t.value,
+                    pt(t.position),
+                    quant(t.height),
+                    quant(t.rotation)
+                ),
+                Geometry::Insert(i) => format!(
+                    "INSERT|{}|{}|{}|{}|{}",
+                    i.name,
+                    pt(i.position),
+                    quant(i.rotation),
+                    quant(i.scale_x),
+                    quant(i.scale_y)
+                ),
+            };
+            format!("{}|{shape}", e.layer)
+        };
+        let mut seen: HashMap<String, EntityId> = HashMap::new();
+        let mut kill = Vec::new();
+        for e in ctx.doc.entities() {
+            match seen.entry(dup_key(e)) {
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    v.insert(e.id);
+                }
+                std::collections::hash_map::Entry::Occupied(_) => kill.push(e.id),
             }
         }
         let n = kill.len();
@@ -1546,7 +1580,10 @@ impl Command for OverkillCmd {
                 d.remove_entity(*id);
             }
         });
-        Ok(format!("overkill: removed {n} duplicate line(s)"))
+        Ok(format!(
+            "overkill: removed {n} duplicate {}",
+            entities_word(n)
+        ))
     }
 }
 
