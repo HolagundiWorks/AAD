@@ -218,6 +218,19 @@ pub fn run(session: Session) -> eframe::Result<()> {
     )
 }
 
+/// A drafting command parked while a transparent command runs.
+///
+/// AutoCAD's apostrophe convention: `'ZOOM` mid-`LINE` reframes the view and
+/// hands the prompt straight back, rather than cancelling the line. Everything
+/// the in-progress command needs to resume — its tool state, the engine's step
+/// position, and the prompt text — is copied out and put back verbatim.
+#[derive(Debug, Clone)]
+pub(super) struct Suspended {
+    tool: Tool,
+    engine: CommandEngine,
+    note: String,
+}
+
 /// The active tool: idle selection, an interactive draw, or a noun-verb edit of
 /// the current selection.
 #[derive(Debug, Clone)]
@@ -870,6 +883,17 @@ pub(super) fn library_path_for_category(
 }
 
 /// Map a bare command token to a tool. `None` means "not an interactive command"
+/// Parse a ZOOM scale factor: a bare number, or AutoCAD's `2x` / `0.5X` form.
+///
+/// Zero and non-finite factors are rejected — scaling by them would leave the
+/// camera in a state no further zoom could recover from.
+pub(super) fn parse_zoom_factor(text: &str) -> Option<f64> {
+    let t = text.trim();
+    let body = t.strip_suffix(['x', 'X']).unwrap_or(t);
+    let f = body.parse::<f64>().ok()?;
+    (f.is_finite() && f.abs() > f64::EPSILON).then_some(f)
+}
+
 /// (the caller feeds it to the session as a typed command instead).
 /// Map a typed command token to an interactive tool.
 /// Edit transforms always start (verb-noun): `collecting` is true when selection is empty.
@@ -1293,6 +1317,9 @@ struct AadtApp {
     show_room_picker: bool,
     /// Object-snap throttle / scratch buffers.
     osnap_state: OsnapState,
+    /// A command suspended by a transparent `'ZOOM` / `'PAN`, restored when the
+    /// transparent command finishes (AutoCAD apostrophe convention).
+    suspended: Option<Box<Suspended>>,
     /// Right panel width when docked (persisted).
     right_panel_width: f32,
     /// Left panel width when docked (persisted).
@@ -1423,6 +1450,7 @@ impl AadtApp {
             show_shortcuts: false,
             show_room_picker: false,
             osnap_state: OsnapState::default(),
+            suspended: None,
             right_panel_width: prefs.right_panel_width.clamp(200.0, 340.0),
             left_panel_width: prefs.left_panel_width.clamp(180.0, 260.0),
             layer_rows_cache: None,
@@ -2086,6 +2114,7 @@ impl AadtApp {
                 ui.label("Snap override — type END/MID/INT/CEN/QUA/NEA/PER/TAN at a point, or SHIFT+right-click");
                 ui.label("Delete / Backspace — erase selection · W — WBLOCK · WA — WALL");
                 ui.label("Z Enter — ZOOM · A Enter — All (extents) · W — Window · P — Previous");
+                ui.label("'ZOOM / 'PAN — transparent: reframe mid-command, then the prompt resumes");
                 ui.label("Ctrl+S — quick save · Ctrl+Shift+S — Save As");
                 ui.label("Ctrl+O — open · Ctrl+N — new · Ctrl+Z/Y — undo/redo");
                 ui.separator();
@@ -3045,12 +3074,12 @@ impl AadtApp {
             match up.as_str() {
                 "A" | "ALL" | "E" | "EXTENTS" => {
                     self.apply_nav_hint("extents");
-                    self.tool = Tool::Select;
-                    self.note = if matches!(up.as_str(), "A" | "ALL") {
-                        "Zoom All".into()
+                    let done = if matches!(up.as_str(), "A" | "ALL") {
+                        "Zoom All"
                     } else {
-                        "Zoom Extents".into()
+                        "Zoom Extents"
                     };
+                    self.finish_transparent(done);
                     return;
                 }
                 "W" | "WINDOW" => {
@@ -3059,8 +3088,7 @@ impl AadtApp {
                 }
                 "P" | "PREVIOUS" => {
                     self.apply_nav_hint("previous");
-                    self.tool = Tool::Select;
-                    self.note = "Zoom Previous".into();
+                    self.finish_transparent("Zoom Previous");
                     return;
                 }
                 "S" | "SCALE" => {
@@ -3068,19 +3096,10 @@ impl AadtApp {
                     return;
                 }
                 _ => {
-                    // Bare number or "2x" / "0.5X" as scale factor.
-                    let factor = if let Some(rest) = up.strip_suffix('X') {
-                        rest.parse::<f64>().ok()
-                    } else {
-                        text.parse::<f64>().ok()
-                    };
-                    if let Some(f) = factor {
-                        if f.is_finite() && f.abs() > f64::EPSILON {
-                            self.apply_nav_hint(&format!("scale:{f}"));
-                            self.tool = Tool::Select;
-                            self.note = format!("Zoom scale ×{f}");
-                            return;
-                        }
+                    if let Some(f) = parse_zoom_factor(&text) {
+                        self.apply_nav_hint(&format!("scale:{f}"));
+                        self.finish_transparent(&format!("Zoom scale ×{f}"));
+                        return;
                     }
                 }
             }
@@ -4708,9 +4727,64 @@ impl AadtApp {
         self.dispatch(&line);
     }
 
+    /// Whether a drafting command is mid-flight and worth preserving across a
+    /// transparent command.
+    fn command_in_progress(&self) -> bool {
+        !matches!(self.tool, Tool::Select) || self.engine.state != command_engine::EngineState::Idle
+    }
+
+    /// Park the in-progress command so a transparent one can borrow the view.
+    fn suspend_for_transparent(&mut self) {
+        if self.suspended.is_some() || !self.command_in_progress() {
+            return;
+        }
+        self.suspended = Some(Box::new(Suspended {
+            tool: self.tool.clone(),
+            engine: self.engine.clone(),
+            note: self.note.clone(),
+        }));
+    }
+
+    /// Put a parked command back and re-issue its prompt. Returns whether one
+    /// was waiting.
+    fn resume_suspended(&mut self) -> bool {
+        let Some(s) = self.suspended.take() else {
+            return false;
+        };
+        self.tool = s.tool;
+        self.engine = s.engine;
+        self.note = if s.note.is_empty() {
+            "resumed".into()
+        } else {
+            s.note
+        };
+        true
+    }
+
+    /// End a transparent command: resume what it interrupted, or fall back to
+    /// idle selection when it was invoked on its own.
+    fn finish_transparent(&mut self, done: &str) {
+        if self.resume_suspended() {
+            let prompt = self
+                .tool_prompt()
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| self.note.clone());
+            self.note = format!("{done} — resuming: {prompt}");
+        } else {
+            self.tool = Tool::Select;
+            self.note = done.to_string();
+        }
+    }
+
     /// Route a command line: bare interactive alias → tool; `E` → erase the
     /// selection; anything else → feed to the session.
     fn dispatch(&mut self, line: &str) {
+        // AutoCAD transparent commands: a leading apostrophe runs the command
+        // without cancelling the one already in progress.
+        if let Some(rest) = line.strip_prefix('\'') {
+            self.dispatch_transparent(rest.trim());
+            return;
+        }
         self.note.clear();
         // Snap-override keyword typed at a point prompt (PER/END/MID/INT/TAN/…):
         // arm the one-shot override instead of dispatching a command.
@@ -4886,6 +4960,65 @@ impl AadtApp {
         }
         if let Some(hint) = self.session.take_nav_hint() {
             self.apply_nav_hint(&hint);
+        }
+    }
+
+    /// Run a `'`-prefixed command without disturbing the one in progress.
+    ///
+    /// Only view commands qualify: they change what is on screen, never the
+    /// drawing, so resuming mid-command is always safe. Anything that could
+    /// edit geometry is refused rather than silently run non-transparently —
+    /// a command that cancelled the user's line would be worse than an error.
+    fn dispatch_transparent(&mut self, line: &str) {
+        self.note.clear();
+        if line.is_empty() {
+            self.note = "' — name a transparent command, e.g. 'ZOOM or 'PAN".into();
+            return;
+        }
+        let mut parts = line.split_whitespace();
+        let head = parts.next().unwrap_or_default().to_ascii_uppercase();
+        let arg = parts.next().map(|s| s.to_ascii_uppercase());
+
+        match head.as_str() {
+            "Z" | "ZOOM" => {
+                self.suspend_for_transparent();
+                match arg.as_deref() {
+                    Some("A") | Some("ALL") | Some("E") | Some("EXTENTS") => {
+                        self.apply_nav_hint("extents");
+                        self.finish_transparent("Zoom Extents");
+                    }
+                    Some("P") | Some("PREVIOUS") => {
+                        self.apply_nav_hint("previous");
+                        self.finish_transparent("Zoom Previous");
+                    }
+                    Some(other) => match parse_zoom_factor(other) {
+                        Some(f) => {
+                            self.apply_nav_hint(&format!("scale:{f}"));
+                            self.finish_transparent(&format!("Zoom {f}x"));
+                        }
+                        None => {
+                            self.suspended.take();
+                            self.note =
+                                format!("'ZOOM: {other:?} is not a zoom option (A/E/P/W/factor)");
+                        }
+                    },
+                    // Bare 'ZOOM waits for a window pick, staying transparent.
+                    None => {
+                        self.tool = Tool::ZoomWindow { first: None };
+                        self.note =
+                            "'ZOOM (transparent) — [A]ll [E]xtents [P]revious · or click window"
+                                .into();
+                    }
+                }
+            }
+            "P" | "PAN" => {
+                self.note = "'PAN (transparent) — drag with the middle mouse button".into();
+            }
+            other => {
+                self.note = format!(
+                    "'{other}: not transparent — only view commands ('ZOOM, 'PAN) run mid-command"
+                );
+            }
         }
     }
 
@@ -6150,8 +6283,7 @@ impl AadtApp {
                 }
                 Some(a) => {
                     self.apply_nav_hint(&format!("window:{},{},{},{}", a.x, a.y, p.x, p.y));
-                    self.tool = Tool::Select;
-                    self.note = "Zoom Window".into();
+                    self.finish_transparent("Zoom Window");
                 }
             },
             Tool::PlotWindow { first } => match first {
@@ -7329,13 +7461,20 @@ impl eframe::App for AadtApp {
                                 self.palette_open = false;
                                 self.snap_override = None;
                                 self.snap_menu_at = None;
-                                self.engine.cancel();
-                                if self.drafting() {
-                                    self.tool = Tool::Select;
+                                // Esc out of a transparent command returns to
+                                // what it interrupted, not to idle — the point
+                                // of running it transparently.
+                                if self.suspended.is_some() {
+                                    self.finish_transparent("cancelled");
                                 } else {
-                                    self.selection.clear();
-                                    self.selected_hatches.clear();
-                                    self.selected_dimensions.clear();
+                                    self.engine.cancel();
+                                    if self.drafting() {
+                                        self.tool = Tool::Select;
+                                    } else {
+                                        self.selection.clear();
+                                        self.selected_hatches.clear();
+                                        self.selected_dimensions.clear();
+                                    }
                                 }
                             }
                             egui::Key::F8 => {
@@ -9829,6 +9968,37 @@ mod geom_tests {
         // Two horizontals are parallel — no intersection.
         let other = Segment::new(Point2::new(0.0, 1.0), Point2::new(9.0, 1.0));
         assert!(line_line_intersection(x_axis, other).is_none());
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::parse_zoom_factor;
+
+    #[test]
+    fn accepts_bare_numbers_and_the_x_suffix() {
+        assert_eq!(parse_zoom_factor("2"), Some(2.0));
+        assert_eq!(parse_zoom_factor("0.5"), Some(0.5));
+        assert_eq!(parse_zoom_factor("2x"), Some(2.0));
+        assert_eq!(parse_zoom_factor("0.5X"), Some(0.5));
+        assert_eq!(parse_zoom_factor("  3  "), Some(3.0));
+    }
+
+    #[test]
+    fn rejects_factors_that_would_strand_the_camera() {
+        // Zero collapses the scale with no way back; NaN/inf poison the camera.
+        assert_eq!(parse_zoom_factor("0"), None);
+        assert_eq!(parse_zoom_factor("0x"), None);
+        assert_eq!(parse_zoom_factor("inf"), None);
+        assert_eq!(parse_zoom_factor("NaN"), None);
+    }
+
+    #[test]
+    fn rejects_non_numeric_options() {
+        // ZOOM's letter options must not be read as factors.
+        for t in ["", "A", "E", "W", "P", "S", "x", "abc"] {
+            assert_eq!(parse_zoom_factor(t), None, "{t:?} should not parse");
+        }
     }
 }
 
