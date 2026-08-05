@@ -1,9 +1,18 @@
 # Implementation plan — close audit gaps (post G3/G7 clarification)
 
-**Date:** 2026-07-24  
+**Date:** 2026-07-24 · **Status: complete (historical).**  
 **Inputs:** [Industry audit](../audit/2026-07-industry-standards-audit.md),
 [Bluebeam case study](../takeoff/bluebeam-case-study.md),
 [BOQ standards](../takeoff/industry-boq-standards.md).
+
+> **Historical note.** Build-order item 4 ("GUI AI review — `REVIEW` / Accept /
+> Reject / Freeze") shipped against the M4 AI layer, which was later removed in
+> full. Its role is now played by the M12 suggestion surface: `SUGGEST LIST` /
+> `WHY` / `ACCEPT` / `REJECT`, audited per decision
+> ([ADR-0013](../adr/0013-ai-service-layer.md)). Read item 4 as superseded.
+> The takeoff items likewise refer to the M3 engine; takeoff was removed and
+> rebuilt against the Object DB in M13
+> ([ADR-0014](../adr/0014-object-based-takeoff.md)).
 
 ## Product decisions (locked)
 

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Documentation refresh for M9 / M12 completion
+
+- Architecture overview gained the AI-native crate band (`aadt-object`,
+  `aadt-graph`, `aadt-embed`, `aadt-vecdb`, `aadt-assist`, `aadt-takeoff`), a
+  data-flow diagram that shows assist and retrieval alongside the deterministic
+  spine, and the M9.6 panel-docking model.
+- README documents the assist commands, the bundled-library layout, and the
+  corrected `aadt-assist` responsibility; new [`libraries/README.md`](../libraries/README.md)
+  indexes blocks / hatches / details / fonts.
+- ROADMAP's curated command band now carries the Intelligence and Assist rows
+  (`OBJECTS`/`RELATIONS`, `TAKEOFF`/`BOQ`, `FIND`/`ASKDOCS`, `SUGGEST`/`CHECK`/
+  `ASK`, `COMPARE`, `RECOMMEND DETAIL`) and the full `OPEN`/`SAVE` format list.
+- BricsCAD conformance audit re-audited after M9: §12/§13/§14/§17/§21/§22/§31
+  moved to conforming, the gap backlog is closed, and the §35 AI conflict is
+  recorded as resolved by ADR-0012/0013 with a bounded local-only scope.
+- Industry audit refreshed to the current product (overall **A−**), with G8–G10
+  added for docking / revision narration / detail recommendation and the
+  withdrawn hosted-collaboration item removed.
+- Command workflows gained Assist & retrieval and Panel docking sections; the
+  parity matrix records the M9 items and drops the removed Foundry Local path.
+- Vision doc now separates shipped capabilities from future ones; the ShilpiDB
+  architecture map moves relationships and semantic services to built-subset;
+  the July gap-closure plan is marked historical where M4/M3 superseded it.
+- Residual `AiADT` naming replaced with `AAD` across the docs tree.
+
 ### M12.7 — Standard-detail recommendation
 
 - Bundled detail sheets under `libraries/details/` (external cavity wall,
@@ -267,7 +292,9 @@ doing it unsupervised.
 - **Surface.** `SUGGEST DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id`
   (alias `PROPOSE`), `CHECK [rule|RULES]` (aliases `CODECHECK`/`AUDIT-RULES`),
   and `ASK <phrase>` (alias `NL`), which shows the routed command without
-  running it.
+  running it. Later extended with `COMPARE <before>` (aliases `DIFF`/
+  `REVCOMPARE`) and `RECOMMEND DETAIL [query]` (aliases `DETAIL`/`DETAILS`) —
+  see the M12.6 / M12.7 entries above.
 
 **Honest limitations.** The NL router recognises a small explicit vocabulary and
 refuses far more phrasings than it accepts — that is the intended failure mode,

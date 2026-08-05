@@ -1,4 +1,4 @@
-# Industry BOQ / takeoff standards (AiADT mapping)
+# Industry BOQ / takeoff standards (AAD mapping)
 
 **Date:** 2026-07-24  
 **Related:** [ADR-0005](../adr/0005-cost-code-standard.md),
@@ -19,7 +19,7 @@ Commercial takeoff / BOQ tools (PlanSwift, STACK, On-Screen Takeoff, Bluebeam
 | **Excel/CSV export** | Stable columns for bidding software |
 | **Versioned snapshots** | Freeze quantities at bid / IFC / IFC-equivalent issue |
 
-AiADT already covers calibrated units (`UNITS`), element-linked rows
+AAD already covers calibrated units (`UNITS`), element-linked rows
 (detect → takeoff), CSI codes (ADR-0005), CSV/JSON/XLSX, and `.aadt` takeoff
 runs / HISTORY checkpoints.
 
@@ -27,7 +27,7 @@ runs / HISTORY checkpoints.
 
 ### CSI MasterFormat (built-in — ADR-0005)
 
-Primary North American construction-spec numbering (`XX YY ZZ`). AiADT maps
+Primary North American construction-spec numbering (`XX YY ZZ`). AAD maps
 element kinds to section codes (e.g. doors → `08 10 00`). **Division** =
 first two digits (`08`).
 
@@ -41,7 +41,7 @@ M3; document as future firm mapping layer, not a second built-in default.
 UK NRM, Australian Standard Method of Measurement, etc. — firm override JSON /
 project properties only (same mechanism as custom CSI overrides).
 
-## AiADT export columns (target)
+## AAD export columns (target)
 
 | Column | Source |
 |---|---|

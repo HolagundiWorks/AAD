@@ -34,7 +34,7 @@ bundles the runtime `libraries\`, and registers an uninstaller.
 | Item | Notes |
 |---|---|
 | `AAD.exe` | The desktop shell — the `aadt` CLI binary, installed as `AAD.exe`. The GUI opens via the `app` subcommand, which the shortcuts pass. |
-| `libraries\` | Block / hatch / font libraries loaded at runtime (resolved next to the executable). |
+| `libraries\` | Block / hatch / detail / font libraries loaded at runtime (resolved next to the executable). Includes `libraries\details\*.md`, the sheets `RECOMMEND DETAIL` indexes. |
 | `README.md`, `NOTICE.md` | Docs + third-party notices. |
 
 Brand icons and UI fonts are embedded in the executable.
