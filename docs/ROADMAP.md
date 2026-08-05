@@ -349,6 +349,27 @@ report rather than presented as measurements.
 **Deliberately not in M13:** pricing. The bill carries quantities and cost codes;
 rates belong to the estimator's system.
 
+## M14 — AI-Native Phase 5: enterprise + APIs ⏳ (API layer ✅)
+
+Fifth implementation phase ([ADR-0015](adr/0015-local-api-layer.md)). Phases 1–4
+made the drawing understandable to this program; Phase 5 makes it reachable from
+others — without giving anything else authority over the geometry.
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| M14.1 | `aadt-api` — **local HTTP/JSON API** over a live `Session`: loopback-only, token-gated, std-only (no `tokio`/`hyper`/`serde`). Surface is `aadt serve [drawing] [--port] [--token] [--read-only] [--once]` | ✅ | Eleven routes ([reference](api/README.md)). Reads project the session; the **one** write path is `POST /v1/command` — the same line a user types, so an API caller inherits the same validation, undo record, and history entry |
+| M14.2 | Object-level permissions | ⬜ | The authorisation check slots in where the token gate now sits |
+| M14.3 | Signed audit trail | ⬜ | Extends the M10.2 append-only object audit |
+| M14.4 | Enterprise connectors (ERP / BOQ / RFI / DMS) as plugins over the API | ⬜ | Includes M13's deferred "reports as plugins" |
+| M14.5 | Site data (photos, reports) ingested into the Vector DB | ⬜ | Needs the PDF/image ingestion left open in M11 |
+
+**Deliberately not in M14.1:** a REST-shaped write API (`POST /v1/entities`).
+A second door into the document means every invariant the command layer enforces
+has to be re-enforced behind it forever, in step — and the first disagreement
+between the two makes the drawing only as correct as whichever door the caller
+used. Callers compose command strings instead; that is the same bargain LISP
+made, and it keeps the deterministic core the sole author of geometry.
+
 ## Post-1.0
 
 - M1 display: viewport text glyph quality; wgpu canvas if egui is too slow.

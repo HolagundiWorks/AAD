@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### AI-native Phase 5 (M14.1): the local API — `aadt-api` / `aadt serve`
+
+- New `aadt-api` crate serves a **loopback-only, token-gated HTTP/JSON API over
+  a live `Session`**, started explicitly by `aadt serve [drawing]`
+  (`--port` / `--token` / `--read-only` / `--once`). Off unless you start it;
+  offline drafting never touches it.
+- **Reads project the session; the one write path is a command line.** Eleven
+  routes cover health, document summary and extents, paged entities, single
+  entity lookup, layers, selection, history, transcript, and command completion;
+  `POST /v1/command {"line": …}` runs a command. There is deliberately no
+  `POST /v1/entities` — a second door into the document would mean re-enforcing
+  every command-layer invariant behind it forever ([ADR-0015](adr/0015-local-api-layer.md)).
+- Because `aadt serve` hands the server the **CLI's own registered session**,
+  the whole band — `OPEN`, `SAVE`, `OBJECTS`, `TAKEOFF`, `BOQ`, `SUGGEST`,
+  `CHECK`, `COMPARE`, LISP — was reachable with no per-command API code. A
+  golden test proves it by calling `OBJECTS` over HTTP.
+- **Std-only:** `TcpListener`, a small HTTP/1.1 subset, and a hand-rolled JSON
+  encoder/decoder — no `tokio`, `hyper`, or `serde`. HTTP outside the subset
+  (chunked bodies, HTTP/2) is refused by status code rather than approximated.
+- **Bounded and single-threaded on purpose.** A `Session` is not `Send` and a
+  session is one editor on one drawing, so requests serialise; sockets carry
+  10 s timeouts, and request line, header count, and 1 MiB body are bounded
+  before any allocation grows to match them.
+- A rejected command answers `200` with `"status":"error"` — the request
+  succeeded, the command did not, and a client has to tell those apart.
+  Responses are byte-for-byte deterministic (id-ordered entities, name-sorted
+  layers, key-ordered attributes, `null` for non-finite numbers).
+- Docs: [endpoint reference](api/README.md), ADR-0015, ROADMAP M14, and the
+  Phase 5 section of the AI-native phase plan.
+
 ### Transparent commands: `'ZOOM` and `'PAN` mid-command
 
 - An apostrophe prefix now runs a view command **without cancelling the command

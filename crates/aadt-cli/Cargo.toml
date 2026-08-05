@@ -32,6 +32,7 @@ aadt-object.workspace = true
 aadt-graph.workspace = true
 aadt-assist.workspace = true
 aadt-takeoff.workspace = true
+aadt-api.workspace = true
 aadt-render = { workspace = true, optional = true }
 
 [features]

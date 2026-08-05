@@ -49,6 +49,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "lisp" => cmd_lisp(rest),
         "pdf" => cmd_pdf(rest),
         "compare" => cmd_compare(rest),
+        "serve" => cmd_serve(rest),
         "app" => cmd_app(rest),
         "present" => cmd_present(rest),
         "help" | "--help" | "-h" => {
@@ -427,6 +428,78 @@ fn cmd_app(_args: &[String]) -> Result<(), String> {
     Err("the `app` command needs the desktop shell; rebuild with `--features app`".to_string())
 }
 
+/// Serve the local HTTP/JSON API over a live session (AI-native Phase 5).
+///
+/// The session handed to the server is the CLI's own — `commands::register`
+/// puts `OPEN`, `SAVE`, `OBJECTS`, `TAKEOFF`, `SUGGEST` and the rest of the
+/// band on it — so "everything the command line can do, scriptable" is
+/// literally true rather than a second, thinner command set that drifts from
+/// the first.
+fn cmd_serve(args: &[String]) -> Result<(), String> {
+    let mut port = aadt_api::DEFAULT_PORT;
+    let mut token: Option<String> = None;
+    let mut read_only = false;
+    let mut once = false;
+    let mut input: Option<String> = None;
+
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--port" => {
+                let raw = expect_value(&mut it, "--port")?;
+                port = raw
+                    .parse::<u16>()
+                    .map_err(|_| format!("--port expects 0-65535, got {raw:?}"))?;
+            }
+            "--token" => token = Some(expect_value(&mut it, "--token")?),
+            "--read-only" => read_only = true,
+            "--once" => once = true,
+            other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
+            other => input = Some(other.to_string()),
+        }
+    }
+
+    let mut interp = Interpreter::with_builtins();
+    commands::register(&mut interp);
+    let mut session = aadt_app::Session::from_interpreter(interp);
+
+    if let Some(path) = &input {
+        // Load through OPEN so the server inherits that command's format
+        // routing (`.aadt` / `.vdb` / `.dwg` / `.dxf`) rather than carrying a
+        // second copy of it that can fall behind.
+        match session.feed(&format!("OPEN {path}")) {
+            aadt_app::Feedback::Err(e) => return Err(e),
+            fb => {
+                if let Some(msg) = fb.message() {
+                    println!("{msg}");
+                }
+            }
+        }
+    }
+
+    let mut cfg = aadt_api::ApiConfig::new(port, read_only);
+    if let Some(t) = token {
+        cfg = cfg.with_token(t);
+    }
+    let server =
+        aadt_api::ApiServer::bind(cfg).map_err(|e| format!("binding 127.0.0.1:{port}: {e}"))?;
+    println!("{}", server.banner());
+    if !read_only {
+        println!("note: any local process holding this token can edit the drawing;");
+        println!("      edits live in memory until a SAVE command writes them out.");
+    }
+
+    if once {
+        server
+            .serve_once(&mut session)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    } else {
+        println!("stop with POST /v1/shutdown or Ctrl-C.");
+        server.serve(&mut session).map_err(|e| e.to_string())
+    }
+}
+
 const USAGE: &str = "\
 AAD — Accelerated Architectural Drafting
 
@@ -443,6 +516,8 @@ Usage:
                                           Run a LISP script; aadt-* can query and draw into the drawing
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
+  aadt serve [drawing]                    Serve the local HTTP/JSON API on 127.0.0.1 (token printed)
+      [--port 7421] [--token T] [--read-only] [--once]
   aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
 
 Options:

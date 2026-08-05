@@ -140,13 +140,32 @@ input (a plan has no height). Openings without drawn dimensions use defaults and
 are flagged `measured: false`, and `TAKEOFF` reports the count — so an estimator
 confirms exactly the assumed figures instead of discovering one mid-tender.
 
-## Phase 5 — Enterprise + APIs
+## Phase 5 — Enterprise + APIs — ⏳ API layer shipped as **M14.1**
 
-- **API layer:** everything the UI can do, scriptable — extend `aadt-ffi` and
-  add a local REST/gRPC service crate (offline drafting never depends on it).
-- Enterprise connectors (ERP/BOQ/RFI/document management) as **plugins** over
+Tracked as [ROADMAP M14](../ROADMAP.md#m14--ai-native-phase-5-enterprise--apis--api-layer-);
+recorded in [ADR-0015](../adr/0015-local-api-layer.md).
+
+- ✅ **API layer:** `aadt-api` serves a loopback-only, token-gated HTTP/JSON API
+  over a live `Session`, started explicitly by `aadt serve`. Std-only — no
+  `tokio`, `hyper`, or `serde` — matching the dependency posture of the `.vdb`
+  and PDF codecs. [Endpoint reference](../api/README.md).
+- ⬜ Enterprise connectors (ERP/BOQ/RFI/document management) as **plugins** over
   that API; site data (photos, reports) ingested into the Vector DB.
-- Permissions on objects; signed audit trail.
+- ⬜ Permissions on objects; signed audit trail.
+
+**REST reads, but not REST writes.** The API exposes eleven read routes and a
+single write route that takes a *command line*. A `POST /v1/entities` would be a
+second path into the document, and every invariant the command layer already
+enforces — validation, one `Document::transact` per edit, undo, history, audit —
+would have to be re-enforced behind it and kept in step. Routing writes through
+the command line makes an API caller indistinguishable from a person at the
+prompt, which is also why "everything the UI can do" needed no per-command API
+work: `aadt serve` hands the server the CLI's own registered session, so
+`OBJECTS`, `TAKEOFF`, `SUGGEST` and the rest were reachable the moment the
+socket opened.
+
+**Offline drafting still never depends on it.** The server starts only on an
+explicit `aadt serve`; neither the GUI nor the CLI calls into `aadt-api`.
 
 ## Phase 6 — Geometry expansion (re-evaluate)
 

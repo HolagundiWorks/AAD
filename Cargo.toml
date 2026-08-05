@@ -22,6 +22,7 @@ members = [
     "crates/aadt-graph",
     "crates/aadt-assist",
     "crates/aadt-takeoff",
+    "crates/aadt-api",
     "crates/aadt-cli",
 ]
 
@@ -58,6 +59,7 @@ aadt-object = { path = "crates/aadt-object" }
 aadt-graph = { path = "crates/aadt-graph" }
 aadt-assist = { path = "crates/aadt-assist" }
 aadt-takeoff = { path = "crates/aadt-takeoff" }
+aadt-api = { path = "crates/aadt-api" }
 acadrust = "0.4.1"
 
 [workspace.lints.rust]

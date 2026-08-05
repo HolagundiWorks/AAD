@@ -23,7 +23,7 @@ consume that model.
 ├───────────────────────────────────────────────────────────────┤
 │  File I/O: aadt-dxf (DXF + DWG) · aadt-store (.aadt) · aadt-vdb (.vdb) │
 ├───────────────────────────────────────────────────────────────┤
-│  Rendering: aadt-render · FFI: aadt-ffi                         │
+│  Rendering: aadt-render · FFI: aadt-ffi · Local API: aadt-api    │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -46,6 +46,7 @@ consume that model.
 | AI service layer (M12, ADR-0013) | `aadt-assist` |
 | Quantity takeoff / BOQ (M13) | `aadt-takeoff` |
 | Application shell | `aadt-app`, `aadt-cli`, `aadt-ffi` |
+| Local API (M14, ADR-0015) | `aadt-api` — HTTP/JSON over `Session`; reads project it, `POST /v1/command` is the one write path |
 
 ## Data flow
 

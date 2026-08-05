@@ -46,12 +46,21 @@ fidelity remain later work.
 takeoff (`TAKEOFF` / `BOQ`). See
 [the AI-native platform vision](docs/vision/ai-native-platform.md).
 
+**Local API (`aadt serve`).** A loopback-only, token-gated HTTP/JSON server over
+a live session, off unless you start it. Reads project the drawing; the one
+write path is `POST /v1/command`, which runs the same line you would type — so a
+script inherits the same validation, undo, and history as a person drafting. See
+the [endpoint reference](docs/api/README.md).
+
 ```sh
 # Drive AAD with a command script
 cargo run -p aadt-cli -- run fixtures/demo.aadt
 
 # Desktop shell (needs --features app)
 cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
+
+# Local API on 127.0.0.1:7421 (prints a one-run token)
+cargo run -p aadt-cli -- serve fixtures/sample-floorplan.dxf
 ```
 
 ## Workspace layout
@@ -79,6 +88,7 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 | `aadt-pdf` | PDF plot, markup, compare |
 | `aadt-app` | `Session` + egui desktop shell |
 | `aadt-ffi` | Thin C ABI over `Session` (future chrome) |
+| `aadt-api` | Local HTTP/JSON API over `Session` — loopback-only, token-gated (`aadt serve`) |
 | `aadt-cli` | `aadt` binary |
 
 ## Bundled libraries
