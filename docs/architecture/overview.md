@@ -119,6 +119,7 @@ in the top bar. Tokens live in `crates/aadt-app/src/gui_theme.rs`.
 
 ## Related
 
+- [AADT CAD + ShilpiDB developer architecture](./aadt-shilpidb-architecture.md) — target entity/database architecture with implementation-status map
 - [Roadmap](../ROADMAP.md)
 - [Industry-standards audit (July 2026)](../audit/2026-07-industry-standards-audit.md)
 - [CHANGELOG](../CHANGELOG.md)
