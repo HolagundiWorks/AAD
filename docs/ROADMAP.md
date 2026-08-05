@@ -217,7 +217,7 @@ ArchiCAD-style **floors** with a shared **reference origin**, and per-floor
 BeamLayout / Furniture)—not layer filters. `TRACE` ghosts adjacent floors;
 Levels strip + `FLOOR` / `CATEGORY` / `ORIGIN` commands; `.aadt` schema v6.
 
-## M9 — Drafting Workflow Parity (BricsCAD audit) 🚧
+## M9 — Drafting Workflow Parity (BricsCAD audit) ✅
 
 Closes the interaction gaps found in the
 [BricsCAD workflow conformance audit](ux/bricscad-conformance-audit.md). The
@@ -232,7 +232,7 @@ impact.
 | M9.3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror cycled with Space on a hot grip) | §14 | ✅ | `GripMode` (Stretch→Move→Rotate→Scale→Mirror) cycled with Space on a hot grip; each mode transforms the selection about the grip via the tested MOVE/ROTATE/SCALE/MIRROR/GRIPEDIT commands. Preview shows the base→cursor axis (grip ghost for Stretch) |
 | M9.4 | Single auto-type `DIM` — `DIM <id>` infers the type from the entity (line→aligned, circle→diameter, arc→radius); coordinate form kept | §22 | ✅ | Command-level auto-type in [`aadt-command`](../crates/aadt-command/src/lib.rs) (headless-tested). GUI **hover-to-auto-dim**: DIM's first click on an entity auto-dimensions it with a live ghost preview (`auto_dimension_for` + `dimension_commands`), empty space keeps the two-point form. **DIMANGULAR from two lines**: pick two lines → the angle at their intersection (`line_line_intersection`), else the 3-point vertex form |
 | M9.5 | Live hatch preview on internal-point pick | §21 | ✅ | Was boundary-entity-only. Now `hatch_boundary_at` detects the smallest enclosing closed region under the cursor (AutoCAD internal point); HATCH hovers show a translucent accent fill + boundary preview, click commits (boundary-entity pick kept as fallback) |
-| M9.6 | Docking: floating panels + auto-hide | §28 | ☐ | Assess egui docking feasibility |
+| M9.6 | Docking: floating panels + auto-hide | §28 | ✅ | Without `egui_dock`: each manager has `PanelMode::{Docked, Floating, AutoHide}` persisted in prefs. Header buttons float / unpin (auto-hide) / pin (re-dock). Floating is a title-bar-less `egui::Window` with position/size remembered; auto-hide keeps the edge rail and expands a foreground overlay on hover (350 ms grace). Bottom-dock of the managers stays deferred — Drawing Properties already uses a bottom panel |
 | M9.7 | Per-command capability trait (`CanUndo`/`SupportsPreview`/`SupportsSnap`/`SupportsDynamicInput`/`SupportsCommandLine`/`SupportsSelectionPreview`) | §33 | ✅ | `Capabilities` + `CommandDef::capabilities()` derive the §33 contract from each command's step interface (query set → `can_undo`); surfaced on hover in the command palette; contract test across the catalog |
 | M9.8 | Per-command QA harness asserting the §34 checklist across every command | §34 | ✅ | `qa_checklist_every_command` iterates the whole catalog asserting starts / cancels / repeats (per `repeatable`) / keyboard-line addressable / snap+preview+mixed-input consistency / undo semantics; builds on the M9.7 capability contract |
 | M9.9 | Frame-time / latency telemetry to validate the §31 performance budgets | §31 | ✅ | **F7** toggles a performance HUD: rolling frame time (avg / p95 / max) + FPS with a build/paint breakdown, graded live against the §31 **< 16 ms / 60 FPS** redraw budget. Continuous repaint while it's on measures a real sustained loop. `PerfRing` / `PerfTelemetry` in [`gui.rs`](../crates/aadt-app/src/gui.rs) |

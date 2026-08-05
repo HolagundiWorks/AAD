@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### M9.6 — Floating panels + auto-hide (§28 docking)
+
+- Left and right managers now support three presentation modes, persisted in
+  `prefs.json`: **Docked** (edge `SidePanel`), **Floating** (free
+  `egui::Window` with remembered position/size), and **Auto-hide** (edge rail
+  that expands a foreground overlay on hover, collapses after a 350 ms grace).
+- Panel headers expose Float / Auto-hide (unpin) / Pin (re-dock) / Collapse
+  controls (Fluent pin + window icons vendored). Commands and chrome that open
+  a manager (`LA`, `BLOCKS`, units chip, …) call `reveal_*_mgr` so they work
+  in every mode.
+- BricsCAD §28 marked conforming; M9 (Drafting Workflow Parity) is complete.
+  Bottom-dock of the managers stays deferred — Drawing Properties already uses
+  a bottom panel.
+
 ### Align on ShilpiDB's protocol: removed the parallel `aadt-vdb-proto`
 
 - AADT talks to a `shilpid` server through `VdbClient` → `shilpi-client` →

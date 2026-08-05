@@ -25,7 +25,7 @@ use aadt_standards::aci_to_srgb;
 use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
-use crate::prefs::UserPrefs;
+use crate::prefs::{FloatRect, PanelMode, UserPrefs};
 use crate::selection::{select_by_fence, select_in_polygon, RegionMode};
 use crate::{Feedback, Session};
 
@@ -1204,6 +1204,22 @@ struct AadtApp {
     show_layer_mgr: bool,
     /// Show the left-hand structure manager (Layers / Blocks).
     show_left_mgr: bool,
+    /// Left manager presentation (docked / floating / auto-hide) — M9.6.
+    left_panel_mode: PanelMode,
+    /// Right manager presentation (docked / floating / auto-hide) — M9.6.
+    right_panel_mode: PanelMode,
+    /// Persisted floating geometry for the left manager.
+    left_float: FloatRect,
+    /// Persisted floating geometry for the right manager.
+    right_float: FloatRect,
+    /// Auto-hide left overlay is temporarily expanded (hover).
+    left_autohide_open: bool,
+    /// Keep left auto-hide open until this instant (grace after pointer leave).
+    left_autohide_until: Option<Instant>,
+    /// Auto-hide right overlay is temporarily expanded (hover).
+    right_autohide_open: bool,
+    /// Keep right auto-hide open until this instant (grace after pointer leave).
+    right_autohide_until: Option<Instant>,
     /// Status-bar: display lineweights in the viewport.
     show_lweights: bool,
     /// Local copy of Drawing Property Manager fields (applied on Save in the panel).
@@ -1277,9 +1293,9 @@ struct AadtApp {
     show_room_picker: bool,
     /// Object-snap throttle / scratch buffers.
     osnap_state: OsnapState,
-    /// Right panel width (persisted).
+    /// Right panel width when docked (persisted).
     right_panel_width: f32,
-    /// Left panel width (persisted).
+    /// Left panel width when docked (persisted).
     left_panel_width: f32,
     /// Cached layer rows: (doc revision, filter+scope key, rows).
     layer_rows_cache: Option<(u64, String, Vec<LayerRowCache>)>,
@@ -1363,6 +1379,14 @@ impl AadtApp {
             layer_map_draft: std::collections::BTreeMap::new(),
             show_layer_mgr: prefs.show_layer_mgr,
             show_left_mgr: prefs.show_left_mgr,
+            left_panel_mode: prefs.left_panel_mode,
+            right_panel_mode: prefs.right_panel_mode,
+            left_float: prefs.left_float,
+            right_float: prefs.right_float,
+            left_autohide_open: false,
+            left_autohide_until: None,
+            right_autohide_open: false,
+            right_autohide_until: None,
             show_lweights: prefs.show_lweights,
             props_edit: aadt_model::DrawingProperties::default(),
             space_add_draft: String::new(),
@@ -1433,6 +1457,10 @@ impl AadtApp {
             left_panel_width: self.left_panel_width,
             autosave_secs: self.autosave_secs,
             dark_theme: self.theme.is_dark(),
+            left_panel_mode: self.left_panel_mode,
+            right_panel_mode: self.right_panel_mode,
+            left_float: self.left_float,
+            right_float: self.right_float,
         }
     }
 
@@ -1508,8 +1536,8 @@ impl AadtApp {
                         self.layer_mgr_scope = LayerMgrScope::Import;
                         self.sync_layer_from_active_space();
                         self.open_layer_map_dialog();
-                        self.show_left_mgr = true;
                         self.left_tab = 0;
+                        self.reveal_left_mgr();
                         // Confidence-gated auto-classification: map elements to
                         // their AIA layer + model-space category via the
                         // embeddings vector db. Confident ones are assigned;
@@ -3883,11 +3911,10 @@ impl AadtApp {
                     }
                     if cmd_id == "dimstyle" {
                         self.engine.complete();
-                        self.show_layer_mgr = true;
                         self.right_tab = 5;
                         self.props_edit = self.session.document().properties().clone();
                         self.note = "Dimension style / Dims manager".into();
-                        self.persist_prefs();
+                        self.reveal_right_mgr();
                         return;
                     }
                     self.engine.cancel();
@@ -4732,23 +4759,22 @@ impl AadtApp {
                 return;
             }
             if matches!(up.as_str(), "LA" | "LAYER") {
-                self.show_left_mgr = true;
                 self.left_tab = 0;
+                self.reveal_left_mgr();
                 self.note = "Layer Properties Manager".into();
                 return;
             }
             if matches!(up.as_str(), "BLOCKS" | "I" | "INSERT") {
-                self.show_left_mgr = true;
                 self.left_tab = 1;
+                self.reveal_left_mgr();
                 self.note = "Blocks Manager — pick a block to INSERT".into();
                 return;
             }
             if matches!(up.as_str(), "D" | "DIMSTYLE") {
-                self.show_layer_mgr = true;
                 self.right_tab = 5;
                 self.props_edit = self.session.document().properties().clone();
+                self.reveal_right_mgr();
                 self.note = "Dimension style / Dims manager".into();
-                self.persist_prefs();
                 return;
             }
             if matches!(up.as_str(), "PR" | "PROPERTIES") {

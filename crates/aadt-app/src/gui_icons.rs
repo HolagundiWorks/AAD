@@ -29,6 +29,14 @@ pub enum Icon {
     CollapsePanel,
     /// Expand the right manager panel (thin strip).
     ExpandPanel,
+    /// Float a docked manager into a free window.
+    FloatPanel,
+    /// Re-dock a floating / auto-hide manager to the edge.
+    DockPanel,
+    /// Pin (keep docked / exit auto-hide).
+    PinPanel,
+    /// Unpin into auto-hide (expand on hover).
+    UnpinPanel,
     /// Layer on (visible).
     Eye,
     /// Layer off.
@@ -77,6 +85,12 @@ impl Icon {
             Icon::ExpandPanel => {
                 egui::include_image!("../assets/fluent/chevron_left_24_regular.svg")
             }
+            Icon::FloatPanel => egui::include_image!("../assets/fluent/window_24_regular.svg"),
+            Icon::DockPanel => {
+                egui::include_image!("../assets/fluent/panel_left_24_regular.svg")
+            }
+            Icon::PinPanel => egui::include_image!("../assets/fluent/pin_24_regular.svg"),
+            Icon::UnpinPanel => egui::include_image!("../assets/fluent/pin_off_24_regular.svg"),
             Icon::Eye => egui::include_image!("../assets/fluent/eye_24_regular.svg"),
             Icon::EyeOff => egui::include_image!("../assets/fluent/eye_off_24_regular.svg"),
             Icon::Freeze => {
