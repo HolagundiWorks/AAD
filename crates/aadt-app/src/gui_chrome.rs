@@ -377,6 +377,64 @@ impl AadtApp {
         // Color · Linetype · Lineweight. Per-layer actions (set current, delete,
         // map to space) live on the row's right-click context menu.
         let filter = self.layer_filter.trim().to_ascii_uppercase();
+        // Bulk On/Thaw/Unlock — the layers listed here, respecting the active
+        // scope/discipline/search filter above, exactly as shown in the grid
+        // below. Needed to get an imported drawing back to a scalable,
+        // editable state in one go: DXF/DWG imports commonly land with some
+        // source layers off, frozen, or locked, which silently blocks
+        // SCALE/STRETCH/MOVE on everything drawn on them.
+        let filtered_names = |rows: &[(String, u8, bool, bool, bool, f32, String)]| -> Vec<String> {
+            rows.iter()
+                .filter(|(name, ..)| {
+                    filter.is_empty() || name.to_ascii_uppercase().contains(&filter)
+                })
+                .map(|(name, ..)| name.clone())
+                .collect::<Vec<_>>()
+        };
+        ui.horizontal_wrapped(|ui| {
+            ui.set_max_width(panel_w);
+            ui.spacing_mut().item_spacing.x = space::SM;
+            ui.label(
+                egui::RichText::new("Bulk")
+                    .size(type_scale::CAPTION)
+                    .strong()
+                    .color(color::text_secondary()),
+            );
+            let hint = format!("{} layers listed below", self.layer_mgr_scope.label());
+            if ui
+                .button("Show all")
+                .on_hover_text(format!("Turn on every {hint}"))
+                .clicked()
+            {
+                let names = filtered_names(&rows);
+                for name in &names {
+                    self.app_feed(&format!("LAYER {name} ON"));
+                }
+                self.note = format!("Show all — {} layer(s) turned on", names.len());
+            }
+            if ui
+                .button("Thaw all")
+                .on_hover_text(format!("Unfreeze every {hint}"))
+                .clicked()
+            {
+                let names = filtered_names(&rows);
+                for name in &names {
+                    self.app_feed(&format!("LAYER {name} THAW"));
+                }
+                self.note = format!("Thaw all — {} layer(s) unfrozen", names.len());
+            }
+            if ui
+                .button("Unlock all")
+                .on_hover_text(format!("Unlock every {hint}"))
+                .clicked()
+            {
+                let names = filtered_names(&rows);
+                for name in &names {
+                    self.app_feed(&format!("LAYER {name} UNLOCK"));
+                }
+                self.note = format!("Unlock all — {} layer(s) unlocked", names.len());
+            }
+        });
         egui::ScrollArea::both().show(ui, |ui| {
             egui::Grid::new("layer_grid")
                 .striped(true)
@@ -1157,7 +1215,7 @@ impl AadtApp {
                     ui.spacing_mut().item_spacing.x = space::XS;
                     // File
                     if icon_btn(ui, Icon::New, "New drawing (Ctrl+N)").clicked() {
-                        self.new_drawing();
+                        self.request_new_drawing();
                     }
                     if icon_btn(ui, Icon::Open, "Open… (Ctrl+O)").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
@@ -1167,12 +1225,7 @@ impl AadtApp {
                             .add_filter("AAD", &["aadt"])
                             .pick_file()
                         {
-                            let p = path.display().to_string();
-                            let fb = self.app_feed(&format!("OPEN {p}"));
-                            if let Some(m) = fb.message() {
-                                self.note = m.to_string();
-                            }
-                            self.selection.clear();
+                            self.request_open_path(path);
                         }
                     }
                     if icon_btn(ui, Icon::Save, "Save (Ctrl+S)").clicked() {

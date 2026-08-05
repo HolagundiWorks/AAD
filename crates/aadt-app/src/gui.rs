@@ -509,6 +509,14 @@ pub(super) enum RectPhase {
     DimWidth,
 }
 
+/// A document-replacing action (New / Open) deferred behind the unsaved-changes
+/// prompt — see `replace_pending`.
+#[derive(Debug, Clone)]
+pub(super) enum PendingReplace {
+    New,
+    Open(std::path::PathBuf),
+}
+
 /// TRIM phases — cutting edges, then objects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum TrimPhase {
@@ -1119,6 +1127,19 @@ struct AadtApp {
     /// Structure). Empty = every layer (the default). Toggled by the W/N/S/A
     /// keywords at the STRETCH selection prompt.
     stretch_filter: Vec<LayerGroup>,
+    /// The rectangle (and window/crossing mode) behind the *last* plain
+    /// (non-Shift) box selection made with the general Select tool, if any.
+    /// Noun-verb STRETCH (pre-select, then invoke the command) replays this as
+    /// its implied crossing window — matching AutoCAD, where pre-selecting with
+    /// a box still stretches only the vertices that box caught, rather than
+    /// moving the whole selection. Individual (click) picks leave this `None`,
+    /// so STRETCH falls back to moving the whole selection, also AutoCAD's
+    /// behaviour. Validated (not just replayed blindly) at the point STRETCH
+    /// starts, in [`start_command_id`](Self::start_command_id): stale windows
+    /// (selection changed since, e.g. a Shift-click after the box) are
+    /// detected by re-running the box query and comparing to the live
+    /// selection before being trusted.
+    last_selection_window: Option<(Point2, Point2, bool)>,
     /// FILLET `[T]rim` toggle: when set, keep both source lines full-length
     /// (AutoCAD No-trim). Persists across corners until toggled or the command ends.
     fillet_notrim: bool,
@@ -1242,6 +1263,13 @@ struct AadtApp {
     /// Let the next close request through without re-prompting (set once the
     /// user has chosen Save or Don't Save).
     force_close: bool,
+    /// A New-drawing or Open, requested while the document was dirty, waiting
+    /// on the Save / Don't Save / Cancel choice in [`draw_replace_confirm`]
+    /// (Self::draw_replace_confirm). Ctrl+N replaces the whole document —
+    /// including its undo history — with no way back once it runs; this defers
+    /// that swap until the user has actually chosen to lose (or save) the
+    /// current one, instead of a bare keystroke doing it unconfirmed.
+    replace_pending: Option<PendingReplace>,
     /// F1 shortcut sheet.
     show_shortcuts: bool,
     /// IROOM room-type picker dialog.
@@ -1303,6 +1331,7 @@ impl AadtApp {
             rect_corner: RectCorner::Square,
             rect_corner_pending: None,
             stretch_filter: Vec::new(),
+            last_selection_window: None,
             fillet_notrim: false,
             ttr_lines: Vec::new(),
             cursor: None,
@@ -1365,6 +1394,7 @@ impl AadtApp {
             recovery_prompt,
             close_confirm: false,
             force_close: false,
+            replace_pending: None,
             show_shortcuts: false,
             show_room_picker: false,
             osnap_state: OsnapState::default(),
@@ -1560,6 +1590,41 @@ impl AadtApp {
         self.layer_set = "CONSTRUCTION".to_string();
         self.sync_layer_from_active_space();
         self.note = "New drawing — Ground · Walls".into();
+    }
+
+    /// OPEN `path` — replaces the whole document (and its undo history) with
+    /// the imported/loaded one, same as [`new_drawing`](Self::new_drawing).
+    fn open_path(&mut self, path: &std::path::Path) {
+        let fb = self.app_feed(&format!("OPEN {}", path.display()));
+        if let Some(m) = fb.message() {
+            self.note = m.to_string();
+        }
+        self.selection.clear();
+    }
+
+    /// Ctrl+N / the New toolbar button: starts a blank drawing, discarding the
+    /// current one and its entire undo history in one irreversible step. Goes
+    /// straight through when there's nothing to lose; otherwise defers to the
+    /// Save / Don't Save / Cancel prompt in
+    /// [`draw_replace_confirm`](Self::draw_replace_confirm) rather than wiping
+    /// unsaved work on a bare keystroke.
+    fn request_new_drawing(&mut self) {
+        if self.dirty {
+            self.replace_pending = Some(PendingReplace::New);
+        } else {
+            self.new_drawing();
+        }
+    }
+
+    /// Ctrl+O / the Open toolbar button: same guard as
+    /// [`request_new_drawing`](Self::request_new_drawing) — OPEN also replaces
+    /// the document and its undo history wholesale.
+    fn request_open_path(&mut self, path: std::path::PathBuf) {
+        if self.dirty {
+            self.replace_pending = Some(PendingReplace::Open(path));
+        } else {
+            self.open_path(&path);
+        }
     }
 
     fn refresh_window_title(&mut self, ctx: &egui::Context) {
@@ -1855,6 +1920,69 @@ impl AadtApp {
                     }
                     if ui.button("Cancel").clicked() {
                         self.close_confirm = false;
+                    }
+                });
+            });
+    }
+
+    /// Unsaved-changes confirmation raised by New (Ctrl+N) or Open (Ctrl+O)
+    /// against a dirty document: Save (then proceed), Don't Save (discard +
+    /// proceed), or Cancel. Without this, either action swaps in a whole new
+    /// [`Document`] — undo history included — over the current one on a single
+    /// keystroke, with no way to get the old drawing back.
+    pub(super) fn draw_replace_confirm(&mut self, ctx: &egui::Context) {
+        let Some(pending) = self.replace_pending.clone() else {
+            return;
+        };
+        let name = self
+            .file_path
+            .as_ref()
+            .and_then(|p| p.file_name().and_then(|n| n.to_str()))
+            .unwrap_or("untitled")
+            .to_string();
+        let verb = match &pending {
+            PendingReplace::New => "starting a new drawing",
+            PendingReplace::Open(_) => "opening another drawing",
+        };
+        egui::Window::new("Unsaved changes")
+            .collapsible(false)
+            .resizable(false)
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(theme::color::layer_card())
+                    .stroke(egui::Stroke::new(
+                        theme::stroke::THIN,
+                        theme::color::border(),
+                    ))
+                    .rounding(theme::radius::DIALOG),
+            )
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!("Save changes to “{name}” before {verb}?"));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        self.quick_save();
+                        // As with close: a cancelled Save-As leaves it dirty —
+                        // keep the prompt up rather than proceed and lose work.
+                        if !self.dirty {
+                            self.replace_pending = None;
+                            match pending.clone() {
+                                PendingReplace::New => self.new_drawing(),
+                                PendingReplace::Open(path) => self.open_path(&path),
+                            }
+                        }
+                    }
+                    if ui.button("Don't Save").clicked() {
+                        self.discard_recovery_files();
+                        self.replace_pending = None;
+                        match pending.clone() {
+                            PendingReplace::New => self.new_drawing(),
+                            PendingReplace::Open(path) => self.open_path(&path),
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.replace_pending = None;
                     }
                 });
             });
@@ -2544,9 +2672,26 @@ impl AadtApp {
                 format!("{},{}", self.dyn_x, self.dyn_y)
             };
             // `@dx,dy` relative to the tool anchor (or origin when starting a tool).
-            if combined.trim_start().starts_with('@') {
+            //
+            // RECTANGLE's opposite corner reads a bare typed pair the same way,
+            // without needing the `@` — its own prompt ("opposite corner or
+            // @W,H") and the `D` dimensions flow both already mean width/height
+            // there, so a typed X Tab Y pair defaulting to an *absolute* point
+            // instead (this app's usual convention once a tool has an anchor)
+            // lands the corner nowhere near the first one, which reads as the
+            // second dimension just not doing anything.
+            let rect_opposite_corner = matches!(
+                self.tool,
+                Tool::Rectangle {
+                    phase: RectPhase::OppositeCorner,
+                    first: Some(_),
+                    ..
+                }
+            );
+            if combined.trim_start().starts_with('@') || rect_opposite_corner {
                 let anchor = self.tool_anchor().unwrap_or_else(|| Point2::new(0.0, 0.0));
-                if let Some(p) = parse_relative_xy(combined.trim(), anchor) {
+                let rel = combined.trim().strip_prefix('@').unwrap_or(combined.trim());
+                if let Some(p) = parse_relative_xy(&format!("@{rel}"), anchor) {
                     self.clear_dyn_coords();
                     self.dyn_input.clear();
                     self.on_pick(p);
@@ -3524,6 +3669,26 @@ impl AadtApp {
                     path: Some(_),
                     ..
                 }
+                // RECTANGLE dimensions entry (`D` keyword): typing the length,
+                // then the width, is single-value text entry like Offset's
+                // distance or Fillet's radius above — not a point pick. Left
+                // in, a typed width (once Tab or a second value makes the Y
+                // field non-empty too) gets read back as a raw X,Y point by
+                // the branch above instead of the width text, silently
+                // discarding it (`on_pick` has nowhere to put a stray point
+                // while still waiting on `dim_width`). Once both length and
+                // width are set, this *does* expect a point again — the first
+                // corner to place the rectangle at — so it's excluded only
+                // while `dim_width` is still unset.
+                | Tool::Rectangle {
+                    phase: RectPhase::DimLength,
+                    ..
+                }
+                | Tool::Rectangle {
+                    phase: RectPhase::DimWidth,
+                    dim_width: None,
+                    ..
+                }
         )
     }
 
@@ -3615,7 +3780,26 @@ impl AadtApp {
             let cmd_id = def.id;
             let has_sel = !self.selection.is_empty();
             match tool_for(tool_token, has_sel) {
-                Some(t) => {
+                Some(mut t) => {
+                    // Noun-verb STRETCH (objects pre-selected, then the command
+                    // typed/clicked): replay the box behind that selection, if
+                    // it still reproduces it exactly, as the implied crossing
+                    // window — so it stretches the caught vertices instead of
+                    // moving the whole selection. Anything that makes the live
+                    // selection diverge from that box (a Shift-click, a delete,
+                    // …) fails the check and falls back to a full move.
+                    if let Tool::Stretch {
+                        collecting: false,
+                        window,
+                        ..
+                    } = &mut t
+                    {
+                        if let Some((lo, hi, crossing)) = self.last_selection_window {
+                            if self.selection_matches_box(lo, hi, crossing) {
+                                *window = Some((lo, hi));
+                            }
+                        }
+                    }
                     let skip_selection = matches!(
                         t,
                         Tool::Move {
@@ -7001,15 +7185,11 @@ impl eframe::App for AadtApp {
                                         .add_filter("ShilpiDB", &["vdb"])
                                         .pick_file()
                                     {
-                                        let fb = self.app_feed(&format!("OPEN {}", path.display()));
-                                        if let Some(m) = fb.message() {
-                                            self.note = m.to_string();
-                                        }
-                                        self.selection.clear();
+                                        self.request_open_path(path);
                                     }
                                 }
                                 egui::Key::N => {
-                                    self.new_drawing();
+                                    self.request_new_drawing();
                                 }
                                 egui::Key::Z => {
                                     self.app_feed("UNDO");
@@ -7051,7 +7231,26 @@ impl eframe::App for AadtApp {
                         match key {
                             egui::Key::Enter => self.apply_space_single(),
                             egui::Key::Tab => {
-                                if self.expects_point_coords() {
+                                if matches!(
+                                    self.tool,
+                                    Tool::Rectangle {
+                                        phase: RectPhase::DimLength,
+                                        ..
+                                    } | Tool::Rectangle {
+                                        phase: RectPhase::DimWidth,
+                                        dim_width: None,
+                                        ..
+                                    }
+                                ) && self.has_typed_dyn()
+                                {
+                                    // RECTANGLE dimensions entry: Tab moves on to
+                                    // the next field the same way Space does
+                                    // (length -> width -> first corner), rather
+                                    // than the X/Y coordinate-field toggle below,
+                                    // which doesn't apply here (see
+                                    // `expects_point_coords`).
+                                    self.commit_dyn();
+                                } else if self.expects_point_coords() {
                                     self.dyn_focus = match self.dyn_focus {
                                         CoordFocus::X => CoordFocus::Y,
                                         CoordFocus::Y => CoordFocus::X,
@@ -7170,6 +7369,7 @@ impl eframe::App for AadtApp {
         self.tick_autosave();
         self.draw_recovery_prompt(ctx);
         self.draw_close_confirm(ctx);
+        self.draw_replace_confirm(ctx);
         self.draw_shortcuts_sheet(ctx);
         self.poll_net();
         self.draw_server_dialog(ctx);
@@ -7665,6 +7865,18 @@ impl AadtApp {
         }
     }
 
+    /// Whether re-running the `(lo, hi, crossing)` box query against the
+    /// current document reproduces `self.selection` exactly (same ids,
+    /// regardless of order) — the check that guards replaying a remembered
+    /// box as STRETCH's implied window (see `last_selection_window`).
+    fn selection_matches_box(&self, lo: Point2, hi: Point2, crossing: bool) -> bool {
+        let mut hits = box_select(self.session.document(), lo, hi, crossing);
+        let mut current = self.selection.clone();
+        hits.sort_unstable();
+        current.sort_unstable();
+        hits == current
+    }
+
     /// Finalise a box selection from screen anchor `s` to release `e`.
     ///
     /// AutoCAD convention (screen space):
@@ -7700,10 +7912,19 @@ impl AadtApp {
                     self.selected_dimensions.push(idx);
                 }
             }
+            // Shift-add mixes this box with whatever was already selected, so
+            // there's no single rectangle left that reproduces the set — a
+            // later noun-verb STRETCH must fall back to moving it whole.
+            self.last_selection_window = None;
         } else {
             self.selection = hits;
             self.selected_dimensions = dim_hits;
             self.selected_hatches.clear();
+            // Remembered so a noun-verb STRETCH (pre-select, then invoke the
+            // command) can replay this rectangle as its implied window,
+            // matching AutoCAD: a box pre-selection still stretches, it
+            // doesn't just move.
+            self.last_selection_window = Some((lo, hi, crossing));
         }
         let n = self.selection.len() + self.selected_dimensions.len();
         self.note = if crossing {
