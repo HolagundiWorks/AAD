@@ -115,7 +115,7 @@ Performance (§31) is **unmeasured** — no telemetry exists to assert the ms ta
 ✅ **Conforms.** Unlimited history via `transact`; CTRL+Z/CTRL+Y. Command context preserved through the transaction wrapper.
 
 ### §28 Docking System
-⚠️ **Partial.** Left/right docks + tabbed panels + resizable widths + persisted layout (prefs). **Missing:** free-floating panels, bottom-docking of arbitrary panels, and auto-hide.
+✅ **Conforms (M9.6).** Left/right docks + tabbed panels + persisted layout (prefs), plus **floating** managers (`egui::Window`) and **auto-hide** (edge rail → hover overlay with grace). Mode is per-side (`PanelMode::{Docked, Floating, AutoHide}`) and survives restart. Bottom-dock of the left/right managers is still deferred; Drawing Properties already bottom-docks.
 
 ### §29 Status Bar
 ✅ **Conforms.** Coordinates, Snap, (Grid), Ortho, Polar, Dynamic Input, Selection count, Current layer surfaced in `draw_bottom_bar`. (Grid toggle: verify presence.)
@@ -149,7 +149,7 @@ Performance (§31) is **unmeasured** — no telemetry exists to assert the ms ta
 | 3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror via hot grip) | §14 | M | Builds on existing `GripEdit` |
 | 4 | Single auto-type `DIM` | §22 | M | Wraps existing DIMLINEAR/QDIM/autodim with type inference |
 | 5 | Live hatch preview | §21 | S–M | Verify current behavior first |
-| 6 | Docking: floating / auto-hide | §28 | M | egui docking limits — assess feasibility |
+| 6 | Docking: floating / auto-hide | §28 | M | ✅ M9.6 — `PanelMode` float / auto-hide without `egui_dock` |
 | 7 | Per-command capability trait (`Supports*`) | §33 | S | Formalizes existing behavior |
 | 8 | Per-command QA harness for §34 checklist | §34 | M | Test infrastructure |
 | 9 | Performance instrumentation to validate §31 | §31 | S | Frame-time telemetry |
