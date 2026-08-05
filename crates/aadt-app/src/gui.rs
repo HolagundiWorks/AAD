@@ -1958,7 +1958,7 @@ impl AadtApp {
                 ui.label(format!("Save changes to “{name}” before closing?"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if theme::button(ui, theme::BtnKind::Primary, "Save").clicked() {
                         self.quick_save();
                         // If the save went through (or was routed to a real file),
                         // the document is no longer dirty — proceed to close.
@@ -1969,14 +1969,14 @@ impl AadtApp {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
                     }
-                    if ui.button("Don't Save").clicked() {
+                    if theme::button(ui, theme::BtnKind::Danger, "Don't Save").clicked() {
                         self.discard_recovery_files();
                         self.dirty = false; // don't let on_exit re-write a recovery
                         self.close_confirm = false;
                         self.force_close = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    if ui.button("Cancel").clicked() {
+                    if theme::button(ui, theme::BtnKind::Subtle, "Cancel").clicked() {
                         self.close_confirm = false;
                     }
                 });
@@ -2014,7 +2014,7 @@ impl AadtApp {
                 ui.label(format!("Save changes to “{name}” before {verb}?"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if theme::button(ui, theme::BtnKind::Primary, "Save").clicked() {
                         self.quick_save();
                         // As with close: a cancelled Save-As leaves it dirty —
                         // keep the prompt up rather than proceed and lose work.
@@ -2026,7 +2026,7 @@ impl AadtApp {
                             }
                         }
                     }
-                    if ui.button("Don't Save").clicked() {
+                    if theme::button(ui, theme::BtnKind::Danger, "Don't Save").clicked() {
                         self.discard_recovery_files();
                         self.replace_pending = None;
                         match pending.clone() {
@@ -2034,7 +2034,7 @@ impl AadtApp {
                             PendingReplace::Open(path) => self.open_path(&path),
                         }
                     }
-                    if ui.button("Cancel").clicked() {
+                    if theme::button(ui, theme::BtnKind::Subtle, "Cancel").clicked() {
                         self.replace_pending = None;
                     }
                 });
@@ -2056,14 +2056,14 @@ impl AadtApp {
             .show(ctx, |ui| {
                 ui.label(format!("A newer autosave was found:\n{}", auto.display()));
                 ui.horizontal(|ui| {
-                    if ui.button("Restore").clicked() {
+                    if theme::button(ui, theme::BtnKind::Primary, "Restore").clicked() {
                         let p = auto.display().to_string();
                         self.app_feed(&format!("OPEN {p}"));
                         self.dirty = true;
                         self.recovery_prompt = None;
                         self.note = "Restored from autosave — save to keep".into();
                     }
-                    if ui.button("Discard").clicked() {
+                    if theme::button(ui, theme::BtnKind::Danger, "Discard").clicked() {
                         let _ = std::fs::remove_file(&auto);
                         self.recovery_prompt = None;
                     }
@@ -8346,7 +8346,7 @@ fn paint_selected_dimensions(
         return;
     }
     let hi = theme::canvas::selection();
-    let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
+    let glow = theme::canvas::selection_glow();
     let props = doc.properties();
     let dims = doc.dimensions();
     for &idx in selected {
@@ -8938,7 +8938,7 @@ fn paint_selection(
         return;
     }
     let hi = theme::canvas::selection();
-    let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
+    let glow = theme::canvas::selection_glow();
     let grip = egui::Color32::from_rgb(255, 255, 255);
     let grip_edge = theme::canvas::selection();
     let n = selection.len();
@@ -8984,7 +8984,7 @@ fn paint_selected_hatches(
         return;
     }
     let hi = theme::canvas::selection();
-    let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
+    let glow = theme::canvas::selection_glow();
     let hatches = doc.hatches();
     for &idx in selected {
         let Some(h) = hatches.get(idx) else { continue };
@@ -9258,8 +9258,8 @@ fn paint_preview(
 ) {
     let to_screen = |p: Point2| world_to_screen(camera, rect, p);
     let stroke = egui::Stroke::new(1.0_f32, theme::canvas::selection_stroke());
-    let ghost_stroke = egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(80, 140, 220));
-    let ghost_color = egui::Color32::from_rgb(80, 140, 220);
+    let ghost_stroke = egui::Stroke::new(1.5_f32, theme::canvas::ghost());
+    let ghost_color = theme::canvas::ghost();
 
     let draw_ghosts = |transform: &dyn Fn(&Geometry) -> Geometry| {
         let mut count = 0usize;
@@ -9413,8 +9413,8 @@ fn paint_preview(
                             rect,
                             camera,
                             &g,
-                            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(80, 140, 220)),
-                            egui::Color32::from_rgb(80, 140, 220),
+                            egui::Stroke::new(1.5_f32, theme::canvas::ghost()),
+                            theme::canvas::ghost(),
                         );
                     }
                 }

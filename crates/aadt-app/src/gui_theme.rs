@@ -774,6 +774,16 @@ pub mod canvas {
         Color32::from_rgba_unmultiplied(30, 120, 255, 40)
     }
 
+    /// Soft glow around grips / hover highlights.
+    pub fn selection_glow() -> Color32 {
+        Color32::from_rgba_unmultiplied(40, 140, 255, 110)
+    }
+
+    /// Rubber-band / ghost preview stroke (in-progress geometry).
+    pub fn ghost() -> Color32 {
+        Color32::from_rgb(80, 140, 220)
+    }
+
     /// Window box (L→R) edge / fill.
     pub fn window_edge() -> Color32 {
         Color32::from_rgb(40, 100, 220)
@@ -894,7 +904,6 @@ pub enum BtnKind {
     /// Transparent / weak — tertiary.
     Subtle,
     /// Danger-colored — destructive.
-    #[allow(dead_code)]
     Danger,
 }
 

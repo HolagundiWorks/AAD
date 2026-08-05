@@ -169,7 +169,7 @@ impl AadtApp {
                 }
             }
             ui.separator();
-            if ui.button("＋  Add floor above").clicked() {
+            if button(ui, BtnKind::Secondary, "＋  Add floor above").clicked() {
                 let n = self.session.document().floors().len() + 1;
                 let fb = self.app_feed(&format!("FLOORADD Level {n}"));
                 if let Some(m) = fb.message() {
@@ -225,7 +225,7 @@ impl AadtApp {
                 }
             }
             ui.separator();
-            if ui.button("＋  Add custom space").clicked() {
+            if button(ui, BtnKind::Secondary, "＋  Add custom space").clicked() {
                 let n = spaces_on_floor
                     .iter()
                     .filter(|(_, _, c)| *c == SpaceCategory::Custom)
@@ -534,7 +534,7 @@ impl AadtApp {
                             self.current_layer = name.clone();
                         }
                         name_resp.context_menu(|ui| {
-                            if ui.button("Set current").clicked() {
+                            if button(ui, BtnKind::Subtle, "Set current").clicked() {
                                 self.current_layer = name.clone();
                                 ui.close_menu();
                             }
@@ -553,7 +553,7 @@ impl AadtApp {
                                     }
                                 }
                             });
-                            if name != "0" && ui.button("Delete layer").clicked() {
+                            if name != "0" && button(ui, BtnKind::Danger, "Delete layer").clicked() {
                                 let _ = self.app_feed(&format!("LAYER {name} REMOVE"));
                                 if self.current_layer == name {
                                     self.current_layer = "0".into();
@@ -1095,8 +1095,7 @@ impl AadtApp {
             }
             ui.separator();
             ui.horizontal_wrapped(|ui| {
-                if ui
-                    .button("Move to active space")
+                if button(ui, BtnKind::Secondary, "Move to active space")
                     .on_hover_text("CHSPACE — move selection into the active model space")
                     .clicked()
                 {
@@ -1106,7 +1105,7 @@ impl AadtApp {
                         self.note = m.to_string();
                     }
                 }
-                if ui.button("Erase").clicked() {
+                if button(ui, BtnKind::Danger, "Erase").clicked() {
                     self.erase_selection();
                 }
             });
@@ -1554,7 +1553,7 @@ impl AadtApp {
                                 {
                                     self.persist_prefs();
                                 }
-                                if ui.button("Keyboard help (F1)").clicked() {
+                                if button(ui, BtnKind::Subtle, "Keyboard help (F1)").clicked() {
                                     self.show_shortcuts = true;
                                 }
                             });
@@ -2275,7 +2274,7 @@ impl AadtApp {
                 ui.add(
                     egui::TextEdit::singleline(&mut self.insert_block).desired_width(edit_w),
                 );
-                if ui.button("Convert to template").clicked() {
+                if button(ui, BtnKind::Secondary, "Convert to template").clicked() {
                     let name = self.insert_block.trim().to_string();
                     if name.is_empty() {
                         self.note = "Enter a block name first".into();
@@ -2419,26 +2418,26 @@ impl AadtApp {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                if ui.button("Multileader (LE)").clicked() {
+                if button(ui, BtnKind::Secondary, "Multileader (LE)").clicked() {
                     self.tool = Tool::Mleader {
                         arrow: None,
                         landing: None,
                         text_pt: None,
                     };
                 }
-                if ui.button("Callout / bubble").clicked() {
+                if button(ui, BtnKind::Secondary, "Callout / bubble").clicked() {
                     self.tool = Tool::Callout {
                         arrow: None,
                         center: None,
                     };
                 }
-                if ui.button("Section line").clicked() {
+                if button(ui, BtnKind::Secondary, "Section line").clicked() {
                     self.tool = Tool::SectionLine { first: None };
                 }
-                if ui.button("Revision mark").clicked() {
+                if button(ui, BtnKind::Secondary, "Revision mark").clicked() {
                     self.tool = Tool::RevMark;
                 }
-                if ui.button("Revision cloud").clicked() {
+                if button(ui, BtnKind::Secondary, "Revision cloud").clicked() {
                     self.tool = Tool::RevCloud { first: None };
                 }
             });
@@ -2446,18 +2445,18 @@ impl AadtApp {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                if ui.button("Aligned (DIM)").clicked() {
+                if button(ui, BtnKind::Secondary, "Aligned (DIM)").clicked() {
                     self.tool = Tool::Dim {
                         first: None,
                         second: None,
                     };
                     self.note = "DIM — click first point".into();
                 }
-                if ui.button("Continue (DIMCONTINUE)").clicked() {
+                if button(ui, BtnKind::Secondary, "Continue (DIMCONTINUE)").clicked() {
                     self.tool = Tool::DimContinue;
                     self.note = "DIMCONTINUE — next definition point (Space finishes)".into();
                 }
-                if ui.button("Quick Dim (QDIM)").clicked() {
+                if button(ui, BtnKind::Secondary, "Quick Dim (QDIM)").clicked() {
                     if self.selection.is_empty() {
                         self.note = "QDIM — select objects first, then pick dim-line side".into();
                     }
@@ -2466,7 +2465,7 @@ impl AadtApp {
                         self.note = "QDIM — click dim-line side".into();
                     }
                 }
-                if ui.button("Auto Dim").clicked() {
+                if button(ui, BtnKind::Secondary, "Auto Dim").clicked() {
                     if self.selection.is_empty() {
                         self.app_feed("AUTODIM ALL");
                         self.note = "AUTODIM ALL — structure layers isolated".into();
@@ -2481,15 +2480,15 @@ impl AadtApp {
                         }
                     }
                 }
-                if ui.button("Radius").clicked() {
+                if button(ui, BtnKind::Secondary, "Radius").clicked() {
                     self.tool = Tool::DimRadius;
                     self.note = "DIMRADIUS — click a circle or arc".into();
                 }
-                if ui.button("Diameter").clicked() {
+                if button(ui, BtnKind::Secondary, "Diameter").clicked() {
                     self.tool = Tool::DimDiameter;
                     self.note = "DIMDIAMETER — click a circle or arc".into();
                 }
-                if ui.button("Angular").clicked() {
+                if button(ui, BtnKind::Secondary, "Angular").clicked() {
                     self.tool = Tool::DimAngular {
                         vertex: None,
                         p1: None,
@@ -2512,7 +2511,7 @@ impl AadtApp {
             section_label(ui, "Object count");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
-                if ui.button("Count all objects").clicked() {
+                if button(ui, BtnKind::Secondary, "Count all objects").clicked() {
                     self.app_feed("COUNT ALL");
                     if let Some(fb) = self.session.transcript().last() {
                         if let Some(msg) = fb.message() {
@@ -2520,7 +2519,7 @@ impl AadtApp {
                         }
                     }
                 }
-                if ui.button("Count selection types").clicked() {
+                if button(ui, BtnKind::Secondary, "Count selection types").clicked() {
                     self.sync_selection();
                     self.app_feed("COUNT ALL");
                 }
@@ -2608,7 +2607,7 @@ impl AadtApp {
                         .to_string()
                 };
                 ui.monospace(&logo);
-                if ui.button("Upload…").clicked() {
+                if button(ui, BtnKind::Secondary, "Upload…").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Logo", &["png", "jpg", "jpeg", "svg"])
                         .pick_file()
@@ -2677,8 +2676,7 @@ impl AadtApp {
                         self.note = "Height notes inserted into standard notes".into();
                     }
                 }
-                if ui
-                    .button("Reload suggested notes")
+                if button(ui, BtnKind::Secondary, "Reload suggested notes")
                     .on_hover_text("Replace standard notes with detection + height suggestions")
                     .clicked()
                 {
@@ -2723,7 +2721,7 @@ impl AadtApp {
                 }
             }
             ui.horizontal(|ui| {
-                if ui.button("Add floor").clicked() {
+                if button(ui, BtnKind::Secondary, "Add floor").clicked() {
                     let n = self.session.document().floors().len() + 1;
                     let fb = self.app_feed(&format!("FLOORADD Level {n}"));
                     if let Some(m) = fb.message() {
@@ -2737,7 +2735,7 @@ impl AadtApp {
                         .desired_width(140.0)
                         .hint_text("Custom space name"),
                 );
-                if ui.button("Add space").clicked() {
+                if button(ui, BtnKind::Secondary, "Add space").clicked() {
                     let name = self.space_add_draft.trim().to_string();
                     if name.is_empty() {
                         self.note = "Enter a custom space name".into();
@@ -2800,7 +2798,7 @@ impl AadtApp {
                 if button(ui, BtnKind::Secondary, "Reload").clicked() {
                     self.props_edit = self.session.document().properties().clone();
                 }
-                if ui.button("Plot PDF…").clicked() {
+                if button(ui, BtnKind::Secondary, "Plot PDF…").clicked() {
                     self.session
                         .set_drawing_properties(self.props_edit.clone());
                     self.dirty = true;
@@ -2965,18 +2963,18 @@ impl AadtApp {
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                if ui.button("Aligned (DIM)").clicked() {
+                if button(ui, BtnKind::Secondary, "Aligned (DIM)").clicked() {
                     self.tool = Tool::Dim {
                         first: None,
                         second: None,
                     };
                     self.note = "DIM — click first point".into();
                 }
-                if ui.button("Continue (DIMCONTINUE)").clicked() {
+                if button(ui, BtnKind::Secondary, "Continue (DIMCONTINUE)").clicked() {
                     self.tool = Tool::DimContinue;
                     self.note = "DIMCONTINUE — next definition point (Space finishes)".into();
                 }
-                if ui.button("Quick Dim (QDIM)").clicked() {
+                if button(ui, BtnKind::Secondary, "Quick Dim (QDIM)").clicked() {
                     if self.selection.is_empty() {
                         self.note = "QDIM — select objects first, then pick dim-line side".into();
                     }
@@ -2985,7 +2983,7 @@ impl AadtApp {
                         self.note = "QDIM — click dim-line side".into();
                     }
                 }
-                if ui.button("Auto Dim").clicked() {
+                if button(ui, BtnKind::Secondary, "Auto Dim").clicked() {
                     if self.selection.is_empty() {
                         self.app_feed("AUTODIM ALL");
                     } else {
@@ -2998,15 +2996,15 @@ impl AadtApp {
                         }
                     }
                 }
-                if ui.button("Radius").clicked() {
+                if button(ui, BtnKind::Secondary, "Radius").clicked() {
                     self.tool = Tool::DimRadius;
                     self.note = "DIMRADIUS — click a circle or arc".into();
                 }
-                if ui.button("Diameter").clicked() {
+                if button(ui, BtnKind::Secondary, "Diameter").clicked() {
                     self.tool = Tool::DimDiameter;
                     self.note = "DIMDIAMETER — click a circle or arc".into();
                 }
-                if ui.button("Angular").clicked() {
+                if button(ui, BtnKind::Secondary, "Angular").clicked() {
                     self.tool = Tool::DimAngular {
                         vertex: None,
                         p1: None,
@@ -3118,7 +3116,7 @@ impl AadtApp {
                         self.plot_area_mode = 2;
                     }
                     if self.plot_area_mode == 2 {
-                        if ui.button("Pick window…").clicked() {
+                        if button(ui, BtnKind::Secondary, "Pick window…").clicked() {
                             self.plot_open = false;
                             self.tool = super::Tool::PlotWindow { first: None };
                             self.note = "PLOT WINDOW — click first corner".into();
@@ -3236,7 +3234,7 @@ impl AadtApp {
                 ui.checkbox(&mut self.plot_include_notes, "Include standard notes");
                 ui.horizontal(|ui| {
                     ui.label("Notes");
-                    if ui.button("Reload suggested").clicked() {
+                    if button(ui, BtnKind::Secondary, "Reload suggested").clicked() {
                         let det = aadt_detect::detect(
                             self.session.document(),
                             &aadt_detect::DetectionConfig::default(),
@@ -3257,11 +3255,10 @@ impl AadtApp {
                 );
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("Cancel").clicked() {
+                    if button(ui, BtnKind::Subtle, "Cancel").clicked() {
                         self.plot_open = false;
                     }
-                    if ui
-                        .button("Export PDF…")
+                    if button(ui, BtnKind::Primary, "Export PDF…")
                         .on_hover_text("Compose sheet and save PDF")
                         .clicked()
                     {
@@ -3381,12 +3378,12 @@ impl AadtApp {
                 );
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("Auto (heuristic)").clicked() {
+                    if button(ui, BtnKind::Secondary, "Auto (heuristic)").clicked() {
                         for (layer, cat) in self.layer_map_draft.iter_mut() {
                             *cat = aadt_model::SpaceCategory::from_layer_name(layer);
                         }
                     }
-                    if ui.button("All → Walls").clicked() {
+                    if button(ui, BtnKind::Secondary, "All → Walls").clicked() {
                         for cat in self.layer_map_draft.values_mut() {
                             *cat = aadt_model::SpaceCategory::Walls;
                         }
@@ -3444,7 +3441,7 @@ impl AadtApp {
                     if button(ui, BtnKind::Primary, "Apply map").clicked() {
                         self.apply_layer_map_draft();
                     }
-                    if ui.button("Skip").clicked() {
+                    if button(ui, BtnKind::Subtle, "Skip").clicked() {
                         self.show_layer_map = false;
                         self.layer_mgr_scope = LayerMgrScope::ActiveSpace;
                     }
