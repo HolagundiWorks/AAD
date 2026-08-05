@@ -10,6 +10,10 @@ consume that model.
 ┌───────────────────────────────────────────────────────────────┐
 │                      AAD Application (aadt-app / aadt-cli)     │
 ├───────────────────────────────────────────────────────────────┤
+│              AI-NATIVE INTELLIGENCE (ADR-0012, M10–M13)        │
+│  aadt-object │ aadt-graph │ aadt-embed │ aadt-vecdb            │
+│  aadt-assist (→ aadt-pdf, aadt-detect, aadt-vecdb) │ aadt-takeoff │
+├───────────────────────────────────────────────────────────────┤
 │                     CAPABILITIES (on the core)                 │
 │   aadt-detect  │  aadt-docs  │  aadt-standards  │  aadt-pdf     │
 ├───────────────────────────────────────────────────────────────┤
@@ -17,7 +21,7 @@ consume that model.
 │  aadt-command  │  aadt-geometry  │  aadt-lisp  │  aadt-library  │
 │                 aadt-model (document / undo)                    │
 ├───────────────────────────────────────────────────────────────┤
-│  File I/O: aadt-dxf (DXF + DWG import) · aadt-store (.aadt)      │
+│  File I/O: aadt-dxf (DXF + DWG) · aadt-store (.aadt) · aadt-vdb (.vdb) │
 ├───────────────────────────────────────────────────────────────┤
 │  Rendering: aadt-render · FFI: aadt-ffi                         │
 └───────────────────────────────────────────────────────────────┘
@@ -28,7 +32,7 @@ consume that model.
 | Spec layer (§3) | Crate(s) |
 |---|---|
 | Rendering | `aadt-render` |
-| File I/O (DXF, DWG import, native `.aadt`) | `aadt-dxf`, `aadt-store` (ADR-0002) |
+| File I/O (DXF, DWG import, native `.aadt`, ShilpiDB `.vdb`) | `aadt-dxf`, `aadt-store` (ADR-0002), `aadt-vdb` (ADR-0011) |
 | Document model / undo | `aadt-model` |
 | Geometry kernel | `aadt-geometry` |
 | Command interpreter | `aadt-command` |
@@ -37,18 +41,32 @@ consume that model.
 | PDF markup & comparison | `aadt-pdf` |
 | Element detection | `aadt-detect` |
 | Documentation & sheet production | `aadt-docs` |
+| Object DB / Graph DB (M10) | `aadt-object`, `aadt-graph` |
+| Embeddings / vector search / corpus (M11) | `aadt-embed`, `aadt-vecdb` |
+| AI service layer (M12, ADR-0013) | `aadt-assist` |
+| Quantity takeoff / BOQ (M13) | `aadt-takeoff` |
 | Application shell | `aadt-app`, `aadt-cli`, `aadt-ffi` |
 
 ## Data flow
 
 ```
-DXF / DWG / .aadt ──▶ aadt-dxf | aadt-store ──▶ aadt-model (Document)
+DXF / DWG / .aadt / .vdb ──▶ aadt-dxf | aadt-store | aadt-vdb ──▶ aadt-model (Document)
                                                     │
-                                                    ▼
-                                              aadt-detect  ── walls, wall graph, rooms
-                                                    │
-                                                    ▼
-                                              aadt-render ── drawlist ──▶ egui / GPU / PDF
+                        ┌───────────────────────────┼───────────────────────────┐
+                        ▼                           ▼                           ▼
+                  aadt-detect               aadt-embed/-vecdb            aadt-render
+            walls, wall graph, rooms      FIND · ASKDOCS corpus       drawlist ──▶ egui / GPU / PDF
+                        │                           │
+                        ▼                           │
+             aadt-object / aadt-graph               │
+          objects, relations, audit (M10)           │
+                        │                           │
+            ┌───────────┴───────────┐               │
+            ▼                       ▼               ▼
+      aadt-takeoff            aadt-assist ◀─────────┘ (citations)
+   TAKEOFF · BOQ (M13)   SUGGEST · CHECK · ASK · COMPARE · RECOMMEND
+                              └── uses aadt-pdf::compare for the
+                                  fingerprint diff behind COMPARE
 ```
 
 Key properties:
@@ -56,6 +74,11 @@ Key properties:
   order-independent: the same input always yields the same output (spec §8). The
   `Document` iterates entities in ascending id order so nothing downstream
   depends on insertion order.
+- **Assist proposes, never commits.** `aadt-assist` services return
+  `Suggestion` records; only `apply` mutates the `Document`, inside one undo
+  transaction with an audit row (ADR-0013). Advisory services — code checks,
+  revision narration, detail recommendation — carry `Action::None` and cannot
+  be applied at all.
 - **Plot paperwork** is also deterministic: nameplate presets + editable standard
   notes persist on `DrawingProperties` and are applied at PDF export (see title
   block / notes modules).
@@ -104,8 +127,8 @@ three-point aligned with AutoCAD-like glyphs (see workflows doc).
   active drafting, or Space-hold — not continuous idle hover.
 - **Autosave / recovery.** Dirty drawings with a known path autosave to a
   `*.autosave.aadt` sibling on a timer; on open, a newer autosave prompts
-  Restore / Discard. Prefs (`ortho` / `osnap` / panel width / …) live in
-  `%APPDATA%/AAD/prefs.json` (or XDG config).
+  Restore / Discard. Prefs (`ortho` / `osnap` / panel width / panel mode /
+  floating panel rect / …) live in `%APPDATA%/AAD/prefs.json` (or XDG config).
 
 ## GUI chrome (Windows 11 / Fluent)
 
@@ -116,6 +139,19 @@ The egui shell follows Microsoft’s
 calm layered surfaces, accent only for selection/status, flat peer destinations
 in the right manager (tab + collapsed nav rail), and familiar File/Edit commanding
 in the top bar. Tokens live in `crates/aadt-app/src/gui_theme.rs`.
+
+**Panel docking (M9.6).** Each side manager carries a `PanelMode`
+(`crates/aadt-app/src/prefs.rs`), persisted per side in `prefs.json`:
+
+| Mode | Behaviour |
+|---|---|
+| `Docked` | Edge `SidePanel`; collapses to an icon rail |
+| `Floating` | Free `egui::Window`; position and size remembered in `FloatRect` |
+| `AutoHide` | Edge rail that expands a foreground overlay on hover, collapsing after a short grace period |
+
+Panel headers expose Float / Auto-hide (unpin) / Pin (re-dock) / Collapse.
+Commands and chrome that open a manager call `reveal_left_mgr` /
+`reveal_right_mgr` so they work identically in all three modes.
 
 ## Related
 

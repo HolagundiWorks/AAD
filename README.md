@@ -26,15 +26,25 @@ See [`docs/`](docs/) for engineering docs:
 
 The CAD core is implemented: DXF/DWG import + native `.aadt` SQLite (with
 history checkpoints), CAD commands with atomic undo/redo, wall/room/opening
-**detection**, AIA/NCS standards layers, block/hatch libraries, PDF plotting +
-markup, sheet/title-block production, and an AutoLISP-flavoured engine. See the
-[roadmap](docs/ROADMAP.md) and [industry audit](docs/audit/2026-07-industry-standards-audit.md).
+**detection**, AIA/NCS standards layers, block/hatch/detail libraries, PDF
+plotting + markup, sheet/title-block production, and an AutoLISP-flavoured
+engine. See the [roadmap](docs/ROADMAP.md) and
+[industry audit](docs/audit/2026-07-industry-standards-audit.md).
 
 **Interactive shell (egui)** is the live product surface: command-first
 drafting, History manager, pick/draw/modify tools, Ortho/Osnap/Polar, dynamic
-input, docked Layers/Properties, and `OPEN`/`SAVE` for `.dxf` / `.dwg` /
-`.aadt`. Open-source DWG import via `acadrust` works now (`OPEN file.dwg`); true
-wgpu-at-100k and ODA-grade DWG fidelity remain later work.
+input, Layers/Properties managers that dock, float, or auto-hide, and
+`OPEN`/`SAVE` for `.dxf` / `.dwg` / `.aadt` / `.vdb`. Open-source DWG import via
+`acadrust` works now (`OPEN file.dwg`); true wgpu-at-100k and ODA-grade DWG
+fidelity remain later work.
+
+**AI-native layer (local, offline, gated).** Typed objects and relationships
+(`OBJECTS` / `RELATIONS`), semantic search and cited document retrieval
+(`FIND` / `ASKDOCS`), assist services that propose but never commit
+(`SUGGEST` / `CHECK` / `ASK`, plus `COMPARE` revision narration and
+`RECOMMEND DETAIL` over the bundled detail sheets), and object-based quantity
+takeoff (`TAKEOFF` / `BOQ`). See
+[the AI-native platform vision](docs/vision/ai-native-platform.md).
 
 ```sh
 # Drive AAD with a command script
@@ -57,7 +67,7 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 | `aadt-graph` | Graph DB — typed relationships (BelongsTo/Contains/Bounds/ConnectedTo) + detection→object promotion |
 | `aadt-embed` | Local, offline ML classifier/embedder (element → AIA layer + category) + text/aggregate embeddings |
 | `aadt-vecdb` | Custom embeddings vector db, confidence-gated metadata mapping (`MAPMETA`), semantic search (`FIND`) + BM25 corpus retrieval (`ASKDOCS`) |
-| `aadt-assist` | AI service layer — gated suggestions: dimension prediction, code-check rule packs, NL command routing (`SUGGEST`/`CHECK`/`ASK`) |
+| `aadt-assist` | AI service layer — gated suggestions: dimension prediction, code-check rule packs, revision-comparison narration (`COMPARE`), standard-detail recommendation (`RECOMMEND DETAIL`), NL command routing (`SUGGEST`/`CHECK`/`ASK`) |
 | `aadt-takeoff` | Quantity takeoff + BOQ over the Object DB, CSI MasterFormat cost codes (`TAKEOFF`/`BOQ`) |
 | `aadt-detect` | Wall/room/opening detection, anomalies |
 | `aadt-command` | Command interpreter (daily band + firm suites) |
@@ -70,6 +80,18 @@ cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
 | `aadt-app` | `Session` + egui desktop shell |
 | `aadt-ffi` | Thin C ABI over `Session` (future chrome) |
 | `aadt-cli` | `aadt` binary |
+
+## Bundled libraries
+
+Shipped alongside the binary (see [`libraries/`](libraries/README.md)) and
+resolved at runtime by `aadt-library`:
+
+| Path | Contents | Used by |
+|---|---|---|
+| `libraries/blocks/` | Block definitions (DXF / SVG) | `BLOCKLIB`, `INSERT` |
+| `libraries/hatches/` | `.pat` hatch pattern families | `HATCHLIB`, `HATCH` |
+| `libraries/details/` | Standard-detail Markdown sheets | `RECOMMEND DETAIL` |
+| `libraries/fonts/` | Drawing text fonts | Text rendering |
 
 ## Build, test, run
 

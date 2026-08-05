@@ -1,7 +1,7 @@
-# AutoCAD interaction model — research notes for AiADT
+# AutoCAD interaction model — research notes for AAD
 
 This document captures how **classic AutoCAD / AutoCAD LT** command interaction
-works, and which rules AiADT deliberately mirrors. It is a design reference for
+works, and which rules AAD deliberately mirrors. It is a design reference for
 product and implementers — not a license to clone AutoCAD UI chrome or every
 command.
 
@@ -39,8 +39,8 @@ At the command prompt, **Enter** and **Spacebar** both:
 
 Right-click is commonly configured to act as Enter (user preference).
 
-**AiADT mapping:** Space is primary; Enter and right-click call the same
-`apply_space_single` path. Double-Space = finish + repeat (AiADT-specific
+**AAD mapping:** Space is primary; Enter and right-click call the same
+`apply_space_single` path. Double-Space = finish + repeat (AAD-specific
 acceleration on top of AutoCAD’s “press Space when idle to repeat”).
 
 ### 1.2 Keyword options in brackets
@@ -59,7 +59,7 @@ Rules users internalize:
 3. Empty Enter/Space accepts the **default** (often “specify a point”).
 4. Options are **modal** to the current step of the current command.
 
-**AiADT mapping:** Dyn-input / floating prompt shows `[U]ndo/[C]lose`,
+**AAD mapping:** Dyn-input / floating prompt shows `[U]ndo/[C]lose`,
 `[D]iameter`, `[R]eference`, `[H]or/[V]er/[A]ng`, RECTANGLE `[D]imensions`.
 Keywords are handled in `commit_dyn` while the matching `Tool` is active.
 
@@ -68,7 +68,7 @@ Keywords are handled in `commit_dyn` while the matching `Tool` is active.
 Short aliases (`L`, `C`, `M`, `CO`, `SC`, `TR`, …) resolve to full commands.
 Suggestion lists show `C (CIRCLE)`.
 
-**AiADT mapping:** `command_engine` catalog aliases + `tool_for` tokens; Hold-Space
+**AAD mapping:** `command_engine` catalog aliases + `tool_for` tokens; Hold-Space
 palette fuzzy-matches the same catalog.
 
 ### 1.4 Transparent commands
@@ -76,7 +76,7 @@ palette fuzzy-matches the same catalog.
 AutoCAD allows `'ZOOM`, `'PAN`, `'OSNAP`, etc. mid-command (apostrophe prefix).
 After the transparent command ends, the original resumes.
 
-**AiADT status:** Not implemented as apostrophe-transparent. Modes F3/F8/F10/F11
+**AAD status:** Not implemented as apostrophe-transparent. Modes F3/F8/F10/F11
 toggle without ending the tool (partial substitute). True `'ZOOM` mid-LINE is a
 future gap.
 
@@ -100,7 +100,7 @@ Selection mechanics users expect:
 - Esc clears selection when idle
 - Selected objects **highlight** (historically dashed/blue grips; grips at vertices)
 
-**AiADT mapping:**
+**AAD mapping:**
 
 - Edit tools (`MOVE`/`COPY`/`ROTATE`/`SCALE`/`MIRROR`/`ERASE`) support **both**
   modes via a `collecting` phase when selection starts empty.
@@ -120,7 +120,7 @@ AutoCAD Dynamic Input (F12 / `DYNMODE`) puts:
 
 Second points default to **relative polar** (no `@` required); `#` forces absolute.
 
-**AiADT mapping:** Floating dyn box (`dyn_lines` / `paint_dyn_box`) shows prompt,
+**AAD mapping:** Floating dyn box (`dyn_lines` / `paint_dyn_box`) shows prompt,
 typed buffer, and live length/angle. Tab cycles X↔Y. Direct distance entry places
 the next point along the crosshair from the tool anchor. Absolute `#` prefix is
 not required for basic drafting; comma `x,y` and `@W,H` (RECTANGLE) are supported.
@@ -129,9 +129,9 @@ not required for basic drafting; comma `x,y` and `@W,H` (RECTANGLE) are supporte
 
 ## 4. Drafting aids (status bar)
 
-| Aid | AutoCAD | Typical shortcut | AiADT |
-|-----|---------|------------------|-------|
-| Object snap | Endpoint, mid, center, … | F3 | Endpoint / midpoint (F3) |
+| Aid | AutoCAD | Typical shortcut | AAD |
+|-----|---------|------------------|-----|
+| Object snap | Endpoint, mid, center, … | F3 | Endpoint / midpoint / center / quadrant / nearest / intersection running (F3), plus perpendicular and tangent via `END/MID/INT/CEN/QUA/NEA/PER/TAN` keyword overrides and the SHIFT+right-click menu |
 | Ortho | Lock H/V | F8 | F8 + Shift temporary |
 | Polar tracking | Lock to angle increments | F10 | Soft axis constrain (F10) |
 | Osnap tracking | Align from acquired snaps | F11 | F11 enables osnap+polar together |
@@ -156,7 +156,7 @@ Specify next point or [Close/Undo]:
 - `C` closes to first point (≥ 2 segments)  
 - Relative `@dx,dy` and direct distance are common  
 
-**AiADT:** Same flow with Space finish; `[U]` / `[C]` in dyn input; segments commit
+**AAD:** Same flow with Space finish; `[U]` / `[C]` in dyn input; segments commit
 as they are drawn (Undo pops last vertex + document `UNDO`).
 
 ### 5.2 CIRCLE
@@ -164,25 +164,26 @@ as they are drawn (Undo pops last vertex + document `UNDO`).
 Default: center → radius. Option `D` = diameter instead of radius. Other modes
 (2P, 3P, TTR) exist in AutoCAD but are secondary.
 
-**AiADT:** Center → typed radius / pick / `[D]`iameter. 2P/3P/TTR not in band.
+**AAD:** Center → typed radius / pick / `[D]`iameter. 2P, 3P, and TTR are
+supported; other construction modes stay out of band.
 
 ### 5.3 POLYLINE
 
 Vertex chain with `[Undo]`, `[Close]`, plus Arc/Width options in full AutoCAD.
 
-**AiADT:** Vertex chain; `[U]` / `[C]`; Space finishes. Arc/Width keywords deferred.
+**AAD:** Vertex chain; `[U]` / `[C]`; Space finishes. Arc/Width keywords deferred.
 
 ### 5.4 RECTANGLE
 
 Corners, or Dimensions (length/width), often with relative `@W,H`.
 
-**AiADT:** Corner→corner, `D` dimensions workflow, `@W,H`.
+**AAD:** Corner→corner, `D` dimensions workflow, `@W,H`.
 
 ### 5.5 XLINE
 
 Construction line through a point; modes Hor / Ver / Ang / Bisect / Offset.
 
-**AiADT:** Through + H / V / A; Space ends. Bisect/Offset modes not implemented.
+**AAD:** Through + H / V / A; Space ends. Bisect/Offset modes not implemented.
 
 ---
 
@@ -197,7 +198,7 @@ Specify base point:
 Specify second point or <use first point as displacement>:
 ```
 
-| Command | After selection | AiADT notes |
+| Command | After selection | AAD notes |
 |---------|-----------------|-------------|
 | MOVE | Base → destination | Both selection modes |
 | COPY | Base → destinations (repeat until Enter) | Explicit Space finish; multi-copy |
@@ -226,7 +227,7 @@ Geometry rendered: extension lines, dimension line, arrowheads/ticks, text
 oriented to the dim line. Style controlled by `DIMSTYLE` / variables
 (`DIMSCALE`, `DIMTXT`, …).
 
-**AiADT:** `DIM` is 3-point aligned; renderer draws extensions, dim line, arrows,
+**AAD:** `DIM` is 3-point aligned; renderer draws extensions, dim line, arrows,
 rotated text; `dim_scale` / `dim_text_height` from drawing properties.
 
 ### 7.2 Units vs dim style
@@ -239,7 +240,7 @@ Important AutoCAD distinction:
 
 Architectural convention: when format is feet-inches, **1 drawing unit = 1 inch**.
 
-**AiADT (simplified, intentional):**
+**AAD (simplified, intentional):**
 
 | Primary units | Model coordinates | Bare typed length | Dim style default |
 |---------------|-------------------|-------------------|-------------------|
@@ -252,7 +253,7 @@ degrees and do not show secondary linear units (matches AutoCAD).
 
 ---
 
-## 8. What AiADT deliberately does *not* copy
+## 8. What AAD deliberately does *not* copy
 
 From product principles ([ROADMAP](../ROADMAP.md)):
 
@@ -267,7 +268,7 @@ GUI tools.
 
 ---
 
-## 9. Design rules for new AiADT commands
+## 9. Design rules for new AAD commands
 
 When adding or polishing a command, match AutoCAD unless there is a documented
 reason not to:

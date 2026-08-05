@@ -65,10 +65,16 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 |---|---|
 | Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
-| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
+| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.dwg` / `.aadt` / `.vdb`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
 | AAD | `SECTION` `STANDARDS` `BLOCKLIB` |
+| Intelligence | `OBJECTS`/`RELATIONS` · `TAKEOFF`/`BOQ` |
+| Assist (proposes, never commits) | `FIND` `ASKDOCS` · `SUGGEST` `CHECK` `ASK` · `COMPARE` (`DIFF`/`REVCOMPARE`) · `RECOMMEND DETAIL` (`DETAIL`/`DETAILS`) |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
+
+The **Assist** row is bounded on purpose: every command there either retrieves
+something already in the drawing or an indexed document, or emits a proposal a
+human accepts. None of them write geometry on their own (ADR-0013).
 
 **Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
 `M` `CO` `RO` `SC` `MI` `AR`/`ARRAYPOLAR`/`ARRAYPATH` · `E` · `DIM*` · pick/box select · Ortho (Shift / F8) ·
@@ -84,8 +90,8 @@ forests, 3D commands. Raster brushes / PNG block libraries are out of scope
 
 **Standards / presentation:** AIA/US NCS layers (`aadt-standards`, WCAG vs white
 paper), layer sets (`CONSTRUCTION` / `SERVICES` / `ELECTRICAL` / `PRESENTATION`),
-light print-preview GUI, `MLEADER`, `STRETCH`, `SECTION`, block/hatch libraries,
-vector brush.
+light print-preview GUI, `MLEADER`, `STRETCH`, `SECTION`,
+[block / hatch / detail libraries](../libraries/README.md), vector brush.
 
 ---
 
