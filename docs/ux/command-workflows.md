@@ -187,7 +187,11 @@ objects and decides which endpoints move.
 | 3 | Base point |
 | 4 | Destination |
 
-Pre-selected objects skip step 1 (noun-verb) and move as a whole.
+Pre-selected objects skip step 1 (noun-verb). If the pre-selection was a plain
+rubber-band box (not individual clicks), that box is replayed as the crossing
+window, so it still stretches rather than moves — matching AutoCAD. Any other
+pre-selection (individual picks, or a selection that's since changed) moves as
+a whole, since there's no window to derive per-endpoint moves from.
 
 **Element filter.** At the crossing-window prompt, type a keyword to limit the
 window to a building-element group (toggle on/off; combine several):

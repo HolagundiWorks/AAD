@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Align on ShilpiDB's protocol: removed the parallel `aadt-vdb-proto`
+
+- AADT talks to a `shilpid` server through `VdbClient` → `shilpi-client` →
+  ShilpiDB's `shilpi-protocol`, and embeds the `shilpidb` engine (codec +
+  `SpatialGrid`) for `.vdb` files. `aadt-vdb-proto` was a second, AADT-native
+  wire protocol ("VDBP") scaffolded before `shilpi-client` existed; it was
+  never wired into anything and duplicated ShilpiDB's own protocol. Removed
+  the crate and its workspace member/dependency entries.
+- Fixed the stale `aadt-vdb/lib.rs` comment: the codec is re-exported so the
+  on-disk `.vdb` shares ShilpiDB's encoding; the wire protocol is
+  `shilpi-protocol` (via `shilpi-client`/`VdbClient`), not this crate.
+- [docs/plans/shilpidb-standalone-server.md](plans/shilpidb-standalone-server.md)
+  marked superseded — the server shipped in the ShilpiDB repo itself
+  (`shilpid`/`shilpi`/`shilpi-protocol`/`shilpi-client`) — and the planned
+  `aadt-*` crate names are mapped to their real homes. New
+  [docs/architecture/aadt-shilpidb-architecture.md](architecture/aadt-shilpidb-architecture.md)
+  is the current developer-facing spec for how AADT and ShilpiDB fit together.
+- `cargo fmt --all` applied workspace-wide to clear accumulated rustfmt drift
+  (CI runs `cargo fmt --check`; local verification had relied on build/test/
+  clippy only).
+
 ### New/Open no longer discard unsaved work unrecoverably
 
 - Ctrl+N and Ctrl+O (and their toolbar buttons) replace the whole `Document` —
