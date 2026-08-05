@@ -199,8 +199,17 @@ fn copy_object_tables(src: &Connection, dst: &Connection) -> Result<(), StoreErr
         }
     }
     {
+        let _ = src.execute(
+            "ALTER TABLE object_audit ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = src.execute(
+            "ALTER TABLE object_audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         let mut q = src.prepare(
-            "SELECT seq, at_unix, user, action, object_id, prev, new, ai, approved, reason
+            "SELECT seq, at_unix, user, action, object_id, prev, new, ai, approved, reason,
+                    prev_hash, hash
              FROM object_audit",
         )?;
         type AuditRow = (
@@ -213,6 +222,8 @@ fn copy_object_tables(src: &Connection, dst: &Connection) -> Result<(), StoreErr
             String,
             i64,
             i64,
+            String,
+            String,
             String,
         );
         let rows: Vec<AuditRow> = q
@@ -228,16 +239,20 @@ fn copy_object_tables(src: &Connection, dst: &Connection) -> Result<(), StoreErr
                     r.get(7)?,
                     r.get(8)?,
                     r.get(9)?,
+                    r.get(10)?,
+                    r.get(11)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         let mut ins = dst.prepare(
             "INSERT INTO object_audit
-             (seq, at_unix, user, action, object_id, prev, new, ai, approved, reason)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (seq, at_unix, user, action, object_id, prev, new, ai, approved, reason, prev_hash, hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         )?;
         for r in rows {
-            ins.execute(params![r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7, r.8, r.9])?;
+            ins.execute(params![
+                r.0, r.1, r.2, r.3, r.4, r.5, r.6, r.7, r.8, r.9, r.10, r.11
+            ])?;
         }
     }
     Ok(())

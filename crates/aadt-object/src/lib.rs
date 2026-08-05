@@ -9,11 +9,20 @@
 //! The crate also provides the **append-only audit log** of the vision's
 //! security model: every object mutation records who / when / what / prev / new
 //! / AI-suggested / approval / reason. Nothing is deleted; everything is
-//! versioned.
+//! versioned. M14.3 adds an optional HMAC-SHA256 hash chain over each entry.
+//! M14.2 adds principals, capability sets, and per-object ACL props.
+
+pub mod hmac;
+pub mod perms;
 
 use std::collections::BTreeMap;
 
 use aadt_model::EntityId;
+
+pub use perms::{
+    allows_object, clear_object_acl, command_capability, list_object_acl, object_acl, set_object_acl,
+    Capability, CapabilitySet, ObjectAccess, Principal, Role,
+};
 
 /// Stable id of an engineering object within a drawing's object store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -210,6 +219,34 @@ pub struct AuditEntry {
     pub approved: bool,
     /// Free-form reason.
     pub reason: String,
+    /// Hex HMAC of the previous entry (`""` = genesis or unsigned legacy).
+    pub prev_hash: String,
+    /// Hex HMAC-SHA256 of this entry's canonical payload (`""` = unsigned).
+    pub hash: String,
+}
+
+impl AuditEntry {
+    /// Canonical bytes hashed for [`AuditEntry::hash`] (excludes `hash` itself).
+    pub fn canonical_payload(&self) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&self.seq.to_le_bytes());
+        buf.extend_from_slice(&self.at_unix.to_le_bytes());
+        buf.extend_from_slice(self.user.as_bytes());
+        buf.push(0);
+        buf.extend_from_slice(self.action.as_bytes());
+        buf.push(0);
+        buf.extend_from_slice(&self.object.0.to_le_bytes());
+        buf.extend_from_slice(self.prev.as_bytes());
+        buf.push(0);
+        buf.extend_from_slice(self.new.as_bytes());
+        buf.push(0);
+        buf.push(u8::from(self.ai_suggested));
+        buf.push(u8::from(self.approved));
+        buf.extend_from_slice(self.reason.as_bytes());
+        buf.push(0);
+        buf.extend_from_slice(self.prev_hash.as_bytes());
+        buf
+    }
 }
 
 /// Append-only audit log. Entries are never removed or rewritten.
@@ -217,6 +254,8 @@ pub struct AuditEntry {
 pub struct AuditLog {
     entries: Vec<AuditEntry>,
     next_seq: u64,
+    /// When set, new entries are HMAC-chained; [`AuditLog::verify_chain`] checks them.
+    signing_key: Option<Vec<u8>>,
 }
 
 /// The current OS user, best-effort (`local` when unknown).
@@ -238,7 +277,18 @@ impl AuditLog {
         Self::default()
     }
 
+    /// Install (or clear) the HMAC signing key used for new entries.
+    pub fn set_signing_key(&mut self, key: Option<Vec<u8>>) {
+        self.signing_key = key.filter(|k| !k.is_empty());
+    }
+
+    /// Whether new entries will be signed.
+    pub fn is_signing(&self) -> bool {
+        self.signing_key.is_some()
+    }
+
     /// Append a new entry (seq + timestamp + user filled in). Returns its seq.
+    /// When a signing key is set, fills `prev_hash` / `hash` (HMAC-SHA256).
     #[allow(clippy::too_many_arguments)]
     pub fn record(
         &mut self,
@@ -252,7 +302,12 @@ impl AuditLog {
     ) -> u64 {
         self.next_seq += 1;
         let seq = self.next_seq;
-        self.entries.push(AuditEntry {
+        let prev_hash = self
+            .entries
+            .last()
+            .map(|e| e.hash.clone())
+            .unwrap_or_default();
+        let mut entry = AuditEntry {
             seq,
             at_unix: now_unix(),
             user: current_user(),
@@ -263,11 +318,18 @@ impl AuditLog {
             ai_suggested,
             approved,
             reason: reason.into(),
-        });
+            prev_hash,
+            hash: String::new(),
+        };
+        if let Some(key) = &self.signing_key {
+            let mac = hmac::hmac_sha256(key, &entry.canonical_payload());
+            entry.hash = hmac::hex_encode(&mac);
+        }
+        self.entries.push(entry);
         seq
     }
 
-    /// Restore a persisted entry (advances the sequence).
+    /// Restore a persisted entry (advances the sequence). Does not re-sign.
     pub fn restore(&mut self, entry: AuditEntry) {
         self.next_seq = self.next_seq.max(entry.seq);
         self.entries.push(entry);
@@ -289,6 +351,32 @@ impl AuditLog {
     /// Entries touching one object, oldest first.
     pub fn for_object(&self, id: ObjectId) -> Vec<&AuditEntry> {
         self.entries.iter().filter(|e| e.object == id).collect()
+    }
+
+    /// Verify the HMAC chain. Unsigned (empty-hash) entries are skipped.
+    /// Returns `Ok(n)` signed entries checked, or `Err(seq)` of the first bad one.
+    pub fn verify_chain(&self, key: &[u8]) -> Result<usize, u64> {
+        let mut checked = 0usize;
+        for (i, e) in self.entries.iter().enumerate() {
+            if e.hash.is_empty() {
+                continue;
+            }
+            if !e.prev_hash.is_empty() {
+                let ok = i
+                    .checked_sub(1)
+                    .and_then(|j| self.entries.get(j))
+                    .is_some_and(|prev| prev.hash == e.prev_hash);
+                if !ok {
+                    return Err(e.seq);
+                }
+            }
+            let mac = hmac::hmac_sha256(key, &e.canonical_payload());
+            if e.hash != hmac::hex_encode(&mac) {
+                return Err(e.seq);
+            }
+            checked += 1;
+        }
+        Ok(checked)
     }
 }
 
@@ -389,5 +477,19 @@ mod tests {
         }
         let c = log2.record("x", ObjectId(2), "", "", false, true, "");
         assert!(c > b);
+    }
+
+    #[test]
+    fn signed_audit_chain_verifies_and_detects_tamper() {
+        let mut log = AuditLog::new();
+        log.set_signing_key(Some(b"test-key".to_vec()));
+        log.record("promote", ObjectId(1), "", "Wall", false, true, "detect");
+        log.record("update", ObjectId(1), "Wall", "Wall2", false, true, "edit");
+        assert_eq!(log.verify_chain(b"test-key"), Ok(2));
+        assert!(!log.entries()[0].hash.is_empty());
+        assert_eq!(log.entries()[1].prev_hash, log.entries()[0].hash);
+        log.entries[1].new = "tampered".into();
+        // Recompute would fail — hash no longer matches payload.
+        assert_eq!(log.verify_chain(b"test-key"), Err(2));
     }
 }

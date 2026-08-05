@@ -15,7 +15,9 @@
 //! share (see `shell.rs`).
 
 mod commands;
+mod enterprise;
 mod shell;
+mod site_ingest;
 
 use std::process::ExitCode;
 
@@ -441,6 +443,8 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
     let mut read_only = false;
     let mut once = false;
     let mut input: Option<String> = None;
+    let mut identity: Option<String> = None;
+    let mut role: Option<aadt_object::Role> = None;
 
     let mut it = args.iter();
     while let Some(arg) = it.next() {
@@ -452,6 +456,14 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
                     .map_err(|_| format!("--port expects 0-65535, got {raw:?}"))?;
             }
             "--token" => token = Some(expect_value(&mut it, "--token")?),
+            "--identity" | "--principal" => identity = Some(expect_value(&mut it, "--identity")?),
+            "--role" => {
+                let raw = expect_value(&mut it, "--role")?;
+                role = Some(
+                    crate::enterprise::parse_role(&raw)
+                        .ok_or_else(|| format!("--role expects viewer|editor|connector|admin, got {raw:?}"))?,
+                );
+            }
             "--read-only" => read_only = true,
             "--once" => once = true,
             other if other.starts_with('-') => return Err(format!("unknown option {other:?}")),
@@ -480,6 +492,12 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
     let mut cfg = aadt_api::ApiConfig::new(port, read_only);
     if let Some(t) = token {
         cfg = cfg.with_token(t);
+    }
+    if let Some(id) = identity {
+        cfg = cfg.with_principal(id);
+    }
+    if let Some(r) = role {
+        cfg = cfg.with_role(r);
     }
     let server =
         aadt_api::ApiServer::bind(cfg).map_err(|e| format!("binding 127.0.0.1:{port}: {e}"))?;
@@ -517,7 +535,8 @@ Usage:
   aadt pdf <input.dxf> --out <out.pdf>    Plot a DXF to a vector PDF
   aadt compare <before.dxf> <after.dxf>   Diff two revisions and narrate the changes
   aadt serve [drawing]                    Serve the local HTTP/JSON API on 127.0.0.1 (token printed)
-      [--port 7421] [--token T] [--read-only] [--once]
+      [--port 7421] [--token T] [--identity N] [--role viewer|editor|connector|admin]
+      [--read-only] [--once]
   aadt app [input.dxf]                    Launch the egui desktop shell (needs --features app)
 
 Options:

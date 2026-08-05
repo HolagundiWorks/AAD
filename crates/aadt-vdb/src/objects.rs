@@ -1,6 +1,8 @@
-//! `.vdb` v2 sections: the Object DB, Graph DB, and object audit log
-//! (AI-native Phase 1). Written after the spatial index; absent in v1 files,
-//! which load with empty stores.
+//! `.vdb` object sections: Object DB, Graph DB, and object audit log
+//! (AI-native Phase 1; M14.3 adds HMAC fields on audit entries).
+//!
+//! Written after the spatial index. Absent in v1 files (empty stores).
+//! Format version 2 = unsigned audit; version 3 = prev_hash + hash strings.
 
 use std::collections::BTreeMap;
 
@@ -10,7 +12,8 @@ use aadt_object::{AuditEntry, AuditLog, EngObject, ObjectId, ObjectKind, ObjectS
 
 use crate::buf::{Reader, VdbError, Writer};
 
-/// Serialize objects + graph + audit.
+/// Serialize objects + graph + audit (always writes hash fields — callers bump
+/// the file format to v3 when signing is in use; empty hashes are fine on v3).
 pub fn write_sections(w: &mut Writer, objects: &ObjectStore, graph: &Graph, audit: &AuditLog) {
     w.u32(objects.len() as u32);
     for o in objects.iter() {
@@ -48,11 +51,17 @@ pub fn write_sections(w: &mut Writer, objects: &ObjectStore, graph: &Graph, audi
         w.bool(a.ai_suggested);
         w.bool(a.approved);
         w.str(&a.reason);
+        w.str(&a.prev_hash);
+        w.str(&a.hash);
     }
 }
 
-/// Deserialize sections produced by [`write_sections`].
-pub fn read_sections(r: &mut Reader) -> Result<(ObjectStore, Graph, AuditLog), VdbError> {
+/// Deserialize sections. `signed` selects whether hash fields follow each reason
+/// (`true` for format ≥ 3, `false` for format 2).
+pub fn read_sections(
+    r: &mut Reader,
+    signed: bool,
+) -> Result<(ObjectStore, Graph, AuditLog), VdbError> {
     let mut objects = ObjectStore::new();
     let n = r.u32()? as usize;
     for _ in 0..n {
@@ -98,7 +107,7 @@ pub fn read_sections(r: &mut Reader) -> Result<(ObjectStore, Graph, AuditLog), V
     let mut audit = AuditLog::new();
     let n = r.u32()? as usize;
     for _ in 0..n {
-        audit.restore(AuditEntry {
+        let mut entry = AuditEntry {
             seq: r.u64()?,
             at_unix: r.u64()?,
             user: r.str()?,
@@ -109,7 +118,14 @@ pub fn read_sections(r: &mut Reader) -> Result<(ObjectStore, Graph, AuditLog), V
             ai_suggested: r.bool()?,
             approved: r.bool()?,
             reason: r.str()?,
-        });
+            prev_hash: String::new(),
+            hash: String::new(),
+        };
+        if signed {
+            entry.prev_hash = r.str()?;
+            entry.hash = r.str()?;
+        }
+        audit.restore(entry);
     }
 
     Ok((objects, graph, audit))

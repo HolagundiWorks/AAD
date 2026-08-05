@@ -46,6 +46,9 @@ pub fn handle(req: &Request, session: &mut Session, cfg: &ApiConfig) -> Handled 
     if let Some(denied) = authorize(req, cfg) {
         return Handled::ok(denied);
     }
+    if let Some(denied) = authorize_route(req, cfg) {
+        return Handled::ok(denied);
+    }
     let path = req.path.trim_end_matches('/');
     let path = if path.is_empty() { "/" } else { path };
 
@@ -116,6 +119,31 @@ fn authorize(req: &Request, cfg: &ApiConfig) -> Option<Response> {
     }
 }
 
+/// After the token gate: does this route need a capability the principal lacks?
+fn authorize_route(req: &Request, cfg: &ApiConfig) -> Option<Response> {
+    use aadt_object::Capability;
+    let path = req.path.trim_end_matches('/');
+    let path = if path.is_empty() { "/" } else { path };
+    let need = match (req.method.as_str(), path) {
+        ("POST", "/v1/command") => Capability::Command,
+        ("POST", "/v1/shutdown") => Capability::Admin,
+        _ => Capability::Read,
+    };
+    if cfg.can(need) {
+        None
+    } else {
+        Some(Response::error(
+            403,
+            &format!(
+                "principal {:?} lacks {:?} (role caps: {})",
+                cfg.principal,
+                format!("{need:?}").to_ascii_lowercase(),
+                cfg.caps.names().join(",")
+            ),
+        ))
+    }
+}
+
 /// Compare without an early exit on the first differing byte.
 ///
 /// The token is short-lived and loopback-only, so this is defence in depth
@@ -163,6 +191,11 @@ fn health(session: &Session, cfg: &ApiConfig) -> Response {
             ("status", json::string("ok")),
             ("version", json::string(env!("CARGO_PKG_VERSION"))),
             ("read_only", json::bool_(cfg.read_only)),
+            ("principal", json::string(&cfg.principal)),
+            (
+                "capabilities",
+                json::string_array(cfg.caps.names()),
+            ),
             ("entities", json::int(session.document().len() as u64)),
             ("revision", json::int(session.document().revision())),
         ]),
@@ -482,6 +515,18 @@ fn command(req: &Request, session: &mut Session, cfg: &ApiConfig) -> Response {
         );
     }
 
+    // M14.2: fine-grained capability on the command verb (OBJECTS RUN, CONNECTOR, …).
+    let need = aadt_object::command_capability(line);
+    if !cfg.can(need) {
+        return Response::error(
+            403,
+            &format!(
+                "principal {:?} cannot run {line:?} (needs {:?})",
+                cfg.principal, need
+            ),
+        );
+    }
+
     let before = session.document().revision();
     let feedback = session.feed(line);
     let doc = session.document();
@@ -503,6 +548,7 @@ fn command(req: &Request, session: &mut Session, cfg: &ApiConfig) -> Response {
             "selection",
             json::array(session.selection().iter().map(|id| json::int(id.0))),
         ),
+        ("principal", json::string(&cfg.principal)),
     ]);
     // A rejected command is a successfully handled request that reports a
     // failed command: 200 with `"status":"error"`. Mapping it to 400 would
@@ -518,11 +564,7 @@ mod tests {
     const TOKEN: &str = "test-token";
 
     fn cfg(read_only: bool) -> ApiConfig {
-        ApiConfig {
-            port: 0,
-            token: TOKEN.to_string(),
-            read_only,
-        }
+        ApiConfig::new(0, read_only).with_token(TOKEN)
     }
 
     fn get(path: &str) -> Request {
@@ -535,6 +577,25 @@ mod tests {
 
     fn run(req: &Request, session: &mut Session) -> Response {
         handle(req, session, &cfg(false)).response
+    }
+
+    #[test]
+    fn viewer_role_cannot_run_commands() {
+        let mut s = Session::with_builtins();
+        let cfg = ApiConfig::new(0, false)
+            .with_token(TOKEN)
+            .with_role(aadt_object::Role::Viewer);
+        let res = handle(
+            &post("/v1/command", r#"{"line":"LINE 0 0 1 0"}"#),
+            &mut s,
+            &cfg,
+        )
+        .response;
+        assert_eq!(res.status, 403);
+        assert_eq!(s.document().len(), 0);
+        let health = handle(&get("/v1/health"), &mut s, &cfg).response;
+        assert_eq!(health.status, 200);
+        assert!(health.body.contains(r#""capabilities""#));
     }
 
     #[test]

@@ -140,18 +140,20 @@ input (a plan has no height). Openings without drawn dimensions use defaults and
 are flagged `measured: false`, and `TAKEOFF` reports the count — so an estimator
 confirms exactly the assumed figures instead of discovering one mid-tender.
 
-## Phase 5 — Enterprise + APIs — ⏳ API layer shipped as **M14.1**
+## Phase 5 — Enterprise + APIs — ✅ shipped as **M14**
 
-Tracked as [ROADMAP M14](../ROADMAP.md#m14--ai-native-phase-5-enterprise--apis--api-layer-);
-recorded in [ADR-0015](../adr/0015-local-api-layer.md).
+Tracked as [ROADMAP M14](../ROADMAP.md#m14--ai-native-phase-5-enterprise--apis-);
+recorded in [ADR-0015](../adr/0015-local-api-layer.md) +
+[ADR-0016](../adr/0016-m14-enterprise.md).
 
 - ✅ **API layer:** `aadt-api` serves a loopback-only, token-gated HTTP/JSON API
   over a live `Session`, started explicitly by `aadt serve`. Std-only — no
   `tokio`, `hyper`, or `serde` — matching the dependency posture of the `.vdb`
   and PDF codecs. [Endpoint reference](../api/README.md).
-- ⬜ Enterprise connectors (ERP/BOQ/RFI/document management) as **plugins** over
-  that API; site data (photos, reports) ingested into the Vector DB.
-- ⬜ Permissions on objects; signed audit trail.
+- ✅ **Permissions + signed audit:** principal/role caps on the token;
+  `PERMS` + object `acl.*` props; HMAC audit chain via `AADT_AUDIT_KEY`.
+- ✅ **Connectors + site ingest:** `CONNECTOR` ERP/RFI/DMS sidecar plugins;
+  `SITE INDEX` / `ASKDOCS INDEX PHOTO|PDF|REPORT` → corpus.
 
 **REST reads, but not REST writes.** The API exposes eleven read routes and a
 single write route that takes a *command line*. A `POST /v1/entities` would be a

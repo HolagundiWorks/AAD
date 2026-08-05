@@ -127,7 +127,7 @@ whether retrying differently could ever help.
   diffed, cached, and golden-tested.
 - **Edits live in memory until a `SAVE` command.** The server does not
   autosave; a caller that wants a file writes one, exactly as at the prompt.
-- **Deferred to later Phase 5 increments:** object-level permissions, a signed
-  audit trail, and connectors as plugins over this API. The endpoints here are
-  their substrate; none of them is assumed by the current design beyond leaving
-  room for an authorisation check where the token gate now sits.
+- **Deferred originally; shipped in [ADR-0016](0016-m14-enterprise.md):**
+  object-level permissions, a signed audit trail, connectors as command
+  plugins, and site-data corpus ingest. The endpoints here remain their
+  substrate — still no second write door.

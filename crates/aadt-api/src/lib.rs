@@ -53,6 +53,7 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
 use aadt_app::Session;
+use aadt_object::{Capability, CapabilitySet, Role};
 
 pub use routes::{handle, Handled, API_VERSION};
 
@@ -76,15 +77,25 @@ pub struct ApiConfig {
     pub token: String,
     /// Refuse `POST /v1/command`, serving reads only.
     pub read_only: bool,
+    /// Identity attached to the token (M14.2). Shown in health / PERMS WHOAMI.
+    pub principal: String,
+    /// Capabilities granted to holders of this token (M14.2).
+    pub caps: CapabilitySet,
 }
 
 impl ApiConfig {
-    /// A configuration with a freshly generated token.
+    /// A configuration with a freshly generated token and admin capabilities.
     pub fn new(port: u16, read_only: bool) -> Self {
+        let mut caps = Role::Admin.capabilities();
+        if read_only {
+            caps = Role::Viewer.capabilities();
+        }
         Self {
             port,
             token: generate_token(),
             read_only,
+            principal: aadt_object::current_user(),
+            caps,
         }
     }
 
@@ -92,6 +103,32 @@ impl ApiConfig {
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         self.token = token.into();
         self
+    }
+
+    /// Bind the token to a named principal.
+    pub fn with_principal(mut self, id: impl Into<String>) -> Self {
+        self.principal = id.into();
+        self
+    }
+
+    /// Restrict (or expand) the token's capability set via a named role.
+    pub fn with_role(mut self, role: Role) -> Self {
+        self.caps = role.capabilities();
+        if self.read_only {
+            // read_only always wins over a write-capable role.
+            self.caps = Role::Viewer.capabilities();
+        }
+        self
+    }
+
+    /// Direct capability override (for tests).
+    pub fn with_caps(mut self, caps: CapabilitySet) -> Self {
+        self.caps = caps;
+        self
+    }
+
+    pub fn can(&self, c: Capability) -> bool {
+        self.caps.has(c)
     }
 }
 

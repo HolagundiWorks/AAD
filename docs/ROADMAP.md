@@ -68,7 +68,7 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 | Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.dwg` / `.aadt` / `.vdb`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
 | AAD | `SECTION` `STANDARDS` `BLOCKLIB` |
-| Intelligence | `OBJECTS`/`RELATIONS` · `TAKEOFF`/`BOQ` |
+| Intelligence | `OBJECTS`/`RELATIONS` · `TAKEOFF`/`BOQ` · `PERMS` · `CONNECTOR` · `SITE` |
 | Assist (proposes, never commits) | `FIND` `ASKDOCS` · `SUGGEST` `CHECK` `ASK` · `COMPARE` (`DIFF`/`REVCOMPARE`) · `RECOMMEND DETAIL` (`DETAIL`/`DETAILS`) |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
 
@@ -349,19 +349,20 @@ report rather than presented as measurements.
 **Deliberately not in M13:** pricing. The bill carries quantities and cost codes;
 rates belong to the estimator's system.
 
-## M14 — AI-Native Phase 5: enterprise + APIs ⏳ (API layer ✅)
+## M14 — AI-Native Phase 5: enterprise + APIs ✅
 
-Fifth implementation phase ([ADR-0015](adr/0015-local-api-layer.md)). Phases 1–4
-made the drawing understandable to this program; Phase 5 makes it reachable from
-others — without giving anything else authority over the geometry.
+Fifth implementation phase ([ADR-0015](adr/0015-local-api-layer.md),
+[ADR-0016](adr/0016-m14-enterprise.md)). Phases 1–4 made the drawing
+understandable to this program; Phase 5 makes it reachable from others —
+without giving anything else authority over the geometry.
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
 | M14.1 | `aadt-api` — **local HTTP/JSON API** over a live `Session`: loopback-only, token-gated, std-only (no `tokio`/`hyper`/`serde`). Surface is `aadt serve [drawing] [--port] [--token] [--read-only] [--once]` | ✅ | Eleven routes ([reference](api/README.md)). Reads project the session; the **one** write path is `POST /v1/command` — the same line a user types, so an API caller inherits the same validation, undo record, and history entry |
-| M14.2 | Object-level permissions | ⬜ | The authorisation check slots in where the token gate now sits |
-| M14.3 | Signed audit trail | ⬜ | Extends the M10.2 append-only object audit |
-| M14.4 | Enterprise connectors (ERP / BOQ / RFI / DMS) as plugins over the API | ⬜ | Includes M13's deferred "reports as plugins" |
-| M14.5 | Site data (photos, reports) ingested into the Vector DB | ⬜ | Needs the PDF/image ingestion left open in M11 |
+| M14.2 | Object-level permissions | ✅ | Token → principal + role caps (`--identity` / `--role`); route + command-verb gates; per-object `acl.*` props via `PERMS GRANT/REVOKE/SHOW` ([ADR-0016](adr/0016-m14-enterprise.md)) |
+| M14.3 | Signed audit trail | ✅ | Optional HMAC-SHA256 chain on `AuditEntry` (`AADT_AUDIT_KEY`); `OBJECTS AUDIT VERIFY`; `.aadt` schema v10 + `.vdb` v3 |
+| M14.4 | Enterprise connectors (ERP / BOQ / RFI / DMS) as plugins over the API | ✅ | `CONNECTOR ERP/RFI/DMS` commands emit sidecar payloads; reachable over `POST /v1/command` (needs `connector` cap) |
+| M14.5 | Site data (photos, reports) ingested into the Vector DB | ✅ | `SITE INDEX` / `ASKDOCS INDEX PHOTO\|PDF\|REPORT` → corpus text chunks (caption + PDF literals); retrieval via `ASKDOCS` |
 
 **Deliberately not in M14.1:** a REST-shaped write API (`POST /v1/entities`).
 A second door into the document means every invariant the command layer enforces

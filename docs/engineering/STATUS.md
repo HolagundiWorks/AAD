@@ -18,8 +18,8 @@ Legend: **Current** = shipped in tree · **Target** = ADR / ROADMAP / ShilpiDB a
 | 8 | Modify | Full daily modify band via `Command::run` + `Tool` phases | — (band locked) | Firm suites line-only; no Tool for many cmds | `aadt-command`, `gui.rs` |
 | 9 | Rendering | egui `Painter` over `DrawList`; optional wgpu | Viewport text glyphs; wgpu if needed | Display-bound polish | `aadt-render`, `gui.rs` |
 | 10 | Undo | `Document::transact` / undo / redo | — | Nested txn forbidden; OPEN clears history; HISTORY ≠ undo | `aadt-model`, `aadt-store` |
-| 11 | AI / semantic | Assist propose/apply; FIND/ASK/MAPMETA/… | M14.2+ permissions, ERP, site ingest | Assist never auto-commits (by design) | `aadt-assist`, `aadt-object`, `aadt-vecdb` |
-| 12 | Plugin / API | `Registry::register`; `POST /v1/command`; LISP | No entity POST; later plugin ABI | M14.1 done; later milestones open | `aadt-api`, `aadt-cli`, `aadt-lisp` |
+| 11 | AI / semantic | Assist propose/apply; FIND/ASK/MAPMETA/…; M14 perms+connectors+site | Phase 6 geometry TBD | Assist never auto-commits (by design) | `aadt-assist`, `aadt-object`, `aadt-vecdb` |
+| 12 | Plugin / API | `Registry::register`; `POST /v1/command`; LISP; M14.2–5 done | No entity POST | M14 complete ([ADR-0016](../adr/0016-m14-enterprise.md)) | `aadt-api`, `aadt-cli`, `aadt-lisp` |
 | 13 | Perf / spatial | Drawlist cache; `SpatialGrid` in `.vdb` | Wire grid into GUI pick/osnap; R-tree option | Pick/osnap still linear over active space | `aadt-vdb`, `aadt-app` |
 | 14 | Testing | Headless command + model tests; goldens | Broader GUI contracts | egui shell not headless-verified | crate `tests/`, `aadt-command` |
 | 15 | Coding standards | feed-only mutation; curated band; AAD Chrome | Documented in this handbook | Enforce via review, not CI lints yet | this handbook + ADRs |

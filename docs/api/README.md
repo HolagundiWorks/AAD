@@ -14,6 +14,7 @@ aadt serve                          # 127.0.0.1:7421, token printed once
 aadt serve plan.dxf --port 8080     # open a drawing first (OPEN's format routing)
 aadt serve --read-only              # reads only; POST /v1/command is refused
 aadt serve --token dev --once       # fixed token, answer one request, exit
+aadt serve --identity erp-bot --role connector   # M14.2 principal + caps
 ```
 
 `--port 0` asks the OS for a free port; the banner reports the one it got.
@@ -34,6 +35,22 @@ Authorization: Bearer <token>
 
 `X-Aadt-Token: <token>` is accepted as an alternative for clients that cannot
 set `Authorization`. Anything else answers `401`.
+
+After the token check, **M14.2** applies the principal's capability set
+(`--role viewer|editor|connector|admin`). A viewer can read; `POST /v1/command`
+needs `command` (and finer verb checks for `OBJECTS RUN`, `CONNECTOR`, …).
+`POST /v1/shutdown` needs `admin`. Health reports `principal` and
+`capabilities`.
+
+Object ACLs: `PERMS GRANT alice rw 12` stores `acl.alice=rw` on object #12.
+Signed audit: set `AADT_AUDIT_KEY` and run `OBJECTS AUDIT VERIFY`.
+
+Enterprise connectors and site ingest go through the same command door:
+
+```bash
+curl … -d '{"line":"CONNECTOR ERP PUSH BOQ out.csv"}'
+curl … -d '{"line":"SITE INDEX PHOTO site/wall.jpg --caption north crack"}'
+```
 
 ## Routes
 

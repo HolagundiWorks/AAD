@@ -59,7 +59,7 @@ pub fn register(interp: &mut Interpreter) {
     }));
     registry.register(Box::new(RecommendCmd {
         st: suggestions,
-        corpus,
+        corpus: corpus.clone(),
     }));
     registry.register(Box::new(AskCmd));
     registry.register(Box::new(TakeoffCmd));
@@ -67,7 +67,14 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(ObjectsCmd {
         st: objstate.clone(),
     }));
-    registry.register(Box::new(RelationsCmd { st: objstate }));
+    registry.register(Box::new(RelationsCmd {
+        st: objstate.clone(),
+    }));
+    registry.register(Box::new(crate::enterprise::PermsCmd {
+        st: objstate.clone(),
+    }));
+    registry.register(Box::new(crate::enterprise::ConnectorCmd { st: objstate }));
+    registry.register(Box::new(crate::enterprise::SiteCmd { corpus }));
     registry.register(Box::new(LayerSetCmd));
     registry.register(Box::new(StandardsCmd));
     registry.register(Box::new(LayerReportCmd));
@@ -991,17 +998,17 @@ impl Command for MapMetaCmd {
 /// Phase 1): the promoted objects, relationship graph, and append-only audit
 /// log, synced against the drawing's `.aadt` path.
 #[derive(Default)]
-struct ObjState {
-    objects: ObjectStore,
-    graph: Graph,
-    audit: AuditLog,
+pub(crate) struct ObjState {
+    pub(crate) objects: ObjectStore,
+    pub(crate) graph: Graph,
+    pub(crate) audit: AuditLog,
     path: Option<String>,
     loaded: bool,
 }
 
 impl ObjState {
     /// (Re)load persisted objects when the drawing path changes.
-    fn sync(&mut self, ctx: &Context) {
+    pub(crate) fn sync(&mut self, ctx: &Context) {
         let path = ctx.drawing_path.clone();
         if self.loaded && self.path == path {
             return;
@@ -1029,12 +1036,22 @@ impl ObjState {
             }
             _ => {}
         }
+        apply_audit_key(&mut self.audit);
     }
 
     /// Persist to the drawing's `.aadt` file, if there is one.
-    fn persist(&self) {
+    pub(crate) fn persist(&self) {
         if let Some(p) = self.path.as_ref().filter(|p| is_aadt_path(p)) {
             let _ = aadt_store::write_objects_path(p, &self.objects, &self.graph, &self.audit);
+        }
+    }
+}
+
+/// Honour `AADT_AUDIT_KEY` so new audit rows are HMAC-chained (M14.3).
+fn apply_audit_key(audit: &mut AuditLog) {
+    if let Ok(key) = std::env::var("AADT_AUDIT_KEY") {
+        if !key.is_empty() {
+            audit.set_signing_key(Some(key.into_bytes()));
         }
     }
 }
@@ -1132,37 +1149,62 @@ impl Command for ObjectsCmd {
                 Ok(out)
             }
             "AUDIT" => {
-                if st.audit.is_empty() {
-                    return Ok("audit log is empty".into());
+                let verify = args
+                    .get(1)
+                    .map(|s| s.eq_ignore_ascii_case("VERIFY"))
+                    .unwrap_or(false);
+                if verify {
+                    let key = std::env::var("AADT_AUDIT_KEY").unwrap_or_default();
+                    if key.is_empty() {
+                        return Err(
+                            "OBJECTS AUDIT VERIFY: set AADT_AUDIT_KEY to verify signatures".into(),
+                        );
+                    }
+                    match st.audit.verify_chain(key.as_bytes()) {
+                        Ok(0) => Ok(
+                            "OBJECTS AUDIT VERIFY: no signed entries (legacy unsigned log)".into(),
+                        ),
+                        Ok(n) => Ok(format!(
+                            "OBJECTS AUDIT VERIFY: ok — {n} signed entr{} verified",
+                            if n == 1 { "y" } else { "ies" }
+                        )),
+                        Err(seq) => Err(format!(
+                            "OBJECTS AUDIT VERIFY: chain broken at seq {seq}"
+                        )),
+                    }
+                } else if st.audit.is_empty() {
+                    Ok("audit log is empty".into())
+                } else {
+                    let lines: Vec<String> = st
+                        .audit
+                        .entries()
+                        .iter()
+                        .rev()
+                        .take(20)
+                        .map(|e| {
+                            let sig = if e.hash.is_empty() { "" } else { " [signed]" };
+                            format!(
+                                "  [{}] {} {} #{} by {}{}{}{sig}",
+                                e.seq,
+                                e.action,
+                                e.new,
+                                e.object.0,
+                                e.user,
+                                if e.ai_suggested { " (AI)" } else { "" },
+                                if e.approved { " ✓" } else { " (pending)" },
+                            )
+                        })
+                        .collect();
+                    Ok(format!(
+                        "{} audit entr{} (latest first):\n{}",
+                        st.audit.len(),
+                        if st.audit.len() == 1 { "y" } else { "ies" },
+                        lines.join("\n")
+                    ))
                 }
-                let lines: Vec<String> = st
-                    .audit
-                    .entries()
-                    .iter()
-                    .rev()
-                    .take(20)
-                    .map(|e| {
-                        format!(
-                            "  [{}] {} {} #{} by {}{}{}",
-                            e.seq,
-                            e.action,
-                            e.new,
-                            e.object.0,
-                            e.user,
-                            if e.ai_suggested { " (AI)" } else { "" },
-                            if e.approved { " ✓" } else { " (pending)" },
-                        )
-                    })
-                    .collect();
-                Ok(format!(
-                    "{} audit entr{} (latest first):\n{}",
-                    st.audit.len(),
-                    if st.audit.len() == 1 { "y" } else { "ies" },
-                    lines.join("\n")
-                ))
             }
             other => Err(format!(
-                "OBJECTS: unknown subcommand {other:?} (LIST|INFO id|AUDIT)"
+                "OBJECTS: unknown subcommand {other:?} (LIST|INFO id|AUDIT [VERIFY])"
             )),
         }
     }
@@ -1492,11 +1534,44 @@ struct AskDocsCmd {
 
 /// Shared handle to the session's indexed corpus, so `ASKDOCS` and `CHECK`
 /// (which cites passages in its findings) read the same documents.
-type SharedCorpus = Rc<RefCell<Option<CorpusState>>>;
+pub(crate) type SharedCorpus = Rc<RefCell<Option<CorpusState>>>;
 
-struct CorpusState {
+pub(crate) struct CorpusState {
     corpus: CorpusDb,
     path: Option<String>,
+}
+
+/// Sync corpus state for `SITE` / helpers outside `AskDocsCmd`.
+pub(crate) fn askdocs_sync(st: &SharedCorpus, ctx: &Context) {
+    let path = ctx.drawing_path.clone();
+    let mut g = st.borrow_mut();
+    let reload = match &*g {
+        None => true,
+        Some(s) => s.path != path,
+    };
+    if reload {
+        let corpus = path
+            .as_ref()
+            .filter(|p| is_aadt_path(p))
+            .and_then(|p| aadt_store::read_corpus_path(p).ok().flatten())
+            .unwrap_or_default();
+        *g = Some(CorpusState { corpus, path });
+    }
+}
+
+/// Index text into the shared corpus and persist when possible.
+pub(crate) fn askdocs_index_text(st: &SharedCorpus, source: &str, text: &str) -> usize {
+    let added = {
+        let mut g = st.borrow_mut();
+        let state = g.as_mut().expect("corpus synced");
+        state.corpus.index_text(source, text)
+    };
+    if let Some(s) = st.borrow().as_ref() {
+        if let Some(p) = s.path.as_ref().filter(|p| is_aadt_path(p)) {
+            let _ = aadt_store::write_corpus_path(p, &s.corpus);
+        }
+    }
+    added
 }
 
 impl AskDocsCmd {
@@ -1531,19 +1606,64 @@ impl AskDocsCmd {
     }
 
     fn do_index(&self, args: &[String]) -> Result<String, String> {
-        let path = path_from_args(&args[1..], "ASKDOCS INDEX")?;
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("ASKDOCS INDEX: cannot read {path}: {e}"))?;
+        // ASKDOCS INDEX [PHOTO|PDF|REPORT] <path> [--caption …]
+        let kind = args
+            .get(1)
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        let (path, text, source) = match kind.as_str() {
+            "PHOTO" | "IMAGE" | "PDF" | "REPORT" => {
+                let path = args
+                    .get(2)
+                    .cloned()
+                    .ok_or_else(|| format!("ASKDOCS INDEX {kind}: missing path"))?;
+                let caption = {
+                    let mut c = None;
+                    let mut i = 0;
+                    while i < args.len() {
+                        if (args[i] == "--caption" || args[i] == "-c") && args.get(i + 1).is_some()
+                        {
+                            c = args.get(i + 1).cloned();
+                            break;
+                        }
+                        i += 1;
+                    }
+                    c
+                };
+                let text = match kind.as_str() {
+                    "PHOTO" | "IMAGE" => {
+                        crate::site_ingest::photo_text(&path, caption.as_deref())
+                    }
+                    _ => {
+                        let bytes = std::fs::read(&path)
+                            .map_err(|e| format!("ASKDOCS INDEX: cannot read {path}: {e}"))?;
+                        crate::site_ingest::report_text(&path, &bytes)
+                    }
+                };
+                let source =
+                    crate::site_ingest::source_label(&kind.to_ascii_lowercase(), &path);
+                (path, text, source)
+            }
+            _ => {
+                let path = path_from_args(&args[1..], "ASKDOCS INDEX")?;
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("ASKDOCS INDEX: cannot read {path}: {e}"))?;
+                let source = path.clone();
+                (path, text, source)
+            }
+        };
         let added = {
             let mut g = self.st.borrow_mut();
             let state = g.as_mut().expect("state synced");
-            state.corpus.index_text(&path, &text)
+            state.corpus.index_text(&source, &text)
         };
         self.persist();
         if added == 0 {
             return Ok(format!("ASKDOCS: {path} has no indexable text"));
         }
-        Ok(format!("ASKDOCS: indexed {added} passage(s) from {path}"))
+        Ok(format!(
+            "ASKDOCS: indexed {added} passage(s) from {path}"
+        ))
     }
 
     fn do_sources(&self) -> Result<String, String> {
@@ -1615,7 +1735,7 @@ impl Command for AskDocsCmd {
         &["DOCS", "RAG"]
     }
     fn help(&self) -> &str {
-        "ASKDOCS <question>|INDEX path|SOURCES — retrieve cited passages from indexed spec documents"
+        "ASKDOCS <question>|INDEX [PHOTO|PDF|REPORT] path|SOURCES — retrieve cited passages from indexed documents / site data"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         self.sync(ctx);
@@ -1662,6 +1782,7 @@ impl SuggestState {
                 self.audit = a;
             }
         }
+        apply_audit_key(&mut self.audit);
     }
 
     /// Persist the audit log, preserving whatever objects/graph are on disk.

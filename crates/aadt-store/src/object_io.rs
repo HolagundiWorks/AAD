@@ -66,8 +66,8 @@ pub fn write_objects(
         // Append-only: insert audit rows whose seq is not stored yet.
         let mut a = tx.prepare(
             "INSERT OR IGNORE INTO object_audit
-             (seq, at_unix, user, action, object_id, prev, new, ai, approved, reason)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (seq, at_unix, user, action, object_id, prev, new, ai, approved, reason, prev_hash, hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         )?;
         for e in audit.entries() {
             a.execute(params![
@@ -81,6 +81,8 @@ pub fn write_objects(
                 i64::from(e.ai_suggested),
                 i64::from(e.approved),
                 e.reason,
+                e.prev_hash,
+                e.hash,
             ])?;
         }
     }
@@ -180,8 +182,18 @@ pub fn read_objects(
 
     let mut audit = AuditLog::new();
     {
+        // Ensure M14.3 hash columns exist (no-op when already present).
+        let _ = conn.execute(
+            "ALTER TABLE object_audit ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE object_audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         let mut q = conn.prepare(
-            "SELECT seq, at_unix, user, action, object_id, prev, new, ai, approved, reason
+            "SELECT seq, at_unix, user, action, object_id, prev, new, ai, approved, reason,
+                    prev_hash, hash
              FROM object_audit ORDER BY seq",
         )?;
         let rows = q.query_map([], |r| {
@@ -196,6 +208,8 @@ pub fn read_objects(
                 ai_suggested: r.get::<_, i64>(7)? != 0,
                 approved: r.get::<_, i64>(8)? != 0,
                 reason: r.get(9)?,
+                prev_hash: r.get(10)?,
+                hash: r.get(11)?,
             })
         })?;
         for row in rows {

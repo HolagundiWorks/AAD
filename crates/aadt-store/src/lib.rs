@@ -42,7 +42,7 @@ pub use takeoff_db::{
 pub use vecdb_io::{read_vecdb, read_vecdb_path, write_vecdb, write_vecdb_path};
 
 /// Current on-disk schema version written into every new file.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 /// File-format / I/O errors for `.aadt` persistence.
 pub use codec::StoreError;
@@ -401,7 +401,9 @@ pub(crate) fn ensure_extended_tables(conn: &Connection) -> Result<(), StoreError
             new TEXT NOT NULL DEFAULT '',
             ai INTEGER NOT NULL DEFAULT 0,
             approved INTEGER NOT NULL DEFAULT 0,
-            reason TEXT NOT NULL DEFAULT ''
+            reason TEXT NOT NULL DEFAULT '',
+            prev_hash TEXT NOT NULL DEFAULT '',
+            hash TEXT NOT NULL DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS corpus_source (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -440,6 +442,9 @@ pub(crate) fn migrate_schema(conn: &Connection, from: i64) -> Result<(), StoreEr
     }
     if from < 9 {
         migrate_to_v9(conn)?;
+    }
+    if from < 10 {
+        migrate_to_v10(conn)?;
     }
     conn.execute(
         "INSERT INTO meta (key, value) VALUES ('schema_version', ?1)
@@ -541,6 +546,20 @@ pub(crate) fn migrate_to_v8(conn: &Connection) -> Result<(), StoreError> {
 /// v8 → v9: corpus tables for local RAG (AI-native Phase 2). Purely additive.
 pub(crate) fn migrate_to_v9(conn: &Connection) -> Result<(), StoreError> {
     ensure_extended_tables(conn)
+}
+
+/// v9 → v10: signed audit hash columns (M14.3). Additive; empty = unsigned.
+pub(crate) fn migrate_to_v10(conn: &Connection) -> Result<(), StoreError> {
+    ensure_extended_tables(conn)?;
+    let _ = conn.execute(
+        "ALTER TABLE object_audit ADD COLUMN prev_hash TEXT NOT NULL DEFAULT ''",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE object_audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''",
+        [],
+    );
+    Ok(())
 }
 
 pub(crate) fn write_document(conn: &Connection, doc: &Document) -> Result<(), StoreError> {

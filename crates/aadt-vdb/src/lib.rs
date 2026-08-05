@@ -52,8 +52,9 @@ use shilpidb::MAGIC;
 /// written before the ShilpiDB rename keep opening.
 const LEGACY_MAGIC: &[u8; 8] = b"VASTUDB\0";
 /// On-disk format version. v2 adds the Object DB / Graph DB / audit sections
-/// (AI-native Phase 1); v1 files still load with empty object stores.
-pub const FORMAT_VERSION: u32 = 2;
+/// (AI-native Phase 1); v3 appends HMAC hash fields on each audit entry (M14.3).
+/// v1 files still load with empty object stores.
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The canonical file extension for the vector database.
 pub const EXTENSION: &str = "vdb";
@@ -149,7 +150,7 @@ impl ShilpiDb {
         let doc = codec::decode_document(&mut r)?;
         let index = SpatialGrid::read(&mut r).unwrap_or_else(|_| build_index(&doc));
         let (objects, graph, audit) = if ver >= 2 {
-            objects::read_sections(&mut r)?
+            objects::read_sections(&mut r, ver >= 3)?
         } else {
             (ObjectStore::new(), Graph::new(), AuditLog::new())
         };
