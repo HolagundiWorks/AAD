@@ -50,12 +50,17 @@ raised — which is the question that actually matters in a review.
 | `dims` — dimension prediction | derived from detection quality | yes, adds a `Dimension` |
 | `rules` — code-check rule packs | always `1.0` (deterministic geometry) | **no** — advisory only |
 | `compare` — revision-comparison narration | always `1.0` (fingerprint diff + detection) | **no** — advisory only |
+| `details` — standard-detail recommendation | softmap of BM25 score | **no** — advisory citations only |
 | `nl` — natural-language routing | pattern-match strength | **no** — emits a command *string* |
 
 `compare` wraps the M7 fingerprint diff (`aadt_pdf::compare`) with detection
 count deltas and optional BM25 citations for changed layers. It never edits
 geometry; `COMPARE <before>` registers one `SuggestionKind::RevisionCompare`
 proposal that can be rejected (audited) but not accepted.
+
+`details` retrieves passages from an indexed corpus (bundled
+`libraries/details/*.md` seed sheets, plus any `ASKDOCS INDEX` documents).
+`RECOMMEND DETAIL` cites matches and never inserts blocks or invents geometry.
 
 **Code findings are deliberately not auto-fixable.** Resolving a code violation
 is a design decision — move a wall, re-plan the room, or seek relief. Software

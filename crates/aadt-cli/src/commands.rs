@@ -54,6 +54,10 @@ pub fn register(interp: &mut Interpreter) {
         corpus: corpus.clone(),
     }));
     registry.register(Box::new(CompareCmd {
+        st: suggestions.clone(),
+        corpus: corpus.clone(),
+    }));
+    registry.register(Box::new(RecommendCmd {
         st: suggestions,
         corpus,
     }));
@@ -1720,7 +1724,10 @@ impl SuggestCmd {
     fn do_list(&self) -> Result<String, String> {
         let st = self.st.borrow();
         if st.set.is_empty() {
-            return Ok("SUGGEST: no proposals — run SUGGEST DIMS, CHECK, or COMPARE first".into());
+            return Ok(
+                "SUGGEST: no proposals — run SUGGEST DIMS, CHECK, COMPARE, or RECOMMEND DETAIL first"
+                    .into(),
+            );
         }
         let lines: Vec<String> = st.set.iter().map(suggestion_line).collect();
         let counts: Vec<String> = st
@@ -1957,6 +1964,184 @@ impl Command for CompareCmd {
         Ok(format!(
             "COMPARE {path} → live ({n} advisory):\n{}\n\n{}",
             s.summary, s.rationale
+        ))
+    }
+}
+
+/// `RECOMMEND` — standard-detail recommendation (AI-native Phase 3). Seeds
+/// `libraries/details/*.md` into the session corpus when needed, BM25-searches
+/// for matching passages, and registers advisory `DetailRecommend` suggestions.
+struct RecommendCmd {
+    st: SharedSuggestions,
+    corpus: SharedCorpus,
+}
+
+impl RecommendCmd {
+    fn sync_corpus(&self, ctx: &Context) {
+        let path = ctx.drawing_path.clone();
+        let mut g = self.corpus.borrow_mut();
+        let reload = match &*g {
+            None => true,
+            Some(s) => s.path != path,
+        };
+        if reload {
+            let corpus = path
+                .as_ref()
+                .filter(|p| is_aadt_path(p))
+                .and_then(|p| aadt_store::read_corpus_path(p).ok().flatten())
+                .unwrap_or_default();
+            *g = Some(CorpusState { corpus, path });
+        }
+    }
+
+    fn persist_corpus(&self) {
+        if let Some(s) = self.corpus.borrow().as_ref() {
+            if let Some(p) = s.path.as_ref().filter(|p| is_aadt_path(p)) {
+                let _ = aadt_store::write_corpus_path(p, &s.corpus);
+            }
+        }
+    }
+
+    /// Index bundled detail sheets that are not already in the corpus.
+    fn seed_bundled_details(&self) -> Result<usize, String> {
+        let dir = aadt_library::default_library_root().join("details");
+        if !dir.is_dir() {
+            return Ok(0);
+        }
+        let mut added_files = 0usize;
+        let mut g = self.corpus.borrow_mut();
+        let state = g.as_mut().expect("corpus synced");
+        let entries = std::fs::read_dir(&dir)
+            .map_err(|e| format!("RECOMMEND: cannot read {}: {e}", dir.display()))?;
+        for ent in entries.flatten() {
+            let path = ent.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !name.ends_with(".md") || name.eq_ignore_ascii_case("README.md") {
+                continue;
+            }
+            if state.corpus.has_source(name) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| format!("RECOMMEND: cannot read {}: {e}", path.display()))?;
+            if state.corpus.index_text(name, &text) > 0 {
+                added_files += 1;
+            }
+        }
+        drop(g);
+        if added_files > 0 {
+            self.persist_corpus();
+        }
+        Ok(added_files)
+    }
+
+    /// Build a query from the selection's layers when the user did not type one.
+    fn query_from_selection(ctx: &Context) -> String {
+        let mut topics = Vec::new();
+        for id in &ctx.selection {
+            let Some(e) = ctx.doc.get(*id) else { continue };
+            let layer = e.layer.to_ascii_uppercase();
+            if layer.contains("DOOR") {
+                topics.push("door clear opening frame");
+            } else if layer.contains("WIND") || layer.contains("GLAZ") {
+                topics.push("window opening");
+            } else if layer.contains("WALL") {
+                topics.push("wall construction cavity partition");
+            } else if layer.contains("ROOM") || layer.contains("AREA") {
+                topics.push("habitable room floor area width");
+            }
+        }
+        topics.sort_unstable();
+        topics.dedup();
+        if topics.is_empty() {
+            "standard architectural detail wall door room".into()
+        } else {
+            topics.join(" ")
+        }
+    }
+}
+
+impl Command for RecommendCmd {
+    fn name(&self) -> &str {
+        "RECOMMEND"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["DETAIL", "DETAILS"]
+    }
+    fn help(&self) -> &str {
+        "RECOMMEND DETAIL [query] — cite matching standard-detail sheets (advisory; seeds libraries/details)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let sub = args
+            .first()
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_default();
+        // Accept bare RECOMMEND, RECOMMEND DETAIL …, or DETAIL … (via alias).
+        let query_args: &[String] = match sub.as_str() {
+            "" | "DETAIL" | "DETAILS" | "STD" | "STANDARD" => {
+                if args.len() > 1 {
+                    &args[1..]
+                } else {
+                    &[]
+                }
+            }
+            _ => args, // `RECOMMEND external wall cavity`
+        };
+
+        self.sync_corpus(ctx);
+        let seeded = self.seed_bundled_details()?;
+
+        let query = if query_args.is_empty() {
+            Self::query_from_selection(ctx)
+        } else {
+            query_args.join(" ")
+        };
+
+        self.st.borrow_mut().sync(ctx);
+        let found = {
+            let g = self.corpus.borrow();
+            let corpus = &g.as_ref().expect("corpus synced").corpus;
+            if corpus.is_empty() {
+                return Err(
+                    "RECOMMEND: no detail corpus — add libraries/details/*.md or ASKDOCS INDEX a file"
+                        .into(),
+                );
+            }
+            aadt_assist::recommend_details(corpus, &query, aadt_assist::details::DEFAULT_TOP_K)
+        };
+        let n = found.len();
+        {
+            let mut st = self.st.borrow_mut();
+            st.set
+                .replace_kind(aadt_assist::SuggestionKind::DetailRecommend, found);
+        }
+        if n == 0 {
+            let seed_note = if seeded > 0 {
+                format!(" (seeded {seeded} bundled sheet(s))")
+            } else {
+                String::new()
+            };
+            return Ok(format!(
+                "RECOMMEND: nothing in the corpus matches {query:?}{seed_note}"
+            ));
+        }
+        let st = self.st.borrow();
+        let lines: Vec<String> = st
+            .set
+            .iter()
+            .filter(|s| s.kind == aadt_assist::SuggestionKind::DetailRecommend)
+            .map(|s| format!("{}\n      {}", suggestion_line(s), s.rationale))
+            .collect();
+        let seed_note = if seeded > 0 {
+            format!(" (seeded {seeded} bundled sheet(s))")
+        } else {
+            String::new()
+        };
+        Ok(format!(
+            "RECOMMEND DETAIL {query:?} — {n} citation(s){seed_note}; advisory, nothing inserted:\n{}",
+            lines.join("\n")
         ))
     }
 }
@@ -2487,5 +2672,36 @@ mod compare_tests {
         assert!(list.contains("revision-compare"), "list: {list}");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod recommend_tests {
+    use super::*;
+    use aadt_command::Interpreter;
+
+    fn interp() -> (Interpreter, Context) {
+        let mut interp = Interpreter::with_builtins();
+        register(&mut interp);
+        (interp, Context::new())
+    }
+
+    #[test]
+    fn recommend_detail_seeds_and_cites_wall_sheet() {
+        let (interp, mut ctx) = interp();
+        let msg = interp
+            .eval_line(&mut ctx, "RECOMMEND DETAIL external wall cavity brick")
+            .unwrap()
+            .unwrap();
+        assert!(
+            msg.contains("SD-WALL-EXT-CAVITY") || msg.contains("cavity"),
+            "msg: {msg}"
+        );
+        assert!(
+            msg.contains("advisory") || msg.contains("citation"),
+            "msg: {msg}"
+        );
+        let list = interp.eval_line(&mut ctx, "SUGGEST LIST").unwrap().unwrap();
+        assert!(list.contains("detail"), "list: {list}");
     }
 }
