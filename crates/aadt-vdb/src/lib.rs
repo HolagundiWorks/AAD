@@ -38,10 +38,12 @@ use aadt_object::{AuditLog, ObjectStore};
 pub use buf::VdbError;
 pub use client::{VdbClient, VdbClientError};
 // The binary codec + spatial index come from the standalone `shilpidb` engine.
-// The codec primitives are re-exported so the ShilpiDB wire protocol
-// (`aadt-vdb-proto`) frames payloads with the exact encoding used on disk — one
-// format for the file and the wire. `PointRead`/`PointWrite` add the `Point2`
-// codec that the engine (scalar-only) deliberately omits.
+// The codec primitives are re-exported so this crate's on-disk `.vdb` format is
+// written with the exact encoding ShilpiDB uses — the same primitives the
+// `shilpid` server's wire protocol (`shilpi-protocol`) frames payloads with, so
+// file and wire share one encoding. Remote access goes through `VdbClient`
+// (over `shilpi-client`); see `client.rs`. `PointRead`/`PointWrite` add the
+// `Point2` codec that the engine (scalar-only) deliberately omits.
 pub use buf::{PointRead, PointWrite, Reader, Writer};
 pub use shilpidb::SpatialGrid;
 use shilpidb::MAGIC;

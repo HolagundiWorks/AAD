@@ -565,11 +565,25 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("A-WALL-PART", 8, Continuous, 0.35, Architectural, Wall),
     L!("A-WALL-LINT", 252, Continuous, 0.35, Architectural, Wall),
     L!("A-WALL-PATT", 8, Continuous, 0.18, Architectural, Hatch),
-    L!("A-CURTAINWALL", 140, Continuous, 0.35, Architectural, CurtainWall),
+    L!(
+        "A-CURTAINWALL",
+        140,
+        Continuous,
+        0.35,
+        Architectural,
+        CurtainWall
+    ),
     L!("A-DOOR", 30, Continuous, 0.35, Architectural, Door),
     L!("A-DOOR-IDEN", 31, Continuous, 0.25, Architectural, Symbol),
     L!("A-WINDOW", 140, Continuous, 0.35, Architectural, Window),
-    L!("A-WINDOW-IDEN", 141, Continuous, 0.25, Architectural, Symbol),
+    L!(
+        "A-WINDOW-IDEN",
+        141,
+        Continuous,
+        0.25,
+        Architectural,
+        Symbol
+    ),
     L!("A-COLUMN", 2, Continuous, 0.50, Architectural, Column),
     L!("A-BEAM", 2, Continuous, 0.45, Architectural, Beam),
     L!("A-SLAB", 4, Continuous, 0.25, Architectural, Slab),
@@ -661,12 +675,33 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("P-VALVE", 6, Continuous, 0.25, Plumbing, Valve),
     L!("P-TEXT", 7, Continuous, 0.18, Plumbing, Text),
     // ======================= Fire Fighting (F) =======================
-    L!("F-SPRINKLER", 1, Continuous, 0.25, FireFighting, FireSuppression),
-    L!("F-HYDRANT", 30, Continuous, 0.35, FireFighting, FireSuppression),
+    L!(
+        "F-SPRINKLER",
+        1,
+        Continuous,
+        0.25,
+        FireFighting,
+        FireSuppression
+    ),
+    L!(
+        "F-HYDRANT",
+        30,
+        Continuous,
+        0.35,
+        FireFighting,
+        FireSuppression
+    ),
     L!("F-HOSE", 2, Continuous, 0.25, FireFighting, FireSuppression),
     L!("F-PIPE", 1, Continuous, 0.35, FireFighting, Pipe),
     L!("F-PUMP", 6, Continuous, 0.35, FireFighting, Pump),
-    L!("F-EXTINGUISHER", 30, Continuous, 0.25, FireFighting, Equipment),
+    L!(
+        "F-EXTINGUISHER",
+        30,
+        Continuous,
+        0.25,
+        FireFighting,
+        Equipment
+    ),
     L!("F-TEXT", 7, Continuous, 0.18, FireFighting, Text),
     // ======================= Telecom / ELV (T) =======================
     L!("T-DATA", 151, Continuous, 0.18, Telecom, CommsAppliance),
@@ -708,23 +743,149 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("G-REVISION", 1, Continuous, 0.35, General, Symbol),
     L!("G-TITLEBLOCK", 7, Continuous, 0.50, General, Titleblock),
     L!("G-BORDER", 7, Continuous, 0.50, General, Titleblock),
-    LP!("G-VIEWPORT", 8, Continuous, 0.13, General, Viewport, Phase::New, false),
+    LP!(
+        "G-VIEWPORT",
+        8,
+        Continuous,
+        0.13,
+        General,
+        Viewport,
+        Phase::New,
+        false
+    ),
     L!("G-XREF", 250, Continuous, 0.25, General, Reference),
-    LP!("DEFPOINTS", 7, Continuous, 0.13, General, Generic, Phase::New, false),
+    LP!(
+        "DEFPOINTS",
+        7,
+        Continuous,
+        0.13,
+        General,
+        Generic,
+        Phase::New,
+        false
+    ),
     // ======================= Existing (X) — retained fabric =======================
-    LP!("X-WALL", 8, Continuous, 0.25, Existing, Wall, Phase::Existing, true),
-    LP!("X-COLUMN", 8, Continuous, 0.25, Existing, Column, Phase::Existing, true),
-    LP!("X-DOOR", 8, Continuous, 0.18, Existing, Door, Phase::Existing, true),
-    LP!("X-WINDOW", 8, Continuous, 0.18, Existing, Window, Phase::Existing, true),
-    LP!("X-SLAB", 8, Continuous, 0.18, Existing, Slab, Phase::Existing, true),
-    LP!("X-TEXT", 8, Continuous, 0.18, Existing, Text, Phase::Existing, true),
+    LP!(
+        "X-WALL",
+        8,
+        Continuous,
+        0.25,
+        Existing,
+        Wall,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-COLUMN",
+        8,
+        Continuous,
+        0.25,
+        Existing,
+        Column,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-DOOR",
+        8,
+        Continuous,
+        0.18,
+        Existing,
+        Door,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-WINDOW",
+        8,
+        Continuous,
+        0.18,
+        Existing,
+        Window,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-SLAB",
+        8,
+        Continuous,
+        0.18,
+        Existing,
+        Slab,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-TEXT",
+        8,
+        Continuous,
+        0.18,
+        Existing,
+        Text,
+        Phase::Existing,
+        true
+    ),
     // ======================= Demolition (D) — to be removed =======================
-    LP!("D-WALL", 1, Dashed, 0.25, Demolition, Wall, Phase::Demolish, true),
-    LP!("D-COLUMN", 1, Dashed, 0.25, Demolition, Column, Phase::Demolish, true),
-    LP!("D-DOOR", 1, Dashed, 0.18, Demolition, Door, Phase::Demolish, true),
-    LP!("D-WINDOW", 1, Dashed, 0.18, Demolition, Window, Phase::Demolish, true),
-    LP!("D-SLAB", 1, Dashed, 0.18, Demolition, Slab, Phase::Demolish, true),
-    LP!("D-TEXT", 1, Continuous, 0.18, Demolition, Text, Phase::Demolish, true),
+    LP!(
+        "D-WALL",
+        1,
+        Dashed,
+        0.25,
+        Demolition,
+        Wall,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-COLUMN",
+        1,
+        Dashed,
+        0.25,
+        Demolition,
+        Column,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-DOOR",
+        1,
+        Dashed,
+        0.18,
+        Demolition,
+        Door,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-WINDOW",
+        1,
+        Dashed,
+        0.18,
+        Demolition,
+        Window,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-SLAB",
+        1,
+        Dashed,
+        0.18,
+        Demolition,
+        Slab,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-TEXT",
+        1,
+        Continuous,
+        0.18,
+        Demolition,
+        Text,
+        Phase::Demolish,
+        true
+    ),
     // ======================= Survey / Reference (R) =======================
     L!("R-SURVEY", 250, Continuous, 0.18, Survey, Reference),
     L!("R-BENCHMARK", 30, Continuous, 0.25, Survey, SpotLevel),
@@ -735,7 +896,14 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("A-PRES-MARK", 1, Continuous, 0.50, Presentation, Symbol),
     L!("A-PRES-HATCH", 80, Continuous, 0.35, Presentation, Hatch),
     L!("A-PRES-NOTE", 7, Continuous, 0.18, Presentation, Text),
-    L!("A-PRES-ENTOURAGE", 110, Continuous, 0.35, Presentation, Generic),
+    L!(
+        "A-PRES-ENTOURAGE",
+        110,
+        Continuous,
+        0.35,
+        Presentation,
+        Generic
+    ),
     // ================= Extended enterprise layers (per discipline) =================
     // Architecture
     L!("A-WALL-EXTR", 1, Continuous, 0.50, Architectural, Wall),
@@ -744,14 +912,42 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("A-WALL-INSU", 9, Continuous, 0.18, Architectural, Hatch),
     L!("A-DOOR-FIRE", 1, Continuous, 0.35, Architectural, Door),
     L!("A-DOOR-FRAM", 30, Continuous, 0.25, Architectural, Door),
-    L!("A-WINDOW-SILL", 140, Continuous, 0.25, Architectural, Window),
+    L!(
+        "A-WINDOW-SILL",
+        140,
+        Continuous,
+        0.25,
+        Architectural,
+        Window
+    ),
     L!("A-STAIR-HRAL", 32, Continuous, 0.25, Architectural, Railing),
     L!("A-ROOF-DRAIN", 5, Continuous, 0.25, Architectural, Drain),
-    L!("A-EQPM-KTCH", 90, Continuous, 0.35, Architectural, Equipment),
-    L!("A-SANI", 40, Continuous, 0.35, Architectural, SanitaryTerminal),
+    L!(
+        "A-EQPM-KTCH",
+        90,
+        Continuous,
+        0.35,
+        Architectural,
+        Equipment
+    ),
+    L!(
+        "A-SANI",
+        40,
+        Continuous,
+        0.35,
+        Architectural,
+        SanitaryTerminal
+    ),
     L!("A-PARK", 120, Continuous, 0.35, Architectural, Pavement),
     L!("A-SITE", 120, Continuous, 0.35, Architectural, Generic),
-    L!("A-SITE-WALK", 120, Continuous, 0.35, Architectural, Sidewalk),
+    L!(
+        "A-SITE-WALK",
+        120,
+        Continuous,
+        0.35,
+        Architectural,
+        Sidewalk
+    ),
     L!("A-SITE-ROAD", 120, Continuous, 0.50, Architectural, Road),
     L!("A-FNCE", 6, Phantom, 0.25, Architectural, Fence),
     L!("A-SIGN", 30, Continuous, 0.25, Architectural, Symbol),
@@ -804,8 +1000,22 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("M-AHU", 30, Continuous, 0.35, Mechanical, Equipment),
     L!("M-DIMS", 7, Continuous, 0.18, Mechanical, Dimension),
     // Electrical
-    L!("E-LIGHT-EMER", 10, Continuous, 0.25, Electrical, LightFixture),
-    L!("E-LIGHT-EXIT", 1, Continuous, 0.25, Electrical, LightFixture),
+    L!(
+        "E-LIGHT-EMER",
+        10,
+        Continuous,
+        0.25,
+        Electrical,
+        LightFixture
+    ),
+    L!(
+        "E-LIGHT-EXIT",
+        1,
+        Continuous,
+        0.25,
+        Electrical,
+        LightFixture
+    ),
     L!("E-LIGHT-CIRC", 2, Continuous, 0.25, Electrical, Cable),
     L!("E-POWER-CIRC", 30, Continuous, 0.18, Electrical, Cable),
     L!("E-SWITCH", 2, Continuous, 0.25, Electrical, Outlet),
@@ -829,7 +1039,14 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("P-DIMS", 7, Continuous, 0.18, Plumbing, Dimension),
     // Fire Fighting
     L!("F-SPRINKLER-PIPE", 1, Continuous, 0.35, FireFighting, Pipe),
-    L!("F-SPRINKLER-HEAD", 1, Continuous, 0.25, FireFighting, FireSuppression),
+    L!(
+        "F-SPRINKLER-HEAD",
+        1,
+        Continuous,
+        0.25,
+        FireFighting,
+        FireSuppression
+    ),
     L!("F-STANDPIPE", 30, Continuous, 0.35, FireFighting, Pipe),
     L!("F-FDC", 30, Continuous, 0.35, FireFighting, FireSuppression),
     L!("F-ALARM", 10, Continuous, 0.25, FireFighting, FireAlarm),
@@ -837,16 +1054,39 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("F-EXIT", 1, Continuous, 0.35, FireFighting, Symbol),
     L!("F-DIMS", 7, Continuous, 0.18, FireFighting, Dimension),
     // Telecom / ELV
-    L!("T-DATA-OUTLET", 151, Continuous, 0.18, Telecom, CommsAppliance),
+    L!(
+        "T-DATA-OUTLET",
+        151,
+        Continuous,
+        0.18,
+        Telecom,
+        CommsAppliance
+    ),
     L!("T-DATA-RACK", 30, Continuous, 0.35, Telecom, Equipment),
     L!("T-CCTV-CABLE", 30, Continuous, 0.18, Telecom, Cable),
-    L!("T-ACCESS-DOOR", 2, Continuous, 0.25, Telecom, CommsAppliance),
+    L!(
+        "T-ACCESS-DOOR",
+        2,
+        Continuous,
+        0.25,
+        Telecom,
+        CommsAppliance
+    ),
     L!("T-INTERCOM", 6, Continuous, 0.18, Telecom, AudioVisual),
     L!("T-WIFI", 151, Continuous, 0.18, Telecom, CommsAppliance),
     L!("T-TV", 5, Continuous, 0.18, Telecom, AudioVisual),
     L!("T-DIMS", 7, Continuous, 0.18, Telecom, Dimension),
     // Landscape
-    LP!("L-TREE-EXIST", 8, Continuous, 0.18, Landscape, Tree, Phase::Existing, true),
+    LP!(
+        "L-TREE-EXIST",
+        8,
+        Continuous,
+        0.18,
+        Landscape,
+        Tree,
+        Phase::Existing,
+        true
+    ),
     L!("L-TREE-PROP", 3, Continuous, 0.25, Landscape, Tree),
     L!("L-GROUNDCOVER", 92, Continuous, 0.18, Landscape, Planting),
     L!("L-MULCH", 30, Continuous, 0.18, Landscape, Hardscape),
@@ -883,12 +1123,66 @@ pub const STANDARD_LAYERS: &[StandardLayer] = &[
     L!("R-BUILDING", 8, Continuous, 0.18, Survey, Generic),
     L!("R-UTILITY", 5, Dashed, 0.18, Survey, Pipe),
     // Existing / Demolition (extra elements)
-    LP!("X-BEAM", 8, Continuous, 0.25, Existing, Beam, Phase::Existing, true),
-    LP!("X-STAIR", 8, Continuous, 0.18, Existing, Stair, Phase::Existing, true),
-    LP!("X-FURN", 8, Continuous, 0.13, Existing, Furniture, Phase::Existing, true),
-    LP!("D-BEAM", 1, Dashed, 0.25, Demolition, Beam, Phase::Demolish, true),
-    LP!("D-STAIR", 1, Dashed, 0.18, Demolition, Stair, Phase::Demolish, true),
-    LP!("D-CEILING", 1, Dashed, 0.18, Demolition, Covering, Phase::Demolish, true),
+    LP!(
+        "X-BEAM",
+        8,
+        Continuous,
+        0.25,
+        Existing,
+        Beam,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-STAIR",
+        8,
+        Continuous,
+        0.18,
+        Existing,
+        Stair,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "X-FURN",
+        8,
+        Continuous,
+        0.13,
+        Existing,
+        Furniture,
+        Phase::Existing,
+        true
+    ),
+    LP!(
+        "D-BEAM",
+        1,
+        Dashed,
+        0.25,
+        Demolition,
+        Beam,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-STAIR",
+        1,
+        Dashed,
+        0.18,
+        Demolition,
+        Stair,
+        Phase::Demolish,
+        true
+    ),
+    LP!(
+        "D-CEILING",
+        1,
+        Dashed,
+        0.18,
+        Demolition,
+        Covering,
+        Phase::Demolish,
+        true
+    ),
     // ======================= Legacy AIA aliases (compat) =======================
     // Retained so imported drawings, detection maps, and golden fixtures keep
     // resolving. Prefer the HCW names above for new work.
@@ -1032,7 +1326,14 @@ mod tests {
 
     #[test]
     fn legacy_aliases_still_resolve() {
-        for name in ["A-GLAZ", "A-COLS", "S-COLS", "E-LITE", "M-HVAC-SUPP", "P-SANR"] {
+        for name in [
+            "A-GLAZ",
+            "A-COLS",
+            "S-COLS",
+            "E-LITE",
+            "M-HVAC-SUPP",
+            "P-SANR",
+        ] {
             assert!(find_layer(name).is_some(), "legacy layer {name} missing");
         }
     }
@@ -1055,7 +1356,10 @@ mod tests {
             "TMPL_VIEW",
             "A-SECT-IDEN",
         ] {
-            assert!(find_layer(name).is_some(), "title-block layer {name} missing");
+            assert!(
+                find_layer(name).is_some(),
+                "title-block layer {name} missing"
+            );
         }
     }
 

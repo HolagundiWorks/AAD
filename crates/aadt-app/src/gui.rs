@@ -528,8 +528,11 @@ pub(super) enum LayerGroup {
 }
 
 impl LayerGroup {
-    pub(super) const ALL: [LayerGroup; 3] =
-        [LayerGroup::Walls, LayerGroup::Windows, LayerGroup::Structure];
+    pub(super) const ALL: [LayerGroup; 3] = [
+        LayerGroup::Walls,
+        LayerGroup::Windows,
+        LayerGroup::Structure,
+    ];
 
     pub(super) fn label(self) -> &'static str {
         match self {
@@ -546,9 +549,7 @@ impl LayerGroup {
         let u = layer.trim().to_ascii_uppercase();
         match self {
             LayerGroup::Walls => u.contains("WALL"),
-            LayerGroup::Windows => {
-                u.contains("GLAZ") || u.contains("WIND") || u.contains("DOOR")
-            }
+            LayerGroup::Windows => u.contains("GLAZ") || u.contains("WIND") || u.contains("DOOR"),
             LayerGroup::Structure => {
                 u.starts_with("S-")
                     || u.contains("COL")
@@ -1673,7 +1674,12 @@ impl AadtApp {
         let filter = self.layer_filter.to_ascii_uppercase();
         let disc = self.layer_discipline_filter;
         let disc_key = disc.map(|d| d.label()).unwrap_or("*");
-        let scope_key = format!("{}|{}|{}", self.layer_mgr_scope.cache_key(), disc_key, filter);
+        let scope_key = format!(
+            "{}|{}|{}",
+            self.layer_mgr_scope.cache_key(),
+            disc_key,
+            filter
+        );
         let stale = match &self.layer_rows_cache {
             Some((r, f, _)) => *r != rev || *f != scope_key,
             None => true,
@@ -2691,8 +2697,13 @@ impl AadtApp {
         }
         // STRETCH element filter: W/N/S toggle Walls/Windows/Structure, A clears
         // back to every layer. Only while specifying the crossing window.
-        if matches!(self.tool, Tool::Stretch { collecting: true, .. })
-            && self.try_stretch_filter_keyword(&up)
+        if matches!(
+            self.tool,
+            Tool::Stretch {
+                collecting: true,
+                ..
+            }
+        ) && self.try_stretch_filter_keyword(&up)
         {
             return;
         }
@@ -4344,8 +4355,9 @@ impl AadtApp {
                     window: Some((lo, hi)),
                     base: None,
                 };
-                self.note =
-                    format!("STRETCH — {n} object(s) in window; Space to continue (or window again)");
+                self.note = format!(
+                    "STRETCH — {n} object(s) in window; Space to continue (or window again)"
+                );
             }
         }
     }
@@ -4789,7 +4801,12 @@ impl AadtApp {
         // window both picks the objects and decides which endpoints move, so its
         // corners are specified here (click / typed coords) rather than by the
         // single-object collector.
-        if let Tool::Stretch { collecting: true, w0, .. } = &self.tool {
+        if let Tool::Stretch {
+            collecting: true,
+            w0,
+            ..
+        } = &self.tool
+        {
             let w0 = *w0;
             self.stretch_window_pick(p, w0);
             return;

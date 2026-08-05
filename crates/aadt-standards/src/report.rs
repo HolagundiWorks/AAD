@@ -50,13 +50,20 @@ pub fn catalog_markdown() -> String {
         Discipline::ALL.len()
     ));
     for d in Discipline::ALL {
-        let rows: Vec<_> = STANDARD_LAYERS.iter().filter(|l| l.discipline == *d).collect();
+        let rows: Vec<_> = STANDARD_LAYERS
+            .iter()
+            .filter(|l| l.discipline == *d)
+            .collect();
         if rows.is_empty() {
             continue;
         }
         out.push_str(&format!("\n## {} ({})\n\n", d.label(), d.prefix()));
-        out.push_str("| Layer | Element | ACI | Linetype | LW (mm) | Phase | IFC | Uniformat | MF |\n");
-        out.push_str("|-------|---------|-----|----------|---------|-------|-----|-----------|----|\n");
+        out.push_str(
+            "| Layer | Element | ACI | Linetype | LW (mm) | Phase | IFC | Uniformat | MF |\n",
+        );
+        out.push_str(
+            "|-------|---------|-----|----------|---------|-------|-----|-----------|----|\n",
+        );
         for l in rows {
             out.push_str(&format!(
                 "| {} | {} | {} | {:?} | {:.2} | {} | {} | {} | {} |\n",
@@ -84,13 +91,19 @@ mod tests {
         let csv = catalog_csv();
         let lines: Vec<&str> = csv.lines().collect();
         assert!(lines[0].starts_with("Layer,Discipline,Element,Phase,ACI"));
-        assert_eq!(lines.len(), STANDARD_LAYERS.len() + 1, "one row per layer + header");
+        assert_eq!(
+            lines.len(),
+            STANDARD_LAYERS.len() + 1,
+            "one row per layer + header"
+        );
     }
 
     #[test]
     fn csv_contains_core_layers_and_metadata() {
         let csv = catalog_csv();
-        assert!(csv.contains("A-WALL,Architecture,Wall,New,1,Continuous,0.50,Yes,IfcWall,B2010,04,"));
+        assert!(
+            csv.contains("A-WALL,Architecture,Wall,New,1,Continuous,0.50,Yes,IfcWall,B2010,04,")
+        );
         assert!(csv.contains("A-WINDOW,Architecture,Window,New,"));
         assert!(csv.contains("IfcWindow,B2020,08,"));
     }

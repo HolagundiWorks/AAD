@@ -104,7 +104,9 @@ fn install_classify(env: &Env, doc: Rc<RefCell<Document>>) {
             want(a, 4, "aadt-within")?;
             let rect = Bbox::from_corners(pt(a, 0)?, pt(a, 2)?);
             let index = aadt_vdb::build_index(&d.borrow());
-            Ok(Value::Int(aadt_vdb::query_index_bbox(&index, rect).len() as i64))
+            Ok(Value::Int(
+                aadt_vdb::query_index_bbox(&index, rect).len() as i64
+            ))
         }),
     );
 
@@ -449,7 +451,6 @@ fn count_openings(doc: &Document) -> i64 {
 fn count_structural(doc: &Document) -> i64 {
     detection(doc).structural.len() as i64
 }
-
 
 #[cfg(test)]
 mod tests {

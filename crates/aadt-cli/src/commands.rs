@@ -396,8 +396,14 @@ impl Command for LayerLegendCmd {
         "LAYERLEGEND [x y [height]] — draw a text key of the layers in use (props + metadata) on G-LEGEND"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let ox = args.first().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
-        let oy = args.get(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+        let ox = args
+            .first()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let oy = args
+            .get(1)
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
         let h = args
             .get(2)
             .and_then(|s| s.parse::<f64>().ok())
@@ -512,8 +518,14 @@ impl Command for AdoptLayersCmd {
 
 struct ObjMetaCmd;
 impl ObjMetaCmd {
-    const KEYS: &'static [&'static str] =
-        &["MATERIAL", "FIRERATING", "PHASE", "IFC", "UNIFORMAT", "MASTERFORMAT"];
+    const KEYS: &'static [&'static str] = &[
+        "MATERIAL",
+        "FIRERATING",
+        "PHASE",
+        "IFC",
+        "UNIFORMAT",
+        "MASTERFORMAT",
+    ];
 }
 impl Command for ObjMetaCmd {
     fn name(&self) -> &str {
@@ -2336,7 +2348,10 @@ mod adopt_layers_tests {
         let mut src = aadt_model::Document::new();
         src.add_geometry(
             "A-WALL",
-            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1000.0, 0.0))),
+            Geometry::Line(Segment::new(
+                Point2::new(0.0, 0.0),
+                Point2::new(1000.0, 0.0),
+            )),
         );
         let dir = std::env::temp_dir().join("aadt-adopt-open");
         std::fs::create_dir_all(&dir).unwrap();
@@ -2362,6 +2377,9 @@ mod adopt_layers_tests {
                 .any(|e| e.layer.starts_with(prefix) && e.layer.contains("A-WALL")),
             "no A-WALL geometry left under the import prefix"
         );
-        assert!(msg.contains("adopted"), "open message reports adoption: {msg}");
+        assert!(
+            msg.contains("adopted"),
+            "open message reports adoption: {msg}"
+        );
     }
 }
