@@ -561,7 +561,10 @@ fn collect_ring_crossings(
 ///
 /// Public so front-ends can hit-test / highlight a dimension against exactly the
 /// geometry that is drawn, rather than re-deriving it.
-pub fn dimension_commands(dim: &Dimension, props: &aadt_model::DrawingProperties) -> Vec<DrawCommand> {
+pub fn dimension_commands(
+    dim: &Dimension,
+    props: &aadt_model::DrawingProperties,
+) -> Vec<DrawCommand> {
     let label = aadt_model::format_dimension_label(
         dim.kind,
         dim.measurement,
@@ -1387,7 +1390,10 @@ mod tests {
                 }
             }
         }
-        assert!(has_h && has_v, "CROSS needs both horizontal and vertical runs");
+        assert!(
+            has_h && has_v,
+            "CROSS needs both horizontal and vertical runs"
+        );
     }
 
     #[test]
@@ -1537,7 +1543,9 @@ mod tests {
         // Two-family grid at 0°/90°, 600 mm spacing.
         let grid = embedded_pattern("FLOOR-600-GRID").expect("grid pattern present");
         assert_eq!(grid.len(), 2);
-        assert!(grid.iter().any(|f| f.angle_deg == 0.0 && (f.delta_perp - 600.0).abs() < 1e-9));
+        assert!(grid
+            .iter()
+            .any(|f| f.angle_deg == 0.0 && (f.delta_perp - 600.0).abs() < 1e-9));
         assert!(grid.iter().any(|f| f.angle_deg == 90.0));
         // Crosshatch at 45°/135°.
         let block = embedded_pattern("ar-conc-block").expect("case-insensitive lookup");

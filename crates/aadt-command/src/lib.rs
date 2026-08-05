@@ -807,7 +807,13 @@ impl Command for RotateCmd {
             let clones: Vec<_> = targets
                 .iter()
                 .filter_map(|id| ctx.doc.get(*id))
-                .map(|e| (e.layer.clone(), e.geometry.rotated(pivot, rad), e.attributes.clone()))
+                .map(|e| {
+                    (
+                        e.layer.clone(),
+                        e.geometry.rotated(pivot, rad),
+                        e.attributes.clone(),
+                    )
+                })
                 .collect();
             let n = clones.len();
             ctx.doc.transact("ROTATE", |d| {
@@ -815,7 +821,10 @@ impl Command for RotateCmd {
                     d.add_entity(layer, g, attrs);
                 }
             });
-            Ok(format!("rotated a copy of {n} {} by {deg}°", entities_word(n)))
+            Ok(format!(
+                "rotated a copy of {n} {} by {deg}°",
+                entities_word(n)
+            ))
         } else {
             ctx.doc.transact("ROTATE", |d| {
                 for id in &targets {
@@ -855,7 +864,13 @@ impl Command for ScaleCmd {
             let clones: Vec<_> = targets
                 .iter()
                 .filter_map(|id| ctx.doc.get(*id))
-                .map(|e| (e.layer.clone(), e.geometry.scaled(pivot, factor), e.attributes.clone()))
+                .map(|e| {
+                    (
+                        e.layer.clone(),
+                        e.geometry.scaled(pivot, factor),
+                        e.attributes.clone(),
+                    )
+                })
                 .collect();
             let n = clones.len();
             ctx.doc.transact("SCALE", |d| {
@@ -863,7 +878,10 @@ impl Command for ScaleCmd {
                     d.add_entity(layer, g, attrs);
                 }
             });
-            Ok(format!("scaled a copy of {n} {} by {factor}", entities_word(n)))
+            Ok(format!(
+                "scaled a copy of {n} {} by {factor}",
+                entities_word(n)
+            ))
         } else {
             ctx.doc.transact("SCALE", |d| {
                 for id in &targets {
@@ -1469,8 +1487,16 @@ fn circle_removed_span(c: Circle, cutters: &[Geometry], pick: Point2) -> Option<
     let n = uniq.len();
     for i in 0..n {
         let lo = uniq[i];
-        let hi = if i + 1 < n { uniq[i + 1] } else { uniq[0] + 360.0 };
-        let pa = if pick_ang >= lo { pick_ang } else { pick_ang + 360.0 };
+        let hi = if i + 1 < n {
+            uniq[i + 1]
+        } else {
+            uniq[0] + 360.0
+        };
+        let pa = if pick_ang >= lo {
+            pick_ang
+        } else {
+            pick_ang + 360.0
+        };
         if pa >= lo - HIT_EPS && pa <= hi + HIT_EPS {
             return Some((lo, hi));
         }
@@ -1928,7 +1954,10 @@ impl Command for FilletCmd {
             .map(|s| s.eq_ignore_ascii_case("P") || s.eq_ignore_ascii_case("POLYLINE"))
             .unwrap_or(false)
         {
-            let pid = parse_entity_id(args.get(1).ok_or("FILLET P: missing polyline id")?, "FILLET")?;
+            let pid = parse_entity_id(
+                args.get(1).ok_or("FILLET P: missing polyline id")?,
+                "FILLET",
+            )?;
             let radius = parse_f64(args, 2, "FILLET")?;
             if radius < 0.0 {
                 return Err("FILLET: radius must be non-negative".to_string());
@@ -2976,9 +3005,16 @@ impl Command for DimCmd {
         // referenced entity's geometry. Distinguished from the coordinate form by
         // having fewer than the 4 tokens an aligned dimension needs.
         if args.len() < 4 {
-            if let Some(id) = args.first().and_then(|s| s.parse::<u64>().ok()).map(EntityId) {
+            if let Some(id) = args
+                .first()
+                .and_then(|s| s.parse::<u64>().ok())
+                .map(EntityId)
+            {
                 if let Some(ent) = ctx.doc.get(id) {
-                    let offset = args.get(1).and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                    let offset = args
+                        .get(1)
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.0);
                     let geom = ent.geometry.clone();
                     let Some(dim) =
                         auto_dimension_for(&geom, offset, DEFAULT_DIM_LAYER.to_string())
@@ -3846,7 +3882,10 @@ mod tests {
         interp.eval_line(&mut ctx, "ROTATE 0 0 0 90 COPY").unwrap();
         assert_eq!(ctx.doc.len(), 2, "rotate copy keeps source + adds clone");
         if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
-            assert!(s.b.distance(Point2::new(2.0, 0.0)) < 1e-9, "source unchanged");
+            assert!(
+                s.b.distance(Point2::new(2.0, 0.0)) < 1e-9,
+                "source unchanged"
+            );
         }
         // The clone is the rotated one: (2,0) -> (0,2).
         let ents = ctx.doc.entities();
@@ -3857,10 +3896,15 @@ mod tests {
 
         // SCALE … COPY (alias C): original stays, a scaled clone is added.
         interp.eval_line(&mut ctx, "SELECT 0").unwrap();
-        interp.eval_line(&mut ctx, "SCALE SELECTION 0 0 2 C").unwrap();
+        interp
+            .eval_line(&mut ctx, "SCALE SELECTION 0 0 2 C")
+            .unwrap();
         assert_eq!(ctx.doc.len(), 3, "scale copy keeps source + adds clone");
         if let Geometry::Line(s) = &ctx.doc.get(id).unwrap().geometry {
-            assert!(s.b.distance(Point2::new(2.0, 0.0)) < 1e-9, "source unchanged");
+            assert!(
+                s.b.distance(Point2::new(2.0, 0.0)) < 1e-9,
+                "source unchanged"
+            );
         }
     }
 
@@ -3964,11 +4008,9 @@ mod tests {
         // Rectangle: cutter crosses the bottom edge and the closing (left) edge.
         let interp = Interpreter::with_builtins();
         let mut ctx = Context::new();
-        interp
-            .eval_line(&mut ctx, "RECTANGLE 0 0 10 10")
-            .unwrap(); // id 0 closed poly
+        interp.eval_line(&mut ctx, "RECTANGLE 0 0 10 10").unwrap(); // id 0 closed poly
         interp.eval_line(&mut ctx, "LINE 5 -2 5 2").unwrap(); // id 1 crosses bottom
-        // Quick mode: id px py (cutter = every other entity). Pick on bottom edge.
+                                                              // Quick mode: id px py (cutter = every other entity). Pick on bottom edge.
         interp
             .eval_line(&mut ctx, "TRIM 0 2 0")
             .expect("closed poly trim should succeed");
@@ -4040,9 +4082,19 @@ mod tests {
         let Geometry::Line(s) = removed else {
             panic!("expected a line span, got {removed:?}");
         };
-        let (lo, hi) = if s.a.x <= s.b.x { (s.a, s.b) } else { (s.b, s.a) };
-        assert!(lo.distance(Point2::new(3.0, 0.0)) < 1e-9, "starts at left cut: {lo:?}");
-        assert!(hi.distance(Point2::new(7.0, 0.0)) < 1e-9, "ends at right cut: {hi:?}");
+        let (lo, hi) = if s.a.x <= s.b.x {
+            (s.a, s.b)
+        } else {
+            (s.b, s.a)
+        };
+        assert!(
+            lo.distance(Point2::new(3.0, 0.0)) < 1e-9,
+            "starts at left cut: {lo:?}"
+        );
+        assert!(
+            hi.distance(Point2::new(7.0, 0.0)) < 1e-9,
+            "ends at right cut: {hi:?}"
+        );
     }
 
     #[test]

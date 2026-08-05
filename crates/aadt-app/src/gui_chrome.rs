@@ -611,11 +611,7 @@ impl AadtApp {
             row(ui, "IFC class", l.ifc());
             row(ui, "Uniformat", l.uniformat());
             row(ui, "MasterFormat", l.masterformat());
-            row(
-                ui,
-                "Plot",
-                if l.plottable { "Plotted" } else { "No plot" },
-            );
+            row(ui, "Plot", if l.plottable { "Plotted" } else { "No plot" });
             let tags = l.ai_tags().join(", ");
             row(ui, "AI tags", &tags);
         });
@@ -1215,7 +1211,11 @@ impl AadtApp {
                         let tip = format!(
                             "{} layers — {}",
                             group.label(),
-                            if hidden { "hidden (click to show)" } else { "shown (click to hide)" }
+                            if hidden {
+                                "hidden (click to show)"
+                            } else {
+                                "shown (click to hide)"
+                            }
                         );
                         if ui
                             .selectable_label(!hidden, group.label())

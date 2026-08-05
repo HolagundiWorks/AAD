@@ -38,7 +38,12 @@ fn seed_door_single(doc: &mut Document) {
         // Arc angles are degrees (DXF convention), not radians.
         b.push(
             "A-DOOR",
-            Geometry::Arc(aadt_geometry::Arc::new(Point2::new(0.0, 0.0), 0.9, 0.0, 90.0)),
+            Geometry::Arc(aadt_geometry::Arc::new(
+                Point2::new(0.0, 0.0),
+                0.9,
+                0.0,
+                90.0,
+            )),
         );
     });
 }
