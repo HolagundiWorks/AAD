@@ -373,7 +373,8 @@ fn cmd_pdf(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Compare two DXF revisions and narrate the change set (spec §6.4).
+/// Compare two DXF revisions and narrate the change set (spec §6.4 / M12).
+/// Uses the assist revision service: fingerprint diff + detection deltas.
 fn cmd_compare(args: &[String]) -> Result<(), String> {
     let files: Vec<&String> = args.iter().filter(|a| !a.starts_with('-')).collect();
     let [before, after] = files.as_slice() else {
@@ -385,7 +386,13 @@ fn cmd_compare(args: &[String]) -> Result<(), String> {
     let b = aadt_dxf::import_path(before).map_err(|e| e.to_string())?;
     let a = aadt_dxf::import_path(after).map_err(|e| e.to_string())?;
     println!("Comparing {before} → {after}");
-    print!("{}", aadt_pdf::compare(&b, &a).narrate());
+    let set = aadt_assist::narrate_revision(&b, &a, None);
+    if let Some(s) = set.iter().next() {
+        println!("{}\n", s.summary);
+        print!("{}", s.rationale);
+    } else {
+        print!("{}", aadt_pdf::compare(&b, &a).narrate());
+    }
     Ok(())
 }
 
