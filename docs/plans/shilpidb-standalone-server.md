@@ -1,10 +1,27 @@
 # ShilpiDB as a standalone database server — implementation draft
 
-- **Status:** Draft (proposal; not yet scheduled)
+- **Status:** **Largely superseded — realized in the [ShilpiDB repo](https://github.com/HolagundiWorks/shilpidb), not here.** Kept for design rationale.
 - **Scope:** Promote ShilpiDB from an embedded library (`aadt-vdb`, ADR-0011) into
   a **standalone, MongoDB-style database server** — a long-running daemon that
   owns `.vdb` databases and serves concurrent clients over a wire protocol, with
   a shell and a driver. The embedded library stays as the in-process fast path.
+
+> ## Current reality (what actually shipped)
+>
+> This standalone server was built **in the separate ShilpiDB repository**, which
+> now provides the daemon (`shilpid`), the shell (`shilpi`), the wire protocol
+> (`shilpi-protocol`), a Rust driver (`shilpi-client`), and a desktop GUI. **AADT
+> consumes them** — `aadt-vdb`'s [`VdbClient`](../../crates/aadt-vdb/src/client.rs)
+> wraps `shilpi-client` to speak AADT's entity model to a running `shilpid`
+> (used by the app's Server dialog and the CLI). The engine itself (`shilpidb`
+> codec + `SpatialGrid`) is embedded directly by `aadt-vdb`.
+>
+> The AADT-native protocol this plan proposed (**VDBP**, crate
+> `aadt-vdb-proto`) was scaffolded here first but **has been removed** — it was
+> never wired in and duplicated ShilpiDB's `shilpi-protocol`. The canonical wire
+> format is ShilpiDB's `shilpi-protocol`. The rest of this document is retained
+> as the original design rationale; map its proposed crate names to their real
+> homes via the table in §6.
 
 ## 1. Goal
 
@@ -111,6 +128,21 @@ The whole request→response codec is symmetric with `encode_document` /
 `decode_document`, so entity payloads on the wire and on disk share one format.
 
 ## 6. New crates & layout
+
+> **As realized:** these were built in the ShilpiDB repo, not as `aadt-*` crates.
+> Mapping from this plan's proposed names to what exists:
+>
+> | Planned (`aadt-*`) | Realized (ShilpiDB repo) |
+> |--------------------|--------------------------|
+> | `aadt-vdb-proto` (VDBP) | `shilpi-protocol` — canonical wire protocol |
+> | `aadt-vdb-server` | `shilpid` — the daemon |
+> | `aadt-vdb-client` | `shilpi-client` — the Rust driver (AADT wraps it as `VdbClient`) |
+> | `shilpi` shell | `shilpi` — a standalone shell binary |
+>
+> The AADT side keeps only `aadt-vdb` (embedded engine + `VdbClient`); the
+> `aadt-vdb-proto` scaffold was removed as superseded.
+
+The original proposal (for the historical record) was:
 
 - **`crates/aadt-vdb-proto`** — VDBP opcodes, frame read/write, request/response
   types. Depends only on `aadt-vdb` + `aadt-model` + `aadt-geometry`. Shared by
