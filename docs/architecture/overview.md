@@ -156,6 +156,8 @@ Commands and chrome that open a manager call `reveal_left_mgr` /
 
 ## Related
 
+- [Internal CAD Engineering Handbook](../engineering/README.md) — 15-volume
+  developer docs (command engine, input, undo, plan vs existing status)
 - [AADT CAD + ShilpiDB developer architecture](./aadt-shilpidb-architecture.md) — target entity/database architecture with implementation-status map
 - [Roadmap](../ROADMAP.md)
 - [Industry-standards audit (July 2026)](../audit/2026-07-industry-standards-audit.md)

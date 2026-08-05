@@ -76,9 +76,13 @@ palette fuzzy-matches the same catalog.
 AutoCAD allows `'ZOOM`, `'PAN`, `'OSNAP`, etc. mid-command (apostrophe prefix).
 After the transparent command ends, the original resumes.
 
-**AAD status:** Not implemented as apostrophe-transparent. Modes F3/F8/F10/F11
-toggle without ending the tool (partial substitute). True `'ZOOM` mid-LINE is a
-future gap.
+**AAD status (updated):** GUI implements apostrophe-transparent **`'ZOOM`** and
+**`'PAN`** with suspend/resume of the active `Tool` + command engine (see
+[command-workflows.md](./command-workflows.md) and
+[engineering Vol 2 / Vol 3](../engineering/vol-02-command-engine.md)). Mode
+toggles F3/F8/F10/F11 still apply without ending the tool. Headless
+`Interpreter::eval_line` / scripts do **not** implement apostrophe suspend —
+only `nav_hint` ZOOM/PAN. Broader transparent set (`'OSNAP`, …) is not pursued.
 
 ---
 
@@ -261,7 +265,7 @@ From product principles ([ROADMAP](../ROADMAP.md)):
 - Full DIM* suite (continue, baseline, jogged, …) as GUI chrome  
 - Annotative scaling system / paper-space viewports (later)  
 - 3D, solids, meshes  
-- Script apostrophe-transparent zoom as a requirement for M1  
+- Script apostrophe-transparent zoom (GUI `'ZOOM`/`'PAN` already shipped; scripts remain one-shot)  
 
 Depth beyond the daily band goes into **LISP** and headless commands, not more
 GUI tools.

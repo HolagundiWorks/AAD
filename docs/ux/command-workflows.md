@@ -452,7 +452,9 @@ Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out 
 | Keyword `[Options]` | Partial | Core draw/edit covered |
 | Noun-verb + verb-noun | Yes | Edit transforms + erase |
 | Window / crossing | Yes | L→R / R→L |
-| Fence / WPolygon / CPolygon / Lasso | Yes | `FENCE` / `WP` / `CP` tools; curved Select drag becomes a lasso (M9.2) |
+| Fence / WPolygon / CPolygon | Yes | `FENCE` / `WP` / `CP` tools (click corners → Space) |
+| Select box window / crossing | Yes | Near-straight drag L→R window, R→L crossing |
+| Free-drag curved lasso | Yes | Curved Select drag → `select_in_polygon` (same L→R / R→L modes) |
 | Selection highlight + grips | Yes | Blue glow; inserts expand |
 | Dyn input near cursor | Yes | F12 / DYN status chip |
 | Ortho / Osnap / Polar | Yes | F8 / F3 / F10 |

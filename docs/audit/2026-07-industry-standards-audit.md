@@ -26,7 +26,7 @@ paper space.
 |---|:---:|---|
 | Architecture & layering | **A−** | Clean substrate / capability / intelligence split |
 | Undo / transactional CAD | **A−** | `Document::transact` rule |
-| Drafting command parity | **A−** | M9 complete: osnap overrides, fence/lasso, multi-mode grips, auto-type DIM, docking |
+| Drafting command parity | **A−** | M9 complete: osnap overrides, fence/polygon/lasso, multi-mode grips, auto-type DIM, docking |
 | Interop (DXF/DWG) | **B+** | DXF solid; DWG R/W via `acadrust` (best-effort subset) |
 | Persistence & history | **A−** | Session undo ≠ file HISTORY (by design); objects/graph/audit in `.aadt` v8+ / `.vdb` v2 |
 | Takeoff / BOQ | **A−** | M13 object-based takeoff; CSI spine + division rollups; graph-driven opening deduction |

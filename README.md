@@ -14,6 +14,7 @@ the focus. Everything runs locally.
 > of your way."
 
 See [`docs/`](docs/) for engineering docs:
+- [`docs/engineering/README.md`](docs/engineering/README.md) — **internal CAD handbook** (15 volumes: command engine, input, undo, plan vs existing).
 - [`docs/vision/ai-native-platform.md`](docs/vision/ai-native-platform.md) — the AI-native platform direction (multi-store architecture, semantic objects, AI services).
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — milestones, curated command band, product locks.
 - [`docs/architecture/overview.md`](docs/architecture/overview.md) — layers and data flow.
@@ -21,6 +22,7 @@ See [`docs/`](docs/) for engineering docs:
 - [`docs/ux/`](docs/ux/README.md) — AutoCAD/BricsCAD-like command interaction research + workflows.
 - [`docs/adr/`](docs/adr/) — Architecture Decision Records.
 - [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — recent changes.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contributor contract (points at the handbook).
 
 ## Status
 
