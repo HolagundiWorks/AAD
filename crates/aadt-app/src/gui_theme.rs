@@ -910,20 +910,6 @@ pub fn section_hint(ui: &mut egui::Ui, text: impl Into<String>) {
     ui.add_space(panel_space::TIGHT);
 }
 
-/// Hairline between sections when a label alone is not enough.
-#[allow(dead_code)]
-pub fn section_rule(ui: &mut egui::Ui) {
-    ui.add_space(panel_space::ROW);
-    let y = ui.cursor().top();
-    let w = ui.available_width();
-    ui.painter().hline(
-        ui.max_rect().left()..=ui.max_rect().left() + w,
-        y,
-        egui::Stroke::new(stroke::THIN, color::divider()),
-    );
-    ui.add_space(panel_space::ROW);
-}
-
 /// Chrome button variants — use these instead of raw `egui::Button` in docks/bars.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BtnKind {
@@ -1125,6 +1111,7 @@ pub fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
         .fill(color::layer_card())
         .stroke(egui::Stroke::new(stroke::THIN, color::border()))
         .rounding(radius::DIALOG)
+        .shadow(elevation::modal())
 }
 
 /// Frame + screen clamp helpers for dialogs.
@@ -1136,12 +1123,142 @@ pub fn dialog_defaults(ctx: &egui::Context) -> (egui::Frame, egui::Rect, f32) {
     )
 }
 
-/// Docked / floating panel surface frame.
+/// Docked panel surface (stroke only — no shadow).
 pub fn dock_frame() -> egui::Frame {
     egui::Frame::none()
         .fill(color::layer_card())
         .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
         .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+        .shadow(elevation::dock())
+}
+
+/// Floating / autohide dock — same fill as [`dock_frame`] plus directional shadow.
+pub fn float_dock_frame(offset: egui::Vec2) -> egui::Frame {
+    dock_frame().shadow(elevation::float(offset))
+}
+
+/// Popup / context menu surface (snap override, etc.).
+pub fn menu_frame() -> egui::Frame {
+    egui::Frame::none()
+        .fill(color::layer_card())
+        .inner_margin(egui::Margin::symmetric(space::SM, space::SM))
+        .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+        .rounding(radius::CONTROL)
+        .shadow(elevation::popup())
+}
+
+/// Fluent-inspired elevation shadows — Bar/Dock = stroke only; Float/Modal lift.
+pub mod elevation {
+    use eframe::egui;
+
+    fn alpha(float: u8, dark_boost: u8) -> u8 {
+        if super::color::is_dark() {
+            float.saturating_add(dark_boost)
+        } else {
+            float
+        }
+    }
+
+    /// No lift (bars, docked panels — edge via stroke).
+    pub fn none() -> egui::epaint::Shadow {
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 0.0),
+            blur: 0.0,
+            spread: 0.0,
+            color: egui::Color32::TRANSPARENT,
+        }
+    }
+
+    /// Alias for [`none`] — QAT / status.
+    pub fn bar() -> egui::epaint::Shadow {
+        none()
+    }
+
+    /// Alias for [`none`] — docked manager.
+    pub fn dock() -> egui::epaint::Shadow {
+        none()
+    }
+
+    /// Floating / autohide panel. `offset` biases the key shadow (e.g. slide-out).
+    pub fn float(offset: egui::Vec2) -> egui::epaint::Shadow {
+        egui::epaint::Shadow {
+            offset,
+            blur: 12.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(alpha(40, 36)),
+        }
+    }
+
+    /// Context menus / transient overlays.
+    pub fn popup() -> egui::epaint::Shadow {
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 4.0),
+            blur: 8.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(alpha(32, 48)),
+        }
+    }
+
+    /// Modal dialogs.
+    pub fn modal() -> egui::epaint::Shadow {
+        egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 8.0),
+            blur: 20.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(alpha(30, 60)),
+        }
+    }
+}
+
+/// Label + full-width edit — wraps vertically when the panel is narrow.
+pub fn prop_row(ui: &mut egui::Ui, label: &str, value: &mut String) {
+    let w = ui.available_width();
+    if w < 220.0 {
+        ui.vertical(|ui| {
+            ui.label(
+                egui::RichText::new(label)
+                    .size(type_scale::CAPTION)
+                    .color(color::text_secondary()),
+            );
+            ui.add(egui::TextEdit::singleline(value).desired_width(ui.available_width()));
+        });
+    } else {
+        ui.horizontal(|ui| {
+            let label_w = (w * 0.32).clamp(64.0, 110.0);
+            ui.add_sized(
+                [label_w, panel_space::LABEL_H],
+                egui::Label::new(
+                    egui::RichText::new(label)
+                        .size(type_scale::CAPTION)
+                        .color(color::text_secondary()),
+                ),
+            );
+            ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
+        });
+    }
+}
+
+/// Selectable preview tile chrome (hatch / block / linetype grids).
+pub fn tile_frame(
+    ui: &mut egui::Ui,
+    size: egui::Vec2,
+    selected: bool,
+) -> (egui::Rect, egui::Response) {
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let painter = ui.painter();
+    let bg = if selected {
+        color::accent_soft()
+    } else {
+        color::canvas()
+    };
+    let edge = if selected {
+        egui::Stroke::new(stroke::THICK, color::accent())
+    } else {
+        egui::Stroke::new(stroke::THIN, color::border())
+    };
+    painter.rect_filled(rect, radius::CONTROL, bg);
+    painter.rect_stroke(rect, radius::CONTROL, edge);
+    (rect, resp)
 }
 
 /// Layer color chip (dense row) — click opens the ACI palette.
@@ -1178,4 +1295,5 @@ pub fn bar_frame() -> egui::Frame {
         .fill(color::layer_base())
         .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
         .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+        .shadow(elevation::bar())
 }

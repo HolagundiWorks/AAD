@@ -2688,17 +2688,28 @@ impl AadtApp {
             .order(egui::Order::Foreground)
             .fixed_pos(pos)
             .show(ctx, |ui| {
-                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                theme::menu_frame().show(ui, |ui| {
                     ui.set_min_width(160.0);
-                    ui.label(egui::RichText::new("Object Snap").small().weak());
+                    ui.label(
+                        egui::RichText::new("Object Snap")
+                            .size(theme::type_scale::CAPTION)
+                            .color(theme::color::text_secondary()),
+                    );
+                    ui.add_space(theme::space::XS);
                     for &(label, kind) in ITEMS {
                         let tag = crate::osnap::snap_label(kind);
-                        if ui.button(format!("{label}  ({tag})")).clicked() {
+                        if theme::button(
+                            ui,
+                            theme::BtnKind::Subtle,
+                            &format!("{label}  ({tag})"),
+                        )
+                        .clicked()
+                        {
                             chosen = Some(kind);
                         }
                     }
                     ui.separator();
-                    if ui.button("None").clicked() {
+                    if theme::button(ui, theme::BtnKind::Subtle, "None").clicked() {
                         clear = true;
                     }
                 });

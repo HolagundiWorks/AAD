@@ -11,10 +11,11 @@ use crate::prefs::PanelMode;
 use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, Icon};
 use super::theme::{
     self, bar_frame, button, button_sized, BtnKind, chip_accent, chip_toggle, chrome, color,
-    color_swatch, dialog_defaults, dock_frame, full_width_button, full_width_edit, icon as icon_sz,
-    layout, left_manager_title, link_button, nav_dest_label, NoteKind, note_line, panel_space,
-    panel_subtitle, panel_title, radius, right_manager_title, section_hint, section_label,
-    section_label_first, semibold, space, stroke, two_col_buttons, type_scale,
+    color_swatch, dialog_defaults, dock_frame, float_dock_frame, full_width_button, full_width_edit,
+    icon as icon_sz, layout, left_manager_title, link_button, nav_dest_label, NoteKind, note_line,
+    panel_space, panel_subtitle, panel_title, prop_row, radius, right_manager_title, section_hint,
+    section_label, section_label_first, semibold, space, stroke, tile_frame, two_col_buttons,
+    type_scale,
 };
 use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
@@ -2025,7 +2026,7 @@ impl AadtApp {
             .min_height(160.0)
             .max_height(layout::overlay_height(screen, chrome::STATUS_H))
             .constrain_to(screen)
-            .frame(dock_frame().shadow(panel_shadow(egui::vec2(0.0, 2.0))))
+            .frame(float_dock_frame(egui::vec2(0.0, 2.0)))
             .show(ctx, |ui| {
                 self.ui_left_panel_body(ui, PanelChrome::Floating);
             });
@@ -2080,7 +2081,7 @@ impl AadtApp {
             .min_height(160.0)
             .max_height(layout::overlay_height(screen, chrome::STATUS_H))
             .constrain_to(screen)
-            .frame(dock_frame().shadow(panel_shadow(egui::vec2(0.0, 2.0))))
+            .frame(float_dock_frame(egui::vec2(0.0, 2.0)))
             .show(ctx, |ui| {
                 self.ui_right_panel_body(ui, PanelChrome::Floating);
             });
@@ -2138,8 +2139,7 @@ impl AadtApp {
             .fixed_pos(egui::pos2(panel_space::RAIL, top))
             .constrain_to(screen)
             .show(ctx, |ui| {
-                dock_frame()
-                    .shadow(panel_shadow(egui::vec2(2.0, 0.0)))
+                float_dock_frame(egui::vec2(2.0, 0.0))
                     .show(ui, |ui| {
                         ui.set_width(width);
                         ui.set_height(height);
@@ -2197,8 +2197,7 @@ impl AadtApp {
             .fixed_pos(egui::pos2(x, top))
             .constrain_to(screen)
             .show(ctx, |ui| {
-                dock_frame()
-                    .shadow(panel_shadow(egui::vec2(-2.0, 0.0)))
+                float_dock_frame(egui::vec2(-2.0, 0.0))
                     .show(ui, |ui| {
                         ui.set_width(width);
                         ui.set_height(height);
@@ -2569,17 +2568,17 @@ impl AadtApp {
     pub(super) fn ui_drawing_properties(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             section_label_first(ui, "Summary");
-            prop_field(ui, "Title", &mut self.props_edit.title);
-            prop_field(ui, "Subject", &mut self.props_edit.subject);
-            prop_field(ui, "Author", &mut self.props_edit.author);
-            prop_field(ui, "Keywords", &mut self.props_edit.keywords);
+            prop_row(ui, "Title", &mut self.props_edit.title);
+            prop_row(ui, "Subject", &mut self.props_edit.subject);
+            prop_row(ui, "Author", &mut self.props_edit.author);
+            prop_row(ui, "Keywords", &mut self.props_edit.keywords);
             ui.label("Comments");
             ui.add(
                 egui::TextEdit::multiline(&mut self.props_edit.comments)
                     .desired_width(f32::INFINITY)
                     .desired_rows(3),
             );
-            prop_field(ui, "Hyperlink base", &mut self.props_edit.hyperlink_base);
+            prop_row(ui, "Hyperlink base", &mut self.props_edit.hyperlink_base);
             section_label(ui, "Title block (fixed layout / per-sheet attributes)");
             ui.label(
                 egui::RichText::new(
@@ -2588,12 +2587,12 @@ impl AadtApp {
                 .small()
                 .weak(),
             );
-            prop_field(ui, "Company name", &mut self.props_edit.firm_name);
-            prop_field(ui, "Tagline", &mut self.props_edit.firm_tagline);
-            prop_field(ui, "Office address", &mut self.props_edit.office_address);
-            prop_field(ui, "Phone", &mut self.props_edit.phone);
-            prop_field(ui, "Email", &mut self.props_edit.email);
-            prop_field(ui, "Website", &mut self.props_edit.website);
+            prop_row(ui, "Company name", &mut self.props_edit.firm_name);
+            prop_row(ui, "Tagline", &mut self.props_edit.firm_tagline);
+            prop_row(ui, "Office address", &mut self.props_edit.office_address);
+            prop_row(ui, "Phone", &mut self.props_edit.phone);
+            prop_row(ui, "Email", &mut self.props_edit.email);
+            prop_row(ui, "Website", &mut self.props_edit.website);
             ui.horizontal(|ui| {
                 ui.label("Logo");
                 let logo = if self.props_edit.logo_path.is_empty() {
@@ -2619,25 +2618,25 @@ impl AadtApp {
                 }
             });
             section_label(ui, "Project (shared across set)");
-            prop_field(ui, "Project name", &mut self.props_edit.project);
-            prop_field(ui, "Client", &mut self.props_edit.client);
-            prop_field(ui, "Address", &mut self.props_edit.address);
-            prop_field(ui, "Project / job no.", &mut self.props_edit.project_number);
-            prop_field(ui, "Architect", &mut self.props_edit.architect);
-            prop_field(ui, "Area", &mut self.props_edit.area);
+            prop_row(ui, "Project name", &mut self.props_edit.project);
+            prop_row(ui, "Client", &mut self.props_edit.client);
+            prop_row(ui, "Address", &mut self.props_edit.address);
+            prop_row(ui, "Project / job no.", &mut self.props_edit.project_number);
+            prop_row(ui, "Architect", &mut self.props_edit.architect);
+            prop_row(ui, "Area", &mut self.props_edit.area);
             section_label(ui, "This sheet (attributes)");
-            prop_field(ui, "Drawing title", &mut self.props_edit.title);
-            prop_field(ui, "Drawing number (A-101)", &mut self.props_edit.drawing_number);
-            prop_field(ui, "Sheet number (01 of 45)", &mut self.props_edit.sheet_number);
-            prop_field(ui, "Total sheets", &mut self.props_edit.total_sheets);
-            prop_field(ui, "Discipline", &mut self.props_edit.discipline);
-            prop_field(ui, "Scale", &mut self.props_edit.scale);
-            prop_field(ui, "Date", &mut self.props_edit.date);
-            prop_field(ui, "Drawn by", &mut self.props_edit.drawn_by);
-            prop_field(ui, "Checked by", &mut self.props_edit.checked_by);
-            prop_field(ui, "Approved by", &mut self.props_edit.approved_by);
-            prop_field(ui, "Revision", &mut self.props_edit.revision);
-            prop_field(ui, "Drawing status", &mut self.props_edit.drawing_status);
+            prop_row(ui, "Drawing title", &mut self.props_edit.title);
+            prop_row(ui, "Drawing number (A-101)", &mut self.props_edit.drawing_number);
+            prop_row(ui, "Sheet number (01 of 45)", &mut self.props_edit.sheet_number);
+            prop_row(ui, "Total sheets", &mut self.props_edit.total_sheets);
+            prop_row(ui, "Discipline", &mut self.props_edit.discipline);
+            prop_row(ui, "Scale", &mut self.props_edit.scale);
+            prop_row(ui, "Date", &mut self.props_edit.date);
+            prop_row(ui, "Drawn by", &mut self.props_edit.drawn_by);
+            prop_row(ui, "Checked by", &mut self.props_edit.checked_by);
+            prop_row(ui, "Approved by", &mut self.props_edit.approved_by);
+            prop_row(ui, "Revision", &mut self.props_edit.revision);
+            prop_row(ui, "Drawing status", &mut self.props_edit.drawing_status);
             ui.label("Revision history (Rev|Date|Description|By|Checked per line)");
             ui.add(
                 egui::TextEdit::multiline(&mut self.props_edit.revision_history)
@@ -2653,8 +2652,8 @@ impl AadtApp {
                 .small()
                 .weak(),
             );
-            prop_field(ui, "Floor-to-floor height", &mut self.props_edit.floor_height);
-            prop_field(ui, "Lintel height (above FFL)", &mut self.props_edit.lintel_height);
+            prop_row(ui, "Floor-to-floor height", &mut self.props_edit.floor_height);
+            prop_row(ui, "Lintel height (above FFL)", &mut self.props_edit.lintel_height);
             ui.horizontal(|ui| {
                 if ui
                     .button("Insert height notes")
@@ -3021,9 +3020,9 @@ impl AadtApp {
             }
 
             section_label(ui, "Dimension style");
-            prop_field(ui, "Style name", &mut self.props_edit.dimstyle);
-            prop_field(ui, "Text height", &mut self.props_edit.dim_text_height);
-            prop_field(ui, "Overall scale", &mut self.props_edit.dim_scale);
+            prop_row(ui, "Style name", &mut self.props_edit.dimstyle);
+            prop_row(ui, "Text height", &mut self.props_edit.dim_text_height);
+            prop_row(ui, "Overall scale", &mut self.props_edit.dim_scale);
 
             let mut secondary = aadt_model::secondary_enabled(&self.props_edit.dim_secondary);
             let sec_hint = match aadt_model::primary_from_props(&self.props_edit.units) {
@@ -3459,15 +3458,6 @@ fn floating_window_rect(ctx: &egui::Context, id: egui::Id) -> Option<(f32, f32, 
     })
 }
 
-fn panel_shadow(offset: egui::Vec2) -> egui::epaint::Shadow {
-    egui::epaint::Shadow {
-        offset,
-        blur: 12.0,
-        spread: 0.0,
-        color: egui::Color32::from_black_alpha(40),
-    }
-}
-
 fn truncate_ui(s: &str, max_chars: usize) -> String {
     let mut it = s.chars();
     let head: String = it.by_ref().take(max_chars).collect();
@@ -3505,32 +3495,10 @@ fn half_button_width(panel_w: f32) -> f32 {
     ((panel_w - space::SM) * 0.5).max(72.0)
 }
 
-fn preview_frame(
-    ui: &mut egui::Ui,
-    size: egui::Vec2,
-    selected: bool,
-) -> (egui::Rect, egui::Response) {
-    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-    let painter = ui.painter();
-    let bg = if selected {
-        color::accent_soft()
-    } else {
-        color::canvas()
-    };
-    let edge = if selected {
-        egui::Stroke::new(stroke::THICK, color::accent())
-    } else {
-        egui::Stroke::new(stroke::THIN, color::border())
-    };
-    painter.rect_filled(rect, radius::CONTROL, bg);
-    painter.rect_stroke(rect, radius::CONTROL, edge);
-    (rect, resp)
-}
-
 fn hatch_preview_tile(ui: &mut egui::Ui, name: &str, selected: bool, tile: f32) -> egui::Response {
     ui.vertical(|ui| {
         ui.set_width(tile);
-        let (rect, resp) = preview_frame(ui, egui::vec2(tile, tile), selected);
+        let (rect, resp) = tile_frame(ui, egui::vec2(tile, tile), selected);
         let inset = (tile * 0.09).clamp(3.0, 8.0);
         paint_hatch_swatch(ui.painter(), rect.shrink(inset), name);
         ui.label(
@@ -3725,7 +3693,7 @@ fn block_preview_tile(
 ) -> egui::Response {
     ui.vertical(|ui| {
         ui.set_width(tile);
-        let (rect, resp) = preview_frame(ui, egui::vec2(tile, tile), selected);
+        let (rect, resp) = tile_frame(ui, egui::vec2(tile, tile), selected);
         let inset = (tile * 0.1).clamp(4.0, 10.0);
         let inner = rect.shrink(inset);
         if let Some(block) = doc.block(block_name) {
@@ -3756,7 +3724,7 @@ fn library_preview_tile(
 ) -> egui::Response {
     ui.vertical(|ui| {
         ui.set_width(tile);
-        let (rect, resp) = preview_frame(ui, egui::vec2(tile, tile), selected);
+        let (rect, resp) = tile_frame(ui, egui::vec2(tile, tile), selected);
         let inset = (tile * 0.12).clamp(5.0, 12.0);
         paint_library_glyph(ui.painter(), rect.shrink(inset), path);
         ui.label(
@@ -3960,33 +3928,6 @@ fn paint_block_swatch(painter: &egui::Painter, r: egui::Rect, block: &aadt_model
                 );
             }
         }
-    }
-}
-
-fn prop_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
-    let w = ui.available_width();
-    if w < 220.0 {
-        ui.vertical(|ui| {
-            ui.label(
-                egui::RichText::new(label)
-                    .size(type_scale::CAPTION)
-                    .color(color::text_secondary()),
-            );
-            ui.add(egui::TextEdit::singleline(value).desired_width(ui.available_width()));
-        });
-    } else {
-        ui.horizontal(|ui| {
-            let label_w = (w * 0.32).clamp(64.0, 110.0);
-            ui.add_sized(
-                [label_w, panel_space::LABEL_H],
-                egui::Label::new(
-                    egui::RichText::new(label)
-                        .size(type_scale::CAPTION)
-                        .color(color::text_secondary()),
-                ),
-            );
-            ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
-        });
     }
 }
 
