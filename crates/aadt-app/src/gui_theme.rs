@@ -1,18 +1,12 @@
-//! Fluent 2 design language for AADT chrome.
+//! **AAD Chrome** — mono design language for the egui shell.
 //!
-//! Grounded in [Fluent 2 design principles](https://fluent2.microsoft.design/design-principles)
-//! (natural on every platform · built for focus · one for all · unmistakably Microsoft)
-//! and foundations: [color](https://fluent2.microsoft.design/color),
-//! [elevation](https://fluent2.microsoft.design/elevation),
-//! [iconography](https://fluent2.microsoft.design/iconography),
-//! [layout](https://fluent2.microsoft.design/layout),
-//! [material](https://fluent2.microsoft.design/material),
-//! [motion](https://fluent2.microsoft.design/motion),
-//! [shapes](https://fluent2.microsoft.design/shapes),
-//! [typography](https://fluent2.microsoft.design/typography).
+//! Grounded in [Fluent 2](https://fluent2.microsoft.design/design-principles) neutrals,
+//! type, icons, and motion — with CAD-dense **sharp radii (0)** and brand orange used
+//! sparingly for chrome focus/CTAs. Drafting overlays use the sibling [`canvas`] token
+//! set (CAD-familiar blues/greens), not brand orange.
 //!
-//! Brand orange (`docs/branding/README.md`) is applied sparingly — selection, focus, CTAs —
-//! so neutrals carry hierarchy and the canvas stays the focus region.
+//! Prefer the helpers in this module (`button`, `chip_*`, `dialog_frame`,
+//! `section_label*`, …) over raw egui controls. See `docs/branding/README.md`.
 
 use eframe::egui;
 
@@ -348,7 +342,7 @@ pub fn apply_fluent_visuals(ctx: &egui::Context, theme: Theme) {
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
     visuals.widgets.active.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
 
-    // Medium control radius (4px); dialogs use larger via window_rounding.
+    // Sharp corners (radius 0) everywhere — CAD-dense mono shape language.
     let control = egui::Rounding::same(radius::CONTROL);
     let dialog = egui::Rounding::same(radius::DIALOG);
     visuals.window_rounding = dialog;
@@ -394,9 +388,10 @@ pub fn apply_fluent_visuals(ctx: &egui::Context, theme: Theme) {
     style.spacing.window_margin = egui::Margin::same(space::LG);
     style.spacing.menu_margin = egui::Margin::same(space::MD);
     style.spacing.indent = space::LG;
-    style.spacing.interact_size = egui::vec2(40.0, 24.0);
-    style.spacing.icon_width = 16.0;
-    style.spacing.icon_width_inner = 14.0;
+    // Match panel CONTROL_H so default `ui.button` and sized CTAs share one height.
+    style.spacing.interact_size = egui::vec2(40.0, panel_space::CONTROL_H);
+    style.spacing.icon_width = icon::GLYPH_MD;
+    style.spacing.icon_width_inner = icon::GLYPH_SM;
     style.spacing.icon_spacing = space::SM;
     style.spacing.slider_width = 100.0;
     style.spacing.combo_width = 100.0;
@@ -641,10 +636,182 @@ pub mod panel_space {
     pub const ROW: f32 = space::MD; // 8
     /// Tight gap (label → field).
     pub const TIGHT: f32 = space::SM; // 4
-    /// Full-width control height.
+    /// Full-width / primary control height — every dock CTA uses this.
     pub const CONTROL_H: f32 = 28.0;
+    /// Prop / attribute label column height.
+    pub const LABEL_H: f32 = 20.0;
     /// Icon rail width.
     pub const RAIL: f32 = 40.0;
+    /// Layer color chip (dense row).
+    pub const COLOR_CHIP_W: f32 = 24.0;
+    pub const COLOR_CHIP_H: f32 = 12.0;
+    /// ACI palette cell.
+    #[allow(dead_code)]
+    pub const PALETTE_CELL: f32 = 12.0;
+    /// Preview tile size band (blocks / hatches).
+    pub const TILE_MIN: f32 = 48.0;
+    pub const TILE_MAX: f32 = 88.0;
+    pub const TILE_MIN_BLOCKS: f32 = 52.0;
+    pub const TILE_MAX_BLOCKS: f32 = 96.0;
+}
+
+/// Icon glyph and hit-target sizes (Fluent System Icons UI steps).
+pub mod icon {
+    /// Toolbar + nav glyph (matches `style.spacing.icon_width`).
+    pub const GLYPH_MD: f32 = 16.0;
+    /// Dense list glyph (matches `style.spacing.icon_width_inner`).
+    pub const GLYPH_SM: f32 = 14.0;
+    /// Toolbar / QAT icon hit target.
+    pub const HIT_TOOLBAR: f32 = 28.0;
+    /// Nav rail icon hit target — same as toolbar for visual parity.
+    pub const HIT_NAV: f32 = 28.0;
+    /// Layer-row compact icon hit target.
+    pub const HIT_COMPACT: f32 = 20.0;
+    /// Brand mark in the top bar (logo guidelines: 20–24).
+    pub const BRAND: f32 = 20.0;
+}
+
+/// Top / bottom chrome bar heights.
+pub mod chrome {
+    /// Quick-access + levels strips.
+    pub const TOP_BAR_H: f32 = 32.0;
+    /// Collapsed status / command bar.
+    pub const STATUS_H: f32 = 28.0;
+    /// Expanded status bar (hint + completions).
+    pub const STATUS_H_EXP: f32 = 48.0;
+}
+
+/// Keep chrome inside the OS client area (never paint over the taskbar / off-window).
+pub mod layout {
+    use super::{chrome, panel_space};
+
+    /// Minimum usable OS window client size.
+    pub const MIN_WINDOW_W: f32 = 720.0;
+    pub const MIN_WINDOW_H: f32 = 480.0;
+
+    /// QAT + levels strip.
+    pub fn top_chrome_h() -> f32 {
+        chrome::TOP_BAR_H * 2.0
+    }
+
+    /// Height available for edge overlays between top chrome and status pad.
+    pub fn overlay_height(screen: egui::Rect, bottom_pad: f32) -> f32 {
+        (screen.height() - top_chrome_h() - bottom_pad).max(80.0)
+    }
+
+    /// Max height for the drawing-properties bottom sheet.
+    pub fn drawing_props_max_h(screen: egui::Rect) -> f32 {
+        let leave = top_chrome_h() + chrome::STATUS_H_EXP + 160.0;
+        ((screen.height() - leave).max(120.0)).min(screen.height() * 0.5)
+    }
+
+    /// Max height for modal/dialog windows.
+    pub fn dialog_max_h(screen: egui::Rect) -> f32 {
+        (screen.height() * 0.85).max(200.0)
+    }
+
+    /// Dock width that still leaves a usable canvas.
+    pub fn dock_width(preferred: f32, screen_w: f32, both_docks: bool) -> f32 {
+        let canvas_min = 240.0;
+        let rails = panel_space::RAIL * 2.0;
+        let budget = if both_docks {
+            ((screen_w - canvas_min - rails) * 0.5).max(120.0)
+        } else {
+            (screen_w - canvas_min - rails).max(120.0)
+        };
+        preferred.min(budget).clamp(120.0, 340.0)
+    }
+
+    /// Clamp a floating panel rect into `screen`.
+    pub fn clamp_float_rect(
+        x: &mut f32,
+        y: &mut f32,
+        w: &mut f32,
+        h: &mut f32,
+        screen: egui::Rect,
+    ) {
+        let max_w = screen.width().max(200.0).min(640.0);
+        let max_h = overlay_height(screen, chrome::STATUS_H).min(1200.0);
+        *w = (*w).clamp(200.0, max_w);
+        *h = (*h).clamp(160.0, max_h.max(160.0));
+        let max_x = (screen.right() - *w).max(screen.left());
+        let max_y = (screen.bottom() - *h).max(screen.top());
+        *x = (*x).clamp(screen.left(), max_x);
+        *y = (*y).clamp(screen.top(), max_y);
+    }
+
+    /// Clamp a fixed overlay position so a `size` box stays on screen.
+    pub fn clamp_pos(pos: egui::Pos2, size: egui::Vec2, screen: egui::Rect) -> egui::Pos2 {
+        egui::pos2(
+            pos.x
+                .clamp(screen.left(), (screen.right() - size.x).max(screen.left())),
+            pos.y
+                .clamp(screen.top(), (screen.bottom() - size.y).max(screen.top())),
+        )
+    }
+}
+
+/// AAD Canvas — drafting overlay colors (CAD muscle memory, not brand).
+///
+/// Chrome selection/focus stays [`color::accent`]; model-space highlights use
+/// these blues/greens so AutoCAD-trained hands stay oriented.
+pub mod canvas {
+    use eframe::egui::Color32;
+
+    /// Primary selection / grip highlight.
+    pub fn selection() -> Color32 {
+        Color32::from_rgb(30, 120, 255)
+    }
+
+    /// Darker selection stroke (previews, guides).
+    pub fn selection_stroke() -> Color32 {
+        Color32::from_rgb(30, 90, 180)
+    }
+
+    /// Soft selection wash.
+    #[allow(dead_code)]
+    pub fn selection_fill() -> Color32 {
+        Color32::from_rgba_unmultiplied(30, 120, 255, 40)
+    }
+
+    /// Window box (L→R) edge / fill.
+    pub fn window_edge() -> Color32 {
+        Color32::from_rgb(40, 100, 220)
+    }
+    pub fn window_fill() -> Color32 {
+        Color32::from_rgba_unmultiplied(40, 100, 220, 28)
+    }
+
+    /// Crossing box (R→L) edge / fill.
+    pub fn crossing_edge() -> Color32 {
+        Color32::from_rgb(40, 180, 60)
+    }
+    pub fn crossing_fill() -> Color32 {
+        Color32::from_rgba_unmultiplied(40, 180, 60, 28)
+    }
+
+    /// Object-snap marker.
+    pub fn snap() -> Color32 {
+        Color32::from_rgb(255, 200, 60)
+    }
+
+    /// Crosshair ink (theme-aware).
+    pub fn crosshair() -> Color32 {
+        if super::color::is_dark() {
+            Color32::from_rgb(200, 200, 200)
+        } else {
+            Color32::from_rgb(60, 60, 60)
+        }
+    }
+
+    /// Pickbox stroke (theme-aware).
+    pub fn pickbox() -> Color32 {
+        if super::color::is_dark() {
+            Color32::from_rgb(225, 225, 225)
+        } else {
+            Color32::from_rgb(20, 20, 20)
+        }
+    }
 }
 
 /// Fluent "Strong" weight (Semibold 600) at `size_px` — for titles and section
@@ -717,15 +884,83 @@ pub fn section_rule(ui: &mut egui::Ui) {
     ui.add_space(panel_space::ROW);
 }
 
-/// Full-width action button (primary stack).
-pub fn full_width_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
-    ui.add_sized(
-        [ui.available_width(), panel_space::CONTROL_H],
-        egui::Button::new(egui::RichText::new(label).size(type_scale::BODY)),
+/// Chrome button variants — use these instead of raw `egui::Button` in docks/bars.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BtnKind {
+    /// Solid brand orange — primary CTA.
+    Primary,
+    /// Neutral fill + border — default dock action.
+    Secondary,
+    /// Transparent / weak — tertiary.
+    Subtle,
+    /// Danger-colored — destructive.
+    #[allow(dead_code)]
+    Danger,
+}
+
+fn btn_style(kind: BtnKind) -> (egui::Color32, egui::Color32, egui::Color32) {
+    match kind {
+        BtnKind::Primary => (
+            color::accent(),
+            color::accent_dark(),
+            egui::Color32::WHITE,
+        ),
+        BtnKind::Secondary => (color::control(), color::stroke(), color::text()),
+        BtnKind::Subtle => (
+            egui::Color32::TRANSPARENT,
+            color::stroke(),
+            color::text(),
+        ),
+        BtnKind::Danger => (
+            egui::Color32::from_rgba_unmultiplied(
+                color::danger().r(),
+                color::danger().g(),
+                color::danger().b(),
+                40,
+            ),
+            color::danger(),
+            color::danger(),
+        ),
+    }
+}
+
+/// Sized chrome button at [`panel_space::CONTROL_H`].
+pub fn button(ui: &mut egui::Ui, kind: BtnKind, label: &str) -> egui::Response {
+    let (fill, stroke_c, text_c) = btn_style(kind);
+    ui.add(
+        egui::Button::new(
+            egui::RichText::new(label)
+                .size(type_scale::BODY)
+                .color(text_c),
+        )
+        .fill(fill)
+        .stroke(egui::Stroke::new(stroke::THIN, stroke_c))
+        .rounding(radius::CONTROL),
     )
 }
 
-/// Two equal columns on the 4px grid.
+/// Fixed-size chrome button (width × [`panel_space::CONTROL_H`]).
+pub fn button_sized(ui: &mut egui::Ui, kind: BtnKind, label: &str, width: f32) -> egui::Response {
+    let (fill, stroke_c, text_c) = btn_style(kind);
+    ui.add_sized(
+        [width, panel_space::CONTROL_H],
+        egui::Button::new(
+            egui::RichText::new(label)
+                .size(type_scale::BODY)
+                .color(text_c),
+        )
+        .fill(fill)
+        .stroke(egui::Stroke::new(stroke::THIN, stroke_c))
+        .rounding(radius::CONTROL),
+    )
+}
+
+/// Full-width secondary action button (primary stack).
+pub fn full_width_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    button_sized(ui, BtnKind::Secondary, label, ui.available_width())
+}
+
+/// Two equal secondary columns on the 4px grid.
 pub fn two_col_buttons(
     ui: &mut egui::Ui,
     left: &str,
@@ -738,14 +973,8 @@ pub fn two_col_buttons(
     let mut right_r = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
-        left_r = Some(ui.add_sized(
-            [w, panel_space::CONTROL_H],
-            egui::Button::new(egui::RichText::new(left).size(type_scale::BODY)),
-        ));
-        right_r = Some(ui.add_sized(
-            [w, panel_space::CONTROL_H],
-            egui::Button::new(egui::RichText::new(right).size(type_scale::BODY)),
-        ));
+        left_r = Some(button_sized(ui, BtnKind::Secondary, left, w));
+        right_r = Some(button_sized(ui, BtnKind::Secondary, right, w));
     });
     (left_r.unwrap(), right_r.unwrap())
 }
@@ -757,4 +986,133 @@ pub fn full_width_edit(ui: &mut egui::Ui, value: &mut String, hint: &str) -> egu
             .desired_width(ui.available_width())
             .hint_text(hint),
     )
+}
+
+/// Accent chip (units token) — clickable brand soft fill.
+pub fn chip_accent(ui: &mut egui::Ui, label: &str, tip: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(
+            egui::RichText::new(label)
+                .font(semibold(type_scale::CAPTION))
+                .color(color::accent()),
+        )
+        .fill(color::accent_soft())
+        .stroke(egui::Stroke::new(stroke::THIN, color::accent()))
+        .rounding(radius::CONTROL),
+    )
+    .on_hover_text(tip)
+}
+
+/// Toggle chip (ORTHO / OSNAP / …) — on = accent soft, off = control fill.
+pub fn chip_toggle(ui: &mut egui::Ui, label: &str, on: bool, tip: &str) -> egui::Response {
+    let text = if on {
+        egui::RichText::new(label)
+            .font(semibold(type_scale::CAPTION))
+            .color(color::text())
+    } else {
+        egui::RichText::new(label)
+            .size(type_scale::CAPTION)
+            .color(color::text_secondary())
+    };
+    ui.add(
+        egui::Button::new(text)
+            .fill(if on {
+                color::accent_soft()
+            } else {
+                color::control()
+            })
+            .stroke(egui::Stroke::new(
+                stroke::THIN,
+                if on { color::accent() } else { color::stroke() },
+            ))
+            .rounding(radius::CONTROL),
+    )
+    .on_hover_text(tip)
+}
+
+/// Semantic note line under the status / command bar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // Warn/Error reserved for validation / failures.
+pub enum NoteKind {
+    /// Active tool prompt — accent.
+    Prompt,
+    Info,
+    Warn,
+    Error,
+}
+
+/// One-line status / prompt feedback.
+pub fn note_line(ui: &mut egui::Ui, kind: NoteKind, text: impl Into<String>) {
+    let c = match kind {
+        NoteKind::Prompt => color::accent(),
+        NoteKind::Info => color::info(),
+        NoteKind::Warn => color::warning(),
+        NoteKind::Error => color::danger(),
+    };
+    ui.label(
+        egui::RichText::new(text.into())
+            .size(type_scale::CAPTION)
+            .color(c),
+    );
+}
+
+/// Shared frame for modal `egui::Window`s.
+pub fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
+    egui::Frame::window(&ctx.style())
+        .fill(color::layer_card())
+        .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+        .rounding(radius::DIALOG)
+}
+
+/// Frame + screen clamp helpers for dialogs.
+pub fn dialog_defaults(ctx: &egui::Context) -> (egui::Frame, egui::Rect, f32) {
+    (
+        dialog_frame(ctx),
+        ctx.screen_rect(),
+        layout::dialog_max_h(ctx.screen_rect()),
+    )
+}
+
+/// Docked / floating panel surface frame.
+pub fn dock_frame() -> egui::Frame {
+    egui::Frame::none()
+        .fill(color::layer_card())
+        .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
+        .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+}
+
+/// Layer color chip (dense row) — click opens the ACI palette.
+pub fn color_swatch(ui: &mut egui::Ui, fill: egui::Color32, tip: &str) -> egui::Response {
+    let (resp, painter) = ui.allocate_painter(
+        egui::vec2(panel_space::COLOR_CHIP_W, panel_space::COLOR_CHIP_H),
+        egui::Sense::click(),
+    );
+    painter.rect_filled(resp.rect, radius::SMALL, fill);
+    painter.rect_stroke(
+        resp.rect,
+        radius::SMALL,
+        egui::Stroke::new(stroke::THIN, color::stroke()),
+    );
+    resp.on_hover_text(tip)
+}
+
+/// Peer nav caption beside an icon rail button.
+pub fn nav_dest_label(ui: &mut egui::Ui, label: &str, selected: bool) {
+    ui.label(
+        egui::RichText::new(label)
+            .font(semibold(type_scale::CAPTION))
+            .color(if selected {
+                color::accent()
+            } else {
+                color::text_secondary()
+            }),
+    );
+}
+
+/// Top / bottom bar surface frame.
+pub fn bar_frame() -> egui::Frame {
+    egui::Frame::none()
+        .fill(color::layer_base())
+        .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
+        .stroke(egui::Stroke::new(stroke::THIN, color::border()))
 }

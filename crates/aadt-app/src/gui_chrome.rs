@@ -10,9 +10,11 @@ use crate::prefs::PanelMode;
 
 use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, Icon};
 use super::theme::{
-    self, color, full_width_button, full_width_edit, left_manager_title, panel_space,
-    panel_subtitle, panel_title, radius, right_manager_title, section_hint, section_label,
-    section_label_first, space, stroke, two_col_buttons, type_scale,
+    self, bar_frame, button, button_sized, BtnKind, chip_accent, chip_toggle, chrome, color,
+    color_swatch, dialog_defaults, dock_frame, full_width_button, full_width_edit, icon as icon_sz,
+    layout, left_manager_title, nav_dest_label, NoteKind, note_line, panel_space, panel_subtitle,
+    panel_title, radius, right_manager_title, section_hint, section_label, section_label_first,
+    semibold, space, stroke, two_col_buttons, type_scale,
 };
 use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
@@ -267,8 +269,7 @@ impl AadtApp {
             ui.spacing_mut().item_spacing.x = space::SM;
             ui.label(
                 egui::RichText::new("Show")
-                    .size(type_scale::CAPTION)
-                    .strong()
+                    .font(semibold(type_scale::CAPTION))
                     .color(color::text_secondary()),
             );
             egui::ComboBox::from_id_salt("layer_scope")
@@ -304,8 +305,7 @@ impl AadtApp {
             ui.spacing_mut().item_spacing.x = space::SM;
             ui.label(
                 egui::RichText::new("Discipline")
-                    .size(type_scale::CAPTION)
-                    .strong()
+                    .font(semibold(type_scale::CAPTION))
                     .color(color::text_secondary()),
             );
             let current = self
@@ -421,8 +421,7 @@ impl AadtApp {
             ui.spacing_mut().item_spacing.x = space::SM;
             ui.label(
                 egui::RichText::new("Bulk")
-                    .size(type_scale::CAPTION)
-                    .strong()
+                    .font(semibold(type_scale::CAPTION))
                     .color(color::text_secondary()),
             );
             let hint = format!("{} layers listed below", self.layer_mgr_scope.label());
@@ -468,8 +467,7 @@ impl AadtApp {
                     let hdr = |ui: &mut egui::Ui, t: &str| {
                         ui.label(
                             egui::RichText::new(t)
-                                .size(type_scale::CAPTION)
-                                .strong()
+                                .font(semibold(type_scale::CAPTION))
                                 .color(color::text_secondary()),
                         );
                     };
@@ -583,19 +581,9 @@ impl AadtApp {
                         // Color swatch — click opens the ACI palette (AutoCAD's
                         // Select Color dialog).
                         let (r, g, b) = aci_to_srgb(color_aci);
-                        let (sw, _) =
-                            ui.allocate_painter(egui::vec2(26.0, 14.0), egui::Sense::click());
-                        ui.painter().rect_filled(
-                            sw.rect,
-                            radius::SMALL,
-                            egui::Color32::from_rgb(r, g, b),
-                        );
-                        ui.painter().rect_stroke(
-                            sw.rect,
-                            radius::SMALL,
-                            egui::Stroke::new(stroke::THIN, color::stroke()),
-                        );
-                        let sresp = sw.on_hover_text(format!("ACI {color_aci} — click to change"));
+                        let tip = format!("ACI {color_aci} — click to change");
+                        let sresp =
+                            color_swatch(ui, egui::Color32::from_rgb(r, g, b), &tip);
                         let pop_id = ui.make_persistent_id(("laycolor", &name));
                         if sresp.clicked() {
                             ui.memory_mut(|m| m.toggle_popup(pop_id));
@@ -609,8 +597,7 @@ impl AadtApp {
                                 ui.set_min_width(196.0);
                                 ui.label(
                                     egui::RichText::new(format!("Select Color — ACI {color_aci}"))
-                                        .size(type_scale::CAPTION)
-                                        .strong(),
+                                        .font(semibold(type_scale::CAPTION)),
                                 );
                                 egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
                                     ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
@@ -670,8 +657,7 @@ impl AadtApp {
         ui.add_space(space::SM);
         egui::CollapsingHeader::new(
             egui::RichText::new(format!("Metadata — {name}"))
-                .size(type_scale::CAPTION)
-                .strong(),
+                .font(semibold(type_scale::CAPTION)),
         )
         .default_open(true)
         .show(ui, |ui| {
@@ -712,7 +698,12 @@ impl AadtApp {
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let panel_w = lock_panel_width(ui);
-                let tile = fit_tile_size(panel_w, 52.0, 96.0, space::SM);
+                let tile = fit_tile_size(
+                    panel_w,
+                    panel_space::TILE_MIN_BLOCKS,
+                    panel_space::TILE_MAX_BLOCKS,
+                    space::SM,
+                );
                 let half = half_button_width(panel_w);
                 // `horizontal_wrapped` under-wraps inside a scroll area (tiles
                 // overflow the panel edge and force it to grow), so tile grids
@@ -727,11 +718,10 @@ impl AadtApp {
                 );
                 ui.add_space(space::XS);
 
-                ui.label(egui::RichText::new("Create").strong());
+                section_label_first(ui, "Create");
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = space::SM;
-                    if ui
-                        .add_sized([half, 24.0], egui::Button::new("BLOCK"))
+                    if button_sized(ui, BtnKind::Secondary, "BLOCK", half)
                         .on_hover_text("Create from selection")
                         .clicked()
                     {
@@ -747,8 +737,7 @@ impl AadtApp {
                             "BLOCK — type block name and Space".into()
                         };
                     }
-                    if ui
-                        .add_sized([half, 24.0], egui::Button::new("WBLOCK"))
+                    if button_sized(ui, BtnKind::Secondary, "WBLOCK", half)
                         .on_hover_text("Create & erase sources")
                         .clicked()
                     {
@@ -766,8 +755,7 @@ impl AadtApp {
                     }
                 });
 
-                ui.add_space(space::SM);
-                ui.label(egui::RichText::new("Place").strong());
+                section_label(ui, "Place");
                 let place = place_kinds_for_category(cat);
                 if place.is_empty() {
                     ui.label(
@@ -806,16 +794,14 @@ impl AadtApp {
                     }
                 }
 
-                ui.add_space(space::SM);
-                ui.separator();
                 let blocks: Vec<(String, usize)> = self
                     .blocks_cache
                     .iter()
                     .filter(|(name, _)| block_name_for_category(name, cat))
                     .cloned()
                     .collect();
+                section_label(ui, "In drawing");
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new("In drawing").strong());
                     ui.label(
                         egui::RichText::new(format!("({})", blocks.len()))
                             .small()
@@ -888,16 +874,18 @@ impl AadtApp {
                         ui.separator();
                         ui.label(
                             egui::RichText::new(format!("Selected {ins_name} (#{})", id.0))
-                                .strong()
-                                .small(),
+                                .font(semibold(type_scale::CAPTION))
+                                .size(type_scale::CAPTION),
                         );
                         for (k, v) in &attrs {
                             ui.horizontal_wrapped(|ui| {
                                 let label_w = (panel_w * 0.28).clamp(56.0, 88.0);
                                 ui.add_sized(
-                                    [label_w, 18.0],
+                                    [label_w, panel_space::LABEL_H],
                                     egui::Label::new(
-                                        egui::RichText::new(truncate_ui(k, 10)).small(),
+                                        egui::RichText::new(truncate_ui(k, 10))
+                                            .size(type_scale::CAPTION)
+                                            .color(color::text_secondary()),
                                     ),
                                 );
                                 let mut edit = v.clone();
@@ -937,9 +925,7 @@ impl AadtApp {
                     }
                 }
 
-                ui.add_space(space::SM);
-                ui.separator();
-                ui.label(egui::RichText::new("Library").strong());
+                section_label(ui, "Library");
                 ui.label(
                     egui::RichText::new(format!(
                         "Filtered to {} — Load scales inches → metres.",
@@ -950,8 +936,7 @@ impl AadtApp {
                 );
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = space::SM;
-                    if ui
-                        .add_sized([half, 24.0], egui::Button::new("Load matching"))
+                    if button_sized(ui, BtnKind::Secondary, "Load matching", half)
                         .on_hover_text("Import library blocks for this space")
                         .clicked()
                     {
@@ -974,10 +959,7 @@ impl AadtApp {
                         self.invalidate_library_cache();
                         aadt_command::ensure_place_blocks(self.session.document_mut());
                     }
-                    if ui
-                        .add_sized([half, 24.0], egui::Button::new("Seed place"))
-                        .clicked()
-                    {
+                    if button_sized(ui, BtnKind::Secondary, "Seed place", half).clicked() {
                         aadt_command::ensure_place_blocks(self.session.document_mut());
                         self.blocks_cache.clear();
                         self.blocks_cache_rev = None;
@@ -1053,7 +1035,7 @@ impl AadtApp {
             if self.selection.is_empty() {
                 ui.label(
                     egui::RichText::new("No selection")
-                        .strong()
+                        .font(semibold(type_scale::BODY))
                         .color(color::text_secondary()),
                 );
                 ui.label(
@@ -1067,7 +1049,7 @@ impl AadtApp {
             }
             ui.label(
                 egui::RichText::new(format!("{} object(s)", self.selection.len()))
-                    .strong(),
+                    .font(semibold(type_scale::BODY)),
             );
             ui.add_space(space::SM);
             let ids: Vec<_> = self.selection.clone();
@@ -1084,7 +1066,7 @@ impl AadtApp {
                     Geometry::Text(_) => "TEXT",
                     Geometry::Insert(i) => {
                         ui.group(|ui| {
-                            ui.label(egui::RichText::new(format!("#{} INSERT", id.0)).strong());
+                            ui.label(egui::RichText::new(format!("#{} INSERT", id.0)).font(semibold(type_scale::BODY)));
                             ui.label(format!("block  {}", i.name));
                             ui.label(format!("layer  {}", e.layer));
                             let space = self
@@ -1099,7 +1081,7 @@ impl AadtApp {
                     }
                 };
                 ui.group(|ui| {
-                    ui.label(egui::RichText::new(format!("#{} {kind}", id.0)).strong());
+                    ui.label(egui::RichText::new(format!("#{} {kind}", id.0)).font(semibold(type_scale::BODY)));
                     ui.label(format!("layer  {}", e.layer));
                     let space = self
                         .session
@@ -1224,7 +1206,7 @@ impl AadtApp {
     /// Top quick-access bar — File / Edit / Plot.
     pub(super) fn draw_top_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("qat")
-            .exact_height(32.0)
+            .exact_height(chrome::TOP_BAR_H)
             .frame(
                 egui::Frame::none()
                     .fill(color::layer_base())
@@ -1269,8 +1251,7 @@ impl AadtApp {
                         self.seed_plot_dialog();
                     }
                     ui.add_space(space::SM);
-                    if ui
-                        .button("Server")
+                    if button(ui, BtnKind::Subtle, "Server")
                         .on_hover_text(
                             "Connect to a ShilpiDB (shilpid) server — push / pull this drawing",
                         )
@@ -1323,15 +1304,19 @@ impl AadtApp {
                         ui.add_space(space::SM);
                         ui.separator();
                         ui.add_space(space::SM);
-                        ui.label(egui::RichText::new("AAD").strong().color(color::text()));
+                        ui.label(
+                            egui::RichText::new("AAD")
+                                .font(semibold(type_scale::BODY))
+                                .color(color::text()),
+                        );
                         ui.add_space(space::XS);
-                        brand_mark_widget(ui, 16.0);
+                        brand_mark_widget(ui, icon_sz::BRAND);
                     });
                 });
             });
         // Second strip: Floor / Space / TRACE (primary drafting context).
         egui::TopBottomPanel::top("qat_levels")
-            .exact_height(32.0)
+            .exact_height(chrome::TOP_BAR_H)
             .frame(
                 egui::Frame::none()
                     .fill(color::layer_card())
@@ -1355,7 +1340,8 @@ impl AadtApp {
         }
         egui::TopBottomPanel::bottom("drawing_props")
             .default_height(280.0)
-            .min_height(160.0)
+            .min_height(120.0)
+            .max_height(layout::drawing_props_max_h(ctx.screen_rect()))
             .resizable(true)
             .frame(
                 egui::Frame::none()
@@ -1392,34 +1378,26 @@ impl AadtApp {
             Vec::new()
         };
         let show_comp = !completions.is_empty();
-        let bar_h = if show_hint || show_comp { 48.0 } else { 28.0 };
+        let bar_h = if show_hint || show_comp {
+            chrome::STATUS_H_EXP
+        } else {
+            chrome::STATUS_H
+        };
 
         egui::TopBottomPanel::bottom("status")
             .exact_height(bar_h)
-            .frame(
-                egui::Frame::none()
-                    .fill(color::layer_base())
-                    .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
-            )
+            .frame(bar_frame())
             .show(ctx, |ui| {
                 // Row 1: command + status (status reserved on the right so text never collides).
                 ui.horizontal(|ui| {
                     let units =
                         aadt_model::primary_from_props(&self.session.document().properties().units);
-                    let units_chip = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(units.as_token())
-                                .strong()
-                                .color(color::accent()),
-                        )
-                        .fill(color::accent_soft())
-                        .stroke(egui::Stroke::new(stroke::THIN, color::accent()))
-                        .rounding(radius::CONTROL),
-                    );
-                    if units_chip
-                        .on_hover_text(format!("{} — open Units manager", units.label()))
-                        .clicked()
+                    if chip_accent(
+                        ui,
+                        units.as_token(),
+                        &format!("{} — open Units manager", units.label()),
+                    )
+                    .clicked()
                     {
                         self.right_tab = 4;
                         self.props_edit = self.session.document().properties().clone();
@@ -1441,8 +1419,10 @@ impl AadtApp {
                     }
                     ui.separator();
 
-                    const STATUS_RESERVE: f32 = 500.0;
-                    let cmd_w = (ui.available_width() - STATUS_RESERVE).max(120.0);
+                    // Keep command field proportional so narrow windows don't overflow.
+                    let avail = ui.available_width();
+                    let status_reserve = (avail * 0.42).clamp(160.0, 420.0);
+                    let cmd_w = (avail - status_reserve).max(96.0);
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.command)
                             .desired_width(cmd_w)
@@ -1514,32 +1494,7 @@ impl AadtApp {
                             (self.osnap, "OSNAP", "Object snap F3 (click to toggle)"),
                             (self.ortho, "ORTHO", "Ortho F8 (click to toggle)"),
                         ] {
-                            let text = if on {
-                                egui::RichText::new(label)
-                                    .small()
-                                    .strong()
-                                    .color(color::text())
-                            } else {
-                                egui::RichText::new(label)
-                                    .small()
-                                    .color(color::text_secondary())
-                            };
-                            let resp = ui
-                                .add(
-                                    egui::Button::new(text)
-                                        .fill(if on {
-                                            color::accent_soft()
-                                        } else {
-                                            color::control()
-                                        })
-                                        .stroke(egui::Stroke::new(
-                                            1.0_f32,
-                                            if on { color::accent() } else { color::stroke() },
-                                        ))
-                                        .rounding(radius::CONTROL),
-                                )
-                                .on_hover_text(tip);
-                            if resp.clicked() {
+                            if chip_toggle(ui, label, on, tip).clicked() {
                                 aids_changed = true;
                                 match label {
                                     "ORTHO" => self.ortho = !self.ortho,
@@ -1627,16 +1582,10 @@ impl AadtApp {
                         }
                         if let Some(prompt) = self.tool_prompt() {
                             let short = truncate_ui(prompt, 72);
-                            ui.label(
-                                egui::RichText::new(short)
-                                    .small()
-                                    .strong()
-                                    .color(color::accent()),
-                            );
+                            note_line(ui, NoteKind::Prompt, short);
                         } else if !self.note.is_empty() {
                             let short = truncate_ui(&self.note, 72);
-                            ui.label(egui::RichText::new(short).small().color(color::warning()))
-                                .on_hover_text(&self.note);
+                            note_line(ui, NoteKind::Info, short);
                         }
                     });
                 }
@@ -1952,20 +1901,12 @@ impl AadtApp {
             ui.spacing_mut().item_spacing.x = space::SM;
             for dest in theme::left_manager_nav() {
                 let tip = format!("{} — {}", dest.label, dest.tip);
-                if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked() {
+                let selected = self.left_tab == dest.tab;
+                if icon_btn_nav(ui, dest.icon, &tip, selected).clicked() {
                     self.left_tab = dest.tab;
                     self.persist_prefs();
                 }
-                ui.label(
-                    egui::RichText::new(dest.label)
-                        .size(type_scale::CAPTION)
-                        .strong()
-                        .color(if self.left_tab == dest.tab {
-                            color::accent()
-                        } else {
-                            color::text_secondary()
-                        }),
-                );
+                nav_dest_label(ui, dest.label, selected);
             }
         });
         ui.add_space(panel_space::ROW);
@@ -2001,13 +1942,15 @@ impl AadtApp {
             ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
             for dest in theme::right_manager_nav() {
                 let tip = format!("{} — {}", dest.label, dest.tip);
-                if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked() {
+                let selected = self.right_tab == dest.tab;
+                if icon_btn_nav(ui, dest.icon, &tip, selected).clicked() {
                     self.right_tab = dest.tab;
                     if matches!(dest.tab, 4 | 5) {
                         self.props_edit = self.session.document().properties().clone();
                     }
                     self.persist_prefs();
                 }
+                nav_dest_label(ui, dest.label, selected);
             }
         });
         ui.add_space(panel_space::ROW);
@@ -2029,15 +1972,12 @@ impl AadtApp {
         // exact_width forces the reservation to a fixed width regardless of the
         // content's minimum — otherwise a non-wrapping tile row can make egui
         // reserve far more than the frame fills, leaving a gap beside the dock.
+        let both = matches!(self.right_panel_mode, PanelMode::Docked) && self.show_layer_mgr;
+        let dock_w = layout::dock_width(320.0, ctx.screen_rect().width(), both);
         let left_resp = egui::SidePanel::left("left_mgr")
-            .exact_width(320.0)
+            .exact_width(dock_w)
             .resizable(false)
-            .frame(
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
-            )
+            .frame(dock_frame())
             .show(ctx, |ui| {
                 self.ui_left_panel_body(ui, PanelChrome::Docked);
             });
@@ -2048,15 +1988,12 @@ impl AadtApp {
     }
 
     fn draw_right_docked(&mut self, ctx: &egui::Context) {
+        let both = matches!(self.left_panel_mode, PanelMode::Docked) && self.show_left_mgr;
+        let dock_w = layout::dock_width(324.0, ctx.screen_rect().width(), both);
         let right_resp = egui::SidePanel::right("layer_mgr")
-            .exact_width(324.0)
+            .exact_width(dock_w)
             .resizable(false)
-            .frame(
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
-            )
+            .frame(dock_frame())
             .show(ctx, |ui| {
                 self.ui_right_panel_body(ui, PanelChrome::Docked);
             });
@@ -2073,36 +2010,42 @@ impl AadtApp {
             return;
         }
         let mut open = true;
-        let fr = self.left_float;
+        let screen = ctx.screen_rect();
+        let mut x = self.left_float.x;
+        let mut y = self.left_float.y;
+        let mut w = self.left_float.w;
+        let mut h = self.left_float.h;
+        layout::clamp_float_rect(&mut x, &mut y, &mut w, &mut h, screen);
         let mut persist = false;
         egui::Window::new("Structure")
             .id(egui::Id::new("left_mgr_float"))
             .open(&mut open)
             .collapsible(false)
-            .default_pos(egui::pos2(fr.x, fr.y))
-            .default_size([fr.w, fr.h])
+            .default_pos(egui::pos2(x, y))
+            .default_size([w, h])
             .min_width(220.0)
-            .min_height(200.0)
-            .frame(
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
-                    .shadow(panel_shadow(egui::vec2(0.0, 2.0))),
-            )
+            .min_height(160.0)
+            .max_height(layout::overlay_height(screen, chrome::STATUS_H))
+            .constrain_to(screen)
+            .frame(dock_frame().shadow(panel_shadow(egui::vec2(0.0, 2.0))))
             .show(ctx, |ui| {
                 self.ui_left_panel_body(ui, PanelChrome::Floating);
             });
-        if let Some((x, y, w, h)) = floating_window_rect(ctx, egui::Id::new("left_mgr_float")) {
-            if (x - self.left_float.x).abs() > 1.0
-                || (y - self.left_float.y).abs() > 1.0
-                || (w - self.left_float.w).abs() > 1.0
-                || (h - self.left_float.h).abs() > 1.0
+        if let Some((rx, ry, rw, rh)) = floating_window_rect(ctx, egui::Id::new("left_mgr_float")) {
+            let mut nx = rx;
+            let mut ny = ry;
+            let mut nw = rw;
+            let mut nh = rh;
+            layout::clamp_float_rect(&mut nx, &mut ny, &mut nw, &mut nh, screen);
+            if (nx - self.left_float.x).abs() > 1.0
+                || (ny - self.left_float.y).abs() > 1.0
+                || (nw - self.left_float.w).abs() > 1.0
+                || (nh - self.left_float.h).abs() > 1.0
             {
-                self.left_float.x = x;
-                self.left_float.y = y;
-                self.left_float.w = w.clamp(200.0, 640.0);
-                self.left_float.h = h.clamp(200.0, 1200.0);
+                self.left_float.x = nx;
+                self.left_float.y = ny;
+                self.left_float.w = nw;
+                self.left_float.h = nh;
                 persist = true;
             }
         }
@@ -2121,37 +2064,43 @@ impl AadtApp {
             return;
         }
         let mut open = true;
-        let fr = self.right_float;
+        let screen = ctx.screen_rect();
+        let mut x = self.right_float.x;
+        let mut y = self.right_float.y;
+        let mut w = self.right_float.w;
+        let mut h = self.right_float.h;
+        layout::clamp_float_rect(&mut x, &mut y, &mut w, &mut h, screen);
         let mut persist = false;
         egui::Window::new("Tools")
             .id(egui::Id::new("right_mgr_float"))
             .open(&mut open)
             .title_bar(false)
             .collapsible(false)
-            .default_pos(egui::pos2(fr.x, fr.y))
-            .default_size([fr.w, fr.h])
+            .default_pos(egui::pos2(x, y))
+            .default_size([w, h])
             .min_width(220.0)
-            .min_height(200.0)
-            .frame(
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
-                    .shadow(panel_shadow(egui::vec2(0.0, 2.0))),
-            )
+            .min_height(160.0)
+            .max_height(layout::overlay_height(screen, chrome::STATUS_H))
+            .constrain_to(screen)
+            .frame(dock_frame().shadow(panel_shadow(egui::vec2(0.0, 2.0))))
             .show(ctx, |ui| {
                 self.ui_right_panel_body(ui, PanelChrome::Floating);
             });
-        if let Some((x, y, w, h)) = floating_window_rect(ctx, egui::Id::new("right_mgr_float")) {
-            if (x - self.right_float.x).abs() > 1.0
-                || (y - self.right_float.y).abs() > 1.0
-                || (w - self.right_float.w).abs() > 1.0
-                || (h - self.right_float.h).abs() > 1.0
+        if let Some((rx, ry, rw, rh)) = floating_window_rect(ctx, egui::Id::new("right_mgr_float")) {
+            let mut nx = rx;
+            let mut ny = ry;
+            let mut nw = rw;
+            let mut nh = rh;
+            layout::clamp_float_rect(&mut nx, &mut ny, &mut nw, &mut nh, screen);
+            if (nx - self.right_float.x).abs() > 1.0
+                || (ny - self.right_float.y).abs() > 1.0
+                || (nw - self.right_float.w).abs() > 1.0
+                || (nh - self.right_float.h).abs() > 1.0
             {
-                self.right_float.x = x;
-                self.right_float.y = y;
-                self.right_float.w = w.clamp(200.0, 640.0);
-                self.right_float.h = h.clamp(200.0, 1200.0);
+                self.right_float.x = nx;
+                self.right_float.y = ny;
+                self.right_float.w = nw;
+                self.right_float.h = nh;
                 persist = true;
             }
         }
@@ -2182,24 +2131,25 @@ impl AadtApp {
             return;
         }
         let screen = ctx.screen_rect();
-        let top = 40.0; // below the top bar
-        let bottom_pad = 56.0;
-        let height = (screen.height() - top - bottom_pad).max(200.0);
+        let top = layout::top_chrome_h();
+        let height = layout::overlay_height(screen, chrome::STATUS_H_EXP + space::MD);
         let width = self.left_panel_width.clamp(220.0, 340.0);
         let mut still_open = false;
         egui::Area::new(egui::Id::new("left_mgr_autohide"))
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(panel_space::RAIL, top))
+            .constrain_to(screen)
             .show(ctx, |ui| {
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+                dock_frame()
                     .shadow(panel_shadow(egui::vec2(2.0, 0.0)))
                     .show(ui, |ui| {
-                        ui.set_min_size(egui::vec2(width, height));
-                        ui.set_max_width(width);
-                        self.ui_left_panel_body(ui, PanelChrome::AutoHide);
+                        ui.set_width(width);
+                        ui.set_height(height);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                self.ui_left_panel_body(ui, PanelChrome::AutoHide);
+                            });
                     });
                 if ui.rect_contains_pointer(ui.max_rect()) {
                     still_open = true;
@@ -2239,25 +2189,26 @@ impl AadtApp {
             return;
         }
         let screen = ctx.screen_rect();
-        let top = 40.0;
-        let bottom_pad = 56.0;
-        let height = (screen.height() - top - bottom_pad).max(200.0);
+        let top = layout::top_chrome_h();
+        let height = layout::overlay_height(screen, chrome::STATUS_H_EXP + space::MD);
         let width = self.right_panel_width.clamp(220.0, 340.0);
         let x = (screen.width() - panel_space::RAIL - width).max(0.0);
         let mut still_open = false;
         egui::Area::new(egui::Id::new("right_mgr_autohide"))
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(x, top))
+            .constrain_to(screen)
             .show(ctx, |ui| {
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+                dock_frame()
                     .shadow(panel_shadow(egui::vec2(-2.0, 0.0)))
                     .show(ui, |ui| {
-                        ui.set_min_size(egui::vec2(width, height));
-                        ui.set_max_width(width);
-                        self.ui_right_panel_body(ui, PanelChrome::AutoHide);
+                        ui.set_width(width);
+                        ui.set_height(height);
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                self.ui_right_panel_body(ui, PanelChrome::AutoHide);
+                            });
                     });
                 if ui.rect_contains_pointer(ui.max_rect()) {
                     still_open = true;
@@ -2282,7 +2233,7 @@ impl AadtApp {
     pub(super) fn ui_templates_panel(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             let panel_w = lock_panel_width(ui);
-            ui.label(egui::RichText::new("Nameplate template").strong());
+            section_label_first(ui, "Nameplate template");
             ui.label(
                 egui::RichText::new(
                     "Draw on TMPL_BORDER / TMPL_VIEW / TMPL_TEXT, make a block, convert it, then INSERT. Text with {title} etc. fills from Drawing Properties.",
@@ -2290,11 +2241,8 @@ impl AadtApp {
                 .small()
                 .weak(),
             );
-            ui.separator();
-            if ui
-                .add_sized([panel_w, 24.0], egui::Button::new("Ensure template layers"))
-                .clicked()
-            {
+            ui.add_space(panel_space::TIGHT);
+            if button_sized(ui, BtnKind::Primary, "Ensure template layers", panel_w).clicked() {
                 let fb = self.app_feed("TEMPLATE LAYERS");
                 if let Some(m) = fb.message() {
                     self.note = m.to_string();
@@ -2305,7 +2253,7 @@ impl AadtApp {
                     .small()
                     .weak(),
             );
-            ui.separator();
+            ui.add_space(panel_space::ROW);
             let nameplate = self
                 .session
                 .document()
@@ -2340,12 +2288,13 @@ impl AadtApp {
                 }
             });
             if !nameplate.is_empty()
-                && ui
-                    .add_sized(
-                        [panel_w, 24.0],
-                        egui::Button::new(format!("INSERT {nameplate}")),
-                    )
-                    .clicked()
+                && button_sized(
+                    ui,
+                    BtnKind::Secondary,
+                    &format!("INSERT {nameplate}"),
+                    panel_w,
+                )
+                .clicked()
             {
                 self.insert_block = nameplate.clone();
                 self.tool = Tool::Insert {
@@ -2353,8 +2302,7 @@ impl AadtApp {
                 };
                 self.note = format!("INSERT {nameplate} — click to place");
             }
-            ui.separator();
-            ui.label(egui::RichText::new("Property fields (place as TEXT)").strong());
+            section_label(ui, "Property fields (place as TEXT)");
             ui.label(
                 egui::RichText::new("Sets layer TMPL_TEXT, then click insertion point and Space.")
                     .small()
@@ -2387,7 +2335,7 @@ impl AadtApp {
                     }
                 }
             });
-            ui.separator();
+            ui.add_space(panel_space::ROW);
             if ui.link("Open Drawing Properties").clicked() {
                 self.open_drawing_properties();
             }
@@ -2396,16 +2344,13 @@ impl AadtApp {
 
     pub(super) fn ui_hatch_manager(&mut self, ui: &mut egui::Ui) {
         let panel_w = lock_panel_width(ui);
-        ui.label(egui::RichText::new("Pattern preview").strong());
+        section_label_first(ui, "Pattern preview");
         ui.label(
             egui::RichText::new(format!("Active: {}", self.hatch_pattern))
                 .small()
                 .color(color::accent()),
         );
-        if ui
-            .add_sized([panel_w, 24.0], egui::Button::new("Apply Hatch (H)"))
-            .clicked()
-        {
+        if button_sized(ui, BtnKind::Primary, "Apply Hatch (H)", panel_w).clicked() {
             self.tool = Tool::Hatch;
             self.note = format!(
                 "HATCH ({}) — click a closed polyline or circle",
@@ -2420,14 +2365,11 @@ impl AadtApp {
                 if sel == 1 { "" } else { "es" },
                 self.hatch_pattern
             );
-            if ui
-                .add_sized([panel_w, 24.0], egui::Button::new(label))
-                .clicked()
-            {
+            if button_sized(ui, BtnKind::Secondary, &label, panel_w).clicked() {
                 self.apply_pattern_to_selected_hatches();
             }
         }
-        ui.separator();
+        ui.add_space(panel_space::ROW);
         let root = aadt_library::default_library_root();
         let patterns = aadt_library::list_hatch_patterns(&root)
             .unwrap_or_else(|_| aadt_library::builtin_hatch_patterns());
@@ -2436,7 +2378,7 @@ impl AadtApp {
             .show(ui, |ui| {
                 let gap = space::SM;
                 let avail = lock_panel_width(ui);
-                let tile = fit_tile_size(avail, 48.0, 88.0, gap);
+                let tile = fit_tile_size(avail, panel_space::TILE_MIN, panel_space::TILE_MAX, gap);
                 // Explicit rows: `horizontal_wrapped` under-wraps inside a scroll
                 // area (tiles overflow the panel edge instead of flowing down), so
                 // chunk into a fixed column count derived from the real width.
@@ -2462,7 +2404,7 @@ impl AadtApp {
     pub(super) fn ui_annotate_panel(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             let panel_w = lock_panel_width(ui);
-            ui.label(egui::RichText::new("Insert").strong());
+            section_label_first(ui, "Insert");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.label("Table rows");
@@ -2470,14 +2412,10 @@ impl AadtApp {
                 ui.label("cols");
                 ui.add(egui::TextEdit::singleline(&mut self.table_cols).desired_width(40.0));
             });
-            if ui
-                .add_sized([panel_w, 24.0], egui::Button::new("Insert Table…"))
-                .clicked()
-            {
+            if button_sized(ui, BtnKind::Primary, "Insert Table…", panel_w).clicked() {
                 self.tool = Tool::TablePlace;
             }
-            ui.separator();
-            ui.label(egui::RichText::new("Leaders & marks").strong());
+            section_label(ui, "Leaders & marks");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
@@ -2504,8 +2442,7 @@ impl AadtApp {
                     self.tool = Tool::RevCloud { first: None };
                 }
             });
-            ui.separator();
-            ui.label(egui::RichText::new("Dimensions").strong());
+            section_label(ui, "Dimensions");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
@@ -2572,8 +2509,7 @@ impl AadtApp {
                 self.right_tab = 5; // Dims
                 self.reveal_right_mgr();
             }
-            ui.separator();
-            ui.label(egui::RichText::new("Object count").strong());
+            section_label(ui, "Object count");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 if ui.button("Count all objects").clicked() {
@@ -2589,8 +2525,7 @@ impl AadtApp {
                     self.app_feed("COUNT ALL");
                 }
             });
-            ui.separator();
-            ui.label(egui::RichText::new("Auto-number").strong());
+            section_label(ui, "Auto-number");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.label("Prefix");
@@ -2606,10 +2541,7 @@ impl AadtApp {
                     .small()
                     .weak(),
             );
-            if ui
-                .add_sized([panel_w, 24.0], egui::Button::new("Number selection"))
-                .clicked()
-            {
+            if button_sized(ui, BtnKind::Primary, "Number selection", panel_w).clicked() {
                 if self.selection.is_empty() {
                     self.note = "Select objects to number first".into();
                 } else {
@@ -2638,7 +2570,7 @@ impl AadtApp {
 
     pub(super) fn ui_drawing_properties(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.label(egui::RichText::new("Summary").strong());
+            section_label_first(ui, "Summary");
             prop_field(ui, "Title", &mut self.props_edit.title);
             prop_field(ui, "Subject", &mut self.props_edit.subject);
             prop_field(ui, "Author", &mut self.props_edit.author);
@@ -2650,8 +2582,7 @@ impl AadtApp {
                     .desired_rows(3),
             );
             prop_field(ui, "Hyperlink base", &mut self.props_edit.hyperlink_base);
-            ui.separator();
-            ui.label(egui::RichText::new("Title block (fixed layout / per-sheet attributes)").strong());
+            section_label(ui, "Title block (fixed layout / per-sheet attributes)");
             ui.label(
                 egui::RichText::new(
                     "These fields also fill {title}, {project}, … text in nameplate templates (Templates tab).",
@@ -2689,16 +2620,14 @@ impl AadtApp {
                     self.props_edit.logo_path.clear();
                 }
             });
-            ui.separator();
-            ui.label(egui::RichText::new("Project (shared across set)").strong());
+            section_label(ui, "Project (shared across set)");
             prop_field(ui, "Project name", &mut self.props_edit.project);
             prop_field(ui, "Client", &mut self.props_edit.client);
             prop_field(ui, "Address", &mut self.props_edit.address);
             prop_field(ui, "Project / job no.", &mut self.props_edit.project_number);
             prop_field(ui, "Architect", &mut self.props_edit.architect);
             prop_field(ui, "Area", &mut self.props_edit.area);
-            ui.separator();
-            ui.label(egui::RichText::new("This sheet (attributes)").strong());
+            section_label(ui, "This sheet (attributes)");
             prop_field(ui, "Drawing title", &mut self.props_edit.title);
             prop_field(ui, "Drawing number (A-101)", &mut self.props_edit.drawing_number);
             prop_field(ui, "Sheet number (01 of 45)", &mut self.props_edit.sheet_number);
@@ -2718,8 +2647,7 @@ impl AadtApp {
                     .desired_rows(3)
                     .hint_text("00|22-Jul-2026|Initial Issue|VH|RK"),
             );
-            ui.separator();
-            ui.label(egui::RichText::new("Building heights (general notes)").strong());
+            section_label(ui, "Building heights (general notes)");
             ui.label(
                 egui::RichText::new(
                     "Declared heights are inserted into suggested general notes and can use {floor_height} / {lintel_height} in nameplate text.",
@@ -2769,8 +2697,7 @@ impl AadtApp {
                     self.note = "Standard notes reloaded from suggestion".into();
                 }
             });
-            ui.separator();
-            ui.label(egui::RichText::new("Floors & model spaces").strong());
+            section_label(ui, "Floors & model spaces");
             ui.label(
                 egui::RichText::new(
                     "Each floor has Walls / Structural / Lintel / BeamLayout / Furniture. Add custom spaces for other disciplines.",
@@ -2825,8 +2752,7 @@ impl AadtApp {
                     }
                 }
             });
-            ui.separator();
-            ui.label(egui::RichText::new("Plot / nameplate").strong());
+            section_label(ui, "Plot / nameplate");
             ui.horizontal(|ui| {
                 ui.label("Nameplate");
                 let cur = aadt_docs::NameplatePreset::parse(&self.props_edit.nameplate_preset)
@@ -2863,15 +2789,15 @@ impl AadtApp {
                     .desired_rows(5)
                     .hint_text("Saved on the drawing; edited again at plot time"),
             );
-            ui.separator();
+            ui.add_space(panel_space::ROW);
             ui.horizontal(|ui| {
-                if ui.button("Apply").clicked() {
+                if button(ui, BtnKind::Primary, "Apply").clicked() {
                     self.session
                         .set_drawing_properties(self.props_edit.clone());
                     self.dirty = true;
                     self.note = "Drawing properties applied".into();
                 }
-                if ui.button("Reload").clicked() {
+                if button(ui, BtnKind::Secondary, "Reload").clicked() {
                     self.props_edit = self.session.document().properties().clone();
                 }
                 if ui.button("Plot PDF…").clicked() {
@@ -2897,7 +2823,7 @@ impl AadtApp {
             ui.add_space(6.0);
 
             let primary = aadt_model::primary_from_props(&self.props_edit.units);
-            ui.label(egui::RichText::new("Primary units").strong());
+            section_label_first(ui, "Primary units");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(ui.available_width());
                 if ui
@@ -2927,8 +2853,7 @@ impl AadtApp {
                 }
             });
 
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Entry tips").strong());
+            section_label(ui, "Entry tips");
             match primary {
                 aadt_model::UnitSystem::FeetInches => {
                     ui.label("• `6` or `6.5` → inches (default)");
@@ -2942,8 +2867,7 @@ impl AadtApp {
                 }
             }
 
-            ui.separator();
-            ui.label(egui::RichText::new("Secondary unit display").strong());
+            section_label(ui, "Secondary unit display");
             let mut secondary = aadt_model::secondary_enabled(&self.props_edit.dim_secondary);
             let sec_label = match primary {
                 aadt_model::UnitSystem::FeetInches => {
@@ -2970,7 +2894,7 @@ impl AadtApp {
             );
             ui.label(format!("Sample label: {sample}"));
 
-            ui.separator();
+            ui.add_space(panel_space::ROW);
             ui.label(format!(
                 "Dim style (from units): {}",
                 if self.props_edit.dimstyle.is_empty() {
@@ -2984,12 +2908,12 @@ impl AadtApp {
                 self.reveal_right_mgr();
             }
 
-            ui.separator();
+            ui.add_space(panel_space::ROW);
             let half = half_button_width(panel_w);
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing.x = space::SM;
-                if ui.add_sized([half, 24.0], egui::Button::new("Apply")).clicked() {
+                if button_sized(ui, BtnKind::Primary, "Apply", half).clicked() {
                     let sys = aadt_model::primary_from_props(&self.props_edit.units);
                     if self.props_edit.dimstyle.is_empty()
                         || self.props_edit.dimstyle.eq_ignore_ascii_case("STANDARD")
@@ -3014,7 +2938,7 @@ impl AadtApp {
                         }
                     );
                 }
-                if ui.add_sized([half, 24.0], egui::Button::new("Reload")).clicked() {
+                if button_sized(ui, BtnKind::Secondary, "Reload", half).clicked() {
                     self.props_edit = self.session.document().properties().clone();
                 }
             });
@@ -3037,9 +2961,7 @@ impl AadtApp {
                     &props.dimstyle
                 }
             ));
-            ui.separator();
-
-            ui.label(egui::RichText::new("Place").strong());
+            section_label_first(ui, "Place");
             ui.horizontal_wrapped(|ui| {
                 ui.set_max_width(panel_w);
                 ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
@@ -3101,8 +3023,7 @@ impl AadtApp {
                 }
             }
 
-            ui.separator();
-            ui.label(egui::RichText::new("Dimension style").strong());
+            section_label(ui, "Dimension style");
             prop_field(ui, "Style name", &mut self.props_edit.dimstyle);
             prop_field(ui, "Text height", &mut self.props_edit.dim_text_height);
             prop_field(ui, "Overall scale", &mut self.props_edit.dim_scale);
@@ -3128,14 +3049,14 @@ impl AadtApp {
             );
             ui.label(format!("Label preview: {preview}"));
 
-            ui.separator();
+            ui.add_space(panel_space::ROW);
             if ui.small_button("Open Units manager…").clicked() {
                 self.right_tab = 4; // Units
                 self.reveal_right_mgr();
             }
 
             ui.horizontal(|ui| {
-                if ui.button("Apply style").clicked() {
+                if button(ui, BtnKind::Primary, "Apply style").clicked() {
                     let sys = aadt_model::primary_from_props(&self.props_edit.units);
                     if self.props_edit.dimstyle.is_empty() {
                         self.props_edit.dimstyle = sys.dimstyle_name().to_string();
@@ -3144,7 +3065,7 @@ impl AadtApp {
                     self.dirty = true;
                     self.note = "Dimension style applied".into();
                 }
-                if ui.button("Reload").clicked() {
+                if button(ui, BtnKind::Secondary, "Reload").clicked() {
                     self.props_edit = self.session.document().properties().clone();
                 }
             });
@@ -3155,19 +3076,17 @@ impl AadtApp {
         if !self.plot_open {
             return;
         }
+        let (frame, screen, max_h) = dialog_defaults(ctx);
         let mut open = true;
         egui::Window::new("Plot to PDF")
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(420.0)
+            .max_height(max_h)
+            .constrain_to(screen)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(color::layer_card())
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
-                    .rounding(radius::DIALOG),
-            )
+            .frame(frame)
             .show(ctx, |ui| {
                 ui.label("Always exports a vector PDF (no direct print).");
                 ui.label(
@@ -3442,18 +3361,16 @@ impl AadtApp {
         }
         let mut open = true;
         let counts = self.session.document().layer_usage_counts();
+        let (frame, screen, max_h) = dialog_defaults(ctx);
         egui::Window::new("Map layers → spaces")
             .open(&mut open)
             .collapsible(false)
             .resizable(true)
             .default_width(520.0)
+            .max_height(max_h)
+            .constrain_to(screen)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(color::layer_card())
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
-                    .rounding(radius::DIALOG),
-            )
+            .frame(frame)
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new(
@@ -3524,7 +3441,7 @@ impl AadtApp {
                     });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("Apply map").clicked() {
+                    if button(ui, BtnKind::Primary, "Apply map").clicked() {
                         self.apply_layer_map_draft();
                     }
                     if ui.button("Skip").clicked() {
@@ -4054,13 +3971,24 @@ fn prop_field(ui: &mut egui::Ui, label: &str, value: &mut String) {
     let w = ui.available_width();
     if w < 220.0 {
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new(label).small());
+            ui.label(
+                egui::RichText::new(label)
+                    .size(type_scale::CAPTION)
+                    .color(color::text_secondary()),
+            );
             ui.add(egui::TextEdit::singleline(value).desired_width(ui.available_width()));
         });
     } else {
         ui.horizontal(|ui| {
             let label_w = (w * 0.32).clamp(64.0, 110.0);
-            ui.add_sized([label_w, 18.0], egui::Label::new(label));
+            ui.add_sized(
+                [label_w, panel_space::LABEL_H],
+                egui::Label::new(
+                    egui::RichText::new(label)
+                        .size(type_scale::CAPTION)
+                        .color(color::text_secondary()),
+                ),
+            );
             ui.add(egui::TextEdit::singleline(value).desired_width(f32::INFINITY));
         });
     }

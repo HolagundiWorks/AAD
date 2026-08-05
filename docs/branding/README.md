@@ -2,7 +2,8 @@
 
 **Product:** AAD — 2D Architectural Drafting  
 **Voice:** Command-first, local-first, calm Fluent chrome with a bold orange identity.  
-**Primary brand color:** Orange (`#E85D04`)
+**Primary brand color:** Orange (`#E85D04`)  
+**Design system:** **AAD Chrome** (shell) + **AAD Canvas** (drafting overlays) — one mono component language; do not invent one-off controls.
 
 ---
 
@@ -14,7 +15,7 @@ The mark is a soft-apex open **A** (white on orange). The name is system UI text
 
 | Role | Hex | RGB | Use |
 |------|-----|-----|-----|
-| Brand orange | `#E85D04` | 232, 93, 4 | Mark fill, selection, focus, CTAs |
+| Brand orange | `#E85D04` | 232, 93, 4 | Mark fill, chrome selection/focus, CTAs |
 | Brand orange dark | `#C2410C` | 194, 65, 12 | Pressed / hover on orange |
 | Brand soft | `#FFF0E6` | 255, 240, 230 | Soft accent fills |
 | On-brand | `#FFFFFF` | 255, 255, 255 | Glyph on solid orange mark |
@@ -25,16 +26,20 @@ The mark is a soft-apex open **A** (white on orange). The name is system UI text
 | Canvas | `#FFFFFF` | 255, 255, 255 | Drawing paper |
 | Stroke / border | `#E5E5E5` / `#C8C8C8` | — | 1px Fluent edges |
 
-Do **not** use Windows blue (`#005FB8`) for brand. Keep Fluent System Icons tinted with text/orange only.
+Do **not** use Windows blue (`#005FB8`) or Autodesk blue for **brand / chrome**. Keep Fluent System Icons tinted with text/orange only.
+
+**Canvas selection** may use CAD-familiar blue (`canvas::` tokens in `gui_theme.rs`) so drafting muscle memory stays intact — that blue is not a brand color.
 
 ---
 
-## Typography & shapes (Fluent 2)
+## Typography & shapes (AAD Chrome)
 
-- UI: Segoe UI on Windows (Caption 12 / Body 14 / Subtitle 20); Source Sans 3 for drawing text.
-- Product name in chrome: plain **AAD** (strong), not a custom lettering logo.
-- Controls: 4px radius · cards/menus: 8px · dialogs: 12px · edge-docked bars: 0.
-- Elevation: 1px strokes + soft ambient shadow on floating windows.
+- UI: Segoe UI on Windows (Caption 12 / Body 14 / Title 16 / Subtitle 20); Source Sans 3 for drawing text.
+- Titles / section labels: **Semibold** face — never egui `.strong()` (recolor only).
+- Product name in chrome: plain **AAD** (semibold), not a custom lettering logo.
+- **Radii: all `0` (sharp)** — CAD-dense chrome; controls, cards, dialogs, and docks share one shape. Named tokens in code so rounding can return later in one file.
+- Elevation: 1px strokes on bars/docks; soft ambient shadow on floating windows / modals.
+- Control height: **28px**; top bars **32px**; status **28 / 48px**; icons **16px** glyph in **28px** hit (compact rows 14/20).
 
 ---
 
@@ -62,7 +67,8 @@ Logo construction rules: see [logo-guidelines.md](./logo-guidelines.md).
 
 ## UI application
 
-- Chrome: **mark + “AAD” text** only (right of the top bar).
-- Orange for hierarchy only: selection, active nav, units chip, prompts.
+- Chrome: **mark (20–24px) + “AAD” text** only (right of the top bar).
+- Orange for chrome hierarchy only: selection, active nav, units chip, prompts, primary CTAs.
 - Do not flood panels with orange fills.
+- Compose from mono primitives in `gui_theme.rs` (`button`, `chip_*`, `dialog_frame`, `section_label*`, …) — no raw one-off chrome controls.
 - Fluent toolbar icons remain monochrome; tint to text or brand orange when selected.

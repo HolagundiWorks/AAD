@@ -200,6 +200,7 @@ pub fn run(session: Session) -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("AAD")
             .with_inner_size([1280.0, 800.0])
+            .with_min_inner_size([theme::layout::MIN_WINDOW_W, theme::layout::MIN_WINDOW_H])
             .with_icon(icon),
         ..Default::default()
     };
@@ -1945,18 +1946,13 @@ impl AadtApp {
             .and_then(|p| p.file_name().and_then(|n| n.to_str()))
             .unwrap_or("untitled")
             .to_string();
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         egui::Window::new("Unsaved changes")
             .collapsible(false)
             .resizable(false)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(
-                        theme::stroke::THIN,
-                        theme::color::border(),
-                    ))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(format!("Save changes to “{name}” before closing?"));
@@ -2006,18 +2002,13 @@ impl AadtApp {
             PendingReplace::New => "starting a new drawing",
             PendingReplace::Open(_) => "opening another drawing",
         };
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         egui::Window::new("Unsaved changes")
             .collapsible(false)
             .resizable(false)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(
-                        theme::stroke::THIN,
-                        theme::color::border(),
-                    ))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(format!("Save changes to “{name}” before {verb}?"));
@@ -2054,18 +2045,13 @@ impl AadtApp {
         let Some(auto) = self.recovery_prompt.clone() else {
             return;
         };
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         egui::Window::new("Autosave recovery")
             .collapsible(false)
             .resizable(false)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(
-                        theme::stroke::THIN,
-                        theme::color::border(),
-                    ))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(format!("A newer autosave was found:\n{}", auto.display()));
@@ -2089,17 +2075,20 @@ impl AadtApp {
         if !self.show_shortcuts {
             return;
         }
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         egui::Window::new("Keyboard & Space workflow")
             .open(&mut self.show_shortcuts)
             .default_width(420.0)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(theme::stroke::THIN, theme::color::border()))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .show(ctx, |ui| {
-                ui.label(egui::RichText::new("Spacebar command engine").strong());
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("Spacebar command engine")
+                        .font(theme::semibold(theme::type_scale::CAPTION))
+                        .color(theme::color::text_secondary()),
+                );
                 ui.label("Space — accept / next / finish");
                 ui.label("Double-Space — finish and repeat");
                 ui.label("Hold Space / Ctrl+Space — command palette");
@@ -2108,7 +2097,11 @@ impl AadtApp {
                 ui.label("Tab — cycle X ↔ Y while drafting");
                 ui.label("Shift+Space — clear typed input");
                 ui.separator();
-                ui.label(egui::RichText::new("Modes & file").strong());
+                ui.label(
+                    egui::RichText::new("Modes & file")
+                        .font(theme::semibold(theme::type_scale::CAPTION))
+                        .color(theme::color::text_secondary()),
+                );
                 ui.label("F1 — this sheet");
                 ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F7 — perf HUD · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
                 ui.label("Snap override — type END/MID/INT/CEN/QUA/NEA/PER/TAN at a point, or SHIFT+right-click");
@@ -2118,7 +2111,11 @@ impl AadtApp {
                 ui.label("Ctrl+S — quick save · Ctrl+Shift+S — Save As");
                 ui.label("Ctrl+O — open · Ctrl+N — new · Ctrl+Z/Y — undo/redo");
                 ui.separator();
-                ui.label(egui::RichText::new("Command steps (AutoCAD-like)").strong());
+                ui.label(
+                    egui::RichText::new("Command steps (AutoCAD-like)")
+                        .font(theme::semibold(theme::type_scale::CAPTION))
+                        .color(theme::color::text_secondary()),
+                );
                 ui.label("MOVE/COPY/STRETCH/… — verb-noun: pick objects · Space · points (noun-verb if pre-selected)");
                 ui.label("LINE — points · [U]ndo vertex · [C]lose · Space finish");
                 ui.label("CIRCLE — center · radius or [D]iameter · or [2P/3P]");
@@ -2138,6 +2135,7 @@ impl AadtApp {
                 ui.label("HCWLAYERS · BPLTSTART · FIXTXT · TEXTINCREMENT — layer / BP / text tools");
                 ui.label("IDO — custom room · IRECT toggle box · IHIDERECT · IHELP");
                 ui.label("UNITS ft-in|m [SECONDARY on|off] — drawing units & alt labels");
+                });
             });
     }
 
@@ -2156,18 +2154,13 @@ impl AadtApp {
         let idle = !self.server_busy;
         let ready = self.server_connected && idle;
         let mut open = self.show_server;
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         egui::Window::new("ShilpiDB server")
             .open(&mut open)
             .default_width(360.0)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(
-                        theme::stroke::THIN,
-                        theme::color::border(),
-                    ))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .show(ctx, |ui| {
                 // Connection status dot.
                 let (dot, label) = if self.server_connected {
@@ -2310,19 +2303,14 @@ impl AadtApp {
         let mut open = self.show_room_picker;
         let mut picked: Option<String> = None;
         let mut custom = false;
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         egui::Window::new("Select Room Type")
             .open(&mut open)
             .default_width(280.0)
             .default_height(420.0)
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(
-                        theme::stroke::THIN,
-                        theme::color::border(),
-                    ))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new("Imperial room labels — pick two corners after choosing")
@@ -2617,28 +2605,38 @@ impl AadtApp {
         let (avg, p95, mx) = (f.avg(), f.p95(), f.max());
         let fps = if avg > 0.001 { 1000.0 / avg } else { 0.0 };
         let (col, verdict) = if p95 <= 16.0 {
-            (egui::Color32::from_rgb(15, 123, 50), "OK")
+            (theme::color::success(), "OK")
         } else if p95 <= 33.0 {
-            (egui::Color32::from_rgb(157, 93, 0), "TIGHT")
+            (theme::color::warning(), "TIGHT")
         } else {
-            (egui::Color32::from_rgb(196, 43, 28), "OVER")
+            (theme::color::danger(), "OVER")
         };
         let screen = ctx.screen_rect();
         let white = egui::Color32::from_gray(232);
         let dim = egui::Color32::from_gray(180);
+        let hud_size = egui::vec2(208.0, 110.0);
+        let hud_pos = theme::layout::clamp_pos(
+            egui::pos2(screen.right() - 234.0, screen.top() + 96.0),
+            hud_size,
+            screen,
+        );
         egui::Area::new(egui::Id::new("perf_hud"))
             .order(egui::Order::Foreground)
-            .fixed_pos(egui::pos2(screen.right() - 234.0, screen.top() + 96.0))
+            .constrain_to(screen)
+            .fixed_pos(hud_pos)
             .interactable(false)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
-                    .fill(egui::Color32::from_rgba_unmultiplied(18, 18, 18, 224))
+                    .fill(if theme::color::is_dark() {
+                        theme::color::layer_card()
+                    } else {
+                        egui::Color32::from_rgba_unmultiplied(18, 18, 18, 224)
+                    })
                     .show(ui, |ui| {
                         ui.set_width(200.0);
                         ui.label(
                             egui::RichText::new("Performance (F7)")
-                                .small()
-                                .strong()
+                                .font(theme::semibold(theme::type_scale::CAPTION))
                                 .color(white),
                         );
                         ui.label(
@@ -4254,21 +4252,16 @@ impl AadtApp {
         if !self.palette_open {
             return;
         }
+        let (frame, screen, max_h) = theme::dialog_defaults(ctx);
         let mut open = true;
         egui::Window::new("Commands")
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .frame(
-                egui::Frame::window(&ctx.style())
-                    .fill(theme::color::layer_card())
-                    .stroke(egui::Stroke::new(
-                        theme::stroke::THIN,
-                        theme::color::border(),
-                    ))
-                    .rounding(theme::radius::DIALOG),
-            )
+            .max_height(max_h)
+            .constrain_to(screen)
+            .frame(frame)
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new("Space = run · Esc = close · type to filter")
@@ -8352,7 +8345,7 @@ fn paint_selected_dimensions(
     if selected.is_empty() {
         return;
     }
-    let hi = egui::Color32::from_rgb(30, 120, 255);
+    let hi = theme::canvas::selection();
     let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
     let props = doc.properties();
     let dims = doc.dimensions();
@@ -8737,7 +8730,7 @@ fn paint_snap_marker(
     world: Point2,
 ) {
     let c = world_to_screen(camera, rect, world);
-    let color = egui::Color32::from_rgb(255, 200, 60);
+    let color = theme::canvas::snap();
     let stroke = egui::Stroke::new(1.5_f32, color);
     match kind {
         SnapKind::Endpoint => {
@@ -8944,10 +8937,10 @@ fn paint_selection(
     if selection.is_empty() {
         return;
     }
-    let hi = egui::Color32::from_rgb(30, 120, 255);
+    let hi = theme::canvas::selection();
     let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
     let grip = egui::Color32::from_rgb(255, 255, 255);
-    let grip_edge = egui::Color32::from_rgb(30, 120, 255);
+    let grip_edge = theme::canvas::selection();
     let n = selection.len();
     for (i, id) in selection.iter().enumerate() {
         let Some(e) = doc.get(*id) else { continue };
@@ -8990,7 +8983,7 @@ fn paint_selected_hatches(
     if selected.is_empty() {
         return;
     }
-    let hi = egui::Color32::from_rgb(30, 120, 255);
+    let hi = theme::canvas::selection();
     let glow = egui::Color32::from_rgba_unmultiplied(40, 140, 255, 110);
     let hatches = doc.hatches();
     for &idx in selected {
@@ -9264,7 +9257,7 @@ fn paint_preview(
     selection: &[EntityId],
 ) {
     let to_screen = |p: Point2| world_to_screen(camera, rect, p);
-    let stroke = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(30, 90, 180));
+    let stroke = egui::Stroke::new(1.0_f32, theme::canvas::selection_stroke());
     let ghost_stroke = egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(80, 140, 220));
     let ghost_color = egui::Color32::from_rgb(80, 140, 220);
 
@@ -9467,7 +9460,7 @@ fn paint_preview(
                     camera,
                     &Geometry::Arc(aadt_geometry::Arc::new(c, r, sa, ea)),
                     stroke,
-                    egui::Color32::from_rgb(30, 90, 180),
+                    theme::canvas::selection_stroke(),
                 );
             } else {
                 painter.line_segment([to_screen(*a0), to_screen(cursor)], stroke);
@@ -9506,7 +9499,7 @@ fn paint_preview(
                     camera,
                     &Geometry::Arc(aadt_geometry::Arc::new(*c, r, start_ang, end_ang)),
                     stroke,
-                    egui::Color32::from_rgb(30, 90, 180),
+                    theme::canvas::selection_stroke(),
                 );
             }
         }
@@ -9735,17 +9728,13 @@ fn paint_preview(
 /// same size with a clearer pickbox.
 fn paint_crosshair_and_pickbox(painter: &egui::Painter, sp: egui::Pos2, drafting: bool) {
     let half = CROSSHAIR_SIZE_PX * 0.5;
-    // Contrast against the (theme-filled) paper: dark arms on light, light on dark.
-    let color = if theme::color::is_dark() {
-        if drafting {
-            egui::Color32::from_rgb(210, 210, 210)
-        } else {
-            egui::Color32::from_rgb(175, 175, 175)
-        }
-    } else if drafting {
-        egui::Color32::from_rgb(40, 40, 40)
+    // Contrast against the (theme-filled) paper.
+    let color = if drafting {
+        theme::canvas::crosshair()
+    } else if theme::color::is_dark() {
+        egui::Color32::from_rgb(175, 175, 175)
     } else {
-        egui::Color32::from_rgb(60, 60, 60)
+        theme::canvas::crosshair()
     };
     let stroke = egui::Stroke::new(1.0_f32, color);
     // Horizontal / vertical arms — total 100×100.
@@ -9763,11 +9752,7 @@ fn paint_crosshair_and_pickbox(painter: &egui::Painter, sp: egui::Pos2, drafting
         egui::pos2(sp.x - pb, sp.y - pb),
         egui::pos2(sp.x + pb, sp.y + pb),
     );
-    let pick_ink = if theme::color::is_dark() {
-        egui::Color32::from_rgb(225, 225, 225)
-    } else {
-        egui::Color32::from_rgb(20, 20, 20)
-    };
+    let pick_ink = theme::canvas::pickbox();
     painter.rect_stroke(box_rect, 0.0, egui::Stroke::new(1.0_f32, pick_ink));
 }
 
@@ -9775,15 +9760,9 @@ fn paint_crosshair_and_pickbox(painter: &egui::Painter, sp: egui::Pos2, drafting
 fn paint_box(painter: &egui::Painter, start: egui::Pos2, cur: egui::Pos2) {
     let crossing = cur.x < start.x;
     let (edge, fill) = if crossing {
-        (
-            egui::Color32::from_rgb(40, 180, 60),
-            egui::Color32::from_rgba_unmultiplied(40, 180, 60, 28),
-        )
+        (theme::canvas::crossing_edge(), theme::canvas::crossing_fill())
     } else {
-        (
-            egui::Color32::from_rgb(40, 100, 220),
-            egui::Color32::from_rgba_unmultiplied(40, 100, 220, 28),
-        )
+        (theme::canvas::window_edge(), theme::canvas::window_fill())
     };
     let r = egui::Rect::from_two_pos(start, cur);
     painter.rect_filled(r, 0.0, fill);
@@ -9885,7 +9864,7 @@ fn paint_insert_ghost(
     cursor: Point2,
     stroke: egui::Stroke,
 ) {
-    let color = egui::Color32::from_rgb(30, 90, 180);
+    let color = theme::canvas::selection_stroke();
     match doc.block(name) {
         Some(block) => {
             let ins = aadt_model::Insert::new(name, cursor, 0.0);

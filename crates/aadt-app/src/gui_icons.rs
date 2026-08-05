@@ -147,20 +147,27 @@ pub fn brand_mark_widget(ui: &mut egui::Ui, size: f32) -> egui::Response {
     .on_hover_text("AAD — Accelerated Architectural Drafting")
 }
 
-/// Clickable Fluent icon button — compact toolbar (Cursor-like). 16px glyph in
-/// a 28px target (Fluent System Icons UI step + comfortable hit area).
+/// Clickable Fluent icon button — compact toolbar. 16px glyph in a 28px target.
 pub fn icon_btn(ui: &mut egui::Ui, icon: Icon, tip: &str) -> egui::Response {
-    icon_btn_sized(ui, icon, tip, egui::vec2(28.0, 28.0), 16.0)
+    use super::theme::icon as sz;
+    icon_btn_sized(
+        ui,
+        icon,
+        tip,
+        egui::vec2(sz::HIT_TOOLBAR, sz::HIT_TOOLBAR),
+        sz::GLYPH_MD,
+    )
 }
 
 /// Compact icon for dense lists (layer rows).
 pub fn icon_btn_compact(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool) -> egui::Response {
+    use super::theme::icon as sz;
     icon_btn_sized_tinted(
         ui,
         icon,
         tip,
-        egui::vec2(20.0, 20.0),
-        14.0,
+        egui::vec2(sz::HIT_COMPACT, sz::HIT_COMPACT),
+        sz::GLYPH_SM,
         if active {
             super::theme::color::accent()
         } else {
@@ -219,9 +226,9 @@ fn icon_btn_sized_tinted(
 
 /// Selected nav-rail icon (accent soft fill) — flat, compact.
 pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) -> egui::Response {
-    use super::theme::{color, radius};
-    let size = egui::vec2(32.0, 32.0);
-    let glyph = 16.0;
+    use super::theme::{color, icon as sz, radius};
+    let size = egui::vec2(sz::HIT_NAV, sz::HIT_NAV);
+    let glyph = sz::GLYPH_MD;
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let resp = resp.on_hover_text(tip);
     if ui.is_rect_visible(rect) {
