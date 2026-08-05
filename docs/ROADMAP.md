@@ -296,7 +296,7 @@ generated, and nothing leaves the machine.
 passages; it never composes prose from them. Composition would mean asserting
 something no document says — the opposite of "AI never owns data" (ADR-0012).
 
-## M12 — AI-Native Phase 3: the AI service layer ✅ (core)
+## M12 — AI-Native Phase 3: the AI service layer ✅
 
 Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
 services that want to write, and the mechanism that keeps them gated: a service
@@ -310,13 +310,11 @@ returns proposals, and one audited function commits them.
 | M12.4 | **NL command routing**: phrase → command *string*, never geometry | ✅ | Refuses unmatched phrasings with candidates rather than guessing |
 | M12.5 | Surface: `SUGGEST` / `CHECK` / `ASK` commands | ✅ | `ASK` shows the routed command; running it stays the user's call |
 | M12.6 | **Revision-comparison narration** — fingerprint diff + detection deltas + optional corpus citations as an advisory suggestion | ✅ | `aadt-assist::narrate_revision` / `COMPARE <before>`; `Action::None` (transmittal note, never auto-edits). CLI `aadt compare` prints the same enriched note |
+| M12.7 | **Standard-detail recommendation** — BM25 retrieval over a bundled detail library | ✅ | Seed sheets in [`libraries/details/`](../libraries/details/); `aadt-assist::recommend_details` + `RECOMMEND DETAIL [query]` (auto-seeds corpus; `SuggestionKind::DetailRecommend`, `Action::None`) |
 
 **Deliberately not in M12:** auto-fixing code findings, and any NL path that
 reaches geometry without passing through the command band. Both would move a
 decision from the engineer to the tool.
-
-**Still open from the phase plan:** standard-detail recommendation (retrieval
-half exists via `ASKDOCS`; the detail library content does not).
 
 ## M13 — AI-Native Phase 4: quantity takeoff, on objects ✅ (core)
 

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### M12.7 — Standard-detail recommendation
+
+- Bundled detail sheets under `libraries/details/` (external cavity wall,
+  internal partition, door head/threshold, habitable room floor finishes).
+- `aadt-assist::recommend_details` BM25-searches an indexed corpus and emits
+  advisory `SuggestionKind::DetailRecommend` proposals (`Action::None`).
+- Session command **`RECOMMEND DETAIL [query]`** (aliases `DETAIL` / `DETAILS`)
+  auto-seeds the bundled sheets, then cites matches. Empty query infers topics
+  from the selection's layers. NL router maps "recommend a detail" → the same
+  command.
+
 ### M12.6 — Revision-comparison narration
 
 - New `aadt-assist::compare` service wraps the M7 fingerprint diff
@@ -12,8 +23,7 @@
   `SuggestionKind::RevisionCompare` proposal (`Action::None` — rejectable /
   auditable, never auto-applied). CLI `aadt compare` prints the same enriched
   narration.
-- Marks the deferred Phase-3 revision-narration item done; standard-detail
-  recommendation remains open pending a detail library.
+- Marks the deferred Phase-3 revision-narration item done.
 
 ### M9.6 — Floating panels + auto-hide (§28 docking)
 
