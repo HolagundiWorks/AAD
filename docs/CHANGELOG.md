@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Transparent commands: `'ZOOM` and `'PAN` mid-command
+
+- An apostrophe prefix now runs a view command **without cancelling the command
+  already in progress** (AutoCAD's transparent-command convention). Typing
+  `'ZOOM` while `LINE` waits for its next point reframes the view and hands the
+  prompt straight back.
+- The interrupted command's tool state, engine step position, and prompt are
+  parked in a `Suspended` record and restored verbatim, so no picked points are
+  lost. Esc during a transparent command resumes the interrupted prompt instead
+  of cancelling everything.
+- `'ZOOM E` / `'ZOOM P` / `'ZOOM <factor>` complete in one line; bare `'ZOOM`
+  waits for a window pick and stays transparent until it gets one. Zoom factors
+  accept AutoCAD's `2x` / `0.5X` form, and reject zero or non-finite values that
+  would strand the camera.
+- Only view commands are transparent — anything that could edit geometry is
+  refused with a message rather than run non-transparently.
+- Closes the last M1 display item that did not depend on the wgpu canvas, and
+  the final non-locked "No" in the AutoCAD parity matrix.
+
 ### Documentation refresh for M9 / M12 completion
 
 - Architecture overview gained the AI-native crate band (`aadt-object`,

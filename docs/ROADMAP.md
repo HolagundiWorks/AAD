@@ -121,10 +121,15 @@ state, DXF round-trip, drawlist/camera seam.
 - Thin `aadt-ffi` cdylib for future chrome (e.g. WinUI) without engine rewrite.
 - Interaction docs: [`docs/ux/`](ux/README.md).
 
+**Transparent commands — ✅:** an apostrophe prefix (`'ZOOM`, `'PAN`) runs a
+view command without cancelling the one in progress; the interrupted command's
+tool state, engine step, and prompt are parked and restored verbatim (Esc
+during it resumes rather than cancelling). Only view commands qualify — a
+transparent command that could edit geometry is refused.
+
 **Remaining (display-bound, not command sprawl):**
 - Viewport text glyph quality.
 - True `wgpu` 2D canvas when the egui painter is actually too slow (100k+).
-- Transparent mid-command `'ZOOM` / grip-edit (see UX parity matrix).
 
 **Native format — ✅ v0:** SQLite `.aadt` via `aadt-store` (layers, entities with
 stable ids, blocks, hatches, dimensions). `OPEN`/`SAVE` select by extension.
@@ -346,8 +351,7 @@ rates belong to the estimator's system.
 
 ## Post-1.0
 
-- M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;
-  transparent mid-command `'ZOOM` / grip-edit.
+- M1 display: viewport text glyph quality; wgpu canvas if egui is too slow.
 - M7 PDF viewer UI: interactive viewing, freehand/stamps, on-PDF measure, raster diff.
 - Optional: WinUI over `aadt-ffi`.
 - DWG: Autodesk-certified fidelity / hatch+dim DWG mapping; hatch arc/ellipse edges.

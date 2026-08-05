@@ -405,6 +405,27 @@ index anything else with `ASKDOCS INDEX <path>`.
 
 ---
 
+## Transparent commands (`'ZOOM` / `'PAN`)
+
+An apostrophe prefix runs a **view** command without cancelling the one already
+in progress — AutoCAD's transparent-command convention.
+
+| Step | Action |
+|------|--------|
+| 1 | Mid-command (say `LINE` waiting for the next point), type `'ZOOM` |
+| 2 | Pick a window, or use `A` / `E` (extents), `P` (previous), or a scale factor like `2` / `0.5x` |
+| 3 | The view reframes and the interrupted command resumes at exactly the prompt it was on |
+| 4 | Esc during the transparent command also returns to the interrupted prompt, not to idle |
+
+`'ZOOM E`, `'ZOOM P`, and `'ZOOM <factor>` complete in one line. Bare `'ZOOM`
+waits for a window pick and stays transparent until it gets one.
+
+Only view commands are transparent. Anything that could edit geometry is
+refused with a message rather than run non-transparently — silently cancelling
+the user's line would be worse than an error.
+
+---
+
 ## Panel docking (M9.6)
 
 Each side manager carries its own mode, persisted in `prefs.json`:
@@ -457,7 +478,7 @@ Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out 
 | QDIM chain | Yes | Select → side pick |
 | AUTODIM isolate + set | Yes | `LAYUNISO` / `AUTODIMRESTORE` |
 | Alternate units on dims | Yes | Via `dim_secondary` |
-| Transparent `'ZOOM` | No | Mode toggles mid-cmd ok |
+| Transparent `'ZOOM` | Yes | `'ZOOM` / `'PAN` suspend and resume the running command |
 | Full DIMSTYLE dialog | Partial | Props + managers + cmd |
 | Auto-type `DIM` | Yes | `DIM <id>` infers aligned / radius / diameter; GUI hover-to-auto-dim (M9.4) |
 | Osnap overrides + menu | Yes | `END/MID/INT/CEN/QUA/NEA/PER/TAN` keywords, SHIFT+right-click menu (M9.1) |
