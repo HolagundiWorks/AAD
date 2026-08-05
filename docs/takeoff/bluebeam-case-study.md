@@ -1,6 +1,6 @@
 # Case study — Bluebeam Revu quantity takeoff
 
-**Purpose:** Learn industry-standard takeoff UX from Bluebeam Revu so AiADT’s
+**Purpose:** Learn industry-standard takeoff UX from Bluebeam Revu so AAD’s
 CAD-native takeoff stays competitive without copying a PDF-markup product.
 **Date:** 2026-07-24.
 
@@ -28,9 +28,9 @@ the **Markups List**, then flow to Excel via **Quantity Link**.
 CSI MasterFormat is **not built into Revu**; firms encode it via custom columns
 or third-party tool sets (often ~600 tools across 24 CSI divisions).
 
-## Comparison to AiADT
+## Comparison to AAD
 
-| Bluebeam strength | AiADT equivalent today | Adopt? |
+| Bluebeam strength | AAD equivalent today | Adopt? |
 |---|---|---|
 | PDF-first, any issued sheet | CAD-native 2D + PDF *plot* | Keep CAD-native; PDF is output |
 | Scale calibration on PDF | Drawing units (`UNITS`) | Already; document clearly |
@@ -40,9 +40,9 @@ or third-party tool sets (often ~600 tools across 24 CSI divisions).
 | VisualSearch / symbol count | Block inserts + COUNT | Later polish |
 | Multi-scale viewports | Out of scope (nameplate PDF sheets) | No |
 
-## Product implications for AiADT
+## Product implications for AAD
 
-1. **Do not chase PDF takeoff** as the primary path — AiADT’s differentiator is
+1. **Do not chase PDF takeoff** as the primary path — AAD’s differentiator is
    **structured CAD → deterministic quantities**.
 2. **Match estimator expectations** on export shape: CSI MasterFormat code,
    CSI *division* rollup, optional unit cost / extended cost, category totals.

@@ -88,9 +88,13 @@ ADR-0010 contract, now generalised into `aadt-assist`: suggest → confidence ga
 
 - ✅ **Dimension prediction** — one linear dimension proposed per undimensioned
   wall; confidence from detection quality; already-dimensioned walls skipped.
-- ⬜ **Revision comparison narration** (extend `aadt-pdf` compare) — deferred.
-- ⬜ **Standard-detail recommendation** (retrieval over the Phase-2 corpus) —
-  deferred; the retrieval half exists, the detail library does not.
+- ✅ **Revision comparison narration** (extend `aadt-pdf` compare) — shipped as
+  M12.6: `aadt-assist::narrate_revision` wraps the M7 fingerprint diff with
+  detection count deltas and optional BM25 citations; surface is
+  `COMPARE <before>` (advisory `SuggestionKind::RevisionCompare`).
+- ✅ **Standard-detail recommendation** (retrieval over the Phase-2 corpus) —
+  shipped as M12.7: bundled `libraries/details/*.md` sheets, auto-seeded by
+  `RECOMMEND DETAIL [query]` into the session corpus; advisory citations only.
 - ✅ **Natural-language command routing** — `"draw a wall from 0,0 to 5,0"` →
   `LINE 0,0 5,0`, shown but not executed. NL never reaches geometry directly.
 - ✅ **Risk/code checks as rule packs** — three deterministic geometric rules,

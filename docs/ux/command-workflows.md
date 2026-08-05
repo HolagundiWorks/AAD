@@ -1,4 +1,4 @@
-# AiADT command workflows
+# AAD command workflows
 
 Step-by-step interaction for the daily drafting band. Companion to
 [autocad-research.md](./autocad-research.md).
@@ -342,9 +342,8 @@ Blocks Manager: create from selection, add params, edit selected INSERT attrs / 
 
 | Command | Role |
 |---------|------|
-| `OPEN` / `SAVE` | `.dxf` / `.aadt` (SAVE to `.aadt` auto-checkpoints + persists takeoff run when live) |
-| `TAKEOFF` / `TAKEOFF PUBLISH [sink]` | Quantities; publish pins run + optional CSV/JSON/SQL sink |
-| `SCHEDULE` / `SCHEDULE REFRESH` | Place linked table / rebuild after geometry edits |
+| `OPEN` / `SAVE` | `.dxf` / `.dwg` / `.aadt` / `.vdb` (SAVE to `.aadt` auto-checkpoints; `.vdb` also carries the Object DB) |
+| `TAKEOFF` / `BOQ` | Quantities and bill of quantities over the Object DB (M13) |
 | `HISTORY LIST\|SAVE\|RESTORE\|PURGE` | Drawing time machine (one `.aadt`, many versions) |
 | `LISP` / `(…)` | AutoLISP against the live document |
 
@@ -352,15 +351,97 @@ Blocks Manager: create from selection, add params, edit selected INSERT attrs / 
 
 1. Draft in a single `.aadt`.
 2. `SAVE` (or History → Save version) creates checkpoints.
-3. `TAKEOFF` / live SAVE stores quantity runs + Δ vs previous.
+3. `TAKEOFF` measures the promoted objects and reports what it assumed.
 4. On a bad edit: History → Restore, or `HISTORY RESTORE <id>`.
 5. Title-block Rev text remains for sheets; machine history is the rollback log.
 
-Managers: right panel **Takeoff** and **History**. See [ADR-0008](../adr/0008-drawing-history-takeoff-db.md).
+Managers: right panel **History**. See [ADR-0008](../adr/0008-drawing-history-takeoff-db.md).
 
 ---
 
-## Parity matrix (AutoCAD → AiADT)
+## Assist & retrieval (AI-native, local)
+
+Everything here is **local and offline**. Retrieval commands cite content that
+already exists; assist commands emit proposals that a human accepts. No command
+in this section writes geometry on its own ([ADR-0013](../adr/0013-ai-service-layer.md)).
+
+| Command | Role |
+|---------|------|
+| `FIND <text>` / `FIND SIMILAR <id>` / `FIND DUPES` | Semantic search over labels, geometry, congruent duplicates; sets the selection |
+| `ASKDOCS <question>` / `ASKDOCS INDEX <path>` / `ASKDOCS SOURCES` | BM25 retrieval over indexed spec documents; every passage cites source + paragraph |
+| `SUGGEST DIMS\|LIST\|WHY id\|ACCEPT id\|REJECT id\|ACCEPTALL` | Proposal surface; only `ACCEPT` mutates, inside one undo transaction with an audit row |
+| `CHECK [rule\|RULES]` | Deterministic code/standards rule packs; advisory, cites governing passages |
+| `ASK <phrase>` | Routes natural language to a command *string* and shows it — never executes |
+| `COMPARE <before-path>` (`DIFF`, `REVCOMPARE`) | Narrates changes from a saved revision to the live drawing |
+| `RECOMMEND DETAIL [query]` (`DETAIL`, `DETAILS`) | Cites matching standard-detail sheets from `libraries/details/` |
+| `OBJECTS` / `RELATIONS <id>` | Inspect the Object DB and its typed relationships |
+| `MAPMETA` | Confidence-gated element → layer/category classification with reconciliation |
+
+### COMPARE — revision narration
+
+| Step | Prompt / action |
+|------|-----------------|
+| 1 | `COMPARE <before-path>` — any openable drawing (`.dxf` / `.dwg` / `.aadt` / `.vdb`) |
+| 2 | Fingerprint diff vs the live document: entities added / removed / unchanged, grouped by layer and kind |
+| 3 | Detection deltas appended (walls / rooms / openings / structural / furniture) |
+| 4 | With a corpus indexed, each changed layer contributes a cited passage |
+| 5 | Registered as one advisory proposal — `SUGGEST LIST` shows it; it can be rejected (audited) but never accepted |
+
+The change set is the deterministic M7 diff; the narration only adds
+engineering language around it. `aadt compare <before> <after>` prints the same
+note from the CLI.
+
+### RECOMMEND DETAIL — standard-detail recommendation
+
+| Step | Prompt / action |
+|------|-----------------|
+| 1 | `RECOMMEND DETAIL [query]` — bundled sheets in `libraries/details/` are indexed on first use |
+| 2 | With no query, the topic is inferred from the selection's layers (wall / door / window / room) |
+| 3 | BM25 returns the best-matching passages, each cited by source and paragraph |
+| 4 | Registered as advisory proposals — nothing is inserted into the drawing |
+
+Add project detail sheets by dropping Markdown into `libraries/details/`, or
+index anything else with `ASKDOCS INDEX <path>`.
+
+---
+
+## Transparent commands (`'ZOOM` / `'PAN`)
+
+An apostrophe prefix runs a **view** command without cancelling the one already
+in progress — AutoCAD's transparent-command convention.
+
+| Step | Action |
+|------|--------|
+| 1 | Mid-command (say `LINE` waiting for the next point), type `'ZOOM` |
+| 2 | Pick a window, or use `A` / `E` (extents), `P` (previous), or a scale factor like `2` / `0.5x` |
+| 3 | The view reframes and the interrupted command resumes at exactly the prompt it was on |
+| 4 | Esc during the transparent command also returns to the interrupted prompt, not to idle |
+
+`'ZOOM E`, `'ZOOM P`, and `'ZOOM <factor>` complete in one line. Bare `'ZOOM`
+waits for a window pick and stays transparent until it gets one.
+
+Only view commands are transparent. Anything that could edit geometry is
+refused with a message rather than run non-transparently — silently cancelling
+the user's line would be worse than an error.
+
+---
+
+## Panel docking (M9.6)
+
+Each side manager carries its own mode, persisted in `prefs.json`:
+
+| Mode | Behaviour | How to get there |
+|------|-----------|------------------|
+| Docked | Edge panel; collapses to an icon rail | Pin button, or Dock from a floating panel |
+| Floating | Free window, position and size remembered | Float button in the panel header |
+| Auto-hide | Edge rail that expands on hover and collapses shortly after the pointer leaves | Unpin button in the panel header |
+
+Opening a manager by command (`LA`, `BLOCKS`, `D`, the units chip, …) reveals it
+in whatever mode it is currently in, rather than forcing it back to docked.
+
+---
+
+## Parity matrix (AutoCAD → AAD)
 
 Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out of band / later
 
@@ -371,16 +452,18 @@ Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out 
 | Keyword `[Options]` | Partial | Core draw/edit covered |
 | Noun-verb + verb-noun | Yes | Edit transforms + erase |
 | Window / crossing | Yes | L→R / R→L |
+| Fence / WPolygon / CPolygon / Lasso | Yes | `FENCE` / `WP` / `CP` tools; curved Select drag becomes a lasso (M9.2) |
 | Selection highlight + grips | Yes | Blue glow; inserts expand |
 | Dyn input near cursor | Yes | F12 / DYN status chip |
 | Ortho / Osnap / Polar | Yes | F8 / F3 / F10 |
 | Relative `@dx,dy` | Yes | All point tools (anchor or origin) |
-| Natural language ASK | Yes | Local rules + Foundry Local (`phi-3.5-mini`) |
+| Natural language ASK | Yes | `aadt-assist` pattern router; shows the routed command, never runs it |
 | LINE Undo/Close | Yes | |
 | CIRCLE Diameter | Yes | Also 2P / 3P |
 | CIRCLE 2P / 3P | Yes | |
 | MIRROR erase source Y/N | Yes | Default N keeps source |
 | Grip edit (hot grip) | Yes | Click grip → new location |
+| Multi-mode grips | Yes | Space cycles Stretch → Move → Rotate → Scale → Mirror on a hot grip (M9.3) |
 | PLINE Arc/Width | No | U/C only |
 | RECTANG Dimensions | Yes | |
 | XLINE Bisect/Offset | No | Through/H/V/A |
@@ -395,9 +478,12 @@ Status: **Yes** = daily-usable · **Partial** = useful but gaps · **No** = out 
 | QDIM chain | Yes | Select → side pick |
 | AUTODIM isolate + set | Yes | `LAYUNISO` / `AUTODIMRESTORE` |
 | Alternate units on dims | Yes | Via `dim_secondary` |
-| Transparent `'ZOOM` | No | Mode toggles mid-cmd ok |
+| Transparent `'ZOOM` | Yes | `'ZOOM` / `'PAN` suspend and resume the running command |
 | Full DIMSTYLE dialog | Partial | Props + managers + cmd |
-| Grips edit (stretch grip) | Yes | Hot grip → new point |
+| Auto-type `DIM` | Yes | `DIM <id>` infers aligned / radius / diameter; GUI hover-to-auto-dim (M9.4) |
+| Osnap overrides + menu | Yes | `END/MID/INT/CEN/QUA/NEA/PER/TAN` keywords, SHIFT+right-click menu (M9.1) |
+| Live hatch preview | Yes | Internal-point pick with translucent preview (M9.5) |
+| Floating / auto-hide panels | Yes | Per-side `PanelMode`, persisted (M9.6) |
 
 ---
 

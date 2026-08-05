@@ -200,9 +200,13 @@ revision recovery.
 
 ## Future modules
 
-Constraint solver · parametric objects · BIM relationships · AI assistant ·
-semantic search · object templates · plugin SDK · multi-user collaboration ·
-distributed ShilpiDB.
+Constraint solver · parametric objects · BIM relationships · object templates ·
+plugin SDK · multi-user collaboration · distributed ShilpiDB.
+
+**Already shipped from this list:** semantic search (`aadt-vecdb` — `FIND`,
+`ASKDOCS`) and the assist layer (`aadt-assist` — `SUGGEST` / `CHECK` / `ASK` /
+`COMPARE` / `RECOMMEND DETAIL`), both local, offline, and gated so they propose
+rather than commit ([ADR-0013](../adr/0013-ai-service-layer.md)).
 
 ## Design rules
 
@@ -238,7 +242,8 @@ aspirational. Crate references are the concrete starting points.
 | Command pipeline | **Built** | `aadt-command` interpreter; GUI `command_engine` drives it; edits go through `transact` |
 | Rendering (read-only) | **Built** | `aadt-render` + GUI paint request visible entities; renderer holds no geometry |
 | Import / export | **Built (subset)** | `aadt-dxf` DXF + DWG (DWG export now writes the layer table); PDF via `aadt-pdf`. All import seeds through the `Document` |
-| Relationships / topology | **Early** | `aadt-graph` promotes some relations; general relationship store + topology engine are future |
+| Relationships / topology | **Built (subset)** | `aadt-graph` (M10): persisted typed relations (`ConnectedTo` / `BelongsTo` / `Contains` / `Bounds` / `Supports`) with forward/reverse queries and traversal, carried in `.aadt` v8 and `.vdb` v2; `OBJECTS` / `RELATIONS` surface them. *Missing:* constraint-aware edges and `Supports` population (needs slabs) |
+| Semantic / AI services | **Built (subset)** | `aadt-embed` / `aadt-vecdb` (M11) embeddings, `FIND`, BM25 corpus; `aadt-assist` (M12) gated suggestions, revision narration, detail recommendation. *Missing:* ANN index for 100k+ vectors, PDF/photo ingestion |
 | Revision model | **Partial** | `.aadt` (SQLite) keeps history/checkpoints; per-entity revision numbers and commit-reason metadata are not yet modelled |
 | Collaboration / locks | **Not started** | Entity-lock hierarchy and multi-user modes are future; the [standalone ShilpiDB server](../plans/shilpidb-standalone-server.md) is the enabling plan |
 | Error recovery | **Built (subset)** | Autosave + crash-recovery prompt + save-before-exit; durable `.vdb`/`.aadt` writes (temp+rename). *Missing:* corruption detection, revision recovery UI |

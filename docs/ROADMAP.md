@@ -65,10 +65,16 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 |---|---|
 | Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
-| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.aadt`) `UNITS` |
+| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.dwg` / `.aadt` / `.vdb`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
 | AAD | `SECTION` `STANDARDS` `BLOCKLIB` |
+| Intelligence | `OBJECTS`/`RELATIONS` · `TAKEOFF`/`BOQ` |
+| Assist (proposes, never commits) | `FIND` `ASKDOCS` · `SUGGEST` `CHECK` `ASK` · `COMPARE` (`DIFF`/`REVCOMPARE`) · `RECOMMEND DETAIL` (`DETAIL`/`DETAILS`) |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
+
+The **Assist** row is bounded on purpose: every command there either retrieves
+something already in the drawing or an indexed document, or emits a proposal a
+human accepts. None of them write geometry on their own (ADR-0013).
 
 **Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
 `M` `CO` `RO` `SC` `MI` `AR`/`ARRAYPOLAR`/`ARRAYPATH` · `E` · `DIM*` · pick/box select · Ortho (Shift / F8) ·
@@ -84,8 +90,8 @@ forests, 3D commands. Raster brushes / PNG block libraries are out of scope
 
 **Standards / presentation:** AIA/US NCS layers (`aadt-standards`, WCAG vs white
 paper), layer sets (`CONSTRUCTION` / `SERVICES` / `ELECTRICAL` / `PRESENTATION`),
-light print-preview GUI, `MLEADER`, `STRETCH`, `SECTION`, block/hatch libraries,
-vector brush.
+light print-preview GUI, `MLEADER`, `STRETCH`, `SECTION`,
+[block / hatch / detail libraries](../libraries/README.md), vector brush.
 
 ---
 
@@ -115,10 +121,15 @@ state, DXF round-trip, drawlist/camera seam.
 - Thin `aadt-ffi` cdylib for future chrome (e.g. WinUI) without engine rewrite.
 - Interaction docs: [`docs/ux/`](ux/README.md).
 
+**Transparent commands — ✅:** an apostrophe prefix (`'ZOOM`, `'PAN`) runs a
+view command without cancelling the one in progress; the interrupted command's
+tool state, engine step, and prompt are parked and restored verbatim (Esc
+during it resumes rather than cancelling). Only view commands qualify — a
+transparent command that could edit geometry is refused.
+
 **Remaining (display-bound, not command sprawl):**
 - Viewport text glyph quality.
 - True `wgpu` 2D canvas when the egui painter is actually too slow (100k+).
-- Transparent mid-command `'ZOOM` / grip-edit (see UX parity matrix).
 
 **Native format — ✅ v0:** SQLite `.aadt` via `aadt-store` (layers, entities with
 stable ids, blocks, hatches, dimensions). `OPEN`/`SAVE` select by extension.
@@ -217,7 +228,7 @@ ArchiCAD-style **floors** with a shared **reference origin**, and per-floor
 BeamLayout / Furniture)—not layer filters. `TRACE` ghosts adjacent floors;
 Levels strip + `FLOOR` / `CATEGORY` / `ORIGIN` commands; `.aadt` schema v6.
 
-## M9 — Drafting Workflow Parity (BricsCAD audit) 🚧
+## M9 — Drafting Workflow Parity (BricsCAD audit) ✅
 
 Closes the interaction gaps found in the
 [BricsCAD workflow conformance audit](ux/bricscad-conformance-audit.md). The
@@ -232,7 +243,7 @@ impact.
 | M9.3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror cycled with Space on a hot grip) | §14 | ✅ | `GripMode` (Stretch→Move→Rotate→Scale→Mirror) cycled with Space on a hot grip; each mode transforms the selection about the grip via the tested MOVE/ROTATE/SCALE/MIRROR/GRIPEDIT commands. Preview shows the base→cursor axis (grip ghost for Stretch) |
 | M9.4 | Single auto-type `DIM` — `DIM <id>` infers the type from the entity (line→aligned, circle→diameter, arc→radius); coordinate form kept | §22 | ✅ | Command-level auto-type in [`aadt-command`](../crates/aadt-command/src/lib.rs) (headless-tested). GUI **hover-to-auto-dim**: DIM's first click on an entity auto-dimensions it with a live ghost preview (`auto_dimension_for` + `dimension_commands`), empty space keeps the two-point form. **DIMANGULAR from two lines**: pick two lines → the angle at their intersection (`line_line_intersection`), else the 3-point vertex form |
 | M9.5 | Live hatch preview on internal-point pick | §21 | ✅ | Was boundary-entity-only. Now `hatch_boundary_at` detects the smallest enclosing closed region under the cursor (AutoCAD internal point); HATCH hovers show a translucent accent fill + boundary preview, click commits (boundary-entity pick kept as fallback) |
-| M9.6 | Docking: floating panels + auto-hide | §28 | ☐ | Assess egui docking feasibility |
+| M9.6 | Docking: floating panels + auto-hide | §28 | ✅ | Without `egui_dock`: each manager has `PanelMode::{Docked, Floating, AutoHide}` persisted in prefs. Header buttons float / unpin (auto-hide) / pin (re-dock). Floating is a title-bar-less `egui::Window` with position/size remembered; auto-hide keeps the edge rail and expands a foreground overlay on hover (350 ms grace). Bottom-dock of the managers stays deferred — Drawing Properties already uses a bottom panel |
 | M9.7 | Per-command capability trait (`CanUndo`/`SupportsPreview`/`SupportsSnap`/`SupportsDynamicInput`/`SupportsCommandLine`/`SupportsSelectionPreview`) | §33 | ✅ | `Capabilities` + `CommandDef::capabilities()` derive the §33 contract from each command's step interface (query set → `can_undo`); surfaced on hover in the command palette; contract test across the catalog |
 | M9.8 | Per-command QA harness asserting the §34 checklist across every command | §34 | ✅ | `qa_checklist_every_command` iterates the whole catalog asserting starts / cancels / repeats (per `repeatable`) / keyboard-line addressable / snap+preview+mixed-input consistency / undo semantics; builds on the M9.7 capability contract |
 | M9.9 | Frame-time / latency telemetry to validate the §31 performance budgets | §31 | ✅ | **F7** toggles a performance HUD: rolling frame time (avg / p95 / max) + FPS with a build/paint breakdown, graded live against the §31 **< 16 ms / 60 FPS** redraw budget. Continuous repaint while it's on measures a real sustained loop. `PerfRing` / `PerfTelemetry` in [`gui.rs`](../crates/aadt-app/src/gui.rs) |
@@ -296,7 +307,7 @@ generated, and nothing leaves the machine.
 passages; it never composes prose from them. Composition would mean asserting
 something no document says — the opposite of "AI never owns data" (ADR-0012).
 
-## M12 — AI-Native Phase 3: the AI service layer ✅ (core)
+## M12 — AI-Native Phase 3: the AI service layer ✅
 
 Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
 services that want to write, and the mechanism that keeps them gated: a service
@@ -309,13 +320,12 @@ returns proposals, and one audited function commits them.
 | M12.3 | **Code-check rule packs**: min room area / min room width / min door width, graded violation vs warning | ✅ | Advisory only — resolving a violation is a design decision, never auto-applied |
 | M12.4 | **NL command routing**: phrase → command *string*, never geometry | ✅ | Refuses unmatched phrasings with candidates rather than guessing |
 | M12.5 | Surface: `SUGGEST` / `CHECK` / `ASK` commands | ✅ | `ASK` shows the routed command; running it stays the user's call |
+| M12.6 | **Revision-comparison narration** — fingerprint diff + detection deltas + optional corpus citations as an advisory suggestion | ✅ | `aadt-assist::narrate_revision` / `COMPARE <before>`; `Action::None` (transmittal note, never auto-edits). CLI `aadt compare` prints the same enriched note |
+| M12.7 | **Standard-detail recommendation** — BM25 retrieval over a bundled detail library | ✅ | Seed sheets in [`libraries/details/`](../libraries/details/); `aadt-assist::recommend_details` + `RECOMMEND DETAIL [query]` (auto-seeds corpus; `SuggestionKind::DetailRecommend`, `Action::None`) |
 
 **Deliberately not in M12:** auto-fixing code findings, and any NL path that
 reaches geometry without passing through the command band. Both would move a
 decision from the engineer to the tool.
-
-**Still open from the phase plan:** revision-comparison narration and
-standard-detail recommendation (both retrieval-shaped, deferred to a later pass).
 
 ## M13 — AI-Native Phase 4: quantity takeoff, on objects ✅ (core)
 
@@ -341,8 +351,7 @@ rates belong to the estimator's system.
 
 ## Post-1.0
 
-- M1 display: viewport text glyph quality; wgpu canvas if egui is too slow;
-  transparent mid-command `'ZOOM` / grip-edit.
+- M1 display: viewport text glyph quality; wgpu canvas if egui is too slow.
 - M7 PDF viewer UI: interactive viewing, freehand/stamps, on-PDF measure, raster diff.
 - Optional: WinUI over `aadt-ffi`.
 - DWG: Autodesk-certified fidelity / hatch+dim DWG mapping; hatch arc/ellipse edges.

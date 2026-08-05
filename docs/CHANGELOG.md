@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+### Transparent commands: `'ZOOM` and `'PAN` mid-command
+
+- An apostrophe prefix now runs a view command **without cancelling the command
+  already in progress** (AutoCAD's transparent-command convention). Typing
+  `'ZOOM` while `LINE` waits for its next point reframes the view and hands the
+  prompt straight back.
+- The interrupted command's tool state, engine step position, and prompt are
+  parked in a `Suspended` record and restored verbatim, so no picked points are
+  lost. Esc during a transparent command resumes the interrupted prompt instead
+  of cancelling everything.
+- `'ZOOM E` / `'ZOOM P` / `'ZOOM <factor>` complete in one line; bare `'ZOOM`
+  waits for a window pick and stays transparent until it gets one. Zoom factors
+  accept AutoCAD's `2x` / `0.5X` form, and reject zero or non-finite values that
+  would strand the camera.
+- Only view commands are transparent — anything that could edit geometry is
+  refused with a message rather than run non-transparently.
+- Closes the last M1 display item that did not depend on the wgpu canvas, and
+  the final non-locked "No" in the AutoCAD parity matrix.
+
+### Documentation refresh for M9 / M12 completion
+
+- Architecture overview gained the AI-native crate band (`aadt-object`,
+  `aadt-graph`, `aadt-embed`, `aadt-vecdb`, `aadt-assist`, `aadt-takeoff`), a
+  data-flow diagram that shows assist and retrieval alongside the deterministic
+  spine, and the M9.6 panel-docking model.
+- README documents the assist commands, the bundled-library layout, and the
+  corrected `aadt-assist` responsibility; new [`libraries/README.md`](../libraries/README.md)
+  indexes blocks / hatches / details / fonts.
+- ROADMAP's curated command band now carries the Intelligence and Assist rows
+  (`OBJECTS`/`RELATIONS`, `TAKEOFF`/`BOQ`, `FIND`/`ASKDOCS`, `SUGGEST`/`CHECK`/
+  `ASK`, `COMPARE`, `RECOMMEND DETAIL`) and the full `OPEN`/`SAVE` format list.
+- BricsCAD conformance audit re-audited after M9: §12/§13/§14/§17/§21/§22/§31
+  moved to conforming, the gap backlog is closed, and the §35 AI conflict is
+  recorded as resolved by ADR-0012/0013 with a bounded local-only scope.
+- Industry audit refreshed to the current product (overall **A−**), with G8–G10
+  added for docking / revision narration / detail recommendation and the
+  withdrawn hosted-collaboration item removed.
+- Command workflows gained Assist & retrieval and Panel docking sections; the
+  parity matrix records the M9 items and drops the removed Foundry Local path.
+- Vision doc now separates shipped capabilities from future ones; the ShilpiDB
+  architecture map moves relationships and semantic services to built-subset;
+  the July gap-closure plan is marked historical where M4/M3 superseded it.
+- Residual `AiADT` naming replaced with `AAD` across the docs tree.
+
+### M12.7 — Standard-detail recommendation
+
+- Bundled detail sheets under `libraries/details/` (external cavity wall,
+  internal partition, door head/threshold, habitable room floor finishes).
+- `aadt-assist::recommend_details` BM25-searches an indexed corpus and emits
+  advisory `SuggestionKind::DetailRecommend` proposals (`Action::None`).
+- Session command **`RECOMMEND DETAIL [query]`** (aliases `DETAIL` / `DETAILS`)
+  auto-seeds the bundled sheets, then cites matches. Empty query infers topics
+  from the selection's layers. NL router maps "recommend a detail" → the same
+  command.
+
+### M12.6 — Revision-comparison narration
+
+- New `aadt-assist::compare` service wraps the M7 fingerprint diff
+  (`aadt_pdf::compare`) with detection count deltas (walls / rooms / openings /
+  …) and optional BM25 citations for changed layers from an indexed corpus.
+- Session command **`COMPARE <before-path>`** (aliases `DIFF`, `REVCOMPARE`)
+  diffs a saved revision against the live drawing and registers one advisory
+  `SuggestionKind::RevisionCompare` proposal (`Action::None` — rejectable /
+  auditable, never auto-applied). CLI `aadt compare` prints the same enriched
+  narration.
+- Marks the deferred Phase-3 revision-narration item done.
+
+### M9.6 — Floating panels + auto-hide (§28 docking)
+
+- Left and right managers now support three presentation modes, persisted in
+  `prefs.json`: **Docked** (edge `SidePanel`), **Floating** (free
+  `egui::Window` with remembered position/size), and **Auto-hide** (edge rail
+  that expands a foreground overlay on hover, collapses after a 350 ms grace).
+- Panel headers expose Float / Auto-hide (unpin) / Pin (re-dock) / Collapse
+  controls (Fluent pin + window icons vendored). Commands and chrome that open
+  a manager (`LA`, `BLOCKS`, units chip, …) call `reveal_*_mgr` so they work
+  in every mode.
+- BricsCAD §28 marked conforming; M9 (Drafting Workflow Parity) is complete.
+  Bottom-dock of the managers stays deferred — Drawing Properties already uses
+  a bottom panel.
+
 ### Align on ShilpiDB's protocol: removed the parallel `aadt-vdb-proto`
 
 - AADT talks to a `shilpid` server through `VdbClient` → `shilpi-client` →
@@ -230,7 +311,9 @@ doing it unsupervised.
 - **Surface.** `SUGGEST DIMS|LIST|WHY id|ACCEPT id|ACCEPTALL|REJECT id`
   (alias `PROPOSE`), `CHECK [rule|RULES]` (aliases `CODECHECK`/`AUDIT-RULES`),
   and `ASK <phrase>` (alias `NL`), which shows the routed command without
-  running it.
+  running it. Later extended with `COMPARE <before>` (aliases `DIFF`/
+  `REVCOMPARE`) and `RECOMMEND DETAIL [query]` (aliases `DETAIL`/`DETAILS`) —
+  see the M12.6 / M12.7 entries above.
 
 **Honest limitations.** The NL router recognises a small explicit vocabulary and
 refuses far more phrasings than it accepts — that is the intended failure mode,

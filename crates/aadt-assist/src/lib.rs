@@ -10,10 +10,14 @@
 //! practice — the model's output is a proposal record, and the only thing that
 //! ever mutates the drawing is [`apply`], driven by a human decision.
 //!
-//! Three services ship in Phase 3:
+//! Services in Phase 3:
 //! - [`dims`] — dimension prediction: walls carrying no dimension.
 //! - [`rules`] — deterministic code-check rule packs, optionally citing an
 //!   indexed spec corpus.
+//! - [`compare`] — revision-comparison narration over the M7 fingerprint diff,
+//!   with detection deltas and optional corpus citations (advisory only).
+//! - [`details`] — standard-detail recommendation over an indexed detail corpus
+//!   (advisory citations only; never inserts geometry).
 //! - [`nl`] — natural-language command routing: text in, a *command string* out,
 //!   never geometry. The proposed command runs through the existing
 //!   deterministic interpreter or not at all.
@@ -21,6 +25,8 @@
 //! Everything is local, offline, and deterministic: the same drawing yields the
 //! same suggestions in the same order.
 
+pub mod compare;
+pub mod details;
 pub mod dims;
 pub mod nl;
 pub mod rules;
@@ -28,6 +34,8 @@ pub mod rules;
 use aadt_model::{Document, EntityId};
 use aadt_object::AuditLog;
 
+pub use compare::narrate_revision;
+pub use details::recommend_details;
 pub use dims::suggest_dimensions;
 pub use nl::{route, Routed};
 pub use rules::{check, Finding, RuleId, Severity};
@@ -39,6 +47,10 @@ pub enum SuggestionKind {
     Dimension,
     /// A code / standards rule finding ([`rules`]).
     CodeCheck,
+    /// A revision-comparison narration ([`compare`]).
+    RevisionCompare,
+    /// A standard-detail recommendation ([`details`]).
+    DetailRecommend,
 }
 
 impl SuggestionKind {
@@ -47,6 +59,8 @@ impl SuggestionKind {
         match self {
             SuggestionKind::Dimension => "dimension",
             SuggestionKind::CodeCheck => "code-check",
+            SuggestionKind::RevisionCompare => "revision-compare",
+            SuggestionKind::DetailRecommend => "detail",
         }
     }
 }
@@ -220,13 +234,18 @@ impl SuggestionSet {
 
     /// Count per kind, in stable order (zero counts omitted).
     pub fn kind_counts(&self) -> Vec<(SuggestionKind, usize)> {
-        [SuggestionKind::Dimension, SuggestionKind::CodeCheck]
-            .into_iter()
-            .filter_map(|k| {
-                let n = self.items.iter().filter(|s| s.kind == k).count();
-                (n > 0).then_some((k, n))
-            })
-            .collect()
+        [
+            SuggestionKind::Dimension,
+            SuggestionKind::CodeCheck,
+            SuggestionKind::RevisionCompare,
+            SuggestionKind::DetailRecommend,
+        ]
+        .into_iter()
+        .filter_map(|k| {
+            let n = self.items.iter().filter(|s| s.kind == k).count();
+            (n > 0).then_some((k, n))
+        })
+        .collect()
     }
 }
 

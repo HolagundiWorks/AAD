@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "AI service layer: gated suggestions (dimensions, code checks, NL command routing) that propose but never commit."
+description = "AI service layer: gated suggestions (dimensions, code checks, revision narration, detail recommendation, NL command routing) that propose but never commit."
 
 [dependencies]
 aadt-geometry.workspace = true
@@ -14,6 +14,7 @@ aadt-model.workspace = true
 aadt-detect.workspace = true
 aadt-object.workspace = true
 aadt-vecdb.workspace = true
+aadt-pdf.workspace = true
 
 [lints]
 workspace = true

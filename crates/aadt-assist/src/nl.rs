@@ -92,6 +92,16 @@ const PATTERNS: &[Pattern] = &[
         coords: 0,
     },
     Pattern {
+        triggers: &["recommend", "detail"],
+        command: "RECOMMEND DETAIL",
+        coords: 0,
+    },
+    Pattern {
+        triggers: &["detail"],
+        command: "RECOMMEND DETAIL",
+        coords: 0,
+    },
+    Pattern {
         triggers: &["find"],
         command: "FIND",
         coords: 0,
@@ -263,6 +273,8 @@ mod tests {
         assert_eq!(cmd("undo that"), "UNDO");
         assert_eq!(cmd("check the drawing"), "CHECK");
         assert_eq!(cmd("dimension the walls"), "SUGGEST DIMS");
+        assert_eq!(cmd("recommend a detail"), "RECOMMEND DETAIL");
+        assert_eq!(cmd("show me a detail"), "RECOMMEND DETAIL");
     }
 
     #[test]

@@ -1,8 +1,12 @@
 //! AutoCAD-like chrome styled to Fluent 2 foundations
 //! (color, elevation, layout, shapes, typography). See [`super::theme`].
 
+use std::time::{Duration, Instant};
+
 use aadt_standards::{aci_to_srgb, LayerSet};
 use eframe::egui;
+
+use crate::prefs::PanelMode;
 
 use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, Icon};
 use super::theme::{
@@ -14,6 +18,28 @@ use super::{
     block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
     AadtApp, LayerMgrScope, Tool,
 };
+
+/// How long an auto-hide overlay stays open after the pointer leaves (BricsCAD-like).
+const AUTOHIDE_GRACE: Duration = Duration::from_millis(350);
+
+#[derive(Clone, Copy)]
+enum LeftRailKind {
+    Collapsed,
+    AutoHide,
+}
+
+#[derive(Clone, Copy)]
+enum RightRailKind {
+    Collapsed,
+    AutoHide,
+}
+
+#[derive(Clone, Copy)]
+enum PanelChrome {
+    Docked,
+    Floating,
+    AutoHide,
+}
 
 impl AadtApp {
     /// Sync the drafting layer shim from the active model-space category.
@@ -224,9 +250,8 @@ impl AadtApp {
             )
             .clicked()
         {
-            self.show_left_mgr = true;
             self.left_tab = 0;
-            self.persist_prefs();
+            self.reveal_left_mgr();
         }
     }
 
@@ -1396,10 +1421,9 @@ impl AadtApp {
                         .on_hover_text(format!("{} — open Units manager", units.label()))
                         .clicked()
                     {
-                        self.show_layer_mgr = true;
                         self.right_tab = 4;
                         self.props_edit = self.session.document().properties().clone();
-                        self.persist_prefs();
+                        self.reveal_right_mgr();
                     }
                     if icon_btn_nav(
                         ui,
@@ -1620,38 +1644,388 @@ impl AadtApp {
     }
 
     pub(super) fn draw_left_panel(&mut self, ctx: &egui::Context) {
-        if !self.show_left_mgr {
-            egui::SidePanel::left("left_mgr_collapsed")
-                .exact_width(panel_space::RAIL)
-                .resizable(false)
-                .frame(
-                    egui::Frame::none()
-                        .fill(color::layer_base())
-                        .stroke(egui::Stroke::new(stroke::THIN, color::border())),
-                )
-                .show(ctx, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(space::SM);
-                        if icon_btn_nav(ui, Icon::ExpandPanel, "Expand structure", false).clicked()
-                        {
-                            self.show_left_mgr = true;
-                            self.persist_prefs();
-                        }
-                        ui.add_space(space::MD);
-                        for dest in theme::left_manager_nav() {
-                            let tip = format!("{} — {}", dest.label, dest.tip);
-                            if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab)
-                                .clicked()
-                            {
+        match self.left_panel_mode {
+            PanelMode::Floating => self.draw_left_floating(ctx),
+            PanelMode::AutoHide => self.draw_left_autohide(ctx),
+            PanelMode::Docked => {
+                if self.show_left_mgr {
+                    self.draw_left_docked(ctx);
+                } else {
+                    self.draw_left_rail(ctx, LeftRailKind::Collapsed);
+                }
+            }
+        }
+    }
+
+    pub(super) fn draw_right_panel(&mut self, ctx: &egui::Context) {
+        match self.right_panel_mode {
+            PanelMode::Floating => self.draw_right_floating(ctx),
+            PanelMode::AutoHide => self.draw_right_autohide(ctx),
+            PanelMode::Docked => {
+                if self.show_layer_mgr {
+                    self.draw_right_docked(ctx);
+                } else {
+                    self.draw_right_rail(ctx, RightRailKind::Collapsed);
+                }
+            }
+        }
+    }
+
+    /// Reveal the left manager in whatever mode it is currently in.
+    pub(super) fn reveal_left_mgr(&mut self) {
+        match self.left_panel_mode {
+            PanelMode::Docked | PanelMode::Floating => {
+                self.show_left_mgr = true;
+            }
+            PanelMode::AutoHide => {
+                self.left_autohide_open = true;
+                self.left_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+            }
+        }
+        self.persist_prefs();
+    }
+
+    /// Reveal the right manager in whatever mode it is currently in.
+    pub(super) fn reveal_right_mgr(&mut self) {
+        match self.right_panel_mode {
+            PanelMode::Docked | PanelMode::Floating => {
+                self.show_layer_mgr = true;
+            }
+            PanelMode::AutoHide => {
+                self.right_autohide_open = true;
+                self.right_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+            }
+        }
+        self.persist_prefs();
+    }
+
+    fn set_left_panel_mode(&mut self, mode: PanelMode) {
+        self.left_panel_mode = mode;
+        match mode {
+            PanelMode::Docked => {
+                self.show_left_mgr = true;
+                self.left_autohide_open = false;
+                self.left_autohide_until = None;
+            }
+            PanelMode::Floating => {
+                self.show_left_mgr = true;
+                self.left_autohide_open = false;
+                self.left_autohide_until = None;
+            }
+            PanelMode::AutoHide => {
+                self.show_left_mgr = false;
+                self.left_autohide_open = false;
+                self.left_autohide_until = None;
+            }
+        }
+        self.persist_prefs();
+    }
+
+    fn set_right_panel_mode(&mut self, mode: PanelMode) {
+        self.right_panel_mode = mode;
+        match mode {
+            PanelMode::Docked => {
+                self.show_layer_mgr = true;
+                self.right_autohide_open = false;
+                self.right_autohide_until = None;
+            }
+            PanelMode::Floating => {
+                self.show_layer_mgr = true;
+                self.right_autohide_open = false;
+                self.right_autohide_until = None;
+            }
+            PanelMode::AutoHide => {
+                self.show_layer_mgr = false;
+                self.right_autohide_open = false;
+                self.right_autohide_until = None;
+            }
+        }
+        self.persist_prefs();
+    }
+
+    fn draw_left_rail(&mut self, ctx: &egui::Context, kind: LeftRailKind) {
+        let rail = egui::SidePanel::left("left_mgr_collapsed")
+            .exact_width(panel_space::RAIL)
+            .resizable(false)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::layer_base())
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
+            )
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(space::SM);
+                    let expand_tip = match kind {
+                        LeftRailKind::Collapsed => "Expand structure",
+                        LeftRailKind::AutoHide => "Hover to show structure (auto-hide)",
+                    };
+                    if icon_btn_nav(ui, Icon::ExpandPanel, expand_tip, false).clicked() {
+                        match kind {
+                            LeftRailKind::Collapsed => {
                                 self.show_left_mgr = true;
-                                self.left_tab = dest.tab;
                                 self.persist_prefs();
                             }
+                            LeftRailKind::AutoHide => {
+                                self.left_autohide_open = true;
+                                self.left_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+                            }
                         }
-                    });
+                    }
+                    ui.add_space(space::MD);
+                    for dest in theme::left_manager_nav() {
+                        let tip = format!("{} — {}", dest.label, dest.tip);
+                        if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked() {
+                            self.left_tab = dest.tab;
+                            match kind {
+                                LeftRailKind::Collapsed => {
+                                    self.show_left_mgr = true;
+                                    self.persist_prefs();
+                                }
+                                LeftRailKind::AutoHide => {
+                                    self.left_autohide_open = true;
+                                    self.left_autohide_until =
+                                        Some(Instant::now() + AUTOHIDE_GRACE);
+                                    self.persist_prefs();
+                                }
+                            }
+                        }
+                    }
                 });
-            return;
+            });
+        if matches!(kind, LeftRailKind::AutoHide) && rail.response.hovered() {
+            self.left_autohide_open = true;
+            self.left_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+            ctx.request_repaint();
         }
+    }
+
+    fn draw_right_rail(&mut self, ctx: &egui::Context, kind: RightRailKind) {
+        let rail = egui::SidePanel::right("layer_mgr_collapsed")
+            .exact_width(panel_space::RAIL)
+            .resizable(false)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::layer_base())
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
+            )
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(space::SM);
+                    let expand_tip = match kind {
+                        RightRailKind::Collapsed => "Expand tools",
+                        RightRailKind::AutoHide => "Hover to show tools (auto-hide)",
+                    };
+                    if icon_btn_nav(ui, Icon::ExpandPanel, expand_tip, false).clicked() {
+                        match kind {
+                            RightRailKind::Collapsed => {
+                                self.show_layer_mgr = true;
+                                self.persist_prefs();
+                            }
+                            RightRailKind::AutoHide => {
+                                self.right_autohide_open = true;
+                                self.right_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+                            }
+                        }
+                    }
+                    ui.add_space(space::MD);
+                    for dest in theme::right_manager_nav() {
+                        let tip = format!("{} — {}", dest.label, dest.tip);
+                        if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked() {
+                            self.right_tab = dest.tab;
+                            if matches!(dest.tab, 4 | 5) {
+                                self.props_edit = self.session.document().properties().clone();
+                            }
+                            match kind {
+                                RightRailKind::Collapsed => {
+                                    self.show_layer_mgr = true;
+                                    self.persist_prefs();
+                                }
+                                RightRailKind::AutoHide => {
+                                    self.right_autohide_open = true;
+                                    self.right_autohide_until =
+                                        Some(Instant::now() + AUTOHIDE_GRACE);
+                                    self.persist_prefs();
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        if matches!(kind, RightRailKind::AutoHide) && rail.response.hovered() {
+            self.right_autohide_open = true;
+            self.right_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+            ctx.request_repaint();
+        }
+    }
+
+    fn left_panel_chrome_buttons(&mut self, ui: &mut egui::Ui, placement: PanelChrome) {
+        ui.with_layout(
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| match placement {
+                PanelChrome::Docked => {
+                    if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
+                        self.show_left_mgr = false;
+                        self.persist_prefs();
+                    }
+                    if icon_btn(ui, Icon::UnpinPanel, "Auto-hide (expand on hover)").clicked() {
+                        self.set_left_panel_mode(PanelMode::AutoHide);
+                    }
+                    if icon_btn(ui, Icon::FloatPanel, "Float panel").clicked() {
+                        self.set_left_panel_mode(PanelMode::Floating);
+                    }
+                }
+                PanelChrome::Floating => {
+                    if icon_btn(ui, Icon::UnpinPanel, "Auto-hide (expand on hover)").clicked() {
+                        self.set_left_panel_mode(PanelMode::AutoHide);
+                    }
+                    if icon_btn(ui, Icon::DockPanel, "Dock to left edge").clicked() {
+                        self.set_left_panel_mode(PanelMode::Docked);
+                    }
+                }
+                PanelChrome::AutoHide => {
+                    if icon_btn(ui, Icon::FloatPanel, "Float panel").clicked() {
+                        self.set_left_panel_mode(PanelMode::Floating);
+                    }
+                    if icon_btn(ui, Icon::PinPanel, "Pin (keep docked)").clicked() {
+                        self.set_left_panel_mode(PanelMode::Docked);
+                    }
+                }
+            },
+        );
+    }
+
+    fn right_panel_chrome_buttons(&mut self, ui: &mut egui::Ui, placement: PanelChrome) {
+        ui.with_layout(
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| match placement {
+                PanelChrome::Docked => {
+                    if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
+                        self.show_layer_mgr = false;
+                        self.persist_prefs();
+                    }
+                    if icon_btn(ui, Icon::UnpinPanel, "Auto-hide (expand on hover)").clicked() {
+                        self.set_right_panel_mode(PanelMode::AutoHide);
+                    }
+                    if icon_btn(ui, Icon::FloatPanel, "Float panel").clicked() {
+                        self.set_right_panel_mode(PanelMode::Floating);
+                    }
+                }
+                PanelChrome::Floating => {
+                    if icon_btn(ui, Icon::UnpinPanel, "Auto-hide (expand on hover)").clicked() {
+                        self.set_right_panel_mode(PanelMode::AutoHide);
+                    }
+                    if icon_btn(ui, Icon::DockPanel, "Dock to right edge").clicked() {
+                        self.set_right_panel_mode(PanelMode::Docked);
+                    }
+                }
+                PanelChrome::AutoHide => {
+                    if icon_btn(ui, Icon::FloatPanel, "Float panel").clicked() {
+                        self.set_right_panel_mode(PanelMode::Floating);
+                    }
+                    if icon_btn(ui, Icon::PinPanel, "Pin (keep docked)").clicked() {
+                        self.set_right_panel_mode(PanelMode::Docked);
+                    }
+                }
+            },
+        );
+    }
+
+    fn ui_left_panel_body(&mut self, ui: &mut egui::Ui, chrome: PanelChrome) {
+        ui.horizontal(|ui| {
+            panel_title(ui, left_manager_title(self.left_tab));
+            self.left_panel_chrome_buttons(ui, chrome);
+        });
+        {
+            let doc = self.session.document();
+            let cat = doc
+                .model_space(doc.active_space())
+                .map(|s| s.category)
+                .unwrap_or(aadt_model::SpaceCategory::Walls);
+            let floor = doc
+                .active_floor_id()
+                .and_then(|fid| doc.floor(fid).map(|f| f.name.clone()))
+                .unwrap_or_else(|| "—".into());
+            panel_subtitle(ui, format!("{floor} · {}", cat.as_str()));
+        }
+        ui.add_space(panel_space::TIGHT);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = space::SM;
+            for dest in theme::left_manager_nav() {
+                let tip = format!("{} — {}", dest.label, dest.tip);
+                if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked() {
+                    self.left_tab = dest.tab;
+                    self.persist_prefs();
+                }
+                ui.label(
+                    egui::RichText::new(dest.label)
+                        .size(type_scale::CAPTION)
+                        .strong()
+                        .color(if self.left_tab == dest.tab {
+                            color::accent()
+                        } else {
+                            color::text_secondary()
+                        }),
+                );
+            }
+        });
+        ui.add_space(panel_space::ROW);
+        ui.separator();
+        ui.add_space(panel_space::ROW);
+        match self.left_tab {
+            1 => self.ui_blocks_manager(ui),
+            _ => self.ui_layer_manager(ui),
+        }
+    }
+
+    fn ui_right_panel_body(&mut self, ui: &mut egui::Ui, chrome: PanelChrome) {
+        ui.horizontal(|ui| {
+            panel_title(ui, right_manager_title(self.right_tab));
+            self.right_panel_chrome_buttons(ui, chrome);
+        });
+        panel_subtitle(
+            ui,
+            match self.right_tab {
+                0 => "Quantities, publish, Ask, classify",
+                1 => "Hatch patterns",
+                2 => "Tables, leaders, tags",
+                3 => "Nameplate template layers",
+                4 => "Drawing units",
+                5 => "Dimension styles",
+                6 => "Drawing checkpoints",
+                7 => "Selection properties",
+                _ => "",
+            },
+        );
+        ui.add_space(panel_space::TIGHT);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
+            for dest in theme::right_manager_nav() {
+                let tip = format!("{} — {}", dest.label, dest.tip);
+                if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked() {
+                    self.right_tab = dest.tab;
+                    if matches!(dest.tab, 4 | 5) {
+                        self.props_edit = self.session.document().properties().clone();
+                    }
+                    self.persist_prefs();
+                }
+            }
+        });
+        ui.add_space(panel_space::ROW);
+        ui.separator();
+        ui.add_space(panel_space::ROW);
+        match self.right_tab {
+            1 => self.ui_hatch_manager(ui),
+            2 => self.ui_annotate_panel(ui),
+            3 => self.ui_templates_panel(ui),
+            4 => self.ui_units_manager(ui),
+            5 => self.ui_dimension_manager(ui),
+            6 => self.ui_history_panel(ui),
+            7 => self.ui_selection_properties(ui),
+            _ => self.ui_hatch_manager(ui),
+        }
+    }
+
+    fn draw_left_docked(&mut self, ctx: &egui::Context) {
         // exact_width forces the reservation to a fixed width regardless of the
         // content's minimum — otherwise a non-wrapping tile row can make egui
         // reserve far more than the frame fills, leaving a gap beside the dock.
@@ -1665,101 +2039,15 @@ impl AadtApp {
                     .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    panel_title(ui, left_manager_title(self.left_tab));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
-                            self.show_left_mgr = false;
-                            self.persist_prefs();
-                        }
-                    });
-                });
-                {
-                    let doc = self.session.document();
-                    let cat = doc
-                        .model_space(doc.active_space())
-                        .map(|s| s.category)
-                        .unwrap_or(aadt_model::SpaceCategory::Walls);
-                    let floor = doc
-                        .active_floor_id()
-                        .and_then(|fid| doc.floor(fid).map(|f| f.name.clone()))
-                        .unwrap_or_else(|| "—".into());
-                    panel_subtitle(ui, format!("{floor} · {}", cat.as_str()));
-                }
-                ui.add_space(panel_space::TIGHT);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = space::SM;
-                    for dest in theme::left_manager_nav() {
-                        let tip = format!("{} — {}", dest.label, dest.tip);
-                        if icon_btn_nav(ui, dest.icon, &tip, self.left_tab == dest.tab).clicked() {
-                            self.left_tab = dest.tab;
-                            self.persist_prefs();
-                        }
-                        ui.label(
-                            egui::RichText::new(dest.label)
-                                .size(type_scale::CAPTION)
-                                .strong()
-                                .color(if self.left_tab == dest.tab {
-                                    color::accent()
-                                } else {
-                                    color::text_secondary()
-                                }),
-                        );
-                    }
-                });
-                ui.add_space(panel_space::ROW);
-                ui.separator();
-                ui.add_space(panel_space::ROW);
-                match self.left_tab {
-                    1 => self.ui_blocks_manager(ui),
-                    _ => self.ui_layer_manager(ui),
-                }
+                self.ui_left_panel_body(ui, PanelChrome::Docked);
             });
-        // Persist the panel's *actual* (egui-clamped) width. Reading content
-        // `ui.max_rect()` could exceed max_width and, fed back through
-        // default_width, made egui reserve more than the frame fills — leaving
-        // the gap beside the dock. `rect.width()` is the true panel width.
         let pw = left_resp.response.rect.width();
         if (pw - self.left_panel_width).abs() > 1.0 {
             self.left_panel_width = pw.clamp(180.0, 340.0);
         }
     }
 
-    pub(super) fn draw_right_panel(&mut self, ctx: &egui::Context) {
-        if !self.show_layer_mgr {
-            egui::SidePanel::right("layer_mgr_collapsed")
-                .exact_width(panel_space::RAIL)
-                .resizable(false)
-                .frame(
-                    egui::Frame::none()
-                        .fill(color::layer_base())
-                        .stroke(egui::Stroke::new(stroke::THIN, color::border())),
-                )
-                .show(ctx, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(space::SM);
-                        if icon_btn_nav(ui, Icon::ExpandPanel, "Expand tools", false).clicked() {
-                            self.show_layer_mgr = true;
-                            self.persist_prefs();
-                        }
-                        ui.add_space(space::MD);
-                        for dest in theme::right_manager_nav() {
-                            let tip = format!("{} — {}", dest.label, dest.tip);
-                            if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab)
-                                .clicked()
-                            {
-                                self.show_layer_mgr = true;
-                                self.right_tab = dest.tab;
-                                if matches!(dest.tab, 4 | 5) {
-                                    self.props_edit = self.session.document().properties().clone();
-                                }
-                                self.persist_prefs();
-                            }
-                        }
-                    });
-                });
-            return;
-        }
+    fn draw_right_docked(&mut self, ctx: &egui::Context) {
         let right_resp = egui::SidePanel::right("layer_mgr")
             .exact_width(324.0)
             .resizable(false)
@@ -1770,61 +2058,224 @@ impl AadtApp {
                     .stroke(egui::Stroke::new(stroke::THIN, color::border())),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    panel_title(ui, right_manager_title(self.right_tab));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if icon_btn(ui, Icon::CollapsePanel, "Collapse to rail").clicked() {
-                            self.show_layer_mgr = false;
-                            self.persist_prefs();
-                        }
-                    });
-                });
-                panel_subtitle(
-                    ui,
-                    match self.right_tab {
-                        0 => "Quantities, publish, Ask, classify",
-                        1 => "Hatch patterns",
-                        2 => "Tables, leaders, tags",
-                        3 => "Nameplate template layers",
-                        4 => "Drawing units",
-                        5 => "Dimension styles",
-                        6 => "Drawing checkpoints",
-                        7 => "Selection properties",
-                        _ => "",
-                    },
-                );
-                ui.add_space(panel_space::TIGHT);
-                // Compact icon pivot — one row, no wrap soup.
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::vec2(space::SM, space::SM);
-                    for dest in theme::right_manager_nav() {
-                        let tip = format!("{} — {}", dest.label, dest.tip);
-                        if icon_btn_nav(ui, dest.icon, &tip, self.right_tab == dest.tab).clicked() {
-                            self.right_tab = dest.tab;
-                            if matches!(dest.tab, 4 | 5) {
-                                self.props_edit = self.session.document().properties().clone();
-                            }
-                            self.persist_prefs();
-                        }
-                    }
-                });
-                ui.add_space(panel_space::ROW);
-                ui.separator();
-                ui.add_space(panel_space::ROW);
-                match self.right_tab {
-                    1 => self.ui_hatch_manager(ui),
-                    2 => self.ui_annotate_panel(ui),
-                    3 => self.ui_templates_panel(ui),
-                    4 => self.ui_units_manager(ui),
-                    5 => self.ui_dimension_manager(ui),
-                    6 => self.ui_history_panel(ui),
-                    7 => self.ui_selection_properties(ui),
-                    _ => self.ui_hatch_manager(ui),
-                }
+                self.ui_right_panel_body(ui, PanelChrome::Docked);
             });
         let pw = right_resp.response.rect.width();
         if (pw - self.right_panel_width).abs() > 1.0 {
             self.right_panel_width = pw.clamp(200.0, 340.0);
+        }
+    }
+
+    fn draw_left_floating(&mut self, ctx: &egui::Context) {
+        // Thin reopen rail when the floating window is closed.
+        if !self.show_left_mgr {
+            self.draw_left_rail(ctx, LeftRailKind::Collapsed);
+            return;
+        }
+        let mut open = true;
+        let fr = self.left_float;
+        let mut persist = false;
+        egui::Window::new("Structure")
+            .id(egui::Id::new("left_mgr_float"))
+            .open(&mut open)
+            .collapsible(false)
+            .default_pos(egui::pos2(fr.x, fr.y))
+            .default_size([fr.w, fr.h])
+            .min_width(220.0)
+            .min_height(200.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::layer_card())
+                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+                    .shadow(panel_shadow(egui::vec2(0.0, 2.0))),
+            )
+            .show(ctx, |ui| {
+                self.ui_left_panel_body(ui, PanelChrome::Floating);
+            });
+        if let Some((x, y, w, h)) = floating_window_rect(ctx, egui::Id::new("left_mgr_float")) {
+            if (x - self.left_float.x).abs() > 1.0
+                || (y - self.left_float.y).abs() > 1.0
+                || (w - self.left_float.w).abs() > 1.0
+                || (h - self.left_float.h).abs() > 1.0
+            {
+                self.left_float.x = x;
+                self.left_float.y = y;
+                self.left_float.w = w.clamp(200.0, 640.0);
+                self.left_float.h = h.clamp(200.0, 1200.0);
+                persist = true;
+            }
+        }
+        if !open {
+            self.show_left_mgr = false;
+            persist = true;
+        }
+        if persist {
+            self.persist_prefs();
+        }
+    }
+
+    fn draw_right_floating(&mut self, ctx: &egui::Context) {
+        if !self.show_layer_mgr {
+            self.draw_right_rail(ctx, RightRailKind::Collapsed);
+            return;
+        }
+        let mut open = true;
+        let fr = self.right_float;
+        let mut persist = false;
+        egui::Window::new("Tools")
+            .id(egui::Id::new("right_mgr_float"))
+            .open(&mut open)
+            .title_bar(false)
+            .collapsible(false)
+            .default_pos(egui::pos2(fr.x, fr.y))
+            .default_size([fr.w, fr.h])
+            .min_width(220.0)
+            .min_height(200.0)
+            .frame(
+                egui::Frame::none()
+                    .fill(color::layer_card())
+                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+                    .shadow(panel_shadow(egui::vec2(0.0, 2.0))),
+            )
+            .show(ctx, |ui| {
+                self.ui_right_panel_body(ui, PanelChrome::Floating);
+            });
+        if let Some((x, y, w, h)) = floating_window_rect(ctx, egui::Id::new("right_mgr_float")) {
+            if (x - self.right_float.x).abs() > 1.0
+                || (y - self.right_float.y).abs() > 1.0
+                || (w - self.right_float.w).abs() > 1.0
+                || (h - self.right_float.h).abs() > 1.0
+            {
+                self.right_float.x = x;
+                self.right_float.y = y;
+                self.right_float.w = w.clamp(200.0, 640.0);
+                self.right_float.h = h.clamp(200.0, 1200.0);
+                persist = true;
+            }
+        }
+        if !open {
+            self.show_layer_mgr = false;
+            persist = true;
+        }
+        if persist {
+            self.persist_prefs();
+        }
+    }
+
+    fn draw_left_autohide(&mut self, ctx: &egui::Context) {
+        self.draw_left_rail(ctx, LeftRailKind::AutoHide);
+        let now = Instant::now();
+        if let Some(until) = self.left_autohide_until {
+            if now < until {
+                ctx.request_repaint_after(until.saturating_duration_since(now));
+            } else if !self.left_autohide_open {
+                self.left_autohide_until = None;
+            }
+        }
+        let grace_alive = self
+            .left_autohide_until
+            .map(|t| Instant::now() < t)
+            .unwrap_or(false);
+        if !(self.left_autohide_open || grace_alive) {
+            return;
+        }
+        let screen = ctx.screen_rect();
+        let top = 40.0; // below the top bar
+        let bottom_pad = 56.0;
+        let height = (screen.height() - top - bottom_pad).max(200.0);
+        let width = self.left_panel_width.clamp(220.0, 340.0);
+        let mut still_open = false;
+        egui::Area::new(egui::Id::new("left_mgr_autohide"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(panel_space::RAIL, top))
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(color::layer_card())
+                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+                    .shadow(panel_shadow(egui::vec2(2.0, 0.0)))
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(width, height));
+                        ui.set_max_width(width);
+                        self.ui_left_panel_body(ui, PanelChrome::AutoHide);
+                    });
+                if ui.rect_contains_pointer(ui.max_rect()) {
+                    still_open = true;
+                }
+            });
+        if still_open {
+            self.left_autohide_open = true;
+            self.left_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+            ctx.request_repaint();
+        } else if let Some(until) = self.left_autohide_until {
+            if Instant::now() >= until {
+                self.left_autohide_open = false;
+                self.left_autohide_until = None;
+            } else {
+                ctx.request_repaint_after(until.saturating_duration_since(Instant::now()));
+            }
+        } else {
+            self.left_autohide_open = false;
+        }
+    }
+
+    fn draw_right_autohide(&mut self, ctx: &egui::Context) {
+        self.draw_right_rail(ctx, RightRailKind::AutoHide);
+        let now = Instant::now();
+        if let Some(until) = self.right_autohide_until {
+            if now < until {
+                ctx.request_repaint_after(until.saturating_duration_since(now));
+            } else if !self.right_autohide_open {
+                self.right_autohide_until = None;
+            }
+        }
+        let grace_alive = self
+            .right_autohide_until
+            .map(|t| Instant::now() < t)
+            .unwrap_or(false);
+        if !(self.right_autohide_open || grace_alive) {
+            return;
+        }
+        let screen = ctx.screen_rect();
+        let top = 40.0;
+        let bottom_pad = 56.0;
+        let height = (screen.height() - top - bottom_pad).max(200.0);
+        let width = self.right_panel_width.clamp(220.0, 340.0);
+        let x = (screen.width() - panel_space::RAIL - width).max(0.0);
+        let mut still_open = false;
+        egui::Area::new(egui::Id::new("right_mgr_autohide"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(x, top))
+            .show(ctx, |ui| {
+                egui::Frame::none()
+                    .fill(color::layer_card())
+                    .inner_margin(egui::Margin::symmetric(panel_space::GUTTER, space::MD))
+                    .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+                    .shadow(panel_shadow(egui::vec2(-2.0, 0.0)))
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(width, height));
+                        ui.set_max_width(width);
+                        self.ui_right_panel_body(ui, PanelChrome::AutoHide);
+                    });
+                if ui.rect_contains_pointer(ui.max_rect()) {
+                    still_open = true;
+                }
+            });
+        if still_open {
+            self.right_autohide_open = true;
+            self.right_autohide_until = Some(Instant::now() + AUTOHIDE_GRACE);
+            ctx.request_repaint();
+        } else if let Some(until) = self.right_autohide_until {
+            if Instant::now() >= until {
+                self.right_autohide_open = false;
+                self.right_autohide_until = None;
+            } else {
+                ctx.request_repaint_after(until.saturating_duration_since(Instant::now()));
+            }
+        } else {
+            self.right_autohide_open = false;
         }
     }
 
@@ -2119,6 +2570,7 @@ impl AadtApp {
             }
             if ui.small_button("Open Dimension manager…").clicked() {
                 self.right_tab = 5; // Dims
+                self.reveal_right_mgr();
             }
             ui.separator();
             ui.label(egui::RichText::new("Object count").strong());
@@ -2529,6 +2981,7 @@ impl AadtApp {
             ));
             if ui.small_button("Open Dimension manager…").clicked() {
                 self.right_tab = 5; // Dims
+                self.reveal_right_mgr();
             }
 
             ui.separator();
@@ -2678,6 +3131,7 @@ impl AadtApp {
             ui.separator();
             if ui.small_button("Open Units manager…").clicked() {
                 self.right_tab = 4; // Units
+                self.reveal_right_mgr();
             }
 
             ui.horizontal(|ui| {
@@ -3082,6 +3536,22 @@ impl AadtApp {
         if !open {
             self.show_layer_map = false;
         }
+    }
+}
+
+fn floating_window_rect(ctx: &egui::Context, id: egui::Id) -> Option<(f32, f32, f32, f32)> {
+    ctx.memory(|m| {
+        m.area_rect(id)
+            .map(|r| (r.min.x, r.min.y, r.width(), r.height()))
+    })
+}
+
+fn panel_shadow(offset: egui::Vec2) -> egui::epaint::Shadow {
+    egui::epaint::Shadow {
+        offset,
+        blur: 12.0,
+        spread: 0.0,
+        color: egui::Color32::from_black_alpha(40),
     }
 }
 

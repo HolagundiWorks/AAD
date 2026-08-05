@@ -102,6 +102,29 @@ prediction · quantity extraction · specification search · code compliance ·
 risk detection · duplicate detection · revision comparison · standard detail
 recommendation · design assistant · natural-language commands.
 
+### Implementation status (2026-08)
+
+| Capability | Status |
+|---|---|
+| Auto layer assignment | ✅ `MAPMETA` (ADR-0010) |
+| Object detection | ✅ M10 — `aadt-detect` → Object DB promotion |
+| Duplicate detection | ✅ M11 — `FIND DUPES` |
+| Specification search | ✅ M11 — `ASKDOCS` (retrieval + citation only) |
+| Dimension prediction | ✅ M12 — `SUGGEST DIMS` |
+| Code compliance | ✅ M12 — `CHECK` rule packs, advisory |
+| Natural-language commands | ✅ M12 — `ASK` routes to a command *string* |
+| Revision comparison | ✅ M12.6 — `COMPARE`, advisory narration |
+| Standard detail recommendation | ✅ M12.7 — `RECOMMEND DETAIL` over `libraries/details/` |
+| Quantity extraction | ✅ M13 — `TAKEOFF` / `BOQ` on objects |
+| Drawing classification | ⚠️ Partial — element-level classification only |
+| Auto annotation | ⚠️ Partial — dimensions only |
+| Risk detection | ⬜ Future |
+| Drawing completion · design assistant | ⬜ Future (would need generation, not retrieval) |
+
+Everything shipped is **local, offline, and gated**: a service proposes and a
+human commits (ADR-0013). The unshipped rows are the ones that would have to
+generate content rather than retrieve or measure it — the deliberate frontier.
+
 ## CAD Engine
 
 The CAD engine must remain **deterministic**.
