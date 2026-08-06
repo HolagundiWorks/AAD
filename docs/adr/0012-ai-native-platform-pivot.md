@@ -31,28 +31,26 @@ non-negotiable:
 2. **AI never owns data.** Every AI-suggested change is committed by the
    database layer, undoable, and auditable.
 
-### Product locks superseded (explicitly, by phase — not silently)
+### Product locks carried forward (explicit)
 
-The vision reverses several earlier locks. They are superseded **only when the
-phase that needs them ships**; until then the current locks govern:
-
-| Current lock (ROADMAP) | Vision requirement | Superseded by phase |
-|---|---|---|
-| M4 "AI removed" / §35 unscheduled | Full AI service layer (completion, compliance, NL commands, …) | Phase 3+ (ADR-0010 already made the first bounded exception) |
-| M3 takeoff removed | Construction intelligence / quantity extraction / BOQ | Phase 4 |
-| M8 cloud collaboration removed; offline-first | Enterprise integration (ERP/BOQ/RFI), REST/gRPC APIs | Phase 5 (offline drafting must keep working) |
-| 2D-only, no solids/BIM | Splines, meshes, solids in the geometry DB | Phase 6 (last; may be re-scoped) |
-| Paper space / XREF out of scope | XRefs, layouts, paper space | Phase 6 (re-evaluate) |
+| ROADMAP lock | How the AI-native phases relate |
+|---|---|
+| Assist proposes, never auto-commits | Phases 3+ ship local assist / retrieval (ADR-0010 / ADR-0013) |
+| Object-based takeoff | Phase 4 measures typed objects, not dumb geometry |
+| No cloud collab product; offline-first | Phase 5 is local API + connectors — drafting never requires the server |
+| **2D CAD only — permanent** | No solids / meshes / BIM authoring / IFC exchange phase |
+| Paper space / XREF out of scope | Nameplate PDF / sheets remain the documentation path |
 
 ### What does *not* change
 
 - The deterministic spine (`aadt-geometry → aadt-model → aadt-detect`) and
   atomic undo/redo.
-- Offline-capable drafting: cloud/enterprise features are additive, never a
+- Offline-capable drafting: enterprise features are additive, never a
   precondition for drawing.
 - `unsafe_code = forbid`, dependency frugality, and the curated command band
   for daily drafting (platform capabilities arrive as services/plugins, not
   command sprawl).
+- **2D plan CAD** — wall height / volume stay attributes; there is no 3D scene.
 
 ## Consequences
 

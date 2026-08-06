@@ -7,7 +7,7 @@ Internal engineering handbook. Status: [STATUS.md](./STATUS.md).
 1. Pure 2D primitives shared by model, detect, render, osnap, and commands.
 2. Deterministic floating-point policy via shared epsilons.
 3. No UI, I/O, or undo — geometry is value math only.
-4. Keep the kernel small; defer splines/solids until Phase 6 is scheduled.
+4. Keep the kernel small and **2D-only** — no solids, meshes, or 3D scene.
 
 ## Current implementation
 
@@ -57,15 +57,15 @@ flowchart LR
 
 ## Target / planned
 
-[AI-native phases](../plans/2026-07-ai-native-phases.md) Phase 6: splines,
-meshes, solids. Spatial indexing stays out of this crate (Vol 13 / ShilpiDB).
+Stay **2D plan CAD**. Optional richer 2D curve types if drafting needs them.
+Spatial indexing stays out of this crate (Vol 13 / ShilpiDB).
 
 ## Gap analysis
 
 | Topic | Gap |
 |-------|-----|
 | Spline / ellipse as first-class | Ellipse/spline cmds may approximate; no dedicated kernel types yet |
-| 3D | Explicitly out of product scope |
+| 3D / BIM | Permanent non-goal |
 | Spatial index | Deferred by design |
 
 ## Data structures
@@ -80,8 +80,7 @@ predicates compose kernel calls inside `Command::run`.
 
 ## Module layout
 
-Single-file lib today. Split only when Phase 6 lands heavy modules
-(`spline.rs`, `solid.rs`, …).
+Single-file lib today. Split only if a dedicated 2D curve module earns its keep.
 
 ## Error handling
 

@@ -169,7 +169,7 @@ pub fn icon_btn_compact(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool) 
         egui::vec2(sz::HIT_COMPACT, sz::HIT_COMPACT),
         sz::GLYPH_SM,
         if active {
-            super::theme::color::accent()
+            super::theme::color::text()
         } else {
             super::theme::color::text_secondary()
         },
@@ -224,7 +224,7 @@ fn icon_btn_sized_tinted(
     resp
 }
 
-/// Selected nav-rail icon (accent soft fill) — flat, compact.
+/// Selected nav-rail icon — quiet fill + left accent bar (Chrome 2.0).
 pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) -> egui::Response {
     use super::theme::{color, icon as sz, radius};
     let size = egui::vec2(sz::HIT_NAV, sz::HIT_NAV);
@@ -234,7 +234,7 @@ pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) ->
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
         let bg = if selected {
-            color::accent_soft()
+            color::control_hover()
         } else if resp.is_pointer_button_down_on() {
             color::control_pressed()
         } else if resp.hovered() {
@@ -246,18 +246,13 @@ pub fn icon_btn_nav(ui: &mut egui::Ui, icon: Icon, tip: &str, selected: bool) ->
             painter.rect_filled(rect, radius::CONTROL, bg);
         }
         if selected {
-            painter.rect_stroke(
-                rect,
-                radius::CONTROL,
-                egui::Stroke::new(1.0_f32, color::accent()),
+            let bar = egui::Rect::from_min_max(
+                egui::pos2(rect.left(), rect.top() + 3.0),
+                egui::pos2(rect.left() + 2.0, rect.bottom() - 3.0),
             );
+            painter.rect_filled(bar, 0.0, color::accent());
         }
-        let tint = if selected {
-            color::accent()
-        } else {
-            color::text()
-        };
-        // Fluent: filled glyph for the selected state, regular otherwise.
+        let tint = color::text();
         let src = if selected {
             icon.svg_filled()
         } else {

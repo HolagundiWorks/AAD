@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Thin C ABI over aadt-app::Session for future chrome (e.g. WinUI) — no UI here."
+description = "C ABI over aadt-app::Session for WinUI / native chrome (ADR-0017) — no UI here."
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -14,8 +14,11 @@ name = "aadt_ffi"
 
 [dependencies]
 aadt-app.workspace = true
+aadt-cli.workspace = true
 aadt-command.workspace = true
+aadt-geometry.workspace = true
 aadt-model.workspace = true
+aadt-render.workspace = true
 
 [lints.rust]
 # C ABI requires unsafe extern "C" and pointer handling; engine crates stay forbid.

@@ -34,7 +34,7 @@ first two digits (`08`).
 ### UniFormat (optional later)
 
 Systems-oriented (A–G). Useful for design-stage estimates. Not required for
-M3; document as future firm mapping layer, not a second built-in default.
+M13; document as future firm mapping layer, not a second built-in default.
 
 ### Regional / firm maps
 

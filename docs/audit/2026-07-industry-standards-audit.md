@@ -120,8 +120,8 @@ phases 1–5) are **shipped**. Still open (Post-1.0):
    raster diff.
 4. **Do not** implement paper space or merge UNDO with HISTORY.
 
-Withdrawn: hosted collaboration — the `aadt-collab` crate and TCP relay were
-removed with M8, so there is no local presence to build a hosted service on.
-Transparent `'ZOOM`/`'PAN` and Phase 5 (`aadt-api`, permissions, signed audit,
-connectors, site ingest — [ADR-0015](../adr/0015-local-api-layer.md) /
+Withdrawn: hosted multi-user collaboration — not a product. Enterprise reach is
+the local API + connectors (M14). Transparent `'ZOOM`/`'PAN` and Phase 5
+(`aadt-api`, permissions, signed audit, connectors, site ingest —
+[ADR-0015](../adr/0015-local-api-layer.md) /
 [ADR-0016](../adr/0016-m14-enterprise.md)) shipped with M14.

@@ -1,9 +1,8 @@
-//! **AAD Chrome** — mono design language for the egui shell.
+//! **AAD Chrome 2.0** — mono design language for the egui shell.
 //!
-//! Grounded in [Fluent 2](https://fluent2.microsoft.design/design-principles) neutrals,
-//! type, icons, and motion — with CAD-dense **sharp radii (0)** and brand orange used
-//! sparingly for chrome focus/CTAs. Drafting overlays use the sibling [`canvas`] token
-//! set (CAD-familiar blues/greens), not brand orange.
+//! Paper-first CAD chrome: quiet neutrals, **sharp radii (0)**, and brand orange
+//! only for brand mark / explicit focus. Drafting overlays use the sibling
+//! [`canvas`] token set (CAD-familiar blues/greens), not brand orange.
 //!
 //! Prefer the helpers in this module (`button`, `chip_*`, `dialog_frame`,
 //! `section_label*`, …) over raw egui controls. See `docs/branding/README.md`.
@@ -141,55 +140,52 @@ pub mod color {
     }
 
     impl Palette {
-        /// Light theme: Fluent neutrals on white paper, black ink.
+        /// Light theme: quiet neutrals on white paper — orange reserved for brand/focus.
         pub const LIGHT: Palette = Palette {
-            layer_base: Color32::from_rgb(243, 243, 243), // #F3F3F3
+            layer_base: Color32::from_rgb(248, 248, 248), // #F8F8F8 recessed chrome
             layer_card: Color32::from_rgb(255, 255, 255), // #FFFFFF
             canvas: Color32::from_rgb(255, 255, 255),     // white paper
-            control: Color32::from_rgb(243, 243, 243),
-            control_hover: Color32::from_rgb(234, 234, 234),
-            control_pressed: Color32::from_rgb(224, 224, 224),
+            control: Color32::from_rgb(245, 245, 245),
+            control_hover: Color32::from_rgb(236, 236, 236),
+            control_pressed: Color32::from_rgb(228, 228, 228),
             text: Color32::from_rgb(36, 36, 36), // #242424
-            text_secondary: Color32::from_rgb(97, 97, 97), // #616161
+            text_secondary: Color32::from_rgb(110, 110, 110),
             text_disabled: Color32::from_rgb(161, 161, 161),
-            stroke: Color32::from_rgb(229, 229, 229), // #E5E5E5
-            divider: Color32::from_rgb(209, 209, 209),
-            border: Color32::from_rgb(200, 200, 200),
+            stroke: Color32::from_rgb(232, 232, 232),
+            divider: Color32::from_rgb(220, 220, 220),
+            border: Color32::from_rgb(214, 214, 214),
             accent: Color32::from_rgb(232, 93, 4), // #E85D04
             accent_dark: Color32::from_rgb(194, 65, 12), // #C2410C
-            accent_soft: Color32::from_rgb(255, 240, 230), // #FFF0E6
-            success: Color32::from_rgb(15, 123, 50), // #0F7B32
-            warning: Color32::from_rgb(157, 93, 0), // #9D5D00
-            danger: Color32::from_rgb(196, 43, 28), // #C42B1C
-            info: Color32::from_rgb(15, 108, 189), // #0F6CBD
+            accent_soft: Color32::from_rgb(255, 246, 238), // whisper tint
+            success: Color32::from_rgb(15, 123, 50),
+            warning: Color32::from_rgb(157, 93, 0),
+            danger: Color32::from_rgb(196, 43, 28),
+            info: Color32::from_rgb(15, 108, 189),
             ink: Color32::from_rgb(0, 0, 0),
         };
 
-        /// Dark theme: Fluent 2 dark neutrals on a dark model space, near-white
-        /// ink. Brand orange is lifted slightly and its soft fill goes warm-dark
-        /// so it still reads on the dark chrome; status hues are lightened for
-        /// contrast (AA on the dark surfaces).
+        /// Dark theme: quiet dark paper; orange only for brand / selected focus.
         pub const DARK: Palette = Palette {
-            layer_base: Color32::from_rgb(32, 32, 32),        // #202020
-            layer_card: Color32::from_rgb(43, 43, 43),        // #2B2B2B
-            canvas: Color32::from_rgb(30, 30, 30),            // #1E1E1E dark paper
-            control: Color32::from_rgb(50, 50, 50),           // #323232
-            control_hover: Color32::from_rgb(61, 61, 61),     // #3D3D3D
-            control_pressed: Color32::from_rgb(71, 71, 71),   // #474747
-            text: Color32::from_rgb(255, 255, 255),           // #FFFFFF
-            text_secondary: Color32::from_rgb(200, 200, 200), // #C8C8C8
+            layer_base: Color32::from_rgb(28, 28, 28),
+            layer_card: Color32::from_rgb(38, 38, 38),
+            canvas: Color32::from_rgb(26, 26, 26),
+            control: Color32::from_rgb(46, 46, 46),
+            control_hover: Color32::from_rgb(56, 56, 56),
+            control_pressed: Color32::from_rgb(66, 66, 66),
+            text: Color32::from_rgb(245, 245, 245),
+            text_secondary: Color32::from_rgb(180, 180, 180),
             text_disabled: Color32::from_rgb(122, 122, 122),
-            stroke: Color32::from_rgb(64, 64, 64),   // #404040
-            divider: Color32::from_rgb(77, 77, 77),  // #4D4D4D
-            border: Color32::from_rgb(87, 87, 87),   // #575757
-            accent: Color32::from_rgb(240, 122, 46), // #F07A2E (lifted brand)
-            accent_dark: Color32::from_rgb(194, 65, 12), // #C2410C
-            accent_soft: Color32::from_rgb(61, 43, 30), // warm-dark fill
+            stroke: Color32::from_rgb(58, 58, 58),
+            divider: Color32::from_rgb(68, 68, 68),
+            border: Color32::from_rgb(72, 72, 72),
+            accent: Color32::from_rgb(240, 122, 46),
+            accent_dark: Color32::from_rgb(194, 65, 12),
+            accent_soft: Color32::from_rgb(48, 38, 32),
             success: Color32::from_rgb(108, 203, 142),
             warning: Color32::from_rgb(240, 179, 90),
             danger: Color32::from_rgb(255, 153, 141),
             info: Color32::from_rgb(118, 185, 237),
-            ink: Color32::from_rgb(230, 230, 230), // near-white ink
+            ink: Color32::from_rgb(230, 230, 230),
         };
     }
 
@@ -332,12 +328,13 @@ pub fn apply_fluent_visuals(ctx: &egui::Context, theme: Theme) {
     visuals.widgets.hovered.weak_bg_fill = color::control_hover();
     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(stroke::THIN, color::divider());
     visuals.widgets.active.bg_fill = color::control_pressed();
-    visuals.widgets.active.weak_bg_fill = color::accent_soft();
-    visuals.widgets.active.bg_stroke = egui::Stroke::new(stroke::THIN, color::accent_dark());
+    visuals.widgets.active.weak_bg_fill = color::control_pressed();
+    visuals.widgets.active.bg_stroke = egui::Stroke::new(stroke::THIN, color::divider());
     visuals.widgets.open.bg_fill = color::layer_card();
     visuals.widgets.open.bg_stroke = egui::Stroke::new(stroke::THIN, color::border());
-    visuals.selection.bg_fill = color::accent_soft();
-    visuals.selection.stroke = egui::Stroke::new(stroke::THICK, color::accent());
+    // List/menu selection: quiet fill; orange stroke only when keyboard-focused.
+    visuals.selection.bg_fill = color::control_hover();
+    visuals.selection.stroke = egui::Stroke::new(stroke::THIN, color::accent());
     visuals.widgets.inactive.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
     visuals.widgets.hovered.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
     visuals.widgets.active.fg_stroke = egui::Stroke::new(stroke::THIN, color::text());
@@ -508,10 +505,16 @@ pub fn left_manager_nav() -> &'static [NavDest] {
     ]
 }
 
-/// Right dock — tools, quantities, and drawing details.
+/// Right dock — Properties first (Chrome 2.0); other managers on the rail.
 pub fn right_manager_nav() -> &'static [NavDest] {
     use super::icons::Icon;
     &[
+        NavDest {
+            tab: 7,
+            label: "Properties",
+            tip: "Selection / object properties",
+            icon: Icon::ObjectProps,
+        },
         NavDest {
             tab: 1,
             label: "Fills",
@@ -548,12 +551,6 @@ pub fn right_manager_nav() -> &'static [NavDest] {
             tip: "Drawing time machine / versions",
             icon: Icon::History,
         },
-        NavDest {
-            tab: 7,
-            label: "Properties",
-            tip: "Selection / object properties",
-            icon: Icon::ObjectProps,
-        },
     ]
 }
 
@@ -573,7 +570,7 @@ pub fn right_manager_title(tab: usize) -> &'static str {
         5 => "Dimensions",
         6 => "History",
         7 => "Properties",
-        _ => "Fills",
+        _ => "Properties",
     }
 }
 
@@ -589,7 +586,7 @@ pub fn nav_tabs(ui: &mut egui::Ui, current: &mut usize, destinations: &[NavDest]
             let text = if selected {
                 egui::RichText::new(dest.label)
                     .font(semibold(type_scale::BODY))
-                    .color(color::accent())
+                    .color(color::text())
             } else {
                 egui::RichText::new(dest.label).color(color::text_secondary())
             };
@@ -640,8 +637,8 @@ pub mod panel_space {
     pub const CONTROL_H: f32 = 28.0;
     /// Prop / attribute label column height.
     pub const LABEL_H: f32 = 20.0;
-    /// Icon rail width.
-    pub const RAIL: f32 = 40.0;
+    /// Icon rail width (Chrome 2.0 denser).
+    pub const RAIL: f32 = 36.0;
     /// Layer color chip (dense row).
     pub const COLOR_CHIP_W: f32 = 24.0;
     pub const COLOR_CHIP_H: f32 = 12.0;
@@ -661,24 +658,26 @@ pub mod icon {
     pub const GLYPH_MD: f32 = 16.0;
     /// Dense list glyph (matches `style.spacing.icon_width_inner`).
     pub const GLYPH_SM: f32 = 14.0;
-    /// Toolbar / QAT icon hit target.
-    pub const HIT_TOOLBAR: f32 = 28.0;
+    /// Toolbar icon hit target (Chrome 2.0 denser strip).
+    pub const HIT_TOOLBAR: f32 = 24.0;
     /// Nav rail icon hit target — same as toolbar for visual parity.
-    pub const HIT_NAV: f32 = 28.0;
+    pub const HIT_NAV: f32 = 24.0;
     /// Layer-row compact icon hit target.
     pub const HIT_COMPACT: f32 = 20.0;
     /// Brand mark in the top bar (logo guidelines: 20–24).
     pub const BRAND: f32 = 20.0;
 }
 
-/// Top / bottom chrome bar heights.
+/// Top / bottom chrome bar heights (Chrome 2.0 — single top strip, CLI hero).
 pub mod chrome {
-    /// Quick-access + levels strips.
-    pub const TOP_BAR_H: f32 = 32.0;
-    /// Collapsed status / command bar.
-    pub const STATUS_H: f32 = 28.0;
-    /// Expanded status bar (hint + completions).
-    pub const STATUS_H_EXP: f32 = 48.0;
+    /// Single paper-first top strip (file tools + floor breadcrumb).
+    pub const TOP_BAR_H: f32 = 30.0;
+    /// Command line hero: history stack + input row.
+    pub const STATUS_H: f32 = 92.0;
+    /// Status bar with completions / live prompt under the input.
+    pub const STATUS_H_EXP: f32 = 112.0;
+    /// Visible CLI history lines above the input.
+    pub const CLI_HISTORY_LINES: usize = 3;
 }
 
 /// Keep chrome inside the OS client area (never paint over the taskbar / off-window).
@@ -689,9 +688,9 @@ pub mod layout {
     pub const MIN_WINDOW_W: f32 = 720.0;
     pub const MIN_WINDOW_H: f32 = 480.0;
 
-    /// QAT + levels strip.
+    /// Single top strip (Chrome 2.0).
     pub fn top_chrome_h() -> f32 {
-        chrome::TOP_BAR_H * 2.0
+        chrome::TOP_BAR_H
     }
 
     /// Height available for edge overlays between top chrome and status pad.
@@ -1037,22 +1036,22 @@ pub fn full_width_edit(ui: &mut egui::Ui, value: &mut String, hint: &str) -> egu
     )
 }
 
-/// Accent chip (units token) — clickable brand soft fill.
+/// Quiet chip (units token) — neutral; orange reserved for brand/focus.
 pub fn chip_accent(ui: &mut egui::Ui, label: &str, tip: &str) -> egui::Response {
     ui.add(
         egui::Button::new(
             egui::RichText::new(label)
                 .font(semibold(type_scale::CAPTION))
-                .color(color::accent()),
+                .color(color::text()),
         )
-        .fill(color::accent_soft())
-        .stroke(egui::Stroke::new(stroke::THIN, color::accent()))
+        .fill(color::control())
+        .stroke(egui::Stroke::new(stroke::THIN, color::stroke()))
         .rounding(radius::CONTROL),
     )
     .on_hover_text(tip)
 }
 
-/// Toggle chip (ORTHO / OSNAP / …) — on = accent soft, off = control fill.
+/// Toggle chip (ORTHO / OSNAP / …) — on = pressed neutral, off = control fill.
 pub fn chip_toggle(ui: &mut egui::Ui, label: &str, on: bool, tip: &str) -> egui::Response {
     let text = if on {
         egui::RichText::new(label)
@@ -1066,13 +1065,17 @@ pub fn chip_toggle(ui: &mut egui::Ui, label: &str, on: bool, tip: &str) -> egui:
     ui.add(
         egui::Button::new(text)
             .fill(if on {
-                color::accent_soft()
+                color::control_pressed()
             } else {
                 color::control()
             })
             .stroke(egui::Stroke::new(
                 stroke::THIN,
-                if on { color::accent() } else { color::stroke() },
+                if on {
+                    color::divider()
+                } else {
+                    color::stroke()
+                },
             ))
             .rounding(radius::CONTROL),
     )
@@ -1083,7 +1086,7 @@ pub fn chip_toggle(ui: &mut egui::Ui, label: &str, on: bool, tip: &str) -> egui:
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)] // Warn/Error reserved for validation / failures.
 pub enum NoteKind {
-    /// Active tool prompt — accent.
+    /// Active tool prompt — primary text (not brand orange).
     Prompt,
     Info,
     Warn,
@@ -1093,8 +1096,8 @@ pub enum NoteKind {
 /// One-line status / prompt feedback.
 pub fn note_line(ui: &mut egui::Ui, kind: NoteKind, text: impl Into<String>) {
     let c = match kind {
-        NoteKind::Prompt => color::accent(),
-        NoteKind::Info => color::info(),
+        NoteKind::Prompt => color::text(),
+        NoteKind::Info => color::text_secondary(),
         NoteKind::Warn => color::warning(),
         NoteKind::Error => color::danger(),
     };
@@ -1282,18 +1285,18 @@ pub fn nav_dest_label(ui: &mut egui::Ui, label: &str, selected: bool) {
         egui::RichText::new(label)
             .font(semibold(type_scale::CAPTION))
             .color(if selected {
-                color::accent()
+                color::text()
             } else {
                 color::text_secondary()
             }),
     );
 }
 
-/// Top / bottom bar surface frame.
+/// Top / bottom bar surface frame (Chrome 2.0 — card fill, quiet stroke).
 pub fn bar_frame() -> egui::Frame {
     egui::Frame::none()
-        .fill(color::layer_base())
+        .fill(color::layer_card())
         .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-        .stroke(egui::Stroke::new(stroke::THIN, color::border()))
+        .stroke(egui::Stroke::new(stroke::THIN, color::stroke()))
         .shadow(elevation::bar())
 }

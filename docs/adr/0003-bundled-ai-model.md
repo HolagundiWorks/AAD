@@ -4,7 +4,8 @@
 > the `infer` command, and the Foundry/Ollama integration no longer exist. AADT
 > ships no bundled model. Retained as historical record.
 
-- **Status:** Superseded — AI removed (was: Accepted, M4; Foundry Local, 2026-07)
+- **Status:** Superseded — Foundry / cloud generative path not scheduled
+  (was: Accepted; Foundry Local prototype, 2026-07)
 - **Context:** Spec §3.1 / §11 #3 — default bundled model size/quality tradeoff
   vs. a first-run download. AADT runs AI **locally, on demand**. Deterministic
   drafting/takeoff must never depend on the model being present.
@@ -37,7 +38,7 @@
 
 ## Alternatives considered
 
-- **Ollama as sole runtime:** worked for M4 prototype; kept as `--backend ollama`.
+- **Ollama as sole runtime:** worked for the early Foundry-era prototype; kept as `--backend ollama`.
 - **Bundle weights in the installer:** simplest offline story, but bloats every
   install and couples model updates to app releases.
 - **Cloud OpenAI:** rejected — product is local-first; no API keys in the default path.

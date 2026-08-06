@@ -145,7 +145,13 @@ Performance (§31) is now **measurable**: F7 toggles a frame-time HUD graded aga
 ✅ **Conforms (M9.8).** `qa_checklist_every_command` iterates the whole command catalog and asserts the headlessly-verifiable checklist per command: starts (every alias resolves; engine activates with a prompt), cancels (Esc → idle), repeats (matches `repeatable`), keyboard-line addressable, capability/step consistency (snap ⇒ spatial pick step; mixed ⇒ dynamic input), and undo semantics (mutating vs inquiry). The purely-interactive rows (mouse-only / keyboard-only end-to-end) are represented by their structural guarantees. Built on the M9.7 capability contract.
 
 ### §35 Future Extensions
-⚠️ **Resolved, with a bounded scope.** This section lists AI command suggestions, AI quantity takeoff, PDF drawing recognition, and auto layer assignment — capabilities removed in commit `e4d93e7` ("Remove all AI features"). The product decision was made in [ADR-0012](../adr/0012-ai-native-platform-pivot.md) and implemented as M10–M13: **auto layer assignment** (`MAPMETA`), **quantity takeoff** (`TAKEOFF` / `BOQ` over the Object DB), and **command suggestions** (`SUGGEST` / `CHECK` / `ASK`, plus `COMPARE` and `RECOMMEND DETAIL`) all ship — but only as **local, offline, deterministic or retrieval-shaped services that propose and never commit** ([ADR-0013](../adr/0013-ai-service-layer.md)). The cloud/Foundry path stays removed. **PDF drawing recognition** remains unscheduled.
+⚠️ **Resolved, with a bounded scope.** Spec listed AI suggestions, AI takeoff,
+PDF recognition, and auto layer assignment. Shipping answer is M10–M13:
+**auto layer assignment** (`MAPMETA`), **quantity takeoff** (`TAKEOFF` / `BOQ`
+over the Object DB), and **command suggestions** (`SUGGEST` / `CHECK` / `ASK`,
+plus `COMPARE` and `RECOMMEND DETAIL`) — all **local, offline, propose-only**
+([ADR-0013](../adr/0013-ai-service-layer.md)). Cloud generative / Foundry paths
+are not scheduled. **PDF drawing recognition** remains unscheduled.
 
 ---
 

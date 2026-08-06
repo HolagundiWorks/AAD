@@ -38,11 +38,11 @@ geometry.
   `[ALL] | RECONCILE | ACCEPT id | SET id <class|layer> | INFO id`; LISP
   `(aadt-classify id)` / `(aadt-map-metadata)`; an egui reconcile panel.
 
-### Deliberate product deviation (ROADMAP M4 / §35)
+### Deliberate product deviation (ROADMAP §35)
 
-M4 removed all AI and §35 lists "auto layer assignment" as an unscheduled future
-extension. This ADR **knowingly reintroduces a local ML model** to implement that
-extension. It is bounded to stay within the product locks:
+§35 lists "auto layer assignment" among speculative extensions. This ADR
+**knowingly ships a local ML model** for that job. It is bounded to stay within
+the product locks:
 
 - **Local + offline + deterministic at inference.** No network, no background
   compute; fixed seeded training → the same drawing yields the same predictions.

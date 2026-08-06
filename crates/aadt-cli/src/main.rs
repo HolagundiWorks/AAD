@@ -1,27 +1,20 @@
 //! # aadt — command-line driver (spec §2 principle 2, §6.2)
 //!
-//! The headless entry point for AADT. The egui desktop shell (`aadt-app` /
-//! `aadt app`) and this binary share the same command core via
-//! [`aadt_app::Session`]:
+//! The headless entry point for AADT. The WinUI desktop shell (`native/aad-winui`)
+//! and this binary share the same command core via [`aadt_app::Session`]:
 //!
 //! ```text
 //! aadt run <script.aadt>                          # execute a command script
 //! aadt shell                                      # interactive command prompt
 //! aadt serve [drawing]                            # local HTTP/JSON API
-//! aadt app [drawing]                              # egui desktop shell
+//! aadt app [drawing]                              # egui fallback shell (maintenance)
 //! ```
 //!
-//! `run` executes a script through the command interpreter (`aadt-command`) with the
-//! drawing built-ins plus `OPEN`/`SAVE` and the intelligence band. `shell` drives
-//! the same set interactively (see `shell.rs`).
-
-mod commands;
-mod enterprise;
-mod shell;
-mod site_ingest;
+//! Host commands (`OPEN`/`SAVE`/assist/…) come from [`aadt_cli::register`].
 
 use std::process::ExitCode;
 
+use aadt_cli::register;
 use aadt_command::Interpreter;
 use aadt_detect::{detect, DetectionConfig};
 use aadt_docs::{
@@ -45,7 +38,7 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     match command.as_str() {
         "run" => cmd_run(rest),
-        "shell" | "repl" => shell::run(),
+        "shell" | "repl" => aadt_cli::shell::run(),
         "render" => cmd_render(rest),
         "view" => cmd_view(rest),
         "sheet" => cmd_sheet(rest),
@@ -420,7 +413,7 @@ fn cmd_app(args: &[String]) -> Result<(), String> {
     };
     aadt_standards::apply_standard_layers(&mut doc);
     let mut interp = Interpreter::with_builtins();
-    commands::register(&mut interp);
+    register(&mut interp);
     let mut session = aadt_app::Session::from_interpreter(interp);
     session.set_document(doc);
     aadt_app::gui::run(session).map_err(|e| e.to_string())
@@ -461,7 +454,7 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
             "--role" => {
                 let raw = expect_value(&mut it, "--role")?;
                 role = Some(
-                    crate::enterprise::parse_role(&raw)
+                    aadt_cli::parse_role(&raw)
                         .ok_or_else(|| format!("--role expects viewer|editor|connector|admin, got {raw:?}"))?,
                 );
             }
@@ -473,7 +466,7 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
     }
 
     let mut interp = Interpreter::with_builtins();
-    commands::register(&mut interp);
+    register(&mut interp);
     let mut session = aadt_app::Session::from_interpreter(interp);
 
     if let Some(path) = &input {
@@ -556,7 +549,7 @@ fn cmd_run(args: &[String]) -> Result<(), String> {
     let script = std::fs::read_to_string(path).map_err(|e| format!("reading {path}: {e}"))?;
 
     let mut interp = Interpreter::with_builtins();
-    commands::register(&mut interp);
+    register(&mut interp);
     let mut session = aadt_app::Session::from_interpreter(interp);
 
     for (n, line) in script.lines().enumerate() {

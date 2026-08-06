@@ -14,9 +14,9 @@ engineering intent accurate · semantically understandable · scales) and keep
 
 | Vision store | Today | Crate(s) | Gap |
 |---|---|---|---|
-| Geometry DB | ✅ 2D vector records (`.vdb` ShilpiDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Splines/meshes/solids (Phase 6) |
+| Geometry DB | ✅ 2D vector records (`.vdb` ShilpiDB, `.aadt` SQLite) | `aadt-vdb`, `aadt-store`, `aadt-model` | Richer 2D curves (ellipse/spline as first-class) — still plan CAD |
 | Spatial Index | ✅ Uniform-grid bbox index, persisted in `.vdb` | `aadt-vdb` | R-tree option; wire into GUI pick/osnap; perf targets |
-| Vector DB | ✅ Geometry + text + aggregate embeddings, kNN, BM25 corpus (M11) | `aadt-embed`, `aadt-vecdb` | PDF/photo ingestion; relationship embeddings; ANN index for perf |
+| Vector DB | ✅ Geometry + text + aggregate embeddings, kNN, BM25 corpus (M11); site photo/PDF/report text ingest (M14.5) | `aadt-embed`, `aadt-vecdb` | Relationship embeddings; ANN index for perf; OCR |
 | Object DB | ✅ Typed objects w/ engineering props + append-only audit (M10); measured for takeoff (M13) | `aadt-object`, `aadt-takeoff` | Editable props UI; MAPMETA-driven objects for undetected geometry |
 | Metadata DB | ⚠️ DrawingProperties + AIA layer catalog | `aadt-model`, `aadt-standards` | Material libraries, semantic layer defaults, AI tags |
 | Graph DB | ✅ Persisted typed relationships + promotion (M10) | `aadt-graph` | `Supports` population (needs slabs); constraint-aware edges |
@@ -127,14 +127,12 @@ recorded in [ADR-0014](../adr/0014-object-based-takeoff.md).
 - ⬜ Reports as plugins — deferred; the engine and the surfaces ship, the plugin
   packaging does not.
 
-**Why this phase had to come after Phase 1.** The M3 engine measured raw
-geometry, and a bag of lines and block inserts cannot say which door pierces
-which wall. It could report a *gross* wall area honestly, or guess deductions by
-proximity — neither is good enough to price from. `Door —BelongsTo→ Wall` in the
-Graph DB turns the deduction into a lookup. Where the graph attributes nothing,
-the opening is measured and scheduled but subtracted from nothing, and the
-command says so: under-deducting is conservative and visible, guessing is
-neither.
+**Why this phase had to come after Phase 1.** Raw geometry cannot say which
+door pierces which wall. Gross area is honest; proximity deductions are not
+good enough to price from. `Door —BelongsTo→ Wall` in the Graph DB turns the
+deduction into a lookup. Where the graph attributes nothing, the opening is
+measured and scheduled but subtracted from nothing, and the command says so:
+under-deducting is conservative and visible, guessing is neither.
 
 **What 2D cannot measure is declared, not invented.** Storey height is a config
 input (a plan has no height). Openings without drawn dimensions use defaults and
@@ -170,12 +168,12 @@ socket opened.
 **Offline drafting still never depends on it.** The server starts only on an
 explicit `aadt serve`; neither the GUI nor the CLI calls into `aadt-api`.
 
-## Phase 6 — Geometry expansion (re-evaluate)
+## 1.0 band (complete)
 
-Splines/meshes/solids, XRefs/paper space — the largest lock reversals
-(2D-only). Deliberately last; decide scope when Phases 1–5 have proven the
-architecture. May be re-scoped to "2.5D + reinforcement detailing" if the
-platform value is already delivered.
+Phases 1–5 (= ROADMAP M10–M14) plus architectural plan closeout
+([ROADMAP M15](../ROADMAP.md#m15--architectural-plan-cad-market-gap-closeout-)).
+**2D CAD only** — no 3D / BIM phase is planned. Post-1.0 polish lives only under
+ROADMAP **Post-1.0**.
 
 ## Performance gates (tracked from Phase 1)
 

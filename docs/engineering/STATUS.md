@@ -11,14 +11,14 @@ Legend: **Current** = shipped in tree · **Target** = ADR / ROADMAP / ShilpiDB a
 | 1 | Architecture | Layered crates; `Document` in `Session` is live SoT | ShilpiDB as SoT; CAD as editor only | Dual narrative: RAM document vs DB-first design | `aadt-app`, `aadt-model`, `aadt-command` |
 | 2 | Command engine | `Registry` + `Interpreter`; GUI `CommandEngine` + `Tool` | One interactive + headless catalog | Two catalogs (`CATALOG` ⊄ full `Registry`) | `aadt-command`, `command_engine.rs` |
 | 3 | Input & events | Space-primary; dyn input; F-keys; GUI transparent ZOOM/PAN | Scriptable apostrophe suspend | Transparent cmds GUI-only | `gui.rs`, `command_engine.rs` |
-| 4 | Geometry | 2D primitives + eps in `aadt-geometry` | Splines/meshes/solids (Phase 6) | No 3D; limited curve set | `aadt-geometry` |
+| 4 | Geometry | 2D primitives + eps in `aadt-geometry` | Richer 2D curves if needed | 2D only; limited curve set | `aadt-geometry` |
 | 5 | Entity DB | `.aadt` SQLite + `.vdb` ShilpiDB I/O; undo in RAM | Entity GUID, audit fields, DB transactions as SoT | GUI edits don’t round-trip every pick through SpatialGrid | `aadt-model`, `aadt-store`, `aadt-vdb` |
 | 6 | Selection | Click, box W/C, WP/CP/FENCE | SpatialGrid-assisted pick | Free-drag lasso not shipped; GUI pick still linear | `selection.rs`, `gui.rs` |
 | 7 | Osnap | END/MID/CEN/QUA/INT/NEA + PER/TAN override | Full OTRACK alignment paths | F11 toggles prefs; no true tracking rays | `osnap.rs` |
 | 8 | Modify | Full daily modify band via `Command::run` + `Tool` phases | — (band locked) | Firm suites line-only; no Tool for many cmds | `aadt-command`, `gui.rs` |
 | 9 | Rendering | egui `Painter` over `DrawList`; optional wgpu | Viewport text glyphs; wgpu if needed | Display-bound polish | `aadt-render`, `gui.rs` |
 | 10 | Undo | `Document::transact` / undo / redo | — | Nested txn forbidden; OPEN clears history; HISTORY ≠ undo | `aadt-model`, `aadt-store` |
-| 11 | AI / semantic | Assist propose/apply; FIND/ASK/MAPMETA/…; M14 perms+connectors+site | Phase 6 geometry TBD | Assist never auto-commits (by design) | `aadt-assist`, `aadt-object`, `aadt-vecdb` |
+| 11 | AI / semantic | Assist propose/apply; FIND/ASK/MAPMETA/…; M14 perms+connectors+site | — (2D plan CAD locked) | Assist never auto-commits (by design) | `aadt-assist`, `aadt-object`, `aadt-vecdb` |
 | 12 | Plugin / API | `Registry::register`; `POST /v1/command`; LISP; M14.2–5 done | No entity POST | M14 complete ([ADR-0016](../adr/0016-m14-enterprise.md)) | `aadt-api`, `aadt-cli`, `aadt-lisp` |
 | 13 | Perf / spatial | Drawlist cache; `SpatialGrid` in `.vdb` | Wire grid into GUI pick/osnap; R-tree option | Pick/osnap still linear over active space | `aadt-vdb`, `aadt-app` |
 | 14 | Testing | Headless command + model tests; goldens | Broader GUI contracts | egui shell not headless-verified | crate `tests/`, `aadt-command` |
@@ -52,4 +52,7 @@ chase); Assist never auto-commits; LISP for depth; transparent view commands onl
 | PR template from Vol 15 checklist | Process |
 
 Done recently: M14.2–5 enterprise (perms, signed audit, connectors, site
-ingest). Free-drag Select lasso deliberately not shipped.
+ingest); **M15** architectural plan CAD (Elements/Fills, wall openings, door
+swing, IMAGEDEF, market-gap P0–P3). Free-drag Select lasso deliberately not
+shipped. 1.0 roadmap band is complete — see [ROADMAP](../ROADMAP.md) status
+summary.

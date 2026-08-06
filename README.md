@@ -33,11 +33,15 @@ plotting + markup, sheet/title-block production, and an AutoLISP-flavoured
 engine. See the [roadmap](docs/ROADMAP.md) and
 [industry audit](docs/audit/2026-07-industry-standards-audit.md).
 
-**Interactive shell (egui)** is the live product surface: command-first
-drafting, History manager, pick/draw/modify tools, Ortho/Osnap/Polar, dynamic
-input, Layers/Properties managers that dock, float, or auto-hide, and
-`OPEN`/`SAVE` for `.dxf` / `.dwg` / `.aadt` / `.vdb`. Open-source DWG import via
-`acadrust` works now (`OPEN file.dwg`); true wgpu-at-100k and ODA-grade DWG
+**Interactive shell (shipping path):** C++ **WinUI 3** + Direct2D host under
+[`native/aad-winui/`](native/aad-winui/) driving the Rust engine via
+`aadt_ffi.dll` ([ADR-0017](docs/adr/0017-winui-shell-rust-engine.md)).
+
+**egui fallback:** `cargo run -p aadt-cli --features app -- app` — maintenance
+only. Command-first drafting, History, docks, Ortho/Osnap/Polar, and
+`OPEN`/`SAVE` for `.dxf` / `.dwg` / `.aadt` / `.vdb` share the same `Session`.
+Open-source DWG import via `acadrust` works now (`OPEN file.dwg`); true
+wgpu-at-100k and ODA-grade DWG
 fidelity remain later work.
 
 **AI-native layer (local, offline, gated).** Typed objects and relationships
@@ -58,8 +62,12 @@ the [endpoint reference](docs/api/README.md) and [ADR-0016](docs/adr/0016-m14-en
 # Drive AAD with a command script
 cargo run -p aadt-cli -- run fixtures/demo.aadt
 
-# Desktop shell (needs --features app)
+# Desktop shell (egui fallback — needs --features app)
 cargo run -p aadt-cli --features app -- app fixtures/sample-floorplan.dxf
+
+# WinUI / Direct2D host — see native/aad-winui/README.md
+#   cargo build -p aadt-ffi --release
+#   cmake -B native/aad-winui/build ... && cmake --build ...
 
 # Local API on 127.0.0.1:7421 (prints a one-run token)
 cargo run -p aadt-cli -- serve fixtures/sample-floorplan.dxf
@@ -88,10 +96,10 @@ cargo run -p aadt-cli -- serve fixtures/sample-floorplan.dxf
 | `aadt-docs` | Sheets, title blocks, present |
 | `aadt-lisp` | AutoLISP-flavoured engine + `aadt-*` bridge |
 | `aadt-pdf` | PDF plot, markup, compare |
-| `aadt-app` | `Session` + egui desktop shell |
-| `aadt-ffi` | Thin C ABI over `Session` (future chrome) |
+| `aadt-app` | `Session` + egui fallback shell |
+| `aadt-ffi` | C ABI over `Session` for WinUI / Direct2D (`aadt_ffi.dll`) |
 | `aadt-api` | Local HTTP/JSON API over `Session` — loopback-only, token-gated (`aadt serve`) |
-| `aadt-cli` | `aadt` binary |
+| `aadt-cli` | `aadt` binary + `register` library for host commands |
 
 ## Bundled libraries
 

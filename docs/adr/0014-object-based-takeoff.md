@@ -1,28 +1,21 @@
-# ADR-0014 — Quantity takeoff rebuilt on the Object DB
+# ADR-0014 — Quantity takeoff on the Object DB
 
 - **Status:** Accepted
-- **Reinstates** the quantity engine removed in ROADMAP M3, and with it
-  [ADR-0005](0005-cost-code-standard.md) (CSI MasterFormat cost codes), which was
-  marked superseded only because takeoff had been removed.
-- **Authorised by** [ADR-0012](0012-ai-native-platform-pivot.md) Phase 4, which
-  scheduled takeoff's return "on top of objects (not raw geometry)".
+- **Pairs with** [ADR-0005](0005-cost-code-standard.md) (CSI MasterFormat cost
+  codes) for BOQ classification.
+- **Authorised by** [ADR-0012](0012-ai-native-platform-pivot.md) Phase 4:
+  takeoff "on top of objects (not raw geometry)".
 
 ## Context
 
-M3 shipped a takeoff engine and it was removed in full — the `aadt-takeoff`
-crate, the commands, the GUI dock. `aadt-store` kept its `takeoff_*` run tables,
-unused, and ADR-0005 was marked superseded.
-
-The removal was not because quantity takeoff is a bad feature. It is the feature
-that distinguishes a drafting tool from a drafting-and-estimating tool. The
-problem was that the engine measured **raw geometry**, and raw geometry cannot
-answer the question a takeoff actually needs to answer.
+Quantity takeoff distinguishes a drafting tool from a drafting-and-estimating
+tool. Measuring **raw geometry** cannot answer the questions a takeoff actually
+needs — typed objects, openings, and cost codes can.
 
 Concretely: a wall's *gross* area is `length × height`, which geometry gives you.
 Its *net* area is gross minus the doors and windows that pierce it — and a bag of
-lines and block inserts has no idea which opening belongs to which wall. The M3
-engine could measure gross area honestly, or guess at deductions by proximity.
-Neither is good enough to price from.
+lines and block inserts has no idea which opening belongs to which wall.
+Proximity guesses are not good enough to price from.
 
 Phases 1–3 built the missing structure. Objects carry engineering properties
 (`length`, `thickness`, `area`, `perimeter`), and the Graph DB carries
@@ -51,7 +44,7 @@ than the document's geometry.
 
 ### What 2D cannot measure, and how it is reported
 
-AADT is a 2D tool (ROADMAP: no 3D, no BIM). A plan has no storey height, so wall
+AADT is a 2D tool (ROADMAP: 2D CAD only — permanent). A plan has no storey height, so wall
 height is a `TakeoffConfig` **input**, not a measurement. Openings that carry no
 drawn dimensions fall back to configured defaults and are flagged
 `measured: false`; `TAKEOFF` reports how many figures were assumed rather than

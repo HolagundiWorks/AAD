@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### WinUI 3 hybrid shell (ADR-0017)
+
+- Shipping UI path: C++ / WinUI 3 + Fluent 2 + Direct2D; Rust engine retained.
+  See [ADR-0017](adr/0017-winui-shell-rust-engine.md). Full C++ engine rewrite
+  remains out of scope.
+- Expanded [`aadt-ffi`](../crates/aadt-ffi): host command registration via
+  `aadt_cli::register`, drawlist line tessellation for Direct2D, dirty/path/
+  revision helpers (ABI v2). Header: `native/aad-winui/include/aadt_ffi.h`.
+- Scaffold: [`native/aad-winui/`](../native/aad-winui/) — Win32+Direct2D interim
+  host, CMake, WinUI 3 target notes. egui `aadt app` is maintenance fallback.
+- `aadt-cli` exposes a library crate so FFI and the binary share one `register`.
+
+### AAD Chrome 2.0 (egui shell)
+
+- Single top strip (merged QAT + levels); View / Server / layer groups under `⋯`.
+- Command line hero: taller bar with 3-line history above the input.
+- Docks default to **auto-hide**; right manager opens on **Properties**.
+- Quieter neutrals; orange only for brand mark and selected-rail focus bar.
+- Status chips (ORTHO/OSNAP/…) use pressed neutrals, not orange fills.
+
+### ROADMAP stripped to shipping 2D CAD
+
+- [ROADMAP](ROADMAP.md) keeps only shipping milestones (M1–M2, M5–M7, M9–M15).
+  Tombstone milestones and any Phase 6 / BIM / 3D path are gone.
+- Product lock: **2D CAD only — permanent.** Presentation rasters
+  (`Geometry::Image` / IMAGEDEF) stay in scope.
+
 ### IMAGEDEF on DWG / DXF export
 
 - Raster `Geometry::Image` exports as AutoCAD `IMAGE` + `IMAGEDEF` (+ reactor)
@@ -165,7 +192,8 @@
   parity matrix records the M9 items and drops the removed Foundry Local path.
 - Vision doc now separates shipped capabilities from future ones; the ShilpiDB
   architecture map moves relationships and semantic services to built-subset;
-  the July gap-closure plan is marked historical where M4/M3 superseded it.
+  the July gap-closure plan is marked historical where older AI/takeoff notes
+  were superseded by M12/M13.
 - Residual `AiADT` naming replaced with `AAD` across the docs tree.
 
 ### M12.7 — Standard-detail recommendation
@@ -371,31 +399,26 @@
 - Restored the M9.2 free-drag **lasso**, which in-progress dimension-selection
   work had accidentally reverted.
 
-### AI-Native Phase 4 (M13): quantity takeoff returns, built on the Object DB
+### AI-Native Phase 4 (M13): quantity takeoff on the Object DB
 
 Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).
-Reinstates the quantity engine removed in M3 — and with it
-[ADR-0005](adr/0005-cost-code-standard.md), which had been marked superseded only
-because takeoff was gone.
+Pairs with [ADR-0005](adr/0005-cost-code-standard.md) CSI cost codes.
 
 - **`aadt-takeoff` — the quantity engine over objects.** Wall length, thickness,
   gross/net area, volume, brick count and plaster area; room floor, ceiling,
   wall-finish and paint areas; opening schedule; structural members.
-- **Opening deduction is a graph lookup, not a guess.** This is the whole reason
-  takeoff waited for Phase 1. Raw geometry cannot say which door pierces which
-  wall, so the M3 engine could measure a *gross* wall area honestly or guess
-  deductions by proximity. The Graph DB records `Door —BelongsTo→ Wall`, so a
-  net area is now derived. An opening the graph does not attribute is measured
+- **Opening deduction is a graph lookup, not a guess.** Raw geometry cannot say
+  which door pierces which wall. The Graph DB records `Door —BelongsTo→ Wall`,
+  so a net area is derived. An opening the graph does not attribute is measured
   and scheduled but **deducted from nothing**, and the command says so —
   under-deducting is conservative and visible; guessing is neither.
-- **CSI MasterFormat cost codes (ADR-0005, revived).** Mapped by object kind,
+- **CSI MasterFormat cost codes (ADR-0005).** Mapped by object kind,
   refined by layer name — a drywall partition and a brick wall are both `Wall`
   objects but different trades, and billing them as one line would be wrong.
 - **BOQ generation.** Quantities aggregated by cost code into a sorted bill.
   Zero-quantity lines are dropped rather than inviting a reader to price nothing.
-- **Run persistence.** The `takeoff_*` tables that survived the M3 removal are
-  re-activated as-is — no schema change. They key rows by integer id, which is
-  what stable `ObjectId`s now supply and geometry never could.
+- **Run persistence.** `takeoff_*` store tables key rows by integer id, which
+  stable `ObjectId`s supply and geometry never could.
 - **Surface.** `TAKEOFF [WALLS|ROOMS|OPENINGS|SAVE]` (aliases `QTO`/
   `QUANTITIES`) and `BOQ` (alias `BILL`).
 

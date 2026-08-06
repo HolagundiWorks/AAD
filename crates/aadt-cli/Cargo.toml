@@ -8,6 +8,10 @@ repository.workspace = true
 authors.workspace = true
 description = "AAD command-line driver: headless entry point for command scripts, batch runs, and tests."
 
+[lib]
+name = "aadt_cli"
+path = "src/lib.rs"
+
 [[bin]]
 name = "aadt"
 path = "src/main.rs"

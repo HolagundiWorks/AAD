@@ -1,11 +1,10 @@
 # ADR-0008 — Drawing time machine & takeoff DB in `.aadt`
 
-> ⚠️ **Partly superseded (2026-07): the takeoff module was removed.** The
-> `.aadt` history / time-machine (checkpoints) remains; the takeoff-run tables
-> in `aadt-store` still exist but are now unused (no writer). The takeoff-DB
-> rationale below is historical.
+> ✅ **History kept; takeoff tables used by M13.** Drawing checkpoints remain.
+> `takeoff_*` run tables in `aadt-store` are written by object-based takeoff
+> ([ADR-0014](0014-object-based-takeoff.md)).
 
-- **Status:** History kept · takeoff DB unused (was: Accepted)
+- **Status:** Accepted — history + takeoff run persistence
 - **Context:** Architectural QS / drafting pain points (revision breaks takeoff;
   RevA/RevB file copies; siloed Excel quantities). ADR-0004 already chose SQLite
   `.aadt` and mentioned takeoff links; session UNDO is RAM-only and title-block

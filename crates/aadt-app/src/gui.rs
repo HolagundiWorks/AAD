@@ -15,6 +15,7 @@
 //! - **Pan** middle-drag · **Zoom** scroll · **Ortho** F8 · **Osnap** F3.
 //! - Right-click confirms like empty Space while drafting.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -1222,6 +1223,10 @@ struct AadtApp {
     last_line: Option<String>,
     /// A transient prompt (e.g. "select objects first").
     note: String,
+    /// Recent command / prompt lines shown above the CLI (Chrome 2.0 hero).
+    cli_log: VecDeque<String>,
+    /// Last `note` pushed into `cli_log` (dedupe).
+    cli_log_last_note: String,
     refocus: bool,
     /// Ortho mode (F8): constrain the second pick of a tool to the nearer axis.
     ortho: bool,
@@ -1454,6 +1459,8 @@ impl AadtApp {
             dyn_input: String::new(),
             last_line: None,
             note: String::new(),
+            cli_log: VecDeque::new(),
+            cli_log_last_note: String::new(),
             refocus: false,
             ortho: prefs.ortho,
             osnap: prefs.osnap,
@@ -1468,7 +1475,7 @@ impl AadtApp {
             snap_menu_at: None,
             layer_set: "CONSTRUCTION".to_string(),
             left_tab: 0,
-            right_tab: 1,
+            right_tab: 7,
             insert_block: String::new(),
             layer_filter: String::new(),
             layer_discipline_filter: None,
@@ -1618,6 +1625,29 @@ impl AadtApp {
     fn detect_untitled_recovery() -> Option<PathBuf> {
         let p = Self::untitled_recovery_path()?;
         p.is_file().then_some(p)
+    }
+
+    /// Push a line into the CLI history stack (Chrome 2.0).
+    pub(super) fn push_cli_log(&mut self, line: impl Into<String>) {
+        let line = line.into();
+        if line.is_empty() {
+            return;
+        }
+        if self.cli_log.back().is_some_and(|s| s == &line) {
+            return;
+        }
+        self.cli_log.push_back(line);
+        while self.cli_log.len() > 16 {
+            self.cli_log.pop_front();
+        }
+    }
+
+    /// Mirror the live `note` into CLI history when it changes.
+    fn sync_cli_log_from_note(&mut self) {
+        if self.note != self.cli_log_last_note && !self.note.is_empty() {
+            self.push_cli_log(self.note.clone());
+            self.cli_log_last_note = self.note.clone();
+        }
     }
 
     /// Feed a command line; tracks dirty + file path for OPEN/SAVE.
@@ -5422,10 +5452,12 @@ impl AadtApp {
         self.refocus = true;
         if line.is_empty() {
             if let Some(last) = self.last_line.clone() {
+                self.push_cli_log(format!("Command: {last}"));
                 self.dispatch(&last);
             }
             return;
         }
+        self.push_cli_log(format!("Command: {line}"));
         self.last_line = Some(line.clone());
         self.dispatch(&line);
     }
@@ -8632,7 +8664,7 @@ impl eframe::App for AadtApp {
             }
         }
 
-        // AutoCAD-like chrome: QAT → layer mgr → command+status → canvas.
+        // Chrome 2.0: single top strip → CLI hero → paper-first canvas.
         self.refresh_window_title(ctx);
         self.tick_autosave();
         self.draw_recovery_prompt(ctx);

@@ -60,6 +60,7 @@ aadt-graph = { path = "crates/aadt-graph" }
 aadt-assist = { path = "crates/aadt-assist" }
 aadt-takeoff = { path = "crates/aadt-takeoff" }
 aadt-api = { path = "crates/aadt-api" }
+aadt-cli = { path = "crates/aadt-cli" }
 acadrust = "0.4.1"
 
 [workspace.lints.rust]

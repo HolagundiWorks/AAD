@@ -18,7 +18,7 @@ the HCW convention, the layer alone yields:
 |----------------|-----|----------|
 | Discipline (`A/S/C/M/E/…`) | prefix / `Discipline` | filtering, layer sets, routing to the right agent |
 | Element type | `ElementType` | IFC class, Uniformat/MasterFormat, AI tags |
-| IFC class | `ElementType::ifc()` | BIM export, clash rules |
+| IFC class tag | `ElementType::ifc()` | Classification / clash rules (not IFC model export) |
 | AI tags | `ElementType::ai_tags()` | semantic search, recognition priors |
 | Phase | `StandardLayer::phase` | existing / new / demolition scoping |
 

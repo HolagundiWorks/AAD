@@ -56,7 +56,7 @@ NL: `nl::route(phrase) -> Routed` yields a command string for `Session::feed`.
 
 [vision/ai-native-platform.md](../vision/ai-native-platform.md),
 [plans/2026-07-ai-native-phases.md](../plans/2026-07-ai-native-phases.md),
-ADR-0010/0012/0013/0015/0016. Phase 6 geometry expansion (re-evaluate).
+ADR-0010/0012/0013/0015/0016. Product stays **2D plan CAD** (no 3D / BIM phase).
 
 ## Gap analysis
 

@@ -3,17 +3,17 @@
 **Date:** 2026-08-06  
 **Audience:** Product, architecture, investors, review board  
 **Status:** Draft for review  
-**Scope:** Desktop drafting + AI-native architecture platform (AADT), not full BIM authoring.
+**Scope:** Desktop **2D architectural CAD** + AI-native platform (AADT). Not a BIM suite.
 
 ---
 
 ## 1. Executive summary
 
-The architectural CAD market is crowded at the **geometry editor** layer (AutoCAD LT, BricsCAD Lite, DraftSight, LibreCAD) and dominated at the **BIM** layer (Revit, Archicad, Allplan). Between those poles sits a persistent gap:
+The architectural CAD market is crowded at the **geometry editor** layer (AutoCAD LT, BricsCAD Lite, DraftSight, LibreCAD) and dominated at the **3D / BIM** layer (Revit, Archicad, Allplan). Between those poles sits a persistent gap:
 
 > Firms need **2D floor-plan drafting that understands walls, openings, fills, and takeoff**, with **AI assist and enterprise data**, without paying Revit-class cost or accepting AutoCAD’s “dumb line” model.
 
-**AADT’s bet:** command-first 2D CAD (AutoCAD-like muscle memory) + semantic Elements/Fills + wall openings + ShilpiDB (objects / graph / embeddings) + local API — a platform that *understands* drawings without becoming a full BIM suite.
+**AADT’s bet:** command-first **2D CAD** (AutoCAD-like muscle memory) + semantic Elements/Fills + wall openings + ShilpiDB (objects / graph / embeddings) + local API — a platform that *understands* drawings and stays permanently plan-based.
 
 This case study maps **market gaps**, **competitor positions**, **AADT fit**, and a **12–18 month product priority** for review.
 
@@ -26,7 +26,7 @@ This case study maps **market gaps**, **competitor positions**, **AADT fit**, an
 | Pro drafting (2D) | AutoCAD / LT, BricsCAD | Exact geometry, DWG exchange, plot | High subscription | Lines ≠ walls; AI/enterprise bolted on |
 | Mid drafting | DraftSight, progeCAD, ZWCAD | DWG-compatible plans | Mid | Weak architecture semantics |
 | Free / OSS | LibreCAD, QCAD | Learn / light drafting | Free | Thin UX; no AI; weak hatch/block fidelity |
-| BIM authoring | Revit, Archicad, Allplan | Model + docs + coordination | Very high | Overkill for many 2D-first practices |
+| 3D / BIM suites | Revit, Archicad, Allplan | Model + docs + coordination | Very high | Different product; AADT does not compete here |
 | Viewer / markup | Bluebeam, Autodesk Viewer | PDF review | Mid | Not authoring |
 | AI CAD experiments | Various startups | Generate / chat | Uncertain | Often geometry-unowned or cloud-only |
 
@@ -74,7 +74,7 @@ This case study maps **market gaps**, **competitor positions**, **AADT fit**, an
 
 **Evidence.** M9 BricsCAD conformance largely closed. **2026-08 fixes:** hatch delete (fill + boundary), rectangle D-mode click stealing.
 
-**Market implication.** Parity is table stakes; gaps here kill adoption faster than missing BIM features.
+**Market implication.** Parity is table stakes; gaps here kill adoption faster than missing 3D features.
 
 ### Gap F — Interop fidelity
 
@@ -99,14 +99,14 @@ Scores are **relative fit to AADT’s target buyer** (2D architectural plan prod
 | Cost for small firm | 2 | 3 | 3 | 5 | 1 | **5** (potential) |
 | Learning curve from ACAD | 5 | 4 | 4 | 2 | 1 | **4** |
 
-\*Revit exchanges via DWG export with loss of BIM semantics.
+\*Revit exchanges via DWG export with loss of model semantics.
 
 ---
 
 ## 5. Buyer personas & jobs
 
 1. **Small architecture studio (2–15)** — floor plans, municipal submissions, client boards; AutoCAD LT fatigue; needs DWG out.
-2. **Interior / fit-out** — presentation fills + PNG furniture; weak need for full BIM.
+2. **Interior / fit-out** — presentation fills + PNG furniture; 2D plan CAD is enough.
 3. **Engineering office (MEP/struct overlay)** — layer standards, dims, takeoff hooks; AI for clash *hints* later.
 4. **Enterprise / EPC** — audit, ACL, connectors (M14); local API into ERP/PLM.
 
@@ -125,8 +125,9 @@ Scores are **relative fit to AADT’s target buyer** (2D architectural plan prod
 | P2 | Dynamic Element grips (flip/width) | **Done** — INSERT grips 1/2 |
 | P2 | 5-minute AI demo | **Done** — `DEMO` / `AIDEMO` |
 | P2 | Door/window: pick both wall lines + swing side | **Done** — explicit face pair + Tab/F swing |
-| P3 | IMAGEDEF / richer DWG write | **Done** — IMAGE + IMAGEDEF via acadrust |
-| P3 | Full BIM / 3D | Explicit non-goal |
+| P3 | IMAGEDEF / richer DWG write | **Done** — IMAGE + IMAGEDEF via acadrust · ROADMAP **M15** |
+
+**Out of product:** 3D modeling and BIM authoring — permanent (see ROADMAP product locks).
 
 ---
 
@@ -137,7 +138,7 @@ Scores are **relative fit to AADT’s target buyer** (2D architectural plan prod
 | “Yet another AutoCAD clone” perception | Lead with Elements / wall cut / Fills / AI graph — not command count |
 | Dyn block parity expectations | Document bake-on-export; offer AADT Dynamic Elements |
 | DWG hatch/IMAGE loss | Fidelity matrix; keep `.aadt` canonical |
-| Scope creep into Revit | ROADMAP lock: curated 2D + semantics, not BIM authoring |
+| Scope creep into Revit | ROADMAP lock: **2D CAD only** — curated plan semantics, never BIM authoring |
 
 ---
 

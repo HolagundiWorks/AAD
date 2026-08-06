@@ -1,12 +1,10 @@
 # Takeoff docs
 
-> **Status:** takeoff was removed with the M3 engine (2026-07) and **rebuilt in
-> M13** against the Object DB ([ADR-0014](../adr/0014-object-based-takeoff.md)).
-> `TAKEOFF` and `BOQ` are live commands again, measuring typed objects rather
-> than raw geometry, with opening deduction driven by the Graph DB. The domain
-> research below informed both generations; where it describes the old M3
-> pipeline (CSV/XLSX sinks, `SCHEDULE` tables), read it as background rather
-> than current behaviour.
+> **Status:** shipping takeoff is **M13** against the Object DB
+> ([ADR-0014](../adr/0014-object-based-takeoff.md)). `TAKEOFF` and `BOQ` measure
+> typed objects rather than raw geometry, with opening deduction driven by the
+> Graph DB. Older domain notes below may describe CSV/XLSX sinks or `SCHEDULE`
+> tables — treat those as research background, not current behaviour.
 
 | Document | Purpose |
 |---|---|

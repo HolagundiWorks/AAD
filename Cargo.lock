@@ -123,8 +123,11 @@ name = "aadt-ffi"
 version = "0.0.0"
 dependencies = [
  "aadt-app",
+ "aadt-cli",
  "aadt-command",
+ "aadt-geometry",
  "aadt-model",
+ "aadt-render",
 ]
 
 [[package]]

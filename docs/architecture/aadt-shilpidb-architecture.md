@@ -200,8 +200,9 @@ revision recovery.
 
 ## Future modules
 
-Constraint solver · parametric objects · BIM relationships · object templates ·
-plugin SDK · multi-user collaboration · distributed ShilpiDB.
+Constraint solver · parametric objects · object templates · plugin SDK ·
+distributed ShilpiDB (read replicas). **Not planned:** BIM authoring, multi-user
+sync as a product, 3D solids/meshes.
 
 **Already shipped from this list:** semantic search (`aadt-vecdb` — `FIND`,
 `ASKDOCS`) and the assist layer (`aadt-assist` — `SUGGEST` / `CHECK` / `ASK` /
@@ -219,7 +220,7 @@ rather than commit ([ADR-0013](../adr/0013-ai-service-layer.md)).
 7. Import/export communicates only through ShilpiDB.
 8. Commands modify entities, never pixels.
 9. Collaboration operates on entities, not files.
-10. All future features (AI, BIM, ERP integration) build on the existing entity
+10. All future features (AI, ERP integration) build on the existing entity
     and metadata model rather than introducing parallel data structures.
 
 ---
@@ -256,4 +257,4 @@ aspirational. Crate references are the concrete starting points.
 2. **Spatial query surface** — extend `SpatialGrid` with nearest / radius /
    intersection to match the selection and topology needs.
 3. **Relationship store** — a queryable, separately-stored relationship table
-   (rule 10) so BIM/AI features build on it rather than forking the model.
+   (rule 10) so AI / ERP features build on it rather than forking the model.

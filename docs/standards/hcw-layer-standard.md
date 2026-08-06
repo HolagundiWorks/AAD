@@ -33,7 +33,7 @@ plot black under a color-dependent plot style, with the pen weight carrying
 legibility. Lineweights are millimetres on the AutoCAD/ISO pen ladder
 (`0.13`–`0.70` in normal use).
 
-## Rich metadata (BIM / takeoff / AI)
+## Rich metadata (classification / takeoff / AI)
 
 Each layer carries a semantic `ElementType` that is the single source of truth
 for the richer metadata an AI-native platform needs, so the ~320-layer catalog
@@ -50,8 +50,8 @@ stays maintainable:
 
 Material, fire rating, and storey are genuinely per-instance and are left to the
 object model; the layer pins discipline, element, phase, and plot intent. This
-schema feeds automated drafting, quantity takeoff, clash detection, BIM
-interoperability, and AI recognition without relying solely on geometry.
+schema feeds automated drafting, quantity takeoff, clash rules, and AI
+recognition without relying solely on geometry.
 
 ### Per-object overrides (`OBJMETA`)
 

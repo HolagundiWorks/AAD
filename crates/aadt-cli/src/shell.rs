@@ -23,7 +23,7 @@ use aadt_command::Interpreter;
 /// the interactive shell and scripts expose the identical command set.
 fn engine_session() -> Session {
     let mut interp = Interpreter::with_builtins();
-    crate::commands::register(&mut interp);
+    crate::register(&mut interp);
     Session::from_interpreter(interp)
 }
 

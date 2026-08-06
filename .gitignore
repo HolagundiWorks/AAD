@@ -22,3 +22,9 @@
 /out.xlsx
 /out.png
 /*.png
+
+# Native WinUI / CMake build trees (source under native/ is tracked)
+native/**/build*/
+native/**/build-*/
+*.dll
+!logo/**

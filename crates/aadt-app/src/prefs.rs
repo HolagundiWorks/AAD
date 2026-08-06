@@ -3,15 +3,15 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// How a manager dock is presented (§28 / M9.6).
+/// How a manager dock is presented (§28 / M9.6). Chrome 2.0 defaults to auto-hide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PanelMode {
     /// Edge-docked `SidePanel` (expanded or collapsed to a rail).
-    #[default]
     Docked,
     /// Free-floating `egui::Window` over the canvas.
     Floating,
     /// Collapsed to an edge rail; expands as an overlay on hover.
+    #[default]
     AutoHide,
 }
 
@@ -99,15 +99,15 @@ impl Default for UserPrefs {
             polar: false,
             osnap_track: false,
             dyn_mode: true,
-            show_layer_mgr: true,
-            show_left_mgr: true,
+            show_layer_mgr: false,
+            show_left_mgr: false,
             show_lweights: true,
             right_panel_width: 280.0,
             left_panel_width: 260.0,
             autosave_secs: 120,
             dark_theme: false,
-            left_panel_mode: PanelMode::Docked,
-            right_panel_mode: PanelMode::Docked,
+            left_panel_mode: PanelMode::AutoHide,
+            right_panel_mode: PanelMode::AutoHide,
             left_float: FloatRect::left_default(),
             right_float: FloatRect::right_default(),
         }
@@ -378,8 +378,8 @@ mod tests {
 }
 "#;
         let p = UserPrefs::from_json(legacy).unwrap();
-        assert_eq!(p.left_panel_mode, PanelMode::Docked);
-        assert_eq!(p.right_panel_mode, PanelMode::Docked);
+        assert_eq!(p.left_panel_mode, PanelMode::AutoHide);
+        assert_eq!(p.right_panel_mode, PanelMode::AutoHide);
     }
 
     #[test]

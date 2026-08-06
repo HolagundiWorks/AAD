@@ -1,5 +1,5 @@
-//! AutoCAD-like chrome styled to Fluent 2 foundations
-//! (color, elevation, layout, shapes, typography). See [`super::theme`].
+//! AutoCAD-like chrome — AAD Chrome 2.0 (paper-first, command-line hero).
+//! See [`super::theme`].
 
 use std::time::{Duration, Instant};
 
@@ -1465,20 +1465,28 @@ impl AadtApp {
         }
     }
 
-    /// Top quick-access bar — File / Edit / Plot.
+    /// Top strip — Chrome 2.0: one paper-first bar (file tools + floor context).
     pub(super) fn draw_top_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("qat")
             .exact_height(chrome::TOP_BAR_H)
             .frame(
                 egui::Frame::none()
-                    .fill(color::layer_base())
+                    .fill(color::layer_card())
                     .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
+                    .stroke(egui::Stroke::new(stroke::THIN, color::stroke())),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = space::XS;
-                    // File
+                    brand_mark_widget(ui, icon_sz::BRAND);
+                    ui.label(
+                        egui::RichText::new("AAD")
+                            .font(semibold(type_scale::BODY))
+                            .color(color::text()),
+                    );
+                    ui.add_space(space::SM);
+                    ui.separator();
+                    ui.add_space(space::SM);
                     if icon_btn(ui, Icon::New, "New drawing (Ctrl+N)").clicked() {
                         self.request_new_drawing();
                     }
@@ -1497,9 +1505,6 @@ impl AadtApp {
                         self.quick_save();
                     }
                     ui.add_space(space::SM);
-                    ui.separator();
-                    ui.add_space(space::SM);
-                    // Edit
                     if icon_btn(ui, Icon::Undo, "Undo (Ctrl+Z)").clicked() {
                         self.app_feed("UNDO");
                     }
@@ -1507,24 +1512,20 @@ impl AadtApp {
                         self.app_feed("REDO");
                     }
                     ui.add_space(space::SM);
-                    ui.separator();
-                    ui.add_space(space::SM);
                     if icon_btn(ui, Icon::Plot, "Plot to PDF… (Ctrl+P)").clicked() {
                         self.seed_plot_dialog();
                     }
-                    ui.add_space(space::SM);
-                    if button(ui, BtnKind::Subtle, "Server")
-                        .on_hover_text(
-                            "Connect to a ShilpiDB (shilpid) server — push / pull this drawing",
-                        )
-                        .clicked()
-                    {
-                        self.show_server = true;
-                    }
-                    ui.add_space(space::SM);
-                    // View preset: Technical plan vs Presentation.
-                    let preset_label = format!("View: {}", self.view_preset.label());
-                    ui.menu_button(preset_label, |ui| {
+                    ui.menu_button("⋯", |ui| {
+                        if ui
+                            .button("Server…")
+                            .on_hover_text("Connect to a ShilpiDB (shilpid) server")
+                            .clicked()
+                        {
+                            self.show_server = true;
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new("View").small().weak());
                         if ui
                             .selectable_label(
                                 self.view_preset == super::ViewPreset::TechnicalPlan,
@@ -1545,34 +1546,33 @@ impl AadtApp {
                             self.apply_view_preset(super::ViewPreset::Presentation);
                             ui.close_menu();
                         }
+                        ui.separator();
+                        ui.label(egui::RichText::new("Layer groups").small().weak());
+                        for group in super::LayerGroup::ALL {
+                            let hidden = self.layer_group_hidden(group);
+                            if ui
+                                .selectable_label(!hidden, group.label())
+                                .on_hover_text(if hidden {
+                                    "Hidden — click to show"
+                                } else {
+                                    "Shown — click to hide"
+                                })
+                                .clicked()
+                            {
+                                self.toggle_layer_group(group);
+                            }
+                        }
+                        ui.separator();
+                        if ui.button("Keyboard help (F1)").clicked() {
+                            self.show_shortcuts = true;
+                            ui.close_menu();
+                        }
                     });
-                    ui.add_space(space::SM);
+                    ui.add_space(space::MD);
                     ui.separator();
                     ui.add_space(space::SM);
-                    // Element visibility toggles: show/hide whole Walls / Windows /
-                    // Structure layer groups at once. Hidden layers also drop out
-                    // of selection (STRETCH included).
-                    for group in super::LayerGroup::ALL {
-                        let hidden = self.layer_group_hidden(group);
-                        let tip = format!(
-                            "{} layers — {}",
-                            group.label(),
-                            if hidden {
-                                "hidden (click to show)"
-                            } else {
-                                "shown (click to hide)"
-                            }
-                        );
-                        if ui
-                            .selectable_label(!hidden, group.label())
-                            .on_hover_text(tip)
-                            .clicked()
-                        {
-                            self.toggle_layer_group(group);
-                        }
-                    }
+                    self.ui_levels_strip(ui);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Theme toggle (far right): moon → go dark, sun → go light.
                         let icon = if self.theme.is_dark() {
                             Icon::Sun
                         } else {
@@ -1588,30 +1588,8 @@ impl AadtApp {
                             let ctx = ui.ctx().clone();
                             self.set_theme(&ctx, next);
                         }
-                        ui.add_space(space::SM);
-                        ui.separator();
-                        ui.add_space(space::SM);
-                        ui.label(
-                            egui::RichText::new("AAD")
-                                .font(semibold(type_scale::BODY))
-                                .color(color::text()),
-                        );
-                        ui.add_space(space::XS);
-                        brand_mark_widget(ui, icon_sz::BRAND);
                     });
                 });
-            });
-        // Second strip: Floor / Space / TRACE (primary drafting context).
-        egui::TopBottomPanel::top("qat_levels")
-            .exact_height(chrome::TOP_BAR_H)
-            .frame(
-                egui::Frame::none()
-                    .fill(color::layer_card())
-                    .inner_margin(egui::Margin::symmetric(space::SM, space::XS))
-                    .stroke(egui::Stroke::new(stroke::THIN, color::border())),
-            )
-            .show(ctx, |ui| {
-                self.ui_levels_strip(ui);
             });
     }
 
@@ -1657,6 +1635,7 @@ impl AadtApp {
     }
 
     pub(super) fn draw_bottom_bar(&mut self, ctx: &egui::Context) {
+        self.sync_cli_log_from_note();
         let show_hint = self.tool_prompt().is_some() || !self.note.is_empty();
         let token = self.command.trim().to_string();
         let completions = if !token.is_empty() && !token.contains(' ') {
@@ -1675,7 +1654,40 @@ impl AadtApp {
             .exact_height(bar_h)
             .frame(bar_frame())
             .show(ctx, |ui| {
-                // Row 1: command + status (status reserved on the right so text never collides).
+                // CLI history (Chrome 2.0 hero) — newest at the bottom of the stack.
+                let hist: Vec<String> = self
+                    .cli_log
+                    .iter()
+                    .rev()
+                    .take(chrome::CLI_HISTORY_LINES)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                ui.vertical(|ui| {
+                    ui.set_min_height(
+                        (chrome::CLI_HISTORY_LINES as f32) * (type_scale::CAPTION + 2.0),
+                    );
+                    for line in &hist {
+                        ui.label(
+                            egui::RichText::new(truncate_ui(line, 120))
+                                .size(type_scale::CAPTION)
+                                .color(color::text_secondary()),
+                        );
+                    }
+                    if hist.is_empty() {
+                        ui.label(
+                            egui::RichText::new(
+                                "Command line — type a command · Space runs · F1 help",
+                            )
+                            .size(type_scale::CAPTION)
+                            .color(color::text_disabled()),
+                        );
+                    }
+                });
+
+                // Command input + status rail.
                 ui.horizontal(|ui| {
                     let units =
                         aadt_model::primary_from_props(&self.session.document().properties().units);
@@ -1704,12 +1716,18 @@ impl AadtApp {
                             self.open_drawing_properties();
                         }
                     }
+                    if icon_btn_nav(ui, Icon::ObjectProps, "Properties panel", self.right_tab == 7)
+                        .clicked()
+                    {
+                        self.right_tab = 7;
+                        self.reveal_right_mgr();
+                    }
                     ui.separator();
 
                     // Keep command field proportional so narrow windows don't overflow.
                     let avail = ui.available_width();
-                    let status_reserve = (avail * 0.42).clamp(160.0, 420.0);
-                    let cmd_w = (avail - status_reserve).max(96.0);
+                    let status_reserve = (avail * 0.38).clamp(140.0, 380.0);
+                    let cmd_w = (avail - status_reserve).max(120.0);
                     // Capture before TextEdit borrows `self.command`.
                     let cmd_interactive = !self.drafting();
                     let resp = ui.add(
@@ -1734,6 +1752,7 @@ impl AadtApp {
                             if interactive {
                                 self.command.clear();
                                 self.last_line = Some(token.clone());
+                                self.push_cli_log(format!("Command: {token}"));
                                 self.dispatch(&token);
                             }
                         }
@@ -1899,6 +1918,7 @@ impl AadtApp {
                                 {
                                     self.command.clear();
                                     self.last_line = Some(m.clone());
+                                    self.push_cli_log(format!("Command: {m}"));
                                     self.dispatch(m);
                                 } else {
                                     self.command = format!("{m} ");

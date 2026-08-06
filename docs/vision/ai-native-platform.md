@@ -53,7 +53,7 @@ The platform shall never rely on a single database.
 
 | Store | Holds | Optimized for |
 |---|---|---|
-| **Geometry Database** | Lines, polylines, arcs, circles, splines, meshes, solids | Snapping, selection, editing, rendering |
+| **Geometry Database** | Lines, polylines, arcs, circles (2D plan records) | Snapping, selection, editing, rendering |
 | **Object Database** | Walls, doors, windows, beams, columns, slabs, reinforcement, text, dimensions | Typed engineering objects |
 | **Metadata Database** | Project, discipline, drawing type, revision, status, client, company standards, material libraries | Drawing/project context |
 | **Vector Database** | Embeddings for drawings, images, PDFs, objects, specifications, standards, photos, site reports | Semantic search, similarity search, AI context, RAG |
