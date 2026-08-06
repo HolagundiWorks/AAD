@@ -49,13 +49,14 @@ NL: `nl::route(phrase) -> Routed` yields a command string for `Session::feed`.
 ### Registered Assist / intelligence commands (CLI)
 
 `MAPMETA`, `FIND`, `ASKDOCS`, `WITHIN`, `SUGGEST`, `CHECK`, `COMPARE`,
-`RECOMMEND`, `ASK`, `TAKEOFF`, `BOQ`, `OBJECTS`, `RELATIONS`, …
+`RECOMMEND`, `ASK`, `TAKEOFF`, `BOQ`, `OBJECTS`, `RELATIONS`, `PERMS`,
+`CONNECTOR`, `SITE`, …
 
 ## Target / planned
 
 [vision/ai-native-platform.md](../vision/ai-native-platform.md),
 [plans/2026-07-ai-native-phases.md](../plans/2026-07-ai-native-phases.md),
-ADR-0010/0012/0013. M14.2+: permissions, signed audit, ERP, site ingest.
+ADR-0010/0012/0013/0015/0016. Phase 6 geometry expansion (re-evaluate).
 
 ## Gap analysis
 
@@ -65,6 +66,7 @@ ADR-0010/0012/0013. M14.2+: permissions, signed audit, ERP, site ingest.
 | ANN at 100k+ vectors | Open (search &lt; 100 ms target) |
 | Relationship embeddings | Open |
 | Graph `Supports` | Needs richer building elements |
+| M14 enterprise | **Done** (perms, signed audit, connectors, site ingest) |
 
 ## Data structures
 

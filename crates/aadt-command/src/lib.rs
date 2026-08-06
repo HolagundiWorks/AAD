@@ -35,8 +35,9 @@ pub use autodim::DEFAULT_DIM_LAYER;
 pub use place_blocks::ensure_place_blocks;
 pub use room::{room_type_for_command, RoomSettings, ROOM_TYPES};
 pub use wall_openings::{
-    cut_wall_opening, default_opening_width, default_opening_width_m, is_wall_entity,
-    nominal_wall_thicknesses, opening_width_for_block, place_opening_pose, snap_to_wall, WallSnap,
+    cut_wall_opening, cut_wall_opening_pair, default_opening_width, default_opening_width_m,
+    face_pair_from_ids, is_wall_entity, nominal_wall_thicknesses, opening_width_for_block,
+    place_opening_pose, place_opening_pose_on_pair, snap_to_wall, FacePair, WallSnap,
 };
 
 /// Strip a single leading UTF-8 byte-order mark (U+FEFF), if present.

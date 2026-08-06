@@ -70,18 +70,6 @@ impl CapabilitySet {
         self.0 |= c as u32;
     }
 
-    pub fn remove(&mut self, c: Capability) {
-        self.0 &= !(c as u32);
-    }
-
-    pub fn bits(self) -> u32 {
-        self.0
-    }
-
-    pub fn from_bits(bits: u32) -> Self {
-        Self(bits)
-    }
-
     pub fn names(self) -> Vec<&'static str> {
         let mut out = Vec::new();
         for (c, name) in [
@@ -199,11 +187,6 @@ pub fn set_object_acl(obj: &mut EngObject, principal: &str, access: ObjectAccess
     let key = acl_key(principal);
     obj.props.insert(key.clone(), access.as_str().into());
     key
-}
-
-/// Remove an ACL prop entirely (fall back to the principal's capability set).
-pub fn clear_object_acl(obj: &mut EngObject, principal: &str) {
-    obj.props.remove(&acl_key(principal));
 }
 
 /// List all `acl.*` entries on an object.

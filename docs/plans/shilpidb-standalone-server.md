@@ -49,7 +49,8 @@ These are hard constraints, not preferences — the server must not regress them
   path keeps working with no server at all.
 - **Deterministic core.** Query results and write ordering are reproducible;
   writes go through the existing `Document::transact` op log.
-- **Additive.** `.vdb` on disk (v2), the `aadt-vdb` public API, and every
+- **Additive.** `.vdb` on disk (format ≥ v2; current writers emit v3), the
+  `aadt-vdb` public API, and every
   existing command are unchanged. The server is a new layer above them.
 
 ## 3. Concept mapping (MongoDB → ShilpiDB)

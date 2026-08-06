@@ -67,6 +67,9 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(ObjectsCmd {
         st: objstate.clone(),
     }));
+    registry.register(Box::new(DemoCmd {
+        st: objstate.clone(),
+    }));
     registry.register(Box::new(RelationsCmd {
         st: objstate.clone(),
     }));
@@ -165,7 +168,13 @@ fn save_document(doc: &aadt_model::Document, path: &str) -> Result<(), String> {
     {
         Some("aadt") => aadt_store::save_path(doc, p).map_err(|e| e.to_string()),
         Some("vdb") => aadt_vdb::save_path(doc, p).map_err(|e| e.to_string()),
-        Some("dwg") => aadt_dxf::export_dwg_path(doc, p).map_err(|e| e.to_string()),
+        Some("dwg") => {
+            let warnings = aadt_dxf::export_dwg_path(doc, p).map_err(|e| e.to_string())?;
+            if !warnings.is_empty() {
+                eprintln!("DWG export fidelity:\n  {}", warnings.join("\n  "));
+            }
+            Ok(())
+        }
         _ => aadt_dxf::export_path(doc, p).map_err(|e| e.to_string()),
     }
 }
@@ -1072,6 +1081,52 @@ fn object_line(o: &aadt_object::EngObject, graph: &Graph) -> String {
         },
         props.join(" ")
     )
+}
+
+/// `DEMO` / `AIDEMO` — five-minute AI narrative: promote detection → summarize → takeoff hint.
+struct DemoCmd {
+    st: Rc<RefCell<ObjState>>,
+}
+
+impl Command for DemoCmd {
+    fn name(&self) -> &str {
+        "DEMO"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AIDEMO"]
+    }
+    fn help(&self) -> &str {
+        "DEMO — promote walls/rooms into Object DB, list counts, hint TAKEOFF / ASK (5-min AI path)"
+    }
+    fn run(&self, ctx: &mut Context, _args: &[String]) -> Result<String, String> {
+        let mut st = self.st.borrow_mut();
+        st.sync(ctx);
+        let promoted = promote_with_audit(&ctx.doc, &mut st.audit);
+        st.objects = promoted.objects;
+        st.graph = promoted.graph;
+        st.persist();
+        let counts: Vec<String> = st
+            .objects
+            .kind_counts()
+            .into_iter()
+            .map(|(k, n)| format!("{n} {k}"))
+            .collect();
+        let summary = if counts.is_empty() {
+            "no architectural objects detected yet — draw walls/rooms then DEMO again".into()
+        } else {
+            counts.join(", ")
+        };
+        Ok(format!(
+            "DEMO (AI path):\n\
+             1. OBJECTS — promoted {} object(s): {}\n\
+             2. Relations — {} edge(s) in Graph DB\n\
+             3. Next: TAKEOFF · ASK how many walls · OBJECTS LIST\n\
+             Geometry stayed in Document; AI/db did not own coordinates.",
+            st.objects.len(),
+            summary,
+            st.graph.len(),
+        ))
+    }
 }
 
 /// `OBJECTS` — promote the drawing's detected elements into the Object DB +

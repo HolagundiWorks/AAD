@@ -51,14 +51,16 @@ flowchart LR
 
 `OPEN`, `SAVE`, `HISTORY`, `MAPMETA`, `FIND`, `ASKDOCS`, `WITHIN`, `SUGGEST`,
 `CHECK`, `COMPARE`, `RECOMMEND`, `ASK`, `TAKEOFF`, `BOQ`, `OBJECTS`, `RELATIONS`,
-`LAYERSET`, `STANDARDS`, `LAYERREPORT`, `LAYERLEGEND`, `OBJMETA`, `ADOPTLAYERS`,
-`SECTION`, `BLOCKLIB`, `HATCHLIB`, `SERVER`.
+`PERMS`, `CONNECTOR`, `SITE`, `LAYERSET`, `STANDARDS`, `LAYERREPORT`,
+`LAYERLEGEND`, `OBJMETA`, `ADOPTLAYERS`, `SECTION`, `BLOCKLIB`, `HATCHLIB`,
+`SERVER`.
 
 ## Target / planned
 
 Keep command-line write path forever for invariants (undo, audit, validation).
-M14.2+ may add permissions / signed audit / connectors — still behind commands
-or Assist services, not raw entity CRUD.
+M14.2–5 shipped behind that door ([ADR-0016](../adr/0016-m14-enterprise.md)):
+permissions, signed audit, `CONNECTOR` plugins, site corpus ingest — not raw
+entity CRUD.
 
 Optional future: plugin ABI ADR (load commands dynamically) — not scheduled.
 
@@ -68,7 +70,7 @@ Optional future: plugin ABI ADR (load commands dynamically) — not scheduled.
 |------|--------|
 | Entity POST | Rejected |
 | External SDK | Not shipped |
-| M14.1 API | Done |
+| M14.1–5 API / enterprise | Done ([ADR-0015](../adr/0015-local-api-layer.md), [ADR-0016](../adr/0016-m14-enterprise.md)) |
 | Dynamic plugins | Open |
 
 ## Data structures

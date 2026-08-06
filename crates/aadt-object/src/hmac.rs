@@ -14,35 +14,6 @@ pub fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Decode a lowercase/uppercase hex string into bytes. Empty → empty.
-pub fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if s.is_empty() {
-        return Some(Vec::new());
-    }
-    if s.len() % 2 != 0 {
-        return None;
-    }
-    let mut out = Vec::with_capacity(s.len() / 2);
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let hi = from_hex(bytes[i])?;
-        let lo = from_hex(bytes[i + 1])?;
-        out.push((hi << 4) | lo);
-        i += 2;
-    }
-    Some(out)
-}
-
-fn from_hex(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
-}
-
 /// HMAC-SHA256(`key`, `message`) → 32 bytes.
 pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     const BLOCK: usize = 64;

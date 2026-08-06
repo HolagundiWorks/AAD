@@ -13,7 +13,7 @@ Legend: **Current** = shipped in tree · **Target** = ADR / ROADMAP / ShilpiDB a
 | 3 | Input & events | Space-primary; dyn input; F-keys; GUI transparent ZOOM/PAN | Scriptable apostrophe suspend | Transparent cmds GUI-only | `gui.rs`, `command_engine.rs` |
 | 4 | Geometry | 2D primitives + eps in `aadt-geometry` | Splines/meshes/solids (Phase 6) | No 3D; limited curve set | `aadt-geometry` |
 | 5 | Entity DB | `.aadt` SQLite + `.vdb` ShilpiDB I/O; undo in RAM | Entity GUID, audit fields, DB transactions as SoT | GUI edits don’t round-trip every pick through SpatialGrid | `aadt-model`, `aadt-store`, `aadt-vdb` |
-| 6 | Selection | Click, box W/C, WP/CP/FENCE, free-drag lasso | SpatialGrid-assisted pick | Lasso restored (`drag_is_lasso` + `finish_lasso`); GUI pick still linear | `selection.rs`, `gui.rs` |
+| 6 | Selection | Click, box W/C, WP/CP/FENCE | SpatialGrid-assisted pick | Free-drag lasso not shipped; GUI pick still linear | `selection.rs`, `gui.rs` |
 | 7 | Osnap | END/MID/CEN/QUA/INT/NEA + PER/TAN override | Full OTRACK alignment paths | F11 toggles prefs; no true tracking rays | `osnap.rs` |
 | 8 | Modify | Full daily modify band via `Command::run` + `Tool` phases | — (band locked) | Firm suites line-only; no Tool for many cmds | `aadt-command`, `gui.rs` |
 | 9 | Rendering | egui `Painter` over `DrawList`; optional wgpu | Viewport text glyphs; wgpu if needed | Display-bound polish | `aadt-render`, `gui.rs` |
@@ -33,7 +33,9 @@ Legend: **Current** = shipped in tree · **Target** = ADR / ROADMAP / ShilpiDB a
    (`nav_hint` only). UX research updated.
 3. **Two command catalogs** — interactive `command_engine::CATALOG` vs full
    `aadt_command::Registry`. Firm / Assist / file I/O are mostly line-only.
-4. **Select free-drag lasso** — **Restored in code** (`drag_is_lasso` / `finish_lasso`). Living docs match.
+4. **Select free-drag lasso** — **Not shipped.** Select drag is box-only; use
+   `WP`/`CP`/`FENCE` for polygon/fence regions. Do not re-claim in ROADMAP.
+5. **M14 enterprise** — Complete (ADR-0016); living docs match.
 
 ## Related roadmap locks
 
@@ -46,6 +48,8 @@ chase); Assist never auto-commits; LISP for depth; transparent view commands onl
 |------|------|
 | Wire `SpatialGrid` into GUI pick/osnap | Code (Vol 13) |
 | True OTRACK (reclaim or redefine F11) | Code (Vol 7) |
-| Free-drag Select lasso | Done (optional polish only) |
 | Entity GUID migration | ADR + code (Vol 5) |
 | PR template from Vol 15 checklist | Process |
+
+Done recently: M14.2–5 enterprise (perms, signed audit, connectors, site
+ingest). Free-drag Select lasso deliberately not shipped.

@@ -208,7 +208,7 @@ Specify second point or <use first point as displacement>:
 | COPY | Base → destinations (repeat until Enter) | Explicit Space finish; multi-copy |
 | ROTATE | Base → angle (typed or reference) | Typed degrees + pick supported |
 | SCALE | Base → factor **or** Reference | `R` = old length → new length |
-| MIRROR | First axis → second axis | Erase source Y/N not yet prompted |
+| MIRROR | First axis → second axis | Erase source Y/N (`<N>` default) |
 | OFFSET | Distance → object → side (repeat) | Space finishes |
 | TRIM | Quick: objects to trim (all = cutters); `[C]` cutting edges | Space finishes; Shift+click extends |
 | EXTEND | Boundary → objects | Multi until Space |

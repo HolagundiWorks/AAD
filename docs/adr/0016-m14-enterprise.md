@@ -8,8 +8,9 @@
 ## Context
 
 M14.1 shipped a loopback, token-gated HTTP API whose **only write door** is
-`POST /v1/command`. Phase 5 still owed object-level permissions, a signed audit
-trail, enterprise connectors, and site-data ingest into the vector/corpus store.
+`POST /v1/command`. Completing Phase 5 required object-level permissions, a
+signed audit trail, enterprise connectors, and site-data ingest into the
+vector/corpus store — without adding a second mutation API.
 
 ## Decision
 
@@ -34,9 +35,9 @@ trail, enterprise connectors, and site-data ingest into the vector/corpus store.
 ### M14.4 — Enterprise connectors as plugins
 
 - Connectors are **registered commands** (`CONNECTOR LIST|ERP|RFI|DMS`), not a
-  second HTTP write surface. They emit sidecar payloads (CSV / text / JSON) a
-  host ERP/RFI/DMS can pick up. Geometry still changes only through the command
-  band. Each push/export appends an audit row.
+  second HTTP write surface. They emit sidecar payloads a host ERP / RFI / DMS
+  system can pick up. Geometry still changes only through the command band.
+  Each push/export appends an audit row.
 
 ### M14.5 — Site data → corpus
 

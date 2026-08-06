@@ -28,16 +28,16 @@ pub struct WallSnap {
     pub angle_deg: f64,
 }
 
-/// A parallel face pair at a recognisable wall thickness.
+/// A parallel face pair (double-line wall) to trim for an opening.
 #[derive(Debug, Clone)]
-struct FacePair {
-    a_id: EntityId,
-    a: Segment,
-    b_id: EntityId,
-    b: Segment,
-    thickness: f64,
-    layer: String,
-    attrs: HashMap<String, String>,
+pub struct FacePair {
+    pub a_id: EntityId,
+    pub a: Segment,
+    pub b_id: EntityId,
+    pub b: Segment,
+    pub thickness: f64,
+    pub layer: String,
+    pub attrs: HashMap<String, String>,
 }
 
 /// True when an entity should receive door/window openings.
@@ -285,6 +285,69 @@ fn find_face_pair(doc: &Document, primary_id: EntityId) -> Option<FacePair> {
     best.map(|(_, p)| p)
 }
 
+/// Build a face pair from **two user-picked** wall lines (no auto thickness guess).
+///
+/// Lines must be distinct, parallel wall entities. Any separation is accepted so
+/// non-nominal wall thicknesses still cut correctly when the user picks both faces.
+pub fn face_pair_from_ids(
+    doc: &Document,
+    a_id: EntityId,
+    b_id: EntityId,
+) -> Result<FacePair, String> {
+    if a_id == b_id {
+        return Err("pick two different wall lines".into());
+    }
+    let a_ent = doc
+        .get(a_id)
+        .ok_or_else(|| format!("wall {} missing", a_id.0))?;
+    let b_ent = doc
+        .get(b_id)
+        .ok_or_else(|| format!("wall {} missing", b_id.0))?;
+    if !is_wall_entity(a_ent) || !is_wall_entity(b_ent) {
+        return Err("both picks must be wall lines".into());
+    }
+    let a_seg = as_face_segment(&a_ent.geometry).ok_or("first pick must be a line")?;
+    let raw_b = as_face_segment(&b_ent.geometry).ok_or("second pick must be a line")?;
+    if !a_seg.is_parallel(raw_b) {
+        return Err("wall lines must be parallel".into());
+    }
+    let b_seg = orient_same(a_seg, raw_b);
+    let thickness = a_seg.perpendicular_distance(b_seg.midpoint());
+    if thickness < LENGTH_EPS {
+        return Err("wall lines coincide".into());
+    }
+    Ok(FacePair {
+        a_id,
+        a: a_seg,
+        b_id,
+        b: b_seg,
+        thickness,
+        layer: a_ent.layer.clone(),
+        attrs: a_ent.attributes.clone(),
+    })
+}
+
+/// Place helper on an explicit face pair: insert on the **centerline**, oriented
+/// along the wall so the opening fits.
+pub fn place_opening_pose_on_pair(
+    doc: &Document,
+    pair: &FacePair,
+    click: Point2,
+    width: f64,
+) -> (Point2, f64) {
+    let on_a = project_clamped(pair.a, click);
+    let on_b = project_clamped(pair.b, click);
+    let mid = on_a.midpoint(on_b);
+    let wall_ang = pair
+        .a
+        .direction()
+        .map(|d| d.y.atan2(d.x).to_degrees())
+        .unwrap_or(0.0);
+    let ang = orient_opening_along_wall(&Geometry::Line(pair.a), mid, width, wall_ang);
+    let _ = doc;
+    (mid, ang)
+}
+
 /// Place helper: snap + orient. For double-line walls the insert sits on the
 /// wall **centerline** between the two faces.
 pub fn place_opening_pose(doc: &Document, click: Point2, width: f64) -> Option<(Point2, f64)> {
@@ -292,13 +355,25 @@ pub fn place_opening_pose(doc: &Document, click: Point2, width: f64) -> Option<(
     let entity = doc.get(snap.wall_id)?;
     let ang = orient_opening_along_wall(&entity.geometry, snap.point, width, snap.angle_deg);
     if let Some(pair) = find_face_pair(doc, snap.wall_id) {
-        let on_a = project_clamped(pair.a, snap.point);
-        let on_b = project_clamped(pair.b, snap.point);
-        let mid = on_a.midpoint(on_b);
-        let ang = orient_opening_along_wall(&Geometry::Line(pair.a), mid, width, ang);
-        return Some((mid, ang));
+        return Some(place_opening_pose_on_pair(doc, &pair, snap.point, width));
     }
     Some((snap.point, ang))
+}
+
+/// Cut a WIDTH opening using an **explicit** pair of wall face entity ids.
+pub fn cut_wall_opening_pair(
+    doc: &mut Document,
+    a_id: EntityId,
+    b_id: EntityId,
+    hinge: Point2,
+    angle_deg: f64,
+    width: f64,
+) -> Result<usize, String> {
+    if width <= LENGTH_EPS {
+        return Err("opening width must be positive".into());
+    }
+    let pair = face_pair_from_ids(doc, a_id, b_id)?;
+    cut_double_face_opening(doc, pair, hinge, angle_deg, width)
 }
 
 /// Cut a WIDTH opening at `hinge` along `angle_deg`.
@@ -653,6 +728,20 @@ mod tests {
             &e.geometry,
             Geometry::Polyline(pl) if pl.closed
         )));
+    }
+
+    #[test]
+    fn explicit_face_pair_cuts_without_nominal_guess() {
+        let mut doc = Document::new();
+        set_meters(&mut doc);
+        // 75 mm — outside the nominal metric list (100/115/150/200/230).
+        let a = wall_line(&mut doc, Point2::new(0.0, 0.0), Point2::new(8.0, 0.0));
+        let b = wall_line(&mut doc, Point2::new(0.0, 0.075), Point2::new(8.0, 0.075));
+        assert!(find_face_pair(&doc, a).is_none());
+        let pair = face_pair_from_ids(&doc, a, b).unwrap();
+        assert!((pair.thickness - 0.075).abs() < 1e-9);
+        let n = cut_wall_opening_pair(&mut doc, a, b, Point2::new(3.0, 0.0375), 0.0, 0.9).unwrap();
+        assert_eq!(n, 2);
     }
 
     #[test]

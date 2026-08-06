@@ -18,8 +18,8 @@ use super::theme::{
     type_scale,
 };
 use super::{
-    block_name_for_category, library_path_for_category, place_kinds_for_category, tool_for,
-    AadtApp, LayerMgrScope, Tool,
+    block_name_for_category, library_path_for_category, place_elem_tool, place_kinds_for_category,
+    tool_for, AadtApp, LayerMgrScope, PlaceStep, Tool,
 };
 
 /// How long an auto-hide overlay stays open after the pointer leaves (BricsCAD-like).
@@ -770,62 +770,101 @@ impl AadtApp {
                     }
                 });
 
-                // Catalog entries with kind badges.
+                // Catalog entries with kind badges + place tiles.
                 self.ensure_element_catalog(false);
                 if !self.element_catalog.is_empty() {
                     section_label(ui, "Catalog");
-                    for entry in self.element_catalog.clone() {
+                    let gap = space::SM;
+                    let avail = lock_panel_width(ui);
+                    let tile =
+                        fit_tile_size(avail, panel_space::TILE_MIN, panel_space::TILE_MAX, gap);
+                    let cols = (((avail + gap) / (tile + gap)).floor() as usize).clamp(1, 4);
+                    let entries = self.element_catalog.clone();
+                    for chunk in entries.chunks(cols) {
                         ui.horizontal(|ui| {
-                            let badge = match entry.kind {
-                                aadt_library::ElementKind::Vector => "VEC",
-                                aadt_library::ElementKind::Image => "PNG",
-                                aadt_library::ElementKind::Dynamic => "DYN",
-                            };
-                            ui.label(
-                                egui::RichText::new(badge)
-                                    .small()
-                                    .color(color::accent())
-                                    .strong(),
-                            );
-                            let label = if entry.display_name.is_empty() {
-                                entry.name.clone()
-                            } else {
-                                entry.display_name.clone()
-                            };
-                            if link_button(ui, &label)
-                                .on_hover_text(format!(
-                                    "{} · {} · {}",
-                                    entry.kind.as_str(),
-                                    entry.category,
-                                    entry.path
-                                ))
-                                .clicked()
-                            {
-                                match entry.kind {
-                                    aadt_library::ElementKind::Image => {
-                                        let root = aadt_library::default_library_root();
-                                        let p = root.join(&entry.path);
-                                        if p.is_file() {
-                                            self.begin_place_image_path(p);
-                                        } else {
-                                            self.begin_place_image_dialog();
+                            ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+                            for entry in chunk {
+                                let badge = match entry.kind {
+                                    aadt_library::ElementKind::Vector => "VEC",
+                                    aadt_library::ElementKind::Image => "PNG",
+                                    aadt_library::ElementKind::Dynamic => "DYN",
+                                };
+                                let label = if entry.display_name.is_empty() {
+                                    entry.name.clone()
+                                } else {
+                                    entry.display_name.clone()
+                                };
+                                let tip = format!(
+                                    "{badge} · {} · {} · click to place",
+                                    entry.category, entry.path
+                                );
+                                let resp = ui
+                                    .allocate_ui(egui::vec2(tile, tile + 18.0), |ui| {
+                                        ui.vertical(|ui| {
+                                            ui.set_min_size(egui::vec2(tile, tile));
+                                            let selected = self.insert_block == entry.name;
+                                            match entry.kind {
+                                                aadt_library::ElementKind::Image => {
+                                                    ui.centered_and_justified(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new("PNG")
+                                                                .color(color::accent())
+                                                                .strong(),
+                                                        );
+                                                    });
+                                                }
+                                                _ => {
+                                                    let _ = block_preview_tile(
+                                                        ui,
+                                                        self.session.document(),
+                                                        &entry.name,
+                                                        &label,
+                                                        selected,
+                                                        tile - 4.0,
+                                                    );
+                                                }
+                                            }
+                                            ui.label(
+                                                egui::RichText::new(format!("{badge} {label}"))
+                                                    .small()
+                                                    .strong(),
+                                            );
+                                        });
+                                    })
+                                    .response
+                                    .on_hover_text(tip);
+                                if resp.clicked() {
+                                    match entry.kind {
+                                        aadt_library::ElementKind::Image => {
+                                            let root = aadt_library::default_library_root();
+                                            let p = root.join(&entry.path);
+                                            if p.is_file() {
+                                                self.begin_place_image_path(p);
+                                            } else {
+                                                self.begin_place_image_dialog();
+                                            }
                                         }
-                                    }
-                                    _ => {
-                                        let root = aadt_library::default_library_root();
-                                        let p = root.join(&entry.path);
-                                        if p.is_file() {
-                                            let _ = self.session.feed(&format!(
-                                                "BLOCKLIB import {} {}",
-                                                p.display(),
-                                                entry.name
-                                            ));
+                                        _ => {
+                                            let root = aadt_library::default_library_root();
+                                            let p = root.join(&entry.path);
+                                            if p.is_file() {
+                                                let _ = self.session.feed(&format!(
+                                                    "BLOCKLIB import {} {}",
+                                                    p.display(),
+                                                    entry.name
+                                                ));
+                                            } else {
+                                                // Built-in place blocks (e.g. DOOR-SINGLE).
+                                                aadt_command::ensure_place_blocks(
+                                                    self.session.document_mut(),
+                                                );
+                                            }
                                             self.insert_block = entry.name.clone();
                                             self.tool = Tool::Insert {
                                                 name: entry.name.clone(),
                                             };
                                             self.note = format!(
-                                                "INSERT {} — click to place",
+                                                "INSERT {} — click to place (grips: flip · width)",
                                                 entry.name
                                             );
                                             self.blocks_cache.clear();
@@ -873,7 +912,7 @@ impl AadtApp {
                             for (label, kind) in chunk {
                                 let bname = kind.block_name();
                                 let selected = self.insert_block.eq_ignore_ascii_case(bname)
-                                    && matches!(self.tool, Tool::PlaceElem { kind: k } if k == *kind);
+                                    && matches!(self.tool, Tool::PlaceElem { kind: k, .. } if k == *kind);
                                 let resp = block_preview_tile(
                                     ui,
                                     self.session.document(),
@@ -884,9 +923,14 @@ impl AadtApp {
                                 );
                                 if resp.clicked() {
                                     aadt_command::ensure_place_blocks(self.session.document_mut());
-                                    self.tool = Tool::PlaceElem { kind: *kind };
+                                    self.tool = place_elem_tool(*kind);
                                     self.insert_block = bname.to_string();
-                                    self.note = format!("{bname} — click to place");
+                                    self.note = match kind.start_step() {
+                                        PlaceStep::WallA => format!(
+                                            "{bname} — select first wall line to trim"
+                                        ),
+                                        _ => format!("{bname} — click to place"),
+                                    };
                                 }
                             }
                         });
@@ -1192,8 +1236,47 @@ impl AadtApp {
     pub(super) fn ui_selection_properties(&mut self, ui: &mut egui::Ui) {
         use aadt_model::Geometry;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let _ = lock_panel_width(ui);
-            if self.selection.is_empty() {
+            let panel_w = lock_panel_width(ui);
+            section_label_first(ui, "Display");
+            if ui
+                .checkbox(&mut self.show_lweights, "Lineweights in viewport (LWT)")
+                .on_hover_text("Scale layer plot lineweights to screen pixels")
+                .changed()
+            {
+                self.persist_prefs();
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.set_max_width(panel_w);
+                if ui
+                    .selectable_label(
+                        self.view_preset == super::ViewPreset::TechnicalPlan,
+                        "Technical",
+                    )
+                    .clicked()
+                {
+                    self.apply_view_preset(super::ViewPreset::TechnicalPlan);
+                }
+                if ui
+                    .selectable_label(
+                        self.view_preset == super::ViewPreset::Presentation,
+                        "Presentation",
+                    )
+                    .clicked()
+                {
+                    self.apply_view_preset(super::ViewPreset::Presentation);
+                }
+            });
+            ui.label(
+                egui::RichText::new(format!(
+                    "Active preset: {} · Fills: Technical / Floor / Presentation in Fills dock",
+                    self.view_preset.label()
+                ))
+                .small()
+                .weak(),
+            );
+            ui.add_space(panel_space::ROW);
+
+            if self.selection.is_empty() && self.selected_hatches.is_empty() {
                 ui.label(
                     egui::RichText::new("No selection")
                         .font(semibold(type_scale::BODY))
@@ -1201,11 +1284,29 @@ impl AadtApp {
                 );
                 ui.label(
                     egui::RichText::new(
-                        "Click objects in the active Floor + Space to inspect layer, space, and geometry.",
+                        "Click objects or a fill in the active Floor + Space. Del erases entities, fills, and dimensions together.",
                     )
                     .small()
                     .weak(),
                 );
+                return;
+            }
+            if !self.selected_hatches.is_empty() {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} fill(s) selected",
+                        self.selected_hatches.len()
+                    ))
+                    .font(semibold(type_scale::BODY)),
+                );
+                ui.label(
+                    egui::RichText::new("Del/E erases fills · Fills dock retargets pattern")
+                        .small()
+                        .weak(),
+                );
+                ui.add_space(space::SM);
+            }
+            if self.selection.is_empty() {
                 return;
             }
             ui.label(
@@ -1609,10 +1710,16 @@ impl AadtApp {
                     let avail = ui.available_width();
                     let status_reserve = (avail * 0.42).clamp(160.0, 420.0);
                     let cmd_w = (avail - status_reserve).max(96.0);
+                    // Capture before TextEdit borrows `self.command`.
+                    let cmd_interactive = !self.drafting();
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.command)
                             .desired_width(cmd_w)
-                            .hint_text("Type a command — Space runs · F1 help"),
+                            .hint_text("Type a command — Space runs · F1 help")
+                            // While drafting, keep Tab/Space away from this field —
+                            // focus here made Tab then Space fire chrome actions
+                            // (including closing the app).
+                            .interactive(cmd_interactive),
                     );
                     if self.refocus {
                         resp.request_focus();
@@ -1735,11 +1842,44 @@ impl AadtApp {
                                     self.persist_prefs();
                                 }
                                 if ui
-                                    .checkbox(&mut self.show_lweights, "Lineweights")
+                                    .checkbox(&mut self.show_lweights, "Lineweights (LWT)")
                                     .changed()
                                 {
                                     self.persist_prefs();
                                 }
+                                ui.separator();
+                                ui.label(egui::RichText::new("Display").small().strong());
+                                if ui
+                                    .selectable_label(
+                                        self.view_preset == super::ViewPreset::TechnicalPlan,
+                                        "Technical plan",
+                                    )
+                                    .on_hover_text(
+                                        "Show technical/floor fills; mute presentation layers",
+                                    )
+                                    .clicked()
+                                {
+                                    self.apply_view_preset(super::ViewPreset::TechnicalPlan);
+                                }
+                                if ui
+                                    .selectable_label(
+                                        self.view_preset == super::ViewPreset::Presentation,
+                                        "Presentation board",
+                                    )
+                                    .on_hover_text(
+                                        "Show presentation fills + PNG furniture; soft wash alpha",
+                                    )
+                                    .clicked()
+                                {
+                                    self.apply_view_preset(super::ViewPreset::Presentation);
+                                }
+                                ui.label(
+                                    egui::RichText::new(
+                                        "LWT scales layer lineweights in the viewport (plot mm → screen px).",
+                                    )
+                                    .small()
+                                    .weak(),
+                                );
                                 if button(ui, BtnKind::Subtle, "Keyboard help (F1)").clicked() {
                                     self.show_shortcuts = true;
                                 }
@@ -3356,6 +3496,39 @@ impl AadtApp {
                         }
                     }
                 });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("View");
+                    if ui
+                        .selectable_label(
+                            self.view_preset == super::ViewPreset::TechnicalPlan,
+                            "Technical",
+                        )
+                        .on_hover_text("Apply Technical Plan layers before plot (hidden layers omitted)")
+                        .clicked()
+                    {
+                        self.apply_view_preset(super::ViewPreset::TechnicalPlan);
+                    }
+                    if ui
+                        .selectable_label(
+                            self.view_preset == super::ViewPreset::Presentation,
+                            "Presentation",
+                        )
+                        .on_hover_text(
+                            "Apply Presentation board layers before plot (hidden layers omitted)",
+                        )
+                        .clicked()
+                    {
+                        self.apply_view_preset(super::ViewPreset::Presentation);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(
+                        "Plot uses current layer visibility — switch View above or status Options.",
+                    )
+                    .small()
+                    .weak(),
+                );
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.label("Drawing name");

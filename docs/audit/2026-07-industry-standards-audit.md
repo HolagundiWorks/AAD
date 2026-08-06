@@ -3,13 +3,13 @@
 **Scope:** Compare AAD against AEC/CAD and takeoff/BOQ expectations.  
 **Method:** Code + docs inventory, HCW Track A, ADR conformance, Bluebeam QTO
 case study.  
-**Verdict grade:** **A−** (gap-closure, M9 drafting parity, and the M10–M13
+**Verdict grade:** **A−** (gap-closure, M9 drafting parity, and the M10–M14
 AI-native phases all shipped; remaining polish below).
 
 Build plan: [`docs/plans/2026-07-gap-closure.md`](../plans/2026-07-gap-closure.md) (done).
 
 > **Refresh note (2026-08).** The July audit was written before the product was
-> renamed to AAD and before M9–M13. Grades, the gap register, and the polish
+> renamed to AAD and before M9–M14. Grades, the gap register, and the polish
 > list below are current; the product locks in §2 are unchanged.
 
 ---
@@ -26,16 +26,16 @@ paper space.
 |---|:---:|---|
 | Architecture & layering | **A−** | Clean substrate / capability / intelligence split |
 | Undo / transactional CAD | **A−** | `Document::transact` rule |
-| Drafting command parity | **A−** | M9 complete: osnap overrides, fence/polygon/lasso, multi-mode grips, auto-type DIM, docking |
+| Drafting command parity | **A−** | M9 complete: osnap overrides, fence/polygon (WP/CP/FENCE), multi-mode grips, auto-type DIM, docking |
 | Interop (DXF/DWG) | **B+** | DXF solid; DWG R/W via `acadrust` (best-effort subset) |
-| Persistence & history | **A−** | Session undo ≠ file HISTORY (by design); objects/graph/audit in `.aadt` v8+ / `.vdb` v2 |
+| Persistence & history | **A−** | Session undo ≠ file HISTORY (by design); objects/graph/audit in `.aadt` v10 / `.vdb` v3 (HMAC optional) |
 | Takeoff / BOQ | **A−** | M13 object-based takeoff; CSI spine + division rollups; graph-driven opening deduction |
 | AI assist (local) | **A−** | `aadt-assist` propose-never-commit: dims, code checks, NL routing, `COMPARE`, `RECOMMEND DETAIL` |
 | GUI / UX | **A−** | Docked / floating / auto-hide panels, place tools, Fluent orange chrome, F7 perf HUD |
 | Testing | **B+** | Store migrate/checkpoint coverage plus per-command QA harness (M9.8) |
 | Docs hygiene | **A−** | Audit + takeoff case study + ADRs + phase plans kept current |
 | Security / local-first | **A−** | No cloud secrets; no network dependency for drafting or assist |
-| **Overall** | **A−** | Pilot-ready; M9–M13 shipped; Post-1.0 polish remains |
+| **Overall** | **A−** | Pilot-ready; M9–M14 shipped; Post-1.0 polish remains |
 
 ---
 
@@ -78,10 +78,11 @@ Do **not** merge them. Docs and UI should label them clearly.
 
 Withdrawn from gap register: **G3**, **G7** (locks above).
 
-The rest of the BricsCAD workflow gaps (osnap overrides, fence/polygon/lasso
+The rest of the BricsCAD workflow gaps (osnap overrides, fence/polygon
 selection, multi-mode grips, auto-type `DIM`, live hatch preview, capability
 contract, QA harness, perf telemetry) closed as M9.1–M9.9 — see the
-[conformance audit](../ux/bricscad-conformance-audit.md).
+[conformance audit](../ux/bricscad-conformance-audit.md). Free-drag Select
+lasso is not part of that surface (box + WP/CP/FENCE only).
 
 ---
 
@@ -110,17 +111,17 @@ columns, optional unit costs, versioned takeoff runs.
 
 ## 6. Remaining polish
 
-Gap-closure, ROADMAP Next, M9 (drafting parity), and M10–M13 (AI-native
-phases 1–4) are **shipped**. Still open (Post-1.0):
+Gap-closure, ROADMAP Next, M9 (drafting parity), and M10–M14 (AI-native
+phases 1–5) are **shipped**. Still open (Post-1.0):
 
 1. Autodesk-class DWG / hatch edge-type fidelity.
-2. M1 display polish: viewport text glyph quality, wgpu canvas at 100k+
-   entities, transparent mid-command `'ZOOM` / grip-edit.
+2. M1 display polish: viewport text glyph quality; wgpu canvas at 100k+ entities.
 3. M7 PDF viewer UI: interactive viewing, freehand/stamps, on-PDF measure,
    raster diff.
-4. Phase 5 (enterprise + APIs): local API service over `aadt-ffi`, connectors
-   as plugins, object permissions, signed audit trail.
-5. **Do not** implement paper space or merge UNDO with HISTORY.
+4. **Do not** implement paper space or merge UNDO with HISTORY.
 
 Withdrawn: hosted collaboration — the `aadt-collab` crate and TCP relay were
 removed with M8, so there is no local presence to build a hosted service on.
+Transparent `'ZOOM`/`'PAN` and Phase 5 (`aadt-api`, permissions, signed audit,
+connectors, site ingest — [ADR-0015](../adr/0015-local-api-layer.md) /
+[ADR-0016](../adr/0016-m14-enterprise.md)) shipped with M14.

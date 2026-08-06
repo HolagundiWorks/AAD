@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+### IMAGEDEF on DWG / DXF export
+
+- Raster `Geometry::Image` exports as AutoCAD `IMAGE` + `IMAGEDEF` (+ reactor)
+  via acadrust — no more LwPolyline footprint on DWG.
+- `export_path` for `.dxf` with images uses the same CadDocument path so OBJECTS
+  handles are valid; hatches/dims still prefer image-free DXF or `.aadt`.
+- DWG import maps `RasterImage` back to `ImageRef`.
+- Fidelity matrix and market-gap P3 updated.
+
+### Market gaps implemented (P0–P2)
+
+- **DWG fidelity matrix:** [docs/interop/dwg-fidelity-matrix.md](interop/dwg-fidelity-matrix.md);
+  DWG export returns/prints skip warnings (hatches, dims, missing files).
+- **Plot View presets:** Plot dialog Technical / Presentation; `place_drawing`
+  omits hidden layers so sheets match the canvas preset.
+- **Elements catalog tiles:** VEC/PNG/DYN place tiles; dynamic door sample in
+  `libraries/elements/catalog.json`.
+- **Dynamic Element grips:** selected INSERT grip 1 = flip (`BFLIP`), grip 2 =
+  width (`WIDTH` via EATTEDIT).
+- **`DEMO` / `AIDEMO`:** promote detection → Object/Graph summary → next steps
+  (TAKEOFF / ASK).
+
+### Fix: fill (hatch) delete + rectangle D-mode
+
+- **Delete / ERASE** now removes entities, fills, and dimensions together (no
+  early return after entity erase). Edge-clicks on a hatch boundary select the
+  fill; box select includes fills; ERASE collecting accepts fill-only sets.
+- **RECTANGLE** ignores clicks while typing D-mode length/width so dims are not
+  discarded / wrong opposite-corner places.
+
+### Display deep dive (drafting UI)
+
+- Properties dock and status **Options** expose LWT + Technical / Presentation
+  view presets with short guidance on lineweight scaling.
+
+### Market gap case study (review)
+
+- [docs/audit/2026-08-market-gap-case-study.md](audit/2026-08-market-gap-case-study.md)
+  — competitor map, six gaps, scorecard, P0–P3 asks.
+
 ### Architectural workflow: Elements, typed Fills, PNG, DWG & dynamics
 
 - **Elements** manager (formerly Blocks): catalog entries (`libraries/elements/catalog.json`),

@@ -488,12 +488,42 @@ pub(super) enum Tool {
     /// Placeholder place (door/window/column/beam/slab) at click.
     PlaceElem {
         kind: PlaceKind,
+        /// Multi-step wall-opening flow for doors/windows; [`PlaceStep::Point`]
+        /// for furniture and other single-click inserts.
+        step: PlaceStep,
     },
     /// Place a raster image (PNG/JPEG/WebP) at click.
     PlaceImage {
         path: String,
         width: f64,
         height: f64,
+    },
+}
+
+/// Steps for door/window placement (pick both wall faces, then hinge / swing).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum PlaceStep {
+    /// Single click at insertion point (non-opening elements).
+    Point,
+    /// Select first wall face line to trim.
+    WallA,
+    /// Select opposite wall face.
+    WallB {
+        wall_a: aadt_model::EntityId,
+    },
+    /// Click hinge / insertion along the wall centerline.
+    OnWall {
+        wall_a: aadt_model::EntityId,
+        wall_b: aadt_model::EntityId,
+    },
+    /// Door only: choose which side of the wall the swing occupies.
+    Swing {
+        wall_a: aadt_model::EntityId,
+        wall_b: aadt_model::EntityId,
+        hinge: Point2,
+        angle_deg: f64,
+        /// `true` → mirror about local X (negative Y) so the arc flips rooms.
+        flip: bool,
     },
 }
 
@@ -512,6 +542,13 @@ pub(super) enum PlaceKind {
     Bed,
     Table,
     Toilet,
+}
+
+fn place_elem_tool(kind: PlaceKind) -> Tool {
+    Tool::PlaceElem {
+        kind,
+        step: kind.start_step(),
+    }
 }
 
 /// CIRCLE creation mode (AutoCAD Center / 2P / 3P / TTR).
@@ -718,6 +755,13 @@ pub(super) enum XlineMode {
 }
 
 impl PlaceKind {
+    fn start_step(self) -> PlaceStep {
+        match self {
+            Self::Door | Self::Window => PlaceStep::WallA,
+            _ => PlaceStep::Point,
+        }
+    }
+
     fn layer(self) -> &'static str {
         match self {
             Self::Door => "A-DOOR",
@@ -1071,45 +1115,19 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
             thickness: None,
             points: Vec::new(),
         }),
-        "DO" | "DOOR" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Door,
-        }),
-        "WI" | "WINDOW" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Window,
-        }),
-        "COL" | "COLUMN" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Column,
-        }),
-        "BE" | "BEAM" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Beam,
-        }),
-        "SL" | "SLAB" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Slab,
-        }),
-        "TREE" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Tree,
-        }),
-        "SHRUB" | "BUSH" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Shrub,
-        }),
-        "CHAIR" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Chair,
-        }),
-        "DESK" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Desk,
-        }),
-        "SOFA" | "COUCH" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Sofa,
-        }),
-        "BED" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Bed,
-        }),
-        "FTABLE" | "RDTABLE" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Table,
-        }),
-        "TOILET" | "WC" => Some(Tool::PlaceElem {
-            kind: PlaceKind::Toilet,
-        }),
+        "DO" | "DOOR" => Some(place_elem_tool(PlaceKind::Door)),
+        "WI" | "WINDOW" => Some(place_elem_tool(PlaceKind::Window)),
+        "COL" | "COLUMN" => Some(place_elem_tool(PlaceKind::Column)),
+        "BE" | "BEAM" => Some(place_elem_tool(PlaceKind::Beam)),
+        "SL" | "SLAB" => Some(place_elem_tool(PlaceKind::Slab)),
+        "TREE" => Some(place_elem_tool(PlaceKind::Tree)),
+        "SHRUB" | "BUSH" => Some(place_elem_tool(PlaceKind::Shrub)),
+        "CHAIR" => Some(place_elem_tool(PlaceKind::Chair)),
+        "DESK" => Some(place_elem_tool(PlaceKind::Desk)),
+        "SOFA" | "COUCH" => Some(place_elem_tool(PlaceKind::Sofa)),
+        "BED" => Some(place_elem_tool(PlaceKind::Bed)),
+        "FTABLE" | "RDTABLE" => Some(place_elem_tool(PlaceKind::Table)),
+        "TOILET" | "WC" => Some(place_elem_tool(PlaceKind::Toilet)),
         "IMAGE" | "PLACEIMAGE" | "IMAGEATTACH" => None, // file dialog / PlaceImage in dispatch
         "IROOM" | "MROOM" => None, // opens picker in dispatch
         "IAR" | "MAR" => Some(Tool::RoomArea),
@@ -3191,6 +3209,41 @@ impl AadtApp {
                 return;
             }
         }
+        // DOOR swing: F / FLIP toggles which side of the wall the arc occupies.
+        if matches!(
+            self.tool,
+            Tool::PlaceElem {
+                kind: PlaceKind::Door,
+                step: PlaceStep::Swing { .. },
+            }
+        ) && (up == "F" || up == "FLIP")
+        {
+            if let Tool::PlaceElem {
+                step:
+                    PlaceStep::Swing {
+                        wall_a,
+                        wall_b,
+                        hinge,
+                        angle_deg,
+                        flip,
+                    },
+                ..
+            } = self.tool
+            {
+                self.tool = Tool::PlaceElem {
+                    kind: PlaceKind::Door,
+                    step: PlaceStep::Swing {
+                        wall_a,
+                        wall_b,
+                        hinge,
+                        angle_deg,
+                        flip: !flip,
+                    },
+                };
+                self.note = "DOOR — swing flipped · Space places · Tab/F flips again".into();
+            }
+            return;
+        }
         // RECTANGLE keywords / Dimensions / @W,H
         if matches!(self.tool, Tool::Rectangle { .. }) {
             // Waiting for a typed chamfer distance / fillet radius.
@@ -3972,6 +4025,96 @@ impl AadtApp {
         ctx.memory_mut(|m| m.stop_text_input());
     }
 
+    /// Drafting Tab: cycle X↔Y, advance RECTANGLE dims, flip door swing, and
+    /// always consume so egui cannot focus chrome (which made Space quit/close).
+    fn handle_drafting_tab(&mut self, ctx: &egui::Context) {
+        // Door swing: Tab flips which side of the wall the arc occupies.
+        if let Tool::PlaceElem {
+            kind: PlaceKind::Door,
+            step:
+                PlaceStep::Swing {
+                    wall_a,
+                    wall_b,
+                    hinge,
+                    angle_deg,
+                    flip,
+                },
+        } = self.tool
+        {
+            self.tool = Tool::PlaceElem {
+                kind: PlaceKind::Door,
+                step: PlaceStep::Swing {
+                    wall_a,
+                    wall_b,
+                    hinge,
+                    angle_deg,
+                    flip: !flip,
+                },
+            };
+            self.note = if !flip {
+                "DOOR — swing flipped · Space places · Tab/F flips again".into()
+            } else {
+                "DOOR — swing side · Space places · Tab/F flips".into()
+            };
+            Self::consume_drafting_tab(ctx);
+            return;
+        }
+
+        let mut handled = true;
+        if matches!(
+            self.tool,
+            Tool::Rectangle {
+                phase: RectPhase::DimLength,
+                ..
+            } | Tool::Rectangle {
+                phase: RectPhase::DimWidth,
+                dim_width: None,
+                ..
+            }
+        ) && self.has_typed_dyn()
+        {
+            // RECTANGLE dimensions: Tab = Space (length → width → place).
+            self.commit_dyn();
+        } else if matches!(
+            self.tool,
+            Tool::Rectangle {
+                phase: RectPhase::OppositeCorner,
+                first: Some(_),
+                ..
+            }
+        ) && self.expects_point_coords()
+            && !self.dyn_x.trim().is_empty()
+            && !self.dyn_y.trim().is_empty()
+            && self.dyn_focus == CoordFocus::Y
+        {
+            // Second value + Tab completes the opposite corner (AutoCAD-like).
+            self.commit_dyn();
+        } else if self.expects_point_coords() {
+            self.dyn_focus = match self.dyn_focus {
+                CoordFocus::X => CoordFocus::Y,
+                CoordFocus::Y => CoordFocus::X,
+            };
+            self.resync_dyn_input_from_xy();
+        } else if self.has_typed_dyn()
+            && matches!(
+                self.tool,
+                Tool::Rectangle {
+                    phase: RectPhase::DimWidth,
+                    dim_width: Some(_),
+                    ..
+                }
+            )
+        {
+            // After length+width typed without a corner yet, Tab is inert.
+            handled = true;
+        } else if !self.drafting() && !self.has_typed_dyn() {
+            handled = false;
+        }
+        if handled {
+            Self::consume_drafting_tab(ctx);
+        }
+    }
+
     /// True while a draw tool wants an absolute typed point (not label text).
     fn expects_point_coords(&self) -> bool {
         if !self.drafting() {
@@ -4351,6 +4494,28 @@ impl AadtApp {
     fn apply_space_single(&mut self) {
         if self.palette_open {
             self.activate_palette_selection();
+            return;
+        }
+        // DOOR swing side: Space confirms placement with the current flip.
+        if let Tool::PlaceElem {
+            kind: PlaceKind::Door,
+            step:
+                PlaceStep::Swing {
+                    wall_a,
+                    wall_b,
+                    hinge,
+                    angle_deg,
+                    flip,
+                },
+        } = self.tool
+        {
+            self.finish_place_elem(
+                PlaceKind::Door,
+                hinge,
+                Some((wall_a, wall_b)),
+                angle_deg,
+                flip,
+            );
             return;
         }
         // MIRROR erase prompt: empty Space = No (keep source).
@@ -4818,6 +4983,29 @@ impl AadtApp {
     ) {
         match mode {
             GripMode::Stretch => {
+                // Dynamic Element grips on INSERT: 1 = flip, 2 = width.
+                if let Some(e) = self.session.document().get(id) {
+                    if matches!(e.geometry, Geometry::Insert(_)) {
+                        if grip_idx == 1 {
+                            let fb = self.app_feed(&format!("BFLIP {}", id.0));
+                            if let Some(m) = fb.message() {
+                                self.note = m.to_string();
+                            }
+                            return;
+                        }
+                        if grip_idx == 2 {
+                            let width = insert_width_from_point(self.session.document(), &e, p);
+                            self.app_feed(&format!(
+                                "EATTEDIT {} {} {:.4}",
+                                id.0,
+                                aadt_model::BLOCK_WIDTH_PARAM,
+                                width
+                            ));
+                            self.note = format!("WIDTH set to {width:.3}");
+                            return;
+                        }
+                    }
+                }
                 self.app_feed(&format!("GRIPEDIT {} {} {} {}", id.0, grip_idx, p.x, p.y));
             }
             GripMode::Move => {
@@ -4845,7 +5033,7 @@ impl AadtApp {
                         .document()
                         .get(id)
                         .map(|e| {
-                            grip_points(&e.geometry)
+                            grip_points_for_entity(self.session.document(), e)
                                 .iter()
                                 .map(|g| origin.distance(*g))
                                 .fold(0.0_f64, f64::max)
@@ -4913,13 +5101,40 @@ impl AadtApp {
 
     fn collect_selection_pick(&mut self, world: Point2) {
         let tol = PICK_PIXELS / self.camera.scale;
+        if let Some(hi) = pick_hatch_near(self.session.document(), world, tol) {
+            if let Some(i) = self.selected_hatches.iter().position(|&x| x == hi) {
+                self.selected_hatches.remove(i);
+            } else {
+                self.selected_hatches.push(hi);
+            }
+            let n = self.selection.len()
+                + self.selected_hatches.len()
+                + self.selected_dimensions.len();
+            self.note = format!("{n} object(s) — Space when done");
+            return;
+        }
         if let Some(id) = pick_entity(self.session.document(), world, tol) {
             if let Some(i) = self.selection.iter().position(|x| *x == id) {
                 self.selection.remove(i);
             } else {
                 self.selection.push(id);
             }
-            self.note = format!("{} object(s) — Space when done", self.selection.len());
+            let n = self.selection.len()
+                + self.selected_hatches.len()
+                + self.selected_dimensions.len();
+            self.note = format!("{n} object(s) — Space when done");
+            return;
+        }
+        if let Some(di) = pick_dimension(self.session.document(), world, tol) {
+            if let Some(i) = self.selected_dimensions.iter().position(|&x| x == di) {
+                self.selected_dimensions.remove(i);
+            } else {
+                self.selected_dimensions.push(di);
+            }
+            let n = self.selection.len()
+                + self.selected_hatches.len()
+                + self.selected_dimensions.len();
+            self.note = format!("{n} object(s) — Space when done");
         }
     }
 
@@ -5058,6 +5273,23 @@ impl AadtApp {
     }
 
     fn end_collecting_phase(&mut self) -> bool {
+        if self.selection.is_empty()
+            && self.selected_hatches.is_empty()
+            && self.selected_dimensions.is_empty()
+        {
+            self.note = "Select objects, then Space".into();
+            return false;
+        }
+        // Hatch-/dim-only erase: finish without needing entity selection.
+        if matches!(self.tool, Tool::Erase)
+            && self.selection.is_empty()
+            && (!self.selected_hatches.is_empty() || !self.selected_dimensions.is_empty())
+        {
+            self.erase_selection();
+            self.tool = Tool::Select;
+            self.engine.complete();
+            return true;
+        }
         if self.selection.is_empty() {
             self.note = "Select objects, then Space".into();
             return false;
@@ -5550,15 +5782,18 @@ impl AadtApp {
             self.note = "Select objects first, then E.".to_string();
             return;
         }
+        let mut parts = Vec::new();
         if !self.selection.is_empty() {
+            // Also drop fills whose outer boundary matches a selected closed
+            // polyline/circle — edge-clicks select the entity, not the hatch.
+            self.select_hatches_for_selected_boundaries();
             self.sync_selection();
             self.app_feed("ERASE SELECTION");
+            let n = self.selection.len();
             self.selection.clear();
-            return;
+            parts.push(format!("{n} object{}", if n == 1 { "" } else { "s" }));
         }
         if !self.selected_hatches.is_empty() {
-            // Remove by descending index so earlier removals don't shift later
-            // ones; one transaction so a single UNDO restores every hatch.
             let mut idxs = std::mem::take(&mut self.selected_hatches);
             idxs.sort_unstable();
             idxs.dedup();
@@ -5568,8 +5803,8 @@ impl AadtApp {
                     d.remove_hatch(i);
                 }
             });
-            self.note = format!("Erased {n} hatch{}", if n == 1 { "" } else { "es" });
-            return;
+            parts.push(format!("{n} fill{}", if n == 1 { "" } else { "s" }));
+            self.dirty = true;
         }
         if !self.selected_dimensions.is_empty() {
             let mut idxs = std::mem::take(&mut self.selected_dimensions);
@@ -5583,8 +5818,35 @@ impl AadtApp {
                         d.remove_dimension(i);
                     }
                 });
-            self.note = format!("Erased {n} dimension{}", if n == 1 { "" } else { "s" });
+            parts.push(format!("{n} dimension{}", if n == 1 { "" } else { "s" }));
+            self.dirty = true;
         }
+        if !parts.is_empty() {
+            self.note = format!("Erased {}", parts.join(", "));
+        }
+    }
+
+    /// If the selection includes a closed polyline/circle that is a hatch
+    /// outer boundary, add that hatch index so Delete removes the fill too.
+    fn select_hatches_for_selected_boundaries(&mut self) {
+        let doc = self.session.document();
+        let active = doc.active_space();
+        let mut add = Vec::new();
+        for &id in &self.selection {
+            let Some(e) = doc.get(id) else {
+                continue;
+            };
+            for (hi, h) in doc.hatches().iter().enumerate() {
+                if h.space != active {
+                    continue;
+                }
+                if hatch_outer_matches_entity(&e.geometry, h) && !self.selected_hatches.contains(&hi)
+                {
+                    add.push(hi);
+                }
+            }
+        }
+        self.selected_hatches.extend(add);
     }
 
     /// Apply the current Hatches-dock pattern to every selected hatch (the
@@ -5806,6 +6068,7 @@ impl AadtApp {
                 dim_length,
                 dim_width,
             } => match (phase, first, dim_length, dim_width) {
+                // Dimensions complete — click places the rectangle at the pick.
                 (RectPhase::DimWidth, None, Some(len), Some(w)) => {
                     self.place_rectangle_dims(p, len, w, &layer);
                 }
@@ -5819,11 +6082,24 @@ impl AadtApp {
                     self.engine.accept_point();
                     self.note = "RECTANGLE — opposite corner or @W,H (D = dimensions)".into();
                 }
-                (RectPhase::OppositeCorner, Some(a), _, _)
-                | (RectPhase::DimWidth, Some(a), _, _) => {
+                // Opposite-corner place (two-click). Do not steal clicks while
+                // typing D-mode length/width — that discarded dims / wrong rects.
+                (RectPhase::OppositeCorner, Some(a), _, _) => {
                     self.place_rectangle(a, p, &layer);
                 }
-                (RectPhase::DimLength, _, _, _) | (RectPhase::DimWidth, None, _, _) => {
+                (RectPhase::DimLength, Some(_), _, _) | (RectPhase::DimWidth, Some(_), _, _) => {
+                    self.note = if phase == RectPhase::DimLength {
+                        "RECTANGLE — type length and Space (click ignored while typing dims)"
+                    } else {
+                        "RECTANGLE — type width and Space (click ignored while typing dims)"
+                    }
+                    .into();
+                }
+                // D before first corner: click sets insertion corner once dims exist…
+                // or sets first corner while still typing (keep phase).
+                (RectPhase::DimLength, None, None, None)
+                | (RectPhase::DimWidth, None, Some(_), None)
+                | (RectPhase::DimWidth, None, None, _) => {
                     self.tool = Tool::Rectangle {
                         first: Some(p),
                         phase,
@@ -5844,6 +6120,7 @@ impl AadtApp {
                         dim_length: None,
                         dim_width: None,
                     };
+                    self.note = "RECTANGLE — opposite corner or @W,H (D = dimensions)".into();
                 }
             },
             Tool::Xline {
@@ -6366,63 +6643,150 @@ impl AadtApp {
                 self.engine.accept_point();
                 self.note = "WALL — next point (Space finish · Double-Space repeat)".into();
             }
-            Tool::PlaceElem { kind } => {
+            Tool::PlaceElem { kind, step } => {
                 aadt_command::ensure_place_blocks(self.session.document_mut());
-                let layer = kind.layer();
-                let block = kind.block_name();
-                let cuts_wall = matches!(kind, PlaceKind::Door | PlaceKind::Window);
-                let width = aadt_command::opening_width_for_block(self.session.document(), block);
-                let (place, rot) = if cuts_wall {
-                    aadt_command::place_opening_pose(self.session.document(), p, width)
-                        .unwrap_or((p, 0.0))
-                } else {
-                    (p, 0.0)
-                };
-                let fb = self.app_feed(&format!(
-                    "INSERT {} {} {} {} {}",
-                    block, place.x, place.y, rot, layer
-                ));
-                let id = parse_entity_id_from_feedback(fb.message()).or_else(|| {
-                    let s = 0.45;
-                    let fb2 = self.app_feed(&format!(
-                        "RECTANGLE {} {} {} {} {}",
-                        place.x - s,
-                        place.y - s,
-                        place.x + s,
-                        place.y + s,
-                        layer
-                    ));
-                    parse_entity_id_from_feedback(fb2.message())
-                });
-                if let Some(id) = id {
-                    self.session
-                        .feed(&format!("EATTEDIT {id} AADT-ELEM {}", kind.elem()));
-                }
-                if cuts_wall {
-                    match aadt_command::cut_wall_opening(
-                        self.session.document_mut(),
-                        place,
-                        rot,
-                        width,
-                    ) {
-                        Ok(n) => {
+                match step {
+                    PlaceStep::Point => {
+                        self.finish_place_elem(kind, p, None, 0.0, false);
+                    }
+                    PlaceStep::WallA => {
+                        let tol = PICK_PIXELS / self.camera.scale;
+                        let Some(id) = pick_entity(self.session.document(), p, tol) else {
                             self.note = format!(
-                                "{} placed — wall opening cut ({n} closed wall body/bodies)",
+                                "{} — select the first wall line to trim",
                                 kind.elem()
                             );
-                            self.dirty = true;
-                        }
-                        Err(_) => {
+                            return;
+                        };
+                        let Some(e) = self.session.document().get(id) else {
+                            return;
+                        };
+                        if !aadt_command::is_wall_entity(e) {
                             self.note = format!(
-                                "{} placed — no wall nearby to cut (place on a wall)",
+                                "{} — pick a wall line (A-WALL / wall element)",
                                 kind.elem()
+                            );
+                            return;
+                        }
+                        self.tool = Tool::PlaceElem {
+                            kind,
+                            step: PlaceStep::WallB { wall_a: id },
+                        };
+                        self.selection = vec![id];
+                        self.note = format!(
+                            "{} — select the opposite wall line to trim",
+                            kind.elem()
+                        );
+                        self.engine.accept_point();
+                    }
+                    PlaceStep::WallB { wall_a } => {
+                        let tol = PICK_PIXELS / self.camera.scale;
+                        let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                            self.note = format!(
+                                "{} — select the opposite wall line",
+                                kind.elem()
+                            );
+                            return;
+                        };
+                        match aadt_command::face_pair_from_ids(
+                            self.session.document(),
+                            wall_a,
+                            id,
+                        ) {
+                            Ok(_) => {
+                                self.tool = Tool::PlaceElem {
+                                    kind,
+                                    step: PlaceStep::OnWall {
+                                        wall_a,
+                                        wall_b: id,
+                                    },
+                                };
+                                self.selection = vec![wall_a, id];
+                                self.note = format!(
+                                    "{} — click hinge / insertion on the wall",
+                                    kind.elem()
+                                );
+                                self.engine.accept_point();
+                            }
+                            Err(e) => {
+                                self.note = format!("{} — {e}", kind.elem());
+                            }
+                        }
+                    }
+                    PlaceStep::OnWall { wall_a, wall_b } => {
+                        let width =
+                            aadt_command::opening_width_for_block(self.session.document(), kind.block_name());
+                        let Ok(pair) =
+                            aadt_command::face_pair_from_ids(self.session.document(), wall_a, wall_b)
+                        else {
+                            self.note = format!("{} — wall faces no longer valid", kind.elem());
+                            self.tool = Tool::Select;
+                            return;
+                        };
+                        let (place, rot) = aadt_command::place_opening_pose_on_pair(
+                            self.session.document(),
+                            &pair,
+                            p,
+                            width,
+                        );
+                        if matches!(kind, PlaceKind::Door) {
+                            // Infer initial swing from which side of the wall was clicked.
+                            let rad = rot.to_radians();
+                            let perp = aadt_geometry::Vec2::new(-rad.sin(), rad.cos());
+                            let to_click = aadt_geometry::Vec2::new(p.x - place.x, p.y - place.y);
+                            let flip = to_click.dot(perp) < 0.0;
+                            self.tool = Tool::PlaceElem {
+                                kind,
+                                step: PlaceStep::Swing {
+                                    wall_a,
+                                    wall_b,
+                                    hinge: place,
+                                    angle_deg: rot,
+                                    flip,
+                                },
+                            };
+                            self.note =
+                                "DOOR — click swing side (or Tab/F to flip) · Space places"
+                                    .into();
+                            self.engine.accept_point();
+                        } else {
+                            self.finish_place_elem(
+                                kind,
+                                place,
+                                Some((wall_a, wall_b)),
+                                rot,
+                                false,
                             );
                         }
                     }
+                    PlaceStep::Swing {
+                        wall_a,
+                        wall_b,
+                        hinge,
+                        angle_deg,
+                        ..
+                    } => {
+                        // Click chooses which side of the wall the arc occupies;
+                        // Space (or a second click on the same side via finish) places.
+                        let rad = angle_deg.to_radians();
+                        let perp = aadt_geometry::Vec2::new(-rad.sin(), rad.cos());
+                        let to_click =
+                            aadt_geometry::Vec2::new(p.x - hinge.x, p.y - hinge.y);
+                        let new_flip = to_click.dot(perp) < 0.0;
+                        self.tool = Tool::PlaceElem {
+                            kind,
+                            step: PlaceStep::Swing {
+                                wall_a,
+                                wall_b,
+                                hinge,
+                                angle_deg,
+                                flip: new_flip,
+                            },
+                        };
+                        self.note =
+                            "DOOR — swing side set · Space places · Tab/F flips".into();
+                    }
                 }
-                self.tool = Tool::Select;
-                self.engine.accept_point();
-                self.engine.complete();
             }
             Tool::PlaceImage {
                 path,
@@ -7107,6 +7471,82 @@ impl AadtApp {
         self.place_rectangle(a, Point2::new(a.x + length, a.y + width), layer);
     }
 
+    /// Insert a place-tool block; for doors/windows cut the explicit wall pair and
+    /// optionally flip the swing (`scale_y = -1`, other side of the wall).
+    fn finish_place_elem(
+        &mut self,
+        kind: PlaceKind,
+        place: Point2,
+        walls: Option<(aadt_model::EntityId, aadt_model::EntityId)>,
+        rot: f64,
+        swing_flip: bool,
+    ) {
+        let layer = kind.layer();
+        let block = kind.block_name();
+        let width = aadt_command::opening_width_for_block(self.session.document(), block);
+        let fb = self.app_feed(&format!(
+            "INSERT {} {} {} {} {}",
+            block, place.x, place.y, rot, layer
+        ));
+        let id = parse_entity_id_from_feedback(fb.message()).or_else(|| {
+            let s = 0.45;
+            let fb2 = self.app_feed(&format!(
+                "RECTANGLE {} {} {} {} {}",
+                place.x - s,
+                place.y - s,
+                place.x + s,
+                place.y + s,
+                layer
+            ));
+            parse_entity_id_from_feedback(fb2.message())
+        });
+        if let Some(raw_id) = id {
+            let eid = EntityId(raw_id);
+            self.session
+                .feed(&format!("EATTEDIT {raw_id} AADT-ELEM {}", kind.elem()));
+            if swing_flip {
+                // Mirror about local X so the swing arc flips to the other room.
+                if let Some(e) = self.session.document().get(eid).cloned() {
+                    if let Geometry::Insert(mut ins) = e.geometry {
+                        ins.scale_y = -ins.scale_y.abs();
+                        self.session.document_mut().transact("SWING", |d| {
+                            d.replace_geometry(eid, Geometry::Insert(ins));
+                        });
+                    }
+                }
+            }
+        }
+        if let Some((a, b)) = walls {
+            match aadt_command::cut_wall_opening_pair(
+                self.session.document_mut(),
+                a,
+                b,
+                place,
+                rot,
+                width,
+            ) {
+                Ok(n) => {
+                    self.note = format!(
+                        "{} placed — both wall lines trimmed ({n} closed body/bodies)",
+                        kind.elem()
+                    );
+                    self.dirty = true;
+                }
+                Err(e) => {
+                    self.note = format!("{} placed — wall cut failed: {e}", kind.elem());
+                }
+            }
+        } else if matches!(kind, PlaceKind::Door | PlaceKind::Window) {
+            self.note = format!("{} placed", kind.elem());
+        } else {
+            self.note = format!("{} placed", kind.elem());
+        }
+        self.selection.clear();
+        self.tool = Tool::Select;
+        self.engine.accept_point();
+        self.engine.complete();
+    }
+
     fn feed_xline(&mut self, origin: Point2, dx: f64, dy: f64, layer: &str) {
         self.app_feed(&format!(
             "XLINE {} {} {} {} {}",
@@ -7644,20 +8084,32 @@ impl AadtApp {
             Tool::Wall {
                 thickness: Some(_), ..
             } => "WALL — pick points (Space finish · Double-Space repeat)",
-            Tool::PlaceElem { kind } => match kind {
-                PlaceKind::Door => "DOOR — click insertion point",
-                PlaceKind::Window => "WINDOW — click insertion point",
-                PlaceKind::Column => "COLUMN — click insertion point",
-                PlaceKind::Beam => "BEAM — click insertion point",
-                PlaceKind::Slab => "SLAB — click insertion point",
-                PlaceKind::Tree => "TREE — click insertion point",
-                PlaceKind::Shrub => "SHRUB — click insertion point",
-                PlaceKind::Chair => "CHAIR — click insertion point",
-                PlaceKind::Desk => "DESK — click insertion point",
-                PlaceKind::Sofa => "SOFA — click insertion point",
-                PlaceKind::Bed => "BED — click insertion point",
-                PlaceKind::Table => "TABLE — click insertion point",
-                PlaceKind::Toilet => "TOILET — click insertion point",
+            Tool::PlaceElem { kind, step } => match (kind, step) {
+                (PlaceKind::Door | PlaceKind::Window, PlaceStep::WallA) => {
+                    "select first wall line to trim"
+                }
+                (PlaceKind::Door | PlaceKind::Window, PlaceStep::WallB { .. }) => {
+                    "select opposite wall line to trim"
+                }
+                (PlaceKind::Door | PlaceKind::Window, PlaceStep::OnWall { .. }) => {
+                    "click hinge / insertion on the wall"
+                }
+                (PlaceKind::Door, PlaceStep::Swing { .. }) => {
+                    "click swing side · Tab/F flips · Space places"
+                }
+                (PlaceKind::Door, _) => "DOOR — click insertion point",
+                (PlaceKind::Window, _) => "WINDOW — click insertion point",
+                (PlaceKind::Column, _) => "COLUMN — click insertion point",
+                (PlaceKind::Beam, _) => "BEAM — click insertion point",
+                (PlaceKind::Slab, _) => "SLAB — click insertion point",
+                (PlaceKind::Tree, _) => "TREE — click insertion point",
+                (PlaceKind::Shrub, _) => "SHRUB — click insertion point",
+                (PlaceKind::Chair, _) => "CHAIR — click insertion point",
+                (PlaceKind::Desk, _) => "DESK — click insertion point",
+                (PlaceKind::Sofa, _) => "SOFA — click insertion point",
+                (PlaceKind::Bed, _) => "BED — click insertion point",
+                (PlaceKind::Table, _) => "TABLE — click insertion point",
+                (PlaceKind::Toilet, _) => "TOILET — click insertion point",
             },
             Tool::PlaceImage { .. } => "IMAGE — click insertion point",
             Tool::Hatch => "HATCH — pick a point inside a closed region",
@@ -7915,6 +8367,26 @@ impl eframe::App for AadtApp {
         }
         // Dynamic input: unless a text field is focused, keystrokes are typed at
         // the crosshair — a command token, a value, or edit/finish keys.
+        // While drafting, Tab is always ours (even if a chrome TextEdit stole
+        // focus) — otherwise Tab→focus→Space can activate Don't Save / New.
+        if self.drafting() {
+            let tab_pressed = ctx.input(|i| {
+                i.key_pressed(egui::Key::Tab)
+                    || i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key {
+                                key: egui::Key::Tab,
+                                pressed: true,
+                                ..
+                            }
+                        )
+                    })
+            });
+            if tab_pressed {
+                self.handle_drafting_tab(ctx);
+            }
+        }
         if !ctx.wants_keyboard_input() {
             let now = std::time::Instant::now();
             let space_down = ctx.input(|i| i.key_down(egui::Key::Space));
@@ -8045,42 +8517,12 @@ impl eframe::App for AadtApp {
                         match key {
                             egui::Key::Enter => self.apply_space_single(),
                             egui::Key::Tab => {
-                                let mut handled = false;
-                                if matches!(
-                                    self.tool,
-                                    Tool::Rectangle {
-                                        phase: RectPhase::DimLength,
-                                        ..
-                                    } | Tool::Rectangle {
-                                        phase: RectPhase::DimWidth,
-                                        dim_width: None,
-                                        ..
+                                // Handled above when drafting(); swallow duplicates.
+                                if !self.drafting() {
+                                    if self.has_typed_dyn() {
+                                        self.commit_dyn();
+                                        Self::consume_drafting_tab(ctx);
                                     }
-                                ) && self.has_typed_dyn()
-                                {
-                                    // RECTANGLE dimensions entry: Tab moves on to
-                                    // the next field the same way Space does
-                                    // (length -> width -> first corner), rather
-                                    // than the X/Y coordinate-field toggle below,
-                                    // which doesn't apply here (see
-                                    // `expects_point_coords`).
-                                    self.commit_dyn();
-                                    handled = true;
-                                } else if self.expects_point_coords() {
-                                    // First value + Tab → second value (X → Y).
-                                    self.dyn_focus = match self.dyn_focus {
-                                        CoordFocus::X => CoordFocus::Y,
-                                        CoordFocus::Y => CoordFocus::X,
-                                    };
-                                    self.resync_dyn_input_from_xy();
-                                    handled = true;
-                                } else if self.drafting() || self.has_typed_dyn() {
-                                    // Swallow Tab while a command is live so egui
-                                    // cannot move focus into chrome controls.
-                                    handled = true;
-                                }
-                                if handled {
-                                    Self::consume_drafting_tab(ctx);
                                 }
                             }
                             egui::Key::Backspace => {
@@ -8737,12 +9179,23 @@ impl AadtApp {
                 let Some(e) = self.session.document().get(id) else {
                     continue;
                 };
-                let grips = grip_points(&e.geometry);
+                let grips = grip_points_for_entity(self.session.document(), e);
                 if let Some((idx, gp)) = grips
                     .iter()
                     .enumerate()
                     .find(|(_, g)| world.distance(**g) <= grip_tol)
                 {
+                    let note = match (&e.geometry, idx) {
+                        (Geometry::Insert(_), 1) => {
+                            "GRIP FLIP — click to mirror (BFLIP); Esc cancels"
+                        }
+                        (Geometry::Insert(_), 2) => {
+                            "GRIP WIDTH — drag to set WIDTH; Esc cancels"
+                        }
+                        _ => {
+                            "GRIP STRETCH — new location (Space cycles Move/Rotate/Scale/Mirror; Esc cancels)"
+                        }
+                    };
                     self.tool = Tool::GripEdit {
                         id,
                         grip_idx: idx,
@@ -8750,13 +9203,30 @@ impl AadtApp {
                         mode: GripMode::Stretch,
                         ref_dist: 0.0,
                     };
-                    self.note =
-                        "GRIP STRETCH — new location (Space cycles Move/Rotate/Scale/Mirror; Esc cancels)".into();
+                    self.note = note.into();
                     return;
                 }
             }
         }
         let tol = PICK_PIXELS / self.camera.scale;
+        // Prefer a fill when the pick is inside or on its outer edge — otherwise
+        // the leftover boundary polyline steals the hit and Delete only removes
+        // the outline.
+        if let Some(hi) = pick_hatch_near(self.session.document(), world, tol) {
+            if shift {
+                if let Some(i) = self.selected_hatches.iter().position(|&x| x == hi) {
+                    self.selected_hatches.remove(i);
+                } else {
+                    self.selected_hatches.push(hi);
+                }
+            } else {
+                self.selected_hatches = vec![hi];
+                self.selection.clear();
+                self.selected_dimensions.clear();
+            }
+            self.note = "Fill selected — Del/E to erase, or apply a pattern in Fills".into();
+            return;
+        }
         // Entities (incl. hatch boundary polylines) win on a direct hit.
         if let Some(id) = pick_entity(self.session.document(), world, tol) {
             if shift {
@@ -8770,22 +9240,6 @@ impl AadtApp {
                 self.selected_hatches.clear();
                 self.selected_dimensions.clear();
             }
-            return;
-        }
-        // No entity under the cursor: a click inside a fill selects the hatch.
-        if let Some(hi) = pick_hatch(self.session.document(), world) {
-            if shift {
-                if let Some(i) = self.selected_hatches.iter().position(|&x| x == hi) {
-                    self.selected_hatches.remove(i);
-                } else {
-                    self.selected_hatches.push(hi);
-                }
-            } else {
-                self.selected_hatches = vec![hi];
-                self.selection.clear();
-                self.selected_dimensions.clear();
-            }
-            self.note = "Fill selected — Del/E to erase, or apply a pattern in Fills".into();
             return;
         }
         // Hit a dimension's drawn geometry.
@@ -8848,6 +9302,7 @@ impl AadtApp {
         let crossing = e.x < s.x;
         let hits = box_select(self.session.document(), lo, hi, crossing);
         let dim_hits = dimension_box_select(self.session.document(), lo, hi, crossing);
+        let hatch_hits = hatch_box_select(self.session.document(), lo, hi, crossing);
         if ui.input(|i| i.modifiers.shift) {
             for id in hits {
                 if !self.selection.contains(&id) {
@@ -8859,6 +9314,11 @@ impl AadtApp {
                     self.selected_dimensions.push(idx);
                 }
             }
+            for idx in hatch_hits {
+                if !self.selected_hatches.contains(&idx) {
+                    self.selected_hatches.push(idx);
+                }
+            }
             // Shift-add mixes this box with whatever was already selected, so
             // there's no single rectangle left that reproduces the set — a
             // later noun-verb STRETCH must fall back to moving it whole.
@@ -8866,14 +9326,16 @@ impl AadtApp {
         } else {
             self.selection = hits;
             self.selected_dimensions = dim_hits;
-            self.selected_hatches.clear();
+            self.selected_hatches = hatch_hits;
             // Remembered so a noun-verb STRETCH (pre-select, then invoke the
             // command) can replay this rectangle as its implied window,
             // matching AutoCAD: a box pre-selection still stretches, it
             // doesn't just move.
             self.last_selection_window = Some((lo, hi, crossing));
         }
-        let n = self.selection.len() + self.selected_dimensions.len();
+        let n = self.selection.len()
+            + self.selected_dimensions.len()
+            + self.selected_hatches.len();
         self.note = if crossing {
             format!("Crossing: {n} selected")
         } else {
@@ -8899,6 +9361,7 @@ impl AadtApp {
         let crossing = e.x < s.x;
         let hits = box_select(self.session.document(), lo, hi, crossing);
         let dim_hits = dimension_box_select(self.session.document(), lo, hi, crossing);
+        let hatch_hits = hatch_box_select(self.session.document(), lo, hi, crossing);
         for id in hits {
             if !self.selection.contains(&id) {
                 self.selection.push(id);
@@ -8909,7 +9372,15 @@ impl AadtApp {
                 self.selected_dimensions.push(idx);
             }
         }
-        self.note = format!("{} object(s) — Space when done", self.selection.len());
+        for idx in hatch_hits {
+            if !self.selected_hatches.contains(&idx) {
+                self.selected_hatches.push(idx);
+            }
+        }
+        let n = self.selection.len()
+            + self.selected_dimensions.len()
+            + self.selected_hatches.len();
+        self.note = format!("{n} object(s) — Space when done");
     }
 }
 
@@ -9021,6 +9492,123 @@ fn pick_hatch(doc: &Document, p: Point2) -> Option<usize> {
         .rev()
         .find(|(_, h)| h.space == active && entity_pickable(doc, &h.layer) && hatch_contains(h, p))
         .map(|(i, _)| i)
+}
+
+/// Pick a hatch by interior **or** outer-edge proximity (so boundary clicks
+/// select the fill, not only the leftover polyline entity).
+fn pick_hatch_near(doc: &Document, p: Point2, tol: f64) -> Option<usize> {
+    if let Some(i) = pick_hatch(doc, p) {
+        return Some(i);
+    }
+    let active = doc.active_space();
+    let mut best: Option<(f64, usize)> = None;
+    for (i, h) in doc.hatches().iter().enumerate() {
+        if h.space != active || !entity_pickable(doc, &h.layer) {
+            continue;
+        }
+        let d = hatch_outer_distance(h, p);
+        if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, i));
+        }
+    }
+    best.map(|(_, i)| i)
+}
+
+fn hatch_outer_distance(h: &Hatch, p: Point2) -> f64 {
+    let mut best = f64::INFINITY;
+    for seg in h.outer().segments() {
+        best = best.min(seg.distance_to_point(p));
+    }
+    best
+}
+
+fn hatch_outer_matches_entity(g: &Geometry, h: &Hatch) -> bool {
+    let outer = h.outer();
+    match g {
+        Geometry::Polyline(pl) if pl.closed && pl.vertices.len() == outer.vertices.len() => {
+            pl.vertices
+                .iter()
+                .zip(outer.vertices.iter())
+                .all(|(a, b)| a.coincident(*b))
+                || {
+                    // Same ring, possibly rotated start vertex.
+                    let n = pl.vertices.len();
+                    (0..n).any(|off| {
+                        (0..n).all(|i| pl.vertices[i].coincident(outer.vertices[(i + off) % n]))
+                    })
+                }
+        }
+        Geometry::Circle(c) if outer.vertices.len() >= 8 => {
+            // Approximate: hatch from circle often becomes a dense polyline —
+            // treat as match when circle center is near hatch centroid and
+            // radius ≈ mean vertex distance.
+            let Some(cen) = outer.centroid() else {
+                return false;
+            };
+            if c.center.distance(cen) > c.radius * 0.15 {
+                return false;
+            }
+            let mean_r: f64 = outer
+                .vertices
+                .iter()
+                .map(|v| v.distance(c.center))
+                .sum::<f64>()
+                / outer.vertices.len() as f64;
+            (mean_r - c.radius).abs() <= c.radius * 0.08 + 1e-6
+        }
+        _ => false,
+    }
+}
+
+/// Hatches whose outer loop is fully inside (window) or intersects (crossing)
+/// the selection box.
+fn hatch_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<usize> {
+    let active = doc.active_space();
+    let win = aadt_geometry::Bbox {
+        min: lo,
+        max: hi,
+    };
+    let mut out = Vec::new();
+    for (i, h) in doc.hatches().iter().enumerate() {
+        if h.space != active || !entity_pickable(doc, &h.layer) {
+            continue;
+        }
+        let verts = &h.outer().vertices;
+        if verts.is_empty() {
+            continue;
+        }
+        let all_in = verts.iter().all(|p| win.contains_point(*p));
+        if !crossing {
+            if all_in {
+                out.push(i);
+            }
+            continue;
+        }
+        let any_in = verts.iter().any(|p| win.contains_point(*p));
+        let mid = Point2::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5);
+        let fill_hit = hatch_contains(h, mid);
+        let edge_hit = h.outer().segments().iter().any(|seg| {
+            let a = seg.a;
+            let b = seg.b;
+            let smin_x = a.x.min(b.x);
+            let smax_x = a.x.max(b.x);
+            let smin_y = a.y.min(b.y);
+            let smax_y = a.y.max(b.y);
+            smin_x <= hi.x
+                && smax_x >= lo.x
+                && smin_y <= hi.y
+                && smax_y >= lo.y
+                && (win.contains_point(a)
+                    || win.contains_point(b)
+                    || seg.distance_to_point(lo) <= (hi.x - lo.x).max(hi.y - lo.y)
+                    || seg.distance_to_point(hi) <= (hi.x - lo.x).max(hi.y - lo.y)
+                    || seg.distance_to_point(mid) <= (hi.x - lo.x).max(hi.y - lo.y))
+        });
+        if all_in || any_in || fill_hit || edge_hit {
+            out.push(i);
+        }
+    }
+    out
 }
 
 /// Point-in-hatch: inside the outer boundary and outside every island (hole).
@@ -9438,6 +10026,64 @@ fn grip_points(g: &Geometry) -> Vec<Point2> {
     }
 }
 
+/// Entity-aware grips: INSERTs get flip (1) and width (2) handles for Dynamic Elements.
+fn grip_points_for_entity(doc: &Document, e: &aadt_model::Entity) -> Vec<Point2> {
+    match &e.geometry {
+        Geometry::Insert(ins) => {
+            let w = insert_width_attr(doc, e).max(0.15);
+            let rad = ins.rotation.to_radians();
+            let (c, s) = (rad.cos(), rad.sin());
+            let flip = Point2::new(
+                ins.position.x - s * (w * 0.35),
+                ins.position.y + c * (w * 0.35),
+            );
+            let width_pt = Point2::new(
+                ins.position.x + c * w,
+                ins.position.y + s * w,
+            );
+            vec![ins.position, flip, width_pt]
+        }
+        other => grip_points(other),
+    }
+}
+
+fn insert_width_attr(doc: &Document, e: &aadt_model::Entity) -> f64 {
+    if let Some(w) = e
+        .attribute(aadt_model::BLOCK_WIDTH_PARAM)
+        .or_else(|| e.attribute("width"))
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|w| *w > 1e-9)
+    {
+        return w;
+    }
+    if let Geometry::Insert(ins) = &e.geometry {
+        if let Some(block) = doc.block(&ins.name) {
+            if let Some(p) = block
+                .params
+                .iter()
+                .find(|p| p.name.eq_ignore_ascii_case(aadt_model::BLOCK_WIDTH_PARAM))
+            {
+                if let Ok(w) = p.default.parse::<f64>() {
+                    if w > 1e-9 {
+                        return w;
+                    }
+                }
+            }
+        }
+    }
+    0.9
+}
+
+fn insert_width_from_point(doc: &Document, e: &aadt_model::Entity, p: Point2) -> f64 {
+    let Geometry::Insert(ins) = &e.geometry else {
+        return insert_width_attr(doc, e);
+    };
+    let rad = ins.rotation.to_radians();
+    let dir = aadt_geometry::Vec2::new(rad.cos(), rad.sin());
+    let along = (p - ins.position).dot(dir).abs();
+    along.max(0.05)
+}
+
 /// Circumcircle through three non-collinear points.
 /// Center of a circle of radius `r` tangent to both infinite lines `l1`,`l2`
 /// (AutoCAD CIRCLE TTR). Each line offset by ±r gives four candidate centers;
@@ -9824,7 +10470,7 @@ fn paint_selection(
             draw_geometry(painter, rect, camera, &g, egui::Stroke::new(core_w, hi), hi);
         }
 
-        for gp in grip_points(&e.geometry) {
+        for gp in grip_points_for_entity(doc, e) {
             let c = world_to_screen(camera, rect, gp);
             let s = if active { 4.0 } else { 3.5 };
             let r = egui::Rect::from_center_size(c, egui::vec2(s * 2.0, s * 2.0));
@@ -10435,14 +11081,35 @@ fn paint_preview(
         Tool::Insert { name } => {
             paint_insert_ghost(painter, rect, camera, doc, name, cursor, stroke);
         }
-        Tool::PlaceElem { kind } => {
-            paint_insert_ghost(
+        Tool::PlaceElem { kind, step } => {
+            let (pos, rot, flip) = match *step {
+                PlaceStep::Swing {
+                    hinge,
+                    angle_deg,
+                    flip,
+                    ..
+                } => (hinge, angle_deg, flip),
+                PlaceStep::OnWall { wall_a, wall_b } => {
+                    let width = aadt_command::opening_width_for_block(doc, kind.block_name());
+                    if let Ok(pair) = aadt_command::face_pair_from_ids(doc, wall_a, wall_b) {
+                        let (p, a) =
+                            aadt_command::place_opening_pose_on_pair(doc, &pair, cursor, width);
+                        (p, a, false)
+                    } else {
+                        (cursor, 0.0, false)
+                    }
+                }
+                _ => (cursor, 0.0, false),
+            };
+            paint_insert_ghost_oriented(
                 painter,
                 rect,
                 camera,
                 doc,
                 kind.block_name(),
-                cursor,
+                pos,
+                rot,
+                flip,
                 stroke,
             );
         }
@@ -10821,10 +11488,26 @@ fn paint_insert_ghost(
     cursor: Point2,
     stroke: egui::Stroke,
 ) {
+    paint_insert_ghost_oriented(painter, rect, camera, doc, name, cursor, 0.0, false, stroke);
+}
+
+/// Oriented ghost (door/window on wall) with optional swing flip (`scale_y = -1`).
+fn paint_insert_ghost_oriented(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &Camera,
+    doc: &Document,
+    name: &str,
+    cursor: Point2,
+    rotation_deg: f64,
+    swing_flip: bool,
+    stroke: egui::Stroke,
+) {
     let color = theme::canvas::selection_stroke();
     match doc.block(name) {
         Some(block) => {
-            let ins = aadt_model::Insert::new(name, cursor, 0.0);
+            let sy = if swing_flip { -1.0 } else { 1.0 };
+            let ins = aadt_model::Insert::new(name, cursor, rotation_deg).with_scale(1.0, sy);
             let mut n = 0usize;
             for be in &block.entities {
                 if n >= 48 {

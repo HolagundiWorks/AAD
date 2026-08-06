@@ -19,7 +19,7 @@ Code owners:
 - Space engine — `crates/aadt-app/src/command_engine.rs`
 - Click tools / dyn input — `crates/aadt-app/src/gui.rs`
 - Object snaps / overrides — `crates/aadt-app/src/osnap.rs`
-- Region selection (fence / polygon / lasso) — `crates/aadt-app/src/selection.rs` + Select drag in `gui.rs`
+- Region selection (fence / WP / CP) — `crates/aadt-app/src/selection.rs` + `Tool::RegionSelect` in `gui.rs` (Select drag is box-only; no free-drag lasso)
 - Panel docking / chrome — `crates/aadt-app/src/gui_chrome.rs`, `prefs.rs`
 - Headless commands — `crates/aadt-command`
 - Assist / retrieval commands — `crates/aadt-assist`, wired in `crates/aadt-cli/src/commands.rs`

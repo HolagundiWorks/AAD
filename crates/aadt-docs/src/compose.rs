@@ -131,6 +131,9 @@ pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingA
         }
         let mut ids = Vec::new();
         for e in model.entities() {
+            if !model.layer_shown(&e.layer) {
+                continue;
+            }
             ids.push(d.add_entity(
                 e.layer.clone(),
                 transform(&e.geometry, &map, scale),
@@ -138,6 +141,9 @@ pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingA
             ));
         }
         for h in model.hatches() {
+            if !model.layer_shown(&h.layer) {
+                continue;
+            }
             let mut boundaries = Vec::new();
             for b in &h.boundaries {
                 boundaries.push(Polyline::new(
@@ -147,6 +153,7 @@ pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingA
             }
             if let Some(outer) = boundaries.first().cloned() {
                 let mut hatch = aadt_model::Hatch::new(h.layer.clone(), outer, h.pattern.clone());
+                hatch.fill_kind = h.fill_kind;
                 for island in boundaries.into_iter().skip(1) {
                     hatch.push_island(island);
                 }
@@ -154,6 +161,9 @@ pub fn place_drawing(sheet_doc: &mut Document, model: &Document, area: &DrawingA
             }
         }
         for dim in model.dimensions() {
+            if !model.layer_shown(&dim.layer) {
+                continue;
+            }
             let mut nd = dim.clone();
             nd.p1 = map(dim.p1);
             nd.p2 = map(dim.p2);

@@ -82,7 +82,7 @@ SpatialGrid-assisted stretch windows — Vol 13), not new command families.
 | Topic | Gap |
 |-------|-----|
 | Firm / HCW modify helpers | Often line-only, no `Tool` |
-| TRIM freehand | Uses `drag_path`; Select lasso is separate concern |
+| TRIM freehand | Uses `drag_path`; Select drag is box-only (no lasso) |
 | MATCHPROP | essentials; ensure catalog/engine parity when exposing in UI |
 
 ## Data structures

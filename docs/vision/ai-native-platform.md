@@ -167,14 +167,17 @@ previous state, new state, AI suggestion, approval, reason.
 
 ## Plugin Architecture
 
-**Core:** geometry, rendering, database, AI.
-**Plugins:** ERP, estimating, scheduling, document management, reports —
-everything else.
+**Core:** geometry, rendering, database, AI assist (propose-only).
+**Plugins:** ERP, estimating, document management, reports — registered as
+**commands** over the local API (`CONNECTOR …`, M14.4 / ADR-0016), not as a
+second write path into the document.
 
 ## API Philosophy
 
-Everything available inside the UI shall also be available through APIs:
-REST · gRPC · local SDK (Python, C++, .NET, JavaScript). **Automation first.**
+Everything available inside the UI shall also be available through the local
+command-line API (`aadt serve` / `POST /v1/command` — ADR-0015). Long-term
+vision still allows additional SDKs; they must compose command strings rather
+than mutate entities directly. **Automation first, one author of geometry.**
 
 ## Future AI Vision
 

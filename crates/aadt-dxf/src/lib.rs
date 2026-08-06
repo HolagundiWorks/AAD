@@ -9,6 +9,8 @@
 //!   linear-aligned `DIMENSION` annotation.
 //! - **Export:** the `BLOCKS` section, then `LINE`, `LWPOLYLINE`, `CIRCLE`,
 //!   `ARC`, `TEXT`, `INSERT` (+`ATTRIB`), `HATCH`, and `DIMENSION`.
+//!   Raster `IMAGE` / `IMAGEDEF` go through acadrust when `export_path` sees
+//!   images (handles + OBJECTS section).
 //!
 //! Coordinates use Rust's shortest round-trip float formatting and insert
 //! attributes are written in sorted key order, so an import → export → import cycle
@@ -18,11 +20,11 @@
 //! the linear/aligned subset on DXF (model supports more kinds). Nested
 //! `INSERT`s inside block definitions are imported as [`Geometry::Insert`].
 //! **DWG** read/write uses the open-source [`acadrust`] crate for a best-effort
-//! 2D entity subset (hatches/dims skipped on DWG export).
+//! 2D entity subset (hatches/dims skipped on DWG export; images use IMAGEDEF).
 
 mod dwg;
 
-pub use dwg::{export_dwg_path, import_dwg_path};
+pub use dwg::{export_dwg_path, import_dwg_path, to_cad_document};
 
 use std::collections::HashMap;
 use std::fmt;
@@ -927,10 +929,12 @@ fn write_geometry(
                 out.push_str("0\nSEQEND\n");
             }
         }
-        // Raster IMAGE is not written; emit the footprint as a closed LwPolyline.
+        // Raster IMAGE: `export_path` routes drawings with images through
+        // acadrust (IMAGEDEF). Direct `export_str` still emits a footprint so
+        // the hand-rolled path stays handle-free.
         Geometry::Image(img) => {
             eprintln!(
-                "aadt-dxf: exporting IMAGE '{}' as LwPolyline rectangle footprint (raster not written)",
+                "aadt-dxf: export_str footprint for IMAGE '{}' — use export_path for IMAGEDEF",
                 img.path
             );
             let corners = img.corners();
@@ -948,6 +952,12 @@ fn write_geometry(
 
 /// Write a document to disk. Paths ending in `.dwg` use best-effort DWG export;
 /// all other extensions write ASCII DXF.
+///
+/// When the drawing contains raster images, DXF is written through acadrust so
+/// `IMAGE` / `IMAGEDEF` / `OBJECTS` are valid (hand-rolled DXF has no handles).
+/// In that path hatches/dims still come from the hand-rolled writer only when
+/// there are **no** images — drawings with both images and hatches should keep
+/// `.aadt` as canonical or export DWG for images + DXF for annotation separately.
 pub fn export_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), DxfError> {
     let path = path.as_ref();
     let is_dwg = path
@@ -956,11 +966,43 @@ pub fn export_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), DxfErro
         .map(|e| e.eq_ignore_ascii_case("dwg"))
         .unwrap_or(false);
     if is_dwg {
-        dwg::export_dwg_path(doc, path)
+        let warnings = dwg::export_dwg_path(doc, path)?;
+        if !warnings.is_empty() {
+            eprintln!("aadt-dxf DWG export:\n  {}", warnings.join("\n  "));
+        }
+        Ok(())
+    } else if doc_has_raster_image(doc) {
+        let (cad, mut warnings) = dwg::to_cad_document(doc)?;
+        let n_h = doc.hatches().len();
+        let n_d = doc.dimensions().len();
+        if n_h > 0 || n_d > 0 {
+            warnings.push(format!(
+                "DXF+IMAGEDEF path skipped {n_h} hatch(es) and {n_d} dimension(s) — re-export without images or use .aadt"
+            ));
+        }
+        let data = acadrust::io::dxf::DxfWriter::new(&cad)
+            .write_to_vec()
+            .map_err(|e| DxfError::Parse(format!("DXF IMAGEDEF write: {e}")))?;
+        std::fs::write(path, data).map_err(DxfError::Io)?;
+        if !warnings.is_empty() {
+            eprintln!("aadt-dxf DXF export:\n  {}", warnings.join("\n  "));
+        }
+        Ok(())
     } else {
-        std::fs::write(path, export_str(doc))?;
+        std::fs::write(path, export_str(doc)).map_err(DxfError::Io)?;
         Ok(())
     }
+}
+
+fn doc_has_raster_image(doc: &Document) -> bool {
+    doc.entities()
+        .iter()
+        .any(|e| matches!(e.geometry, Geometry::Image(_)))
+        || doc.blocks().iter().any(|b| {
+            b.entities
+                .iter()
+                .any(|be| matches!(be.geometry, Geometry::Image(_)))
+        })
 }
 
 #[cfg(test)]

@@ -181,7 +181,7 @@ impl Insert {
 /// A raster image placed in model space (presentation furniture, logos, …).
 ///
 /// Path is project-relative or absolute; width/height are in model units.
-/// On DWG export without IMAGEDEF support, a rectangle footprint is written.
+/// DWG/DXF export writes AutoCAD `IMAGE` + `IMAGEDEF` (via acadrust).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImageRef {
     /// Filesystem path to PNG/JPEG/WebP (preferably project-relative).

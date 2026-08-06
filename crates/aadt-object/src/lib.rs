@@ -20,8 +20,8 @@ use std::collections::BTreeMap;
 use aadt_model::EntityId;
 
 pub use perms::{
-    allows_object, clear_object_acl, command_capability, list_object_acl, object_acl, set_object_acl,
-    Capability, CapabilitySet, ObjectAccess, Principal, Role,
+    allows_object, command_capability, list_object_acl, object_acl, set_object_acl, Capability,
+    CapabilitySet, ObjectAccess, Principal, Role,
 };
 
 /// Stable id of an engineering object within a drawing's object store.

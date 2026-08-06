@@ -46,7 +46,7 @@ consume that model.
 | AI service layer (M12, ADR-0013) | `aadt-assist` |
 | Quantity takeoff / BOQ (M13) | `aadt-takeoff` |
 | Application shell | `aadt-app`, `aadt-cli`, `aadt-ffi` |
-| Local API (M14, ADR-0015) | `aadt-api` — HTTP/JSON over `Session`; reads project it, `POST /v1/command` is the one write path |
+| Local API + enterprise (M14, ADR-0015/0016) | `aadt-api` — HTTP/JSON over `Session`; command-line write door; `PERMS` / `CONNECTOR` / `SITE` |
 
 ## Data flow
 

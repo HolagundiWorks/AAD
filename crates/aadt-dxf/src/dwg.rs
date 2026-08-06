@@ -1,18 +1,21 @@
 //! DWG import/export via open-source [`acadrust`] (MPL-2.0). See ADR-0002.
 
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 
 use aadt_geometry::{Arc, Circle, Point2, Polyline, Segment};
-use aadt_model::{Block, Dimension, DimensionKind, Document, Geometry, Hatch, Insert, Layer, Text};
+use aadt_model::{
+    Block, Dimension, DimensionKind, Document, Geometry, Hatch, ImageRef, Insert, Layer, Text,
+};
 use acadrust::entities::{
     Arc as AcadArc, Circle as AcadCircle, EntityCommon, EntityType, Insert as AcadInsert,
-    Line as AcadLine, LwPolyline, Text as AcadText,
+    Line as AcadLine, LwPolyline, RasterImage, Text as AcadText,
 };
 use acadrust::io::dwg::{DwgReader, DwgWriter};
+use acadrust::objects::{Dictionary, ImageDefinition, ImageDefinitionReactor, ObjectType};
 use acadrust::tables::{BlockRecord, Layer as AcadLayer, TableEntry};
 use acadrust::types::{Color, Handle, LineWeight, Vector2, Vector3};
 use acadrust::{CadDocument, Entity};
-use std::collections::BTreeSet;
 
 use crate::DxfError;
 
@@ -25,11 +28,23 @@ pub fn import_dwg_path(path: impl AsRef<Path>) -> Result<Document, DxfError> {
 
 /// Write a [`Document`] to a DWG file (best-effort 2D subset).
 ///
-/// Hatches, dimensions, and inserts whose block is missing are skipped; a
-/// diagnostic tag is written into drawing comments when anything is skipped.
-pub fn export_dwg_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), DxfError> {
-    let cad = to_cad_document(doc)?;
-    DwgWriter::write_to_file(path.as_ref(), &cad).map_err(map_acad)
+/// Raster images are written as AutoCAD `IMAGE` + `IMAGEDEF` (+ reactor).
+/// Hatches and dimensions are not written (open-source DWG subset). Returns
+/// human-readable fidelity warnings.
+///
+/// Inserts whose block is missing are skipped with a warning.
+pub fn export_dwg_path(doc: &Document, path: impl AsRef<Path>) -> Result<Vec<String>, DxfError> {
+    let (cad, warnings) = to_cad_document(doc)?;
+    DwgWriter::write_to_file(path.as_ref(), &cad).map_err(map_acad)?;
+    Ok(warnings)
+}
+
+/// Build an [`acadrust::CadDocument`] from an AADT [`Document`].
+///
+/// Used by DWG export and by DXF export when raster images need a real
+/// `IMAGEDEF` / `OBJECTS` section (hand-rolled ASCII DXF has no handles).
+pub fn to_cad_document(doc: &Document) -> Result<(CadDocument, Vec<String>), DxfError> {
+    to_cad_document_inner(doc)
 }
 
 fn map_acad(e: acadrust::DxfError) -> DxfError {
@@ -94,7 +109,7 @@ fn from_cad_document(cad: &CadDocument) -> Document {
             let Some(ent) = cad.get_entity(*h) else {
                 continue;
             };
-            match convert_entity(ent) {
+            match convert_entity(cad, ent) {
                 Some((layer, geom)) => block.push(layer, geom),
                 None => skipped += 1,
             }
@@ -142,7 +157,7 @@ fn from_cad_document(cad: &CadDocument) -> Document {
         if !is_model_space_entity(cad, ent) {
             continue;
         }
-        match convert_entity(ent) {
+        match convert_entity(cad, ent) {
             Some((layer, geom)) => {
                 ensure_layer(&mut doc, &layer);
                 doc.add_geometry(layer, geom);
@@ -197,11 +212,14 @@ fn to_cad_layer(doc: &Document, name: &str) -> AcadLayer {
     al
 }
 
-fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
+fn to_cad_document_inner(doc: &Document) -> Result<(CadDocument, Vec<String>), DxfError> {
     let mut cad = CadDocument::new();
+    let mut warnings: Vec<String> = Vec::new();
     let mut skipped = 0usize;
     // Layers referenced by the entities we actually export; "0" always exists.
     let mut used: BTreeSet<String> = BTreeSet::new();
+    // path → (definition handle, pixel width, pixel height)
+    let mut image_defs: HashMap<String, (Handle, u32, u32)> = HashMap::new();
 
     // Named block definitions first so INSERT references resolve.
     for block in doc.blocks() {
@@ -216,9 +234,30 @@ fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
         let br_handle = br.handle;
         if cad.block_records.add(br).is_err() {
             skipped += 1;
+            warnings.push(format!("skipped block def '{}'", block.name));
             continue;
         }
         for be in &block.entities {
+            if let Geometry::Image(img) = &be.geometry {
+                match add_image_to_cad(
+                    &mut cad,
+                    &be.layer,
+                    img,
+                    br_handle,
+                    &mut image_defs,
+                    &mut warnings,
+                ) {
+                    Ok(()) => {
+                        used.insert(if be.layer.is_empty() {
+                            "0".to_string()
+                        } else {
+                            be.layer.clone()
+                        });
+                    }
+                    Err(()) => skipped += 1,
+                }
+                continue;
+            }
             let Some(mut ent) = geometry_to_entity(&be.layer, &be.geometry) else {
                 skipped += 1;
                 continue;
@@ -240,13 +279,35 @@ fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
         // Skip inserts whose block definition is missing (silent when possible).
         if let Geometry::Insert(ins) = &e.geometry {
             if doc.block(&ins.name).is_none() {
-                eprintln!(
-                    "aadt-dxf: skipping INSERT '{}' — block definition missing",
+                let msg = format!(
+                    "skipped INSERT '{}' — block definition missing",
                     ins.name
                 );
+                eprintln!("aadt-dxf: {msg}");
+                warnings.push(msg);
                 skipped += 1;
                 continue;
             }
+        }
+        if let Geometry::Image(img) = &e.geometry {
+            match add_image_to_cad(
+                &mut cad,
+                &e.layer,
+                img,
+                Handle::NULL, // model space via add_entity default
+                &mut image_defs,
+                &mut warnings,
+            ) {
+                Ok(()) => {
+                    used.insert(if e.layer.is_empty() {
+                        "0".to_string()
+                    } else {
+                        e.layer.clone()
+                    });
+                }
+                Err(()) => skipped += 1,
+            }
+            continue;
         }
         let g = match &e.geometry {
             Geometry::Insert(ins) => {
@@ -293,11 +354,155 @@ fn to_cad_document(doc: &Document) -> Result<CadDocument, DxfError> {
         cad.layers.add_or_replace(al);
     }
     // Annotation tables are not mapped to DWG in this subset.
-    skipped += doc.hatches().len() + doc.dimensions().len();
-    if skipped > 0 {
-        let _ = skipped;
+    let n_h = doc.hatches().len();
+    let n_d = doc.dimensions().len();
+    skipped += n_h + n_d;
+    if n_h > 0 {
+        warnings.push(format!(
+            "skipped {n_h} hatch(es) — not written to DWG (use DXF or .aadt)"
+        ));
     }
-    Ok(cad)
+    if n_d > 0 {
+        warnings.push(format!(
+            "skipped {n_d} dimension(s) — not written to DWG (use DXF or .aadt)"
+        ));
+    }
+    if skipped > 0 && warnings.is_empty() {
+        warnings.push(format!("DWG export skipped {skipped} item(s)"));
+    }
+    warnings.sort();
+    warnings.dedup();
+    Ok((cad, warnings))
+}
+
+/// Probe raster pixel size; fall back to a 1024-wide estimate from world aspect.
+fn image_pixel_size(path: &str, world_w: f64, world_h: f64) -> (u32, u32) {
+    if let Ok((w, h)) = image::image_dimensions(Path::new(path)) {
+        return (w.max(1), h.max(1));
+    }
+    let aspect = (world_w / world_h.max(1e-9)).abs().max(1e-6);
+    let w = 1024u32;
+    let h = ((w as f64 / aspect).round() as u32).max(1);
+    (w, h)
+}
+
+fn ensure_acad_image_dict(cad: &mut CadDocument) -> Handle {
+    let root_h = cad.header.named_objects_dict_handle;
+    if let Some(ObjectType::Dictionary(root)) = cad.objects.get(&root_h) {
+        if let Some(h) = root.get("ACAD_IMAGE_DICT") {
+            return h;
+        }
+    }
+    let img_dict_h = cad.allocate_handle();
+    let mut img_dict = Dictionary::new();
+    img_dict.handle = img_dict_h;
+    img_dict.owner = root_h;
+    cad.objects
+        .insert(img_dict_h, ObjectType::Dictionary(img_dict));
+    if let Some(ObjectType::Dictionary(root)) = cad.objects.get_mut(&root_h) {
+        root.add_entry("ACAD_IMAGE_DICT", img_dict_h);
+    }
+    img_dict_h
+}
+
+fn ensure_image_definition(
+    cad: &mut CadDocument,
+    path: &str,
+    world_w: f64,
+    world_h: f64,
+    defs: &mut HashMap<String, (Handle, u32, u32)>,
+    warnings: &mut Vec<String>,
+) -> (Handle, u32, u32) {
+    if let Some(&(h, pw, ph)) = defs.get(path) {
+        return (h, pw, ph);
+    }
+    let (px_w, px_h) = image_pixel_size(path, world_w, world_h);
+    if !Path::new(path).is_file() {
+        warnings.push(format!(
+            "IMAGEDEF '{path}' — file not found beside export; AutoCAD may show a blank frame"
+        ));
+    }
+    let img_dict_h = ensure_acad_image_dict(cad);
+    let def_h = cad.allocate_handle();
+    let pixel_w = world_w / px_w as f64;
+    let pixel_h = world_h / px_h as f64;
+    let mut def = ImageDefinition::with_dimensions(path, px_w, px_h)
+        .with_pixel_size(pixel_w, pixel_h)
+        .loaded();
+    def.handle = def_h;
+    def.owner = img_dict_h;
+    // Unique dictionary key (file stem, uniquified).
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("IMAGE");
+    let mut key = stem.to_string();
+    let mut n = 1u32;
+    if let Some(ObjectType::Dictionary(dict)) = cad.objects.get(&img_dict_h) {
+        while dict.get(&key).is_some() {
+            n += 1;
+            key = format!("{stem}_{n}");
+        }
+    }
+    if let Some(ObjectType::Dictionary(dict)) = cad.objects.get_mut(&img_dict_h) {
+        dict.add_entry(key, def_h);
+    }
+    cad.objects
+        .insert(def_h, ObjectType::ImageDefinition(def));
+    defs.insert(path.to_string(), (def_h, px_w, px_h));
+    (def_h, px_w, px_h)
+}
+
+fn add_image_to_cad(
+    cad: &mut CadDocument,
+    layer: &str,
+    img: &ImageRef,
+    owner: Handle,
+    defs: &mut HashMap<String, (Handle, u32, u32)>,
+    warnings: &mut Vec<String>,
+) -> Result<(), ()> {
+    if img.path.trim().is_empty() || img.width <= 0.0 || img.height <= 0.0 {
+        return Err(());
+    }
+    let (def_h, px_w, px_h) =
+        ensure_image_definition(cad, &img.path, img.width, img.height, defs, warnings);
+    let mut ri = RasterImage::with_size(
+        &img.path,
+        Vector3::new(img.position.x, img.position.y, 0.0),
+        px_w as f64,
+        px_h as f64,
+        img.width,
+        img.height,
+    );
+    if img.rotation.abs() > 1e-12 {
+        ri.rotate(img.rotation.to_radians());
+    }
+    if img.opacity < 0.999 {
+        ri.set_transparent(true);
+        ri.fade = ((1.0 - img.opacity as f64) * 100.0)
+            .round()
+            .clamp(0.0, 100.0) as u8;
+    }
+    ri.common = with_layer(EntityCommon::new(), layer);
+    if !owner.is_null() {
+        ri.common.owner_handle = owner;
+    }
+    ri.definition_handle = Some(def_h);
+
+    let ent_h = cad
+        .add_entity(EntityType::RasterImage(ri))
+        .map_err(|_| ())?;
+
+    let mut reactor = ImageDefinitionReactor::new(ent_h);
+    reactor.handle = cad.allocate_handle();
+    reactor.owner = def_h;
+    let reactor_h = reactor.handle;
+    cad.objects
+        .insert(reactor_h, ObjectType::ImageDefinitionReactor(reactor));
+    if let Some(EntityType::RasterImage(ri)) = cad.get_entity_mut(ent_h) {
+        ri.definition_reactor_handle = Some(reactor_h);
+    }
+    Ok(())
 }
 
 fn geometry_to_entity(layer: &str, g: &Geometry) -> Option<EntityType> {
@@ -356,26 +561,12 @@ fn geometry_to_entity(layer: &str, g: &Geometry) -> Option<EntityType> {
             insert.common = with_layer(EntityCommon::new(), layer);
             Some(EntityType::Insert(insert))
         }
-        // Raster IMAGE is not written to DWG; emit the footprint as LwPolyline.
-        Geometry::Image(img) => {
-            eprintln!(
-                "aadt-dxf: exporting IMAGE '{}' as LwPolyline rectangle footprint (raster not written)",
-                img.path
-            );
-            let pts: Vec<Vector2> = img
-                .corners()
-                .iter()
-                .map(|v| Vector2::new(v.x, v.y))
-                .collect();
-            let mut pl = LwPolyline::from_points(pts);
-            pl.is_closed = true;
-            pl.common = with_layer(EntityCommon::new(), layer);
-            Some(EntityType::LwPolyline(pl))
-        }
+        // Images are registered via IMAGEDEF in `add_image_to_cad`.
+        Geometry::Image(_) => None,
     }
 }
 
-fn convert_entity(ent: &EntityType) -> Option<(String, Geometry)> {
+fn convert_entity(cad: &CadDocument, ent: &EntityType) -> Option<(String, Geometry)> {
     match ent {
         EntityType::Line(l) => Some((
             layer_name(&l.common),
@@ -475,6 +666,36 @@ fn convert_entity(ent: &EntityType) -> Option<(String, Geometry)> {
                 .with_scale(i.x_scale(), i.y_scale()),
             ),
         )),
+        EntityType::RasterImage(img) => {
+            let mut path = img.file_path.clone();
+            if path.is_empty() {
+                if let Some(h) = img.definition_handle {
+                    if let Some(ObjectType::ImageDefinition(def)) = cad.objects.get(&h) {
+                        path = def.file_name.clone();
+                    }
+                }
+            }
+            if path.is_empty() {
+                return None;
+            }
+            let w = img.width().abs().max(1e-9);
+            let h = img.height().abs().max(1e-9);
+            let rot = img.u_vector.y.atan2(img.u_vector.x).to_degrees();
+            let opacity = (1.0 - img.fade as f32 / 100.0).clamp(0.0, 1.0);
+            Some((
+                layer_name(&img.common),
+                Geometry::Image(
+                    ImageRef::new(
+                        path,
+                        Point2::new(img.insertion_point.x, img.insertion_point.y),
+                        w,
+                        h,
+                    )
+                    .with_rotation(rot)
+                    .with_opacity(opacity),
+                ),
+            ))
+        }
         EntityType::XLine(x) => {
             // Approximate infinite construction line as a long segment.
             let len = 1.0e4;
@@ -545,7 +766,7 @@ fn explode_named_block(
         let Some(ent) = cad.get_entity(*h) else {
             continue;
         };
-        if let Some((layer, geom)) = convert_entity(ent) {
+        if let Some((layer, geom)) = convert_entity(cad, ent) {
             let layer = if layer.is_empty() {
                 fallback_layer.to_string()
             } else {
@@ -812,7 +1033,7 @@ mod tests {
     fn converts_line_entity() {
         let mut line = AcadLine::from_coords(0.0, 0.0, 0.0, 10.0, 0.0, 0.0);
         line.common = EntityCommon::with_layer("A-WALL");
-        let (layer, geom) = convert_entity(&EntityType::Line(line)).unwrap();
+        let (layer, geom) = convert_entity(&CadDocument::new(), &EntityType::Line(line)).unwrap();
         assert_eq!(layer, "A-WALL");
         match geom {
             Geometry::Line(s) => {
@@ -841,7 +1062,7 @@ mod tests {
         // Build the CAD document directly and assert the LAYER table is populated
         // (the bug was: entities referenced a layer that had no table record, so
         // the writer emitted a null layer handle).
-        let cad = to_cad_document(&doc).expect("to cad");
+        let (cad, _warnings) = to_cad_document(&doc).expect("to cad");
         let al = cad
             .layers
             .get("ZZ-CUSTOM")
@@ -931,5 +1152,66 @@ mod tests {
         let back = crate::import_path_report(&path).expect("import with spaces in path");
         let _ = std::fs::remove_file(&path);
         assert_eq!(back.document.len(), 1);
+    }
+
+    #[test]
+    fn image_exports_as_imagedef_not_footprint() {
+        let dir = std::env::temp_dir().join("aadt-dwg-image");
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("chair.png");
+        // Minimal 1×1 PNG (black pixel).
+        let png_bytes: &[u8] = &[
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xFE,
+            0xD4, 0xEF, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        std::fs::write(&png, png_bytes).unwrap();
+
+        let mut doc = Document::new();
+        doc.add_layer(Layer::new("A-FURN-PRES"));
+        doc.add_geometry(
+            "A-FURN-PRES",
+            Geometry::Image(ImageRef::new(
+                png.to_string_lossy(),
+                Point2::new(1.0, 2.0),
+                0.9,
+                0.6,
+            )),
+        );
+
+        let (cad, warnings) = to_cad_document(&doc).expect("to cad");
+        assert!(
+            !warnings.iter().any(|w| w.contains("footprint")),
+            "must not degrade to footprint: {warnings:?}"
+        );
+        let n_img = cad
+            .entities()
+            .filter(|e| matches!(e, EntityType::RasterImage(_)))
+            .count();
+        assert_eq!(n_img, 1, "expected one RasterImage entity");
+        let n_def = cad
+            .objects
+            .values()
+            .filter(|o| matches!(o, ObjectType::ImageDefinition(_)))
+            .count();
+        assert_eq!(n_def, 1, "expected one IMAGEDEF object");
+
+        let dwg = dir.join("with-image.dwg");
+        export_dwg_path(&doc, &dwg).expect("export dwg");
+        let back = import_dwg_path(&dwg).expect("re-import");
+        let _ = std::fs::remove_file(&dwg);
+        let img = back
+            .entities()
+            .iter()
+            .find_map(|e| match &e.geometry {
+                Geometry::Image(i) => Some(i),
+                _ => None,
+            })
+            .expect("image survived round-trip");
+        assert!((img.width - 0.9).abs() < 1e-6);
+        assert!((img.height - 0.6).abs() < 1e-6);
+        assert!((img.position.x - 1.0).abs() < 1e-6);
     }
 }

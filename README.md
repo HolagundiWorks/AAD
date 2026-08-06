@@ -50,9 +50,9 @@ takeoff (`TAKEOFF` / `BOQ`). See
 
 **Local API (`aadt serve`).** A loopback-only, token-gated HTTP/JSON server over
 a live session, off unless you start it. Reads project the drawing; the one
-write path is `POST /v1/command`, which runs the same line you would type — so a
-script inherits the same validation, undo, and history as a person drafting. See
-the [endpoint reference](docs/api/README.md).
+write path is `POST /v1/command`. Optional `--identity` / `--role` for M14
+permissions; `PERMS`, `CONNECTOR`, and `SITE` ride the same command door. See
+the [endpoint reference](docs/api/README.md) and [ADR-0016](docs/adr/0016-m14-enterprise.md).
 
 ```sh
 # Drive AAD with a command script

@@ -8,7 +8,7 @@
 
 > **What changed since the July audit.** Every gap this audit opened was
 > scheduled as ROADMAP **M9** and has now shipped (M9.1 osnap overrides, M9.2
-> fence/polygon/lasso, M9.3 multi-mode grips, M9.4 auto-type `DIM`, M9.5 live
+> fence/polygon (`WP`/`CP`/`FENCE`), M9.3 multi-mode grips, M9.4 auto-type `DIM`, M9.5 live
 > hatch preview, M9.6 docking, M9.7 capability contract, M9.8 QA harness, M9.9
 > perf telemetry). Section findings below are current; the original gap text is
 > preserved only where it explains *why* the work was scoped that way.
@@ -76,7 +76,7 @@ Performance (§31) is now **measurable**: F7 toggles a frame-time HUD graded aga
 ✅ **Conforms.** Middle-drag pan, wheel zoom, left-click select, right-click = "same as Space"/context (configurable per header comment: "Right-click confirms like empty Space"). Double-click edit → verify (see §25).
 
 ### §12 Selection Workflow
-✅ **Conforms (M9.2).** Window (L→R) and Crossing (R→L) plus **Fence, WPolygon/CPolygon, and free-drag Lasso**. Region selection is headless and unit-tested in [`selection.rs`](../../crates/aadt-app/src/selection.rs); the GUI adds `WP`/`CP`/`FENCE` tools (click corners → Space) and turns a curved Select drag into a lasso (window L→R / crossing R→L), while a straight drag stays a box. See [engineering Vol 6](../engineering/vol-06-selection-engine.md).
+✅ **Conforms (M9.2).** Window (L→R) and Crossing (R→L) plus **Fence, WPolygon/CPolygon**. Region selection is headless and unit-tested in [`selection.rs`](../../crates/aadt-app/src/selection.rs); the GUI adds `WP`/`CP`/`FENCE` tools (click corners → Space). Select drag is **box only** — free-drag lasso is not shipped. See [engineering Vol 6](../engineering/vol-06-selection-engine.md).
 
 ### §13 Smart Selection (hover preview, exposed points)
 ✅ **Conforms (M9.1/M9.5).** Snap-point preview on hover (`snap_hit`, rubber-band) now covers the full snap set including quadrant and intersection markers; HATCH shows a live boundary preview under the cursor. Pre-click highlight of the entity a click would pick is exposed through the same hover path.

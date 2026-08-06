@@ -26,6 +26,15 @@
       "path": "elements/furniture/sofa-png.png",
       "default_layer": "A-FURN-PRES",
       "default_width": 2.0
+    },
+    {
+      "name": "DOOR-SINGLE",
+      "display_name": "Door single (dynamic flip/width)",
+      "category": "doors",
+      "kind": "dynamic",
+      "path": "",
+      "default_layer": "A-DOOR",
+      "default_width": 0.9
     }
   ]
 }

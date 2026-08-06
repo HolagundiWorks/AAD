@@ -63,8 +63,9 @@ Tracked as [ROADMAP M11](../ROADMAP.md#m11--ai-native-phase-2-semantic-search--l
 3. **External corpus (RAG seed):** ✅ `ASKDOCS INDEX <path>` chunks a text
    document per paragraph; `ASKDOCS <question>` returns passages with source and
    paragraph number. Ranking is **BM25** over word tokens with an n-gram cosine
-   fallback. Local-only. PDF ingestion via `aadt-pdf` is still open — today the
-   corpus takes plain text/Markdown.
+   fallback. Local-only. Site photos/PDFs can also be indexed as text chunks
+   via `SITE INDEX` / `ASKDOCS INDEX PHOTO|PDF|REPORT` (M14.5 — captions + PDF
+   literal extract; OCR still out of scope).
 4. **Perf:** open. Corpus search is O(n·|q|) per query and duplicate detection is
    O(n²); both are fine at drawing scale but neither is the ANN index the
    `<100 ms` on 100k+ vectors gate will need.

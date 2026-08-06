@@ -46,7 +46,8 @@ fully headless-verifiable — see [Vol 14](docs/engineering/vol-14-testing.md).
 
 - Closing a handbook gap? Update [STATUS.md](docs/engineering/STATUS.md) in the same PR.
 - Durable locks? Add or amend an ADR.
-- Do not claim features the code does not have (see Select lasso correction in Vol 6 / ROADMAP M9.2).
+- Do not claim features the code does not have (free-drag Select lasso is not
+  shipped — Vol 6 / ROADMAP M9.2; use WP/CP/FENCE for polygon regions).
 
 ## License
 
