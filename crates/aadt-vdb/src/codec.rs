@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, HashMap};
 use aadt_geometry::{Arc, Circle, Polyline, Segment};
 use aadt_model::{
     Block, BlockParam, BlockParamKind, Dimension, DimensionKind, Document, DrawingProperties,
-    Entity, EntityId, Floor, Geometry, Hatch, ImageRef, Insert, Layer, LevelId, LineType, ModelSpace,
-    ModelSpaceId, SpaceCategory, Text, VisibilityState,
+    Entity, EntityId, Floor, Geometry, Hatch, ImageRef, Insert, Layer, LevelId, LineType,
+    ModelSpace, ModelSpaceId, SpaceCategory, Text, VisibilityState,
 };
 
 use crate::buf::{PointRead, PointWrite, Reader, VdbError, Writer};

@@ -460,10 +460,9 @@ fn cmd_serve(args: &[String]) -> Result<(), String> {
             "--identity" | "--principal" => identity = Some(expect_value(&mut it, "--identity")?),
             "--role" => {
                 let raw = expect_value(&mut it, "--role")?;
-                role = Some(
-                    crate::enterprise::parse_role(&raw)
-                        .ok_or_else(|| format!("--role expects viewer|editor|connector|admin, got {raw:?}"))?,
-                );
+                role = Some(crate::enterprise::parse_role(&raw).ok_or_else(|| {
+                    format!("--role expects viewer|editor|connector|admin, got {raw:?}")
+                })?);
             }
             "--read-only" => read_only = true,
             "--once" => once = true,

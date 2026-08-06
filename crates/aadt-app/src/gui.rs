@@ -508,9 +508,7 @@ pub(super) enum PlaceStep {
     /// Select first wall face line to trim.
     WallA,
     /// Select opposite wall face.
-    WallB {
-        wall_a: aadt_model::EntityId,
-    },
+    WallB { wall_a: aadt_model::EntityId },
     /// Click hinge / insertion along the wall centerline.
     OnWall {
         wall_a: aadt_model::EntityId,
@@ -1129,7 +1127,7 @@ pub(super) fn tool_for(token: &str, has_selection: bool) -> Option<Tool> {
         "FTABLE" | "RDTABLE" => Some(place_elem_tool(PlaceKind::Table)),
         "TOILET" | "WC" => Some(place_elem_tool(PlaceKind::Toilet)),
         "IMAGE" | "PLACEIMAGE" | "IMAGEATTACH" => None, // file dialog / PlaceImage in dispatch
-        "IROOM" | "MROOM" => None, // opens picker in dispatch
+        "IROOM" | "MROOM" => None,                      // opens picker in dispatch
         "IAR" | "MAR" => Some(Tool::RoomArea),
         "IDO" | "MDO" => Some(Tool::RoomLabel {
             room_type: String::new(),
@@ -1904,11 +1902,7 @@ impl AadtApp {
         self.dirty = true;
     }
 
-    fn texture_for(
-        &mut self,
-        ctx: &egui::Context,
-        path: &str,
-    ) -> Option<egui::TextureHandle> {
+    fn texture_for(&mut self, ctx: &egui::Context, path: &str) -> Option<egui::TextureHandle> {
         if let Some(t) = self.image_textures.get(path) {
             return Some(t.clone());
         }
@@ -1916,8 +1910,7 @@ impl AadtApp {
         let img = image::load_from_memory(&data).ok()?.to_rgba8();
         let size = [img.width() as usize, img.height() as usize];
         let color = egui::ColorImage::from_rgba_unmultiplied(size, img.as_raw());
-        let handle =
-            ctx.load_texture(path.to_owned(), color, egui::TextureOptions::LINEAR);
+        let handle = ctx.load_texture(path.to_owned(), color, egui::TextureOptions::LINEAR);
         self.image_textures.insert(path.to_owned(), handle.clone());
         Some(handle)
     }
@@ -2403,7 +2396,8 @@ impl AadtApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    if theme::button_enabled(ui, ready, theme::BtnKind::Subtle, "Status").clicked() {
+                    if theme::button_enabled(ui, ready, theme::BtnKind::Subtle, "Status").clicked()
+                    {
                         self.net_send(net::NetCmd::Ping, "pinging…");
                     }
                     if theme::button_enabled(ui, ready, theme::BtnKind::Danger, "Disconnect")
@@ -2903,12 +2897,8 @@ impl AadtApp {
                     ui.add_space(theme::space::XS);
                     for &(label, kind) in ITEMS {
                         let tag = crate::osnap::snap_label(kind);
-                        if theme::button(
-                            ui,
-                            theme::BtnKind::Subtle,
-                            &format!("{label}  ({tag})"),
-                        )
-                        .clicked()
+                        if theme::button(ui, theme::BtnKind::Subtle, &format!("{label}  ({tag})"))
+                            .clicked()
                         {
                             chosen = Some(kind);
                         }
@@ -2952,8 +2942,7 @@ impl AadtApp {
                 && !self.dyn_x.trim().is_empty()
                 && self.dyn_y.trim().is_empty()
             {
-                self.note =
-                    "Type the second value (Y), then Space — Tab returns to X".into();
+                self.note = "Type the second value (Y), then Space — Tab returns to X".into();
                 return;
             }
             let combined = if !self.dyn_input.is_empty() {
@@ -4283,9 +4272,7 @@ impl AadtApp {
                     // window — never silently move the whole selection (that
                     // made STRETCH feel like MOVE when entities were click-picked).
                     if let Tool::Stretch {
-                        collecting,
-                        window,
-                        ..
+                        collecting, window, ..
                     } = &mut t
                     {
                         if !*collecting {
@@ -4994,7 +4981,7 @@ impl AadtApp {
                             return;
                         }
                         if grip_idx == 2 {
-                            let width = insert_width_from_point(self.session.document(), &e, p);
+                            let width = insert_width_from_point(self.session.document(), e, p);
                             self.app_feed(&format!(
                                 "EATTEDIT {} {} {:.4}",
                                 id.0,
@@ -5107,9 +5094,8 @@ impl AadtApp {
             } else {
                 self.selected_hatches.push(hi);
             }
-            let n = self.selection.len()
-                + self.selected_hatches.len()
-                + self.selected_dimensions.len();
+            let n =
+                self.selection.len() + self.selected_hatches.len() + self.selected_dimensions.len();
             self.note = format!("{n} object(s) — Space when done");
             return;
         }
@@ -5119,9 +5105,8 @@ impl AadtApp {
             } else {
                 self.selection.push(id);
             }
-            let n = self.selection.len()
-                + self.selected_hatches.len()
-                + self.selected_dimensions.len();
+            let n =
+                self.selection.len() + self.selected_hatches.len() + self.selected_dimensions.len();
             self.note = format!("{n} object(s) — Space when done");
             return;
         }
@@ -5131,9 +5116,8 @@ impl AadtApp {
             } else {
                 self.selected_dimensions.push(di);
             }
-            let n = self.selection.len()
-                + self.selected_hatches.len()
-                + self.selected_dimensions.len();
+            let n =
+                self.selection.len() + self.selected_hatches.len() + self.selected_dimensions.len();
             self.note = format!("{n} object(s) — Space when done");
         }
     }
@@ -5840,7 +5824,8 @@ impl AadtApp {
                 if h.space != active {
                     continue;
                 }
-                if hatch_outer_matches_entity(&e.geometry, h) && !self.selected_hatches.contains(&hi)
+                if hatch_outer_matches_entity(&e.geometry, h)
+                    && !self.selected_hatches.contains(&hi)
                 {
                     add.push(hi);
                 }
@@ -6652,10 +6637,8 @@ impl AadtApp {
                     PlaceStep::WallA => {
                         let tol = PICK_PIXELS / self.camera.scale;
                         let Some(id) = pick_entity(self.session.document(), p, tol) else {
-                            self.note = format!(
-                                "{} — select the first wall line to trim",
-                                kind.elem()
-                            );
+                            self.note =
+                                format!("{} — select the first wall line to trim", kind.elem());
                             return;
                         };
                         let Some(e) = self.session.document().get(id) else {
@@ -6673,33 +6656,22 @@ impl AadtApp {
                             step: PlaceStep::WallB { wall_a: id },
                         };
                         self.selection = vec![id];
-                        self.note = format!(
-                            "{} — select the opposite wall line to trim",
-                            kind.elem()
-                        );
+                        self.note =
+                            format!("{} — select the opposite wall line to trim", kind.elem());
                         self.engine.accept_point();
                     }
                     PlaceStep::WallB { wall_a } => {
                         let tol = PICK_PIXELS / self.camera.scale;
                         let Some(id) = pick_entity(self.session.document(), p, tol) else {
-                            self.note = format!(
-                                "{} — select the opposite wall line",
-                                kind.elem()
-                            );
+                            self.note = format!("{} — select the opposite wall line", kind.elem());
                             return;
                         };
-                        match aadt_command::face_pair_from_ids(
-                            self.session.document(),
-                            wall_a,
-                            id,
-                        ) {
+                        match aadt_command::face_pair_from_ids(self.session.document(), wall_a, id)
+                        {
                             Ok(_) => {
                                 self.tool = Tool::PlaceElem {
                                     kind,
-                                    step: PlaceStep::OnWall {
-                                        wall_a,
-                                        wall_b: id,
-                                    },
+                                    step: PlaceStep::OnWall { wall_a, wall_b: id },
                                 };
                                 self.selection = vec![wall_a, id];
                                 self.note = format!(
@@ -6714,11 +6686,15 @@ impl AadtApp {
                         }
                     }
                     PlaceStep::OnWall { wall_a, wall_b } => {
-                        let width =
-                            aadt_command::opening_width_for_block(self.session.document(), kind.block_name());
-                        let Ok(pair) =
-                            aadt_command::face_pair_from_ids(self.session.document(), wall_a, wall_b)
-                        else {
+                        let width = aadt_command::opening_width_for_block(
+                            self.session.document(),
+                            kind.block_name(),
+                        );
+                        let Ok(pair) = aadt_command::face_pair_from_ids(
+                            self.session.document(),
+                            wall_a,
+                            wall_b,
+                        ) else {
                             self.note = format!("{} — wall faces no longer valid", kind.elem());
                             self.tool = Tool::Select;
                             return;
@@ -6746,17 +6722,10 @@ impl AadtApp {
                                 },
                             };
                             self.note =
-                                "DOOR — click swing side (or Tab/F to flip) · Space places"
-                                    .into();
+                                "DOOR — click swing side (or Tab/F to flip) · Space places".into();
                             self.engine.accept_point();
                         } else {
-                            self.finish_place_elem(
-                                kind,
-                                place,
-                                Some((wall_a, wall_b)),
-                                rot,
-                                false,
-                            );
+                            self.finish_place_elem(kind, place, Some((wall_a, wall_b)), rot, false);
                         }
                     }
                     PlaceStep::Swing {
@@ -6770,8 +6739,7 @@ impl AadtApp {
                         // Space (or a second click on the same side via finish) places.
                         let rad = angle_deg.to_radians();
                         let perp = aadt_geometry::Vec2::new(-rad.sin(), rad.cos());
-                        let to_click =
-                            aadt_geometry::Vec2::new(p.x - hinge.x, p.y - hinge.y);
+                        let to_click = aadt_geometry::Vec2::new(p.x - hinge.x, p.y - hinge.y);
                         let new_flip = to_click.dot(perp) < 0.0;
                         self.tool = Tool::PlaceElem {
                             kind,
@@ -6783,8 +6751,7 @@ impl AadtApp {
                                 flip: new_flip,
                             },
                         };
-                        self.note =
-                            "DOOR — swing side set · Space places · Tab/F flips".into();
+                        self.note = "DOOR — swing side set · Space places · Tab/F flips".into();
                     }
                 }
             }
@@ -6882,10 +6849,7 @@ impl AadtApp {
                     }
                 }
             }
-            Tool::Extend {
-                boundaries,
-                phase,
-            } => {
+            Tool::Extend { boundaries, phase } => {
                 let tol = PICK_PIXELS / self.camera.scale;
                 let Some(id) = pick_entity(self.session.document(), p, tol) else {
                     self.note = match phase {
@@ -7536,8 +7500,6 @@ impl AadtApp {
                     self.note = format!("{} placed — wall cut failed: {e}", kind.elem());
                 }
             }
-        } else if matches!(kind, PlaceKind::Door | PlaceKind::Window) {
-            self.note = format!("{} placed", kind.elem());
         } else {
             self.note = format!("{} placed", kind.elem());
         }
@@ -8518,11 +8480,9 @@ impl eframe::App for AadtApp {
                             egui::Key::Enter => self.apply_space_single(),
                             egui::Key::Tab => {
                                 // Handled above when drafting(); swallow duplicates.
-                                if !self.drafting() {
-                                    if self.has_typed_dyn() {
-                                        self.commit_dyn();
-                                        Self::consume_drafting_tab(ctx);
-                                    }
+                                if !self.drafting() && self.has_typed_dyn() {
+                                    self.commit_dyn();
+                                    Self::consume_drafting_tab(ctx);
                                 }
                             }
                             egui::Key::Backspace => {
@@ -9333,9 +9293,7 @@ impl AadtApp {
             // doesn't just move.
             self.last_selection_window = Some((lo, hi, crossing));
         }
-        let n = self.selection.len()
-            + self.selected_dimensions.len()
-            + self.selected_hatches.len();
+        let n = self.selection.len() + self.selected_dimensions.len() + self.selected_hatches.len();
         self.note = if crossing {
             format!("Crossing: {n} selected")
         } else {
@@ -9377,9 +9335,7 @@ impl AadtApp {
                 self.selected_hatches.push(idx);
             }
         }
-        let n = self.selection.len()
-            + self.selected_dimensions.len()
-            + self.selected_hatches.len();
+        let n = self.selection.len() + self.selected_dimensions.len() + self.selected_hatches.len();
         self.note = format!("{n} object(s) — Space when done");
     }
 }
@@ -9564,10 +9520,7 @@ fn hatch_outer_matches_entity(g: &Geometry, h: &Hatch) -> bool {
 /// the selection box.
 fn hatch_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<usize> {
     let active = doc.active_space();
-    let win = aadt_geometry::Bbox {
-        min: lo,
-        max: hi,
-    };
+    let win = aadt_geometry::Bbox { min: lo, max: hi };
     let mut out = Vec::new();
     for (i, h) in doc.hatches().iter().enumerate() {
         if h.space != active || !entity_pickable(doc, &h.layer) {
@@ -9973,8 +9926,8 @@ fn geometry_touches_sel_primitive(g: &Geometry, lo: Point2, hi: Point2) -> bool 
         Geometry::Arc(a) => arc_crosses_sel(a, lo, hi),
         Geometry::Text(t) => point_in_sel(t.position, lo, hi),
         Geometry::Insert(i) => point_in_sel(i.position, lo, hi),
-        Geometry::Image(img) => img.corners().iter().any(|c| point_in_sel(*c, lo, hi))
-            || {
+        Geometry::Image(img) => {
+            img.corners().iter().any(|c| point_in_sel(*c, lo, hi)) || {
                 let c = img.corners();
                 [
                     aadt_geometry::Segment::new(c[0], c[1]),
@@ -9984,7 +9937,8 @@ fn geometry_touches_sel_primitive(g: &Geometry, lo: Point2, hi: Point2) -> bool 
                 ]
                 .iter()
                 .any(|s| segment_crosses_sel(*s, lo, hi))
-            },
+            }
+        }
     }
 }
 
@@ -10037,10 +9991,7 @@ fn grip_points_for_entity(doc: &Document, e: &aadt_model::Entity) -> Vec<Point2>
                 ins.position.x - s * (w * 0.35),
                 ins.position.y + c * (w * 0.35),
             );
-            let width_pt = Point2::new(
-                ins.position.x + c * w,
-                ins.position.y + s * w,
-            );
+            let width_pt = Point2::new(ins.position.x + c * w, ins.position.y + s * w);
             vec![ins.position, flip, width_pt]
         }
         other => grip_points(other),
@@ -10329,6 +10280,7 @@ fn world_to_screen(camera: &Camera, rect: egui::Rect, p: Point2) -> egui::Pos2 {
 /// colours and print lineweights scaled for the white-paper preview.
 /// Underlay commands (trace / other categories) are dimmed.
 /// Off-screen commands are skipped (viewport cull).
+#[allow(clippy::too_many_arguments)] // one parameter per independent paint input
 fn paint(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -10645,11 +10597,7 @@ fn draw_geometry(
                     pos - egui::vec2(pad, galley.size().y + pad),
                     galley.size() + egui::vec2(pad * 2.0, pad * 2.0),
                 );
-                painter.rect_filled(
-                    r,
-                    theme::radius::CONTROL,
-                    theme::canvas::selection_plate(),
-                );
+                painter.rect_filled(r, theme::radius::CONTROL, theme::canvas::selection_plate());
             }
             let mut text_shape = egui::epaint::TextShape::new(pos, galley, color);
             text_shape.angle = (t.rotation as f32).to_radians();
@@ -10666,7 +10614,8 @@ fn draw_geometry(
             let corners = img.corners();
             let screen: Vec<_> = corners.iter().map(|p| to_screen(*p)).collect();
             let alpha = (img.opacity.clamp(0.0, 1.0) * 64.0) as u8;
-            let fill = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+            let fill =
+                egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
             painter.add(egui::Shape::Path(egui::epaint::PathShape {
                 points: screen.clone(),
                 closed: true,
@@ -11113,9 +11062,7 @@ fn paint_preview(
                 stroke,
             );
         }
-        Tool::PlaceImage {
-            width, height, ..
-        } => {
+        Tool::PlaceImage { width, height, .. } => {
             let w = *width;
             let h = *height;
             let corners = [
@@ -11492,6 +11439,7 @@ fn paint_insert_ghost(
 }
 
 /// Oriented ghost (door/window on wall) with optional swing flip (`scale_y = -1`).
+#[allow(clippy::too_many_arguments)] // one parameter per independent ghost input
 fn paint_insert_ghost_oriented(
     painter: &egui::Painter,
     rect: egui::Rect,

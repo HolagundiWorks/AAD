@@ -192,10 +192,7 @@ fn health(session: &Session, cfg: &ApiConfig) -> Response {
             ("version", json::string(env!("CARGO_PKG_VERSION"))),
             ("read_only", json::bool_(cfg.read_only)),
             ("principal", json::string(&cfg.principal)),
-            (
-                "capabilities",
-                json::string_array(cfg.caps.names()),
-            ),
+            ("capabilities", json::string_array(cfg.caps.names())),
             ("entities", json::int(session.document().len() as u64)),
             ("revision", json::int(session.document().revision())),
         ]),

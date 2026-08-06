@@ -1223,9 +1223,7 @@ impl Command for ObjectsCmd {
                             "OBJECTS AUDIT VERIFY: ok — {n} signed entr{} verified",
                             if n == 1 { "y" } else { "ies" }
                         )),
-                        Err(seq) => Err(format!(
-                            "OBJECTS AUDIT VERIFY: chain broken at seq {seq}"
-                        )),
+                        Err(seq) => Err(format!("OBJECTS AUDIT VERIFY: chain broken at seq {seq}")),
                     }
                 } else if st.audit.is_empty() {
                     Ok("audit log is empty".into())
@@ -1686,17 +1684,14 @@ impl AskDocsCmd {
                     c
                 };
                 let text = match kind.as_str() {
-                    "PHOTO" | "IMAGE" => {
-                        crate::site_ingest::photo_text(&path, caption.as_deref())
-                    }
+                    "PHOTO" | "IMAGE" => crate::site_ingest::photo_text(&path, caption.as_deref()),
                     _ => {
                         let bytes = std::fs::read(&path)
                             .map_err(|e| format!("ASKDOCS INDEX: cannot read {path}: {e}"))?;
                         crate::site_ingest::report_text(&path, &bytes)
                     }
                 };
-                let source =
-                    crate::site_ingest::source_label(&kind.to_ascii_lowercase(), &path);
+                let source = crate::site_ingest::source_label(&kind.to_ascii_lowercase(), &path);
                 (path, text, source)
             }
             _ => {
@@ -1716,9 +1711,7 @@ impl AskDocsCmd {
         if added == 0 {
             return Ok(format!("ASKDOCS: {path} has no indexable text"));
         }
-        Ok(format!(
-            "ASKDOCS: indexed {added} passage(s) from {path}"
-        ))
+        Ok(format!("ASKDOCS: indexed {added} passage(s) from {path}"))
     }
 
     fn do_sources(&self) -> Result<String, String> {

@@ -10,12 +10,12 @@ use crate::prefs::PanelMode;
 
 use super::icons::{brand_mark_widget, icon_btn, icon_btn_compact, icon_btn_nav, Icon};
 use super::theme::{
-    self, bar_frame, button, button_sized, BtnKind, chip_accent, chip_toggle, chrome, color,
-    color_swatch, dialog_defaults, dock_frame, float_dock_frame, full_width_button, full_width_edit,
-    icon as icon_sz, layout, left_manager_title, link_button, nav_dest_label, NoteKind, note_line,
+    self, bar_frame, button, button_sized, chip_accent, chip_toggle, chrome, color, color_swatch,
+    dialog_defaults, dock_frame, float_dock_frame, full_width_button, full_width_edit,
+    icon as icon_sz, layout, left_manager_title, link_button, nav_dest_label, note_line,
     panel_space, panel_subtitle, panel_title, prop_row, radius, right_manager_title, section_hint,
     section_label, section_label_first, semibold, space, stroke, tile_frame, two_col_buttons,
-    type_scale,
+    type_scale, BtnKind, NoteKind,
 };
 use super::{
     block_name_for_category, library_path_for_category, place_elem_tool, place_kinds_for_category,
@@ -656,8 +656,7 @@ impl AadtApp {
         };
         ui.add_space(space::SM);
         egui::CollapsingHeader::new(
-            egui::RichText::new(format!("Metadata — {name}"))
-                .font(semibold(type_scale::CAPTION)),
+            egui::RichText::new(format!("Metadata — {name}")).font(semibold(type_scale::CAPTION)),
         )
         .default_open(true)
         .show(ui, |ui| {
@@ -2412,7 +2411,8 @@ impl AadtApp {
             .show(ctx, |ui| {
                 self.ui_right_panel_body(ui, PanelChrome::Floating);
             });
-        if let Some((rx, ry, rw, rh)) = floating_window_rect(ctx, egui::Id::new("right_mgr_float")) {
+        if let Some((rx, ry, rw, rh)) = floating_window_rect(ctx, egui::Id::new("right_mgr_float"))
+        {
             let mut nx = rx;
             let mut ny = ry;
             let mut nw = rw;
@@ -2466,16 +2466,15 @@ impl AadtApp {
             .fixed_pos(egui::pos2(panel_space::RAIL, top))
             .constrain_to(screen)
             .show(ctx, |ui| {
-                float_dock_frame(egui::vec2(2.0, 0.0))
-                    .show(ui, |ui| {
-                        ui.set_width(width);
-                        ui.set_height(height);
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                self.ui_left_panel_body(ui, PanelChrome::AutoHide);
-                            });
-                    });
+                float_dock_frame(egui::vec2(2.0, 0.0)).show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.set_height(height);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            self.ui_left_panel_body(ui, PanelChrome::AutoHide);
+                        });
+                });
                 if ui.rect_contains_pointer(ui.max_rect()) {
                     still_open = true;
                 }
@@ -2524,16 +2523,15 @@ impl AadtApp {
             .fixed_pos(egui::pos2(x, top))
             .constrain_to(screen)
             .show(ctx, |ui| {
-                float_dock_frame(egui::vec2(-2.0, 0.0))
-                    .show(ui, |ui| {
-                        ui.set_width(width);
-                        ui.set_height(height);
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                self.ui_right_panel_body(ui, PanelChrome::AutoHide);
-                            });
-                    });
+                float_dock_frame(egui::vec2(-2.0, 0.0)).show(ui, |ui| {
+                    ui.set_width(width);
+                    ui.set_height(height);
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            self.ui_right_panel_body(ui, PanelChrome::AutoHide);
+                        });
+                });
                 if ui.rect_contains_pointer(ui.max_rect()) {
                     still_open = true;
                 }
@@ -3504,7 +3502,9 @@ impl AadtApp {
                             self.view_preset == super::ViewPreset::TechnicalPlan,
                             "Technical",
                         )
-                        .on_hover_text("Apply Technical Plan layers before plot (hidden layers omitted)")
+                        .on_hover_text(
+                            "Apply Technical Plan layers before plot (hidden layers omitted)",
+                        )
                         .clicked()
                     {
                         self.apply_view_preset(super::ViewPreset::TechnicalPlan);

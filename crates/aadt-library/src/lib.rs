@@ -894,9 +894,9 @@ fn parse_element_catalog(text: &str) -> Result<Vec<ElementCatalogEntry>, Library
     // Accept either a top-level array or `{ "elements": [ ... ] }`.
     let trimmed = text.trim();
     let array_src = if let Some(i) = trimmed.find('[') {
-        let end = trimmed.rfind(']').ok_or_else(|| {
-            LibraryError::Msg("catalog.json: missing closing ]".into())
-        })?;
+        let end = trimmed
+            .rfind(']')
+            .ok_or_else(|| LibraryError::Msg("catalog.json: missing closing ]".into()))?;
         &trimmed[i..=end]
     } else {
         return Ok(Vec::new());
@@ -916,8 +916,7 @@ fn parse_element_catalog(text: &str) -> Result<Vec<ElementCatalogEntry>, Library
         let category = json_str(obj, "category").unwrap_or_else(|| "furniture".into());
         let kind = ElementKind::parse(&json_str(obj, "kind").unwrap_or_else(|| "vector".into()));
         let path = json_str(obj, "path").unwrap_or_default();
-        let default_layer =
-            json_str(obj, "default_layer").unwrap_or_else(|| "A-FURN".into());
+        let default_layer = json_str(obj, "default_layer").unwrap_or_else(|| "A-FURN".into());
         let default_width = json_f64(obj, "default_width").unwrap_or(1.0);
         out.push(ElementCatalogEntry {
             name,

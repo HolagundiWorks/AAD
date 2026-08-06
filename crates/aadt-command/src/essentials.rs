@@ -1612,10 +1612,7 @@ impl Command for ImageCmd {
         // Path may contain spaces: find the first float pair (x y).
         let mut xi = None;
         for (i, a) in args.iter().enumerate() {
-            if a.parse::<f64>().is_ok()
-                && args
-                    .get(i + 1)
-                    .is_some_and(|b| b.parse::<f64>().is_ok())
+            if a.parse::<f64>().is_ok() && args.get(i + 1).is_some_and(|b| b.parse::<f64>().is_ok())
             {
                 xi = Some(i);
                 break;
@@ -1654,9 +1651,9 @@ impl Command for ImageCmd {
             .cloned()
             .unwrap_or_else(|| "A-FURN-PRES".into());
         let img = ImageRef::new(path, Point2::new(x, y), width, height);
-        let id = ctx.doc.transact("IMAGE", |d| {
-            d.add_geometry(layer, Geometry::Image(img))
-        });
+        let id = ctx
+            .doc
+            .transact("IMAGE", |d| d.add_geometry(layer, Geometry::Image(img)));
         Ok(format!("IMAGE placed as entity {}", id.0))
     }
 }

@@ -198,12 +198,7 @@ pub struct ImageRef {
 }
 
 impl ImageRef {
-    pub fn new(
-        path: impl Into<String>,
-        position: Point2,
-        width: f64,
-        height: f64,
-    ) -> Self {
+    pub fn new(path: impl Into<String>, position: Point2, width: f64, height: f64) -> Self {
         Self {
             path: path.into(),
             position,
@@ -3805,8 +3800,16 @@ mod tests {
         let Geometry::Line(s) = after else {
             panic!("expected line");
         };
-        assert!((s.a.x - 2.0).abs() < 1e-9, "inside end moves, got {:?}", s.a);
-        assert!((s.b.x - 10.0).abs() < 1e-9, "outside end stays, got {:?}", s.b);
+        assert!(
+            (s.a.x - 2.0).abs() < 1e-9,
+            "inside end moves, got {:?}",
+            s.a
+        );
+        assert!(
+            (s.b.x - 10.0).abs() < 1e-9,
+            "outside end stays, got {:?}",
+            s.b
+        );
 
         let both = Bbox::from_corners(Point2::new(-1.0, -1.0), Point2::new(11.0, 1.0));
         let moved = line.stretched(both, 3.0, 0.0);

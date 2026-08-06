@@ -730,7 +730,7 @@ pub mod layout {
         h: &mut f32,
         screen: egui::Rect,
     ) {
-        let max_w = screen.width().max(200.0).min(640.0);
+        let max_w = screen.width().clamp(200.0, 640.0);
         let max_h = overlay_height(screen, chrome::STATUS_H).min(1200.0);
         *w = (*w).clamp(200.0, max_w);
         *h = (*h).clamp(160.0, max_h.max(160.0));
@@ -925,17 +925,9 @@ pub enum BtnKind {
 
 fn btn_style(kind: BtnKind) -> (egui::Color32, egui::Color32, egui::Color32) {
     match kind {
-        BtnKind::Primary => (
-            color::accent(),
-            color::accent_dark(),
-            egui::Color32::WHITE,
-        ),
+        BtnKind::Primary => (color::accent(), color::accent_dark(), egui::Color32::WHITE),
         BtnKind::Secondary => (color::control(), color::stroke(), color::text()),
-        BtnKind::Subtle => (
-            egui::Color32::TRANSPARENT,
-            color::stroke(),
-            color::text(),
-        ),
+        BtnKind::Subtle => (egui::Color32::TRANSPARENT, color::stroke(), color::text()),
         BtnKind::Danger => (
             egui::Color32::from_rgba_unmultiplied(
                 color::danger().r(),
@@ -971,7 +963,8 @@ pub fn button_enabled(
     kind: BtnKind,
     label: &str,
 ) -> egui::Response {
-    ui.add_enabled_ui(enabled, |ui| button(ui, kind, label)).inner
+    ui.add_enabled_ui(enabled, |ui| button(ui, kind, label))
+        .inner
 }
 
 /// Dense tertiary link (replaces `ui.small_button` in chrome).

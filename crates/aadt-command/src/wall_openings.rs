@@ -444,13 +444,12 @@ fn cut_double_face_opening(
     let (b_lo, b_hi) = ordered_gap_ends(pair.b, hinge, far)?;
 
     // Align "lo" jambs and "hi" jambs across faces by nearest pairing.
-    let (b_lo, b_hi) = if a_lo.distance(b_lo) + a_hi.distance(b_hi)
-        <= a_lo.distance(b_hi) + a_hi.distance(b_lo)
-    {
-        (b_lo, b_hi)
-    } else {
-        (b_hi, b_lo)
-    };
+    let (b_lo, b_hi) =
+        if a_lo.distance(b_lo) + a_hi.distance(b_hi) <= a_lo.distance(b_hi) + a_hi.distance(b_lo) {
+            (b_lo, b_hi)
+        } else {
+            (b_hi, b_lo)
+        };
 
     let mut bodies: Vec<Geometry> = Vec::new();
     // Left wall body (start → gap): closed for hatch.

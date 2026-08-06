@@ -12,10 +12,7 @@ pub fn photo_text(path: &str, caption: Option<&str>) -> String {
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(path);
-    let mut parts = vec![
-        format!("Site photo: {name}"),
-        format!("Path: {path}"),
-    ];
+    let mut parts = vec![format!("Site photo: {name}"), format!("Path: {path}")];
     if let Some(c) = caption.map(str::trim).filter(|s| !s.is_empty()) {
         parts.push(format!("Caption: {c}"));
     } else {

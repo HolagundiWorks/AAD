@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Lock amended: raster placement is in scope, raster drafting is not
+
+- The curated-command-band lock read "raster brushes / PNG block libraries are
+  out of scope (vector-only)". Presentation furniture broke it: a PNG sofa is
+  what an architect already has, and redrawing it as vectors buys nothing a
+  plan uses. `Geometry::Image` plus PNG/JPEG/WebP entries under
+  `libraries/elements/` are therefore supported and export as `IMAGE` +
+  `IMAGEDEF`.
+- The half that still holds is written down rather than left implied: **drafted
+  geometry stays vector**, rasters are placed content only, and nothing snaps to
+  or measures them. Raster brushes remain out of scope.
+- `IMAGE` and `DEMO` added to the roadmap's command band; `libraries/README.md`
+  documents the new `elements/` directory.
+
+### Lint: clippy and rustfmt clean across the workspace
+
+- `PERMS` / `OBJECTS` capability parsing dropped three redundant `trim()` calls
+  before `split_whitespace()` (`clippy::trim_split_whitespace`).
+- GUI shell: `clamp` in the overlay sizer, a needless borrow in the INSERT grip
+  width path, a duplicated `PlaceKind` note branch, a collapsible `if` in Tab
+  handling, and justified `too_many_arguments` allows on the two paint helpers.
+- `cargo fmt --all` applied; `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -D warnings`, and the same with
+  `--features gui` all pass.
+
 ### IMAGEDEF on DWG / DXF export
 
 - Raster `Geometry::Image` exports as AutoCAD `IMAGE` + `IMAGEDEF` (+ reactor)

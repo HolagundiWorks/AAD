@@ -316,11 +316,7 @@ fn insert_draw_scales(
     let flipped = entity
         .attribute(aadt_model::BLOCK_FLIP_ATTR)
         .or_else(|| entity.attribute(aadt_model::BLOCK_FLIP_PARAM))
-        .map(|v| {
-            v == "1"
-                || v.eq_ignore_ascii_case("true")
-                || v.eq_ignore_ascii_case("yes")
-        })
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes"))
         .unwrap_or(false);
     if flipped {
         // Mirror about local Y (negative X scale).

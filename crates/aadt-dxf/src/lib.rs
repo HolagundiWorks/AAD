@@ -896,9 +896,7 @@ fn write_geometry(
                         .or_else(|| a.get(aadt_model::BLOCK_FLIP_PARAM))
                 })
                 .map(|v| {
-                    v == "1"
-                        || v.eq_ignore_ascii_case("true")
-                        || v.eq_ignore_ascii_case("yes")
+                    v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
                 })
                 .unwrap_or(false);
             let mut sx = ins.scale_x;
@@ -1495,7 +1493,10 @@ EOF
         // Round-trip: export → reimport must retain nested insert.
         let dxf = export_str(&report.document);
         let back = import_str_report(&dxf).unwrap();
-        let parent = back.document.block("PARENT").expect("parent after round-trip");
+        let parent = back
+            .document
+            .block("PARENT")
+            .expect("parent after round-trip");
         assert!(
             parent
                 .entities

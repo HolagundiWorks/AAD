@@ -178,8 +178,7 @@ fn acl_key(principal: &str) -> String {
 
 /// Read the ACL entry for `principal` on an object, if any.
 pub fn object_acl(obj: &EngObject, principal: &str) -> Option<ObjectAccess> {
-    obj.prop(&acl_key(principal))
-        .and_then(ObjectAccess::parse)
+    obj.prop(&acl_key(principal)).and_then(ObjectAccess::parse)
 }
 
 /// Set an ACL entry. [`ObjectAccess::None`] stores an explicit deny (`-`).
@@ -233,7 +232,6 @@ pub fn allows_object(
 /// HTTP gate — callers decide).
 pub fn command_capability(line: &str) -> Capability {
     let first = line
-        .trim()
         .split_whitespace()
         .next()
         .unwrap_or("")
@@ -242,7 +240,6 @@ pub fn command_capability(line: &str) -> Capability {
     match first.as_str() {
         "PERMS" => {
             let sub = line
-                .trim()
                 .split_whitespace()
                 .nth(1)
                 .unwrap_or("WHOAMI")
@@ -258,7 +255,6 @@ pub fn command_capability(line: &str) -> Capability {
             // the command itself re-checks. Gate at ObjectWrite so viewers can't
             // promote via HTTP even if they somehow got Command.
             let sub = line
-                .trim()
                 .split_whitespace()
                 .nth(1)
                 .unwrap_or("RUN")
@@ -319,13 +315,13 @@ mod tests {
 
     #[test]
     fn command_capability_classifies() {
-        assert_eq!(
-            command_capability("OBJECTS RUN"),
-            Capability::ObjectWrite
-        );
+        assert_eq!(command_capability("OBJECTS RUN"), Capability::ObjectWrite);
         assert_eq!(command_capability("OBJECTS LIST"), Capability::Read);
         assert_eq!(command_capability("OBJECTS AUDIT"), Capability::AuditRead);
-        assert_eq!(command_capability("CONNECTOR ERP PUSH"), Capability::Connector);
+        assert_eq!(
+            command_capability("CONNECTOR ERP PUSH"),
+            Capability::Connector
+        );
         assert_eq!(command_capability("LINE 0,0 1,0"), Capability::Command);
     }
 }

@@ -279,10 +279,7 @@ fn to_cad_document_inner(doc: &Document) -> Result<(CadDocument, Vec<String>), D
         // Skip inserts whose block definition is missing (silent when possible).
         if let Geometry::Insert(ins) = &e.geometry {
             if doc.block(&ins.name).is_none() {
-                let msg = format!(
-                    "skipped INSERT '{}' — block definition missing",
-                    ins.name
-                );
+                let msg = format!("skipped INSERT '{}' — block definition missing", ins.name);
                 eprintln!("aadt-dxf: {msg}");
                 warnings.push(msg);
                 skipped += 1;
@@ -315,9 +312,7 @@ fn to_cad_document_inner(doc: &Document) -> Result<(CadDocument, Vec<String>), D
                     .attribute(aadt_model::BLOCK_FLIP_ATTR)
                     .or_else(|| e.attribute(aadt_model::BLOCK_FLIP_PARAM))
                     .map(|v| {
-                        v == "1"
-                            || v.eq_ignore_ascii_case("true")
-                            || v.eq_ignore_ascii_case("yes")
+                        v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
                     })
                     .unwrap_or(false);
                 let mut baked = ins.clone();
@@ -447,8 +442,7 @@ fn ensure_image_definition(
     if let Some(ObjectType::Dictionary(dict)) = cad.objects.get_mut(&img_dict_h) {
         dict.add_entry(key, def_h);
     }
-    cad.objects
-        .insert(def_h, ObjectType::ImageDefinition(def));
+    cad.objects.insert(def_h, ObjectType::ImageDefinition(def));
     defs.insert(path.to_string(), (def_h, px_w, px_h));
     (def_h, px_w, px_h)
 }

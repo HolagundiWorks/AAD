@@ -63,11 +63,11 @@ noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
 
 | Kind | Commands |
 |---|---|
-| Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
+| Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` `IMAGE` |
 | Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
 | Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.dwg` / `.aadt` / `.vdb`) `UNITS` |
 | Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
-| AAD | `SECTION` `STANDARDS` `BLOCKLIB` |
+| AAD | `SECTION` `STANDARDS` `BLOCKLIB` `DEMO` |
 | Intelligence | `OBJECTS`/`RELATIONS` · `TAKEOFF`/`BOQ` · `PERMS` · `CONNECTOR` · `SITE` |
 | Assist (proposes, never commits) | `FIND` `ASKDOCS` · `SUGGEST` `CHECK` `ASK` · `COMPARE` (`DIFF`/`REVCOMPARE`) · `RECOMMEND DETAIL` (`DETAIL`/`DETAILS`) |
 | Power | `LISP` / bare `(…)` · `LISPLOAD` |
@@ -85,13 +85,23 @@ variants, `HATCH`, `CHAMFER`, `EXPLODE`, `PURGE`, `GROUP*`/`UNGROUP`,
 `AREA`.
 
 **Do not add:** MTEXT sprawl, spline/ellipse without a real need, ribbon/toolbar
-forests, 3D commands. Raster brushes / PNG block libraries are out of scope
-(vector-only: DXF + SVG blocks, vector freehand on `A-PRES-*`).
+forests, 3D commands. **Raster brushes** stay out of scope — freehand is vector
+on `A-PRES-*`.
+
+**Lock amended (2026-08) — raster *placement* is now in scope.** The original
+lock read "raster brushes / PNG block libraries are out of scope (vector-only)".
+Presentation furniture is the case that broke it: a PNG sofa is what an
+architect actually has, and redrawing it as vectors buys nothing a plan uses.
+`Geometry::Image` and PNG/JPEG/WebP entries under
+[`libraries/elements/`](../libraries/README.md) are therefore supported, placed
+via the `IMAGE` tool and exported as `IMAGE` + `IMAGEDEF` on DXF/DWG. The half
+of the lock that still holds: **drafted geometry stays vector** — rasters are
+placed content, never a drawing surface, and nothing measures or snaps to them.
 
 **Standards / presentation:** AIA/US NCS layers (`aadt-standards`, WCAG vs white
 paper), layer sets (`CONSTRUCTION` / `SERVICES` / `ELECTRICAL` / `PRESENTATION`),
 light print-preview GUI, `MLEADER`, `STRETCH`, `SECTION`,
-[block / hatch / detail libraries](../libraries/README.md), vector brush.
+[element / fill / detail libraries](../libraries/README.md), vector brush.
 
 ---
 
