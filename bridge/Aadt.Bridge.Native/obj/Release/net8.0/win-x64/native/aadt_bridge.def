@@ -1,7 +1,0 @@
-EXPORTS
-   DotNetRuntimeDebugHeader DATA
-   aadt_bridge_ensure
-   aadt_bridge_status
-   aadt_bridge_flush
-   aadt_bridge_enqueue_ping
-   aadt_bridge_shutdown

@@ -1,5 +1,0 @@
-d:\Work Development\Repos\AADT\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\aadt_bridge.dll
-d:\Work Development\Repos\AADT\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\aadt_bridge.pdb
-d:\Work Development\Repos\AADT\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\e_sqlite3.dll
-d:\Work Development\Repos\AADT\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\Aadt.Bridge.pdb
-d:\Work Development\Repos\AADT\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\Aorms.Bridge.pdb

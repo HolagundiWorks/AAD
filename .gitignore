@@ -39,3 +39,9 @@ native/aad-winui/winui/x64/
 native/aad-winui/winui/AadWinui/x64/
 native/aad-winui/winui/aadwinui_shot.png
 
+
+# .NET bridge build outputs
+bridge/**/bin/
+bridge/**/obj/
+bridge/**/publish/
+
