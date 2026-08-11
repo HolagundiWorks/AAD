@@ -3,7 +3,9 @@
 //! The `aadt` binary is thin; WinUI / [`aadt_ffi`] call [`register`] so a Session
 //! gets the same host commands as `aadt shell`.
 
+pub mod aorms_bridge;
 mod commands;
+pub mod connect_session;
 mod enterprise;
 pub mod shell;
 mod site_ingest;

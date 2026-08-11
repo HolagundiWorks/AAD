@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Aadt.Bridge</RootNamespace>
+    <AssemblyName>Aadt.Bridge</AssemblyName>
+    <Description>AADT host for Aorms.Bridge — firm.db + Connect session import (no Activate UI).</Description>
+    <Company>Human Centric Works</Company>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\vendor\AQC\BBSDesktop\Aorms.Bridge\Aorms.Bridge.csproj" />
+  </ItemGroup>
+</Project>

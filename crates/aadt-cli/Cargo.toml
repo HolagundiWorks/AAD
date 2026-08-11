@@ -38,6 +38,7 @@ aadt-assist.workspace = true
 aadt-takeoff.workspace = true
 aadt-api.workspace = true
 aadt-render = { workspace = true, optional = true }
+libloading = "0.8"
 
 [features]
 # The `aadt render` command — GPU canvas → PNG. Off by default so the standard
@@ -48,5 +49,8 @@ gui = ["gpu", "aadt-render/gui"]
 # The `aadt app` command — the egui desktop shell (ADR-0001).
 app = ["aadt-app/gui"]
 
-[lints]
-workspace = true
+# Override workspace unsafe_code=forbid — aorms_bridge loads aadt_bridge.dll.
+[lints.rust]
+unsafe_code = "allow"
+[lints.clippy]
+all = { level = "warn", priority = -1 }

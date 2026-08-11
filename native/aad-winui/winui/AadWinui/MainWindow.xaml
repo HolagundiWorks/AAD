@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="AadWinui.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:AadWinui"
+    Title="AAD">
+
+  <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+        KeyDown="Window_KeyDown">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="32"/>
+      <RowDefinition Height="36"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="112"/>
+      <RowDefinition Height="22"/>
+    </Grid.RowDefinitions>
+
+    <!-- Top strip: brand + quiet QAT (Chrome 2.0) -->
+    <Grid Grid.Row="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="4"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="Auto"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="Auto"/>
+      </Grid.ColumnDefinitions>
+      <Rectangle Grid.Column="0" Fill="{StaticResource AadBrandBrush}"/>
+      <TextBlock Grid.Column="1" Text="AAD" Margin="12,0,16,0"
+                 VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold"/>
+      <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Spacing="4">
+        <Button Content="New" Style="{StaticResource AadQuietButton}" Click="QatNew_Click"/>
+        <Button Content="Open" Style="{StaticResource AadQuietButton}" Click="QatOpen_Click"/>
+        <Button Content="Save" Style="{StaticResource AadQuietButton}" Click="QatSave_Click"/>
+        <Button Content="Undo" Style="{StaticResource AadQuietButton}" Click="QatUndo_Click"/>
+        <Button Content="Redo" Style="{StaticResource AadQuietButton}" Click="QatRedo_Click"/>
+        <Button Content="ZoomE" Style="{StaticResource AadQuietButton}" Click="QatZoomE_Click"
+                ToolTipService.ToolTip="Zoom extents (or 'ZOOM E mid-tool)"/>
+        <Button Content="Review" Style="{StaticResource AadQuietButton}" Click="QatReview_Click"
+                ToolTipService.ToolTip="LIST selection / drawing summary"/>
+        <Button Content="Plot" Style="{StaticResource AadQuietButton}" Click="QatPlot_Click"
+                ToolTipService.ToolTip="PLOTSETUP (PDF via plot)"/>
+      </StackPanel>
+      <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="8" Margin="0,0,8,0"
+                  VerticalAlignment="Center">
+        <TextBlock x:Name="ConnectLicenceChip" Text="Licence · Connect"
+                   VerticalAlignment="Center" FontSize="11"
+                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                   ToolTipService.ToolTip="Activate only in AORMS Connect; AADT imports firm.db via Aorms.Bridge"/>
+        <Button Content="Flush" Style="{StaticResource AadQuietButton}"
+                Click="BridgeFlush_Click"
+                ToolTipService.ToolTip="Flush firm.db outbox to hub (Aorms.Bridge)"/>
+        <Button Content="Tools…" Style="{StaticResource AadQuietButton}"
+                Click="ToolsPalette_Click"
+                ToolTipService.ToolTip="Command catalog"/>
+      </StackPanel>
+    </Grid>
+
+    <!-- Draw + modify tool strip -->
+    <Border Grid.Row="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,0,0,1" Background="{ThemeResource LayerFillColorDefaultBrush}">
+      <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Spacing="2" Margin="8,0,8,0">
+          <Button Content="Line" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="LINE"/>
+          <Button Content="Pline" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="PL"/>
+          <Button Content="Rec" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="REC"/>
+          <Button Content="Circle" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="CIRCLE"/>
+          <Button Content="Arc" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="ARC"/>
+          <Button Content="Xline" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="XL"/>
+          <Button Content="Hatch" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="HATCH"/>
+          <Button Content="Text" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="TEXT"/>
+          <Button Content="Dim" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="DIM"/>
+          <Button Content="MLeader" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="MLEADER"/>
+          <Button Content="Dist" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="DIST"/>
+          <Button Content="Door" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="DOOR"/>
+          <Button Content="Window" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="WINDOW"/>
+          <Button Content="Wall" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="WALL"/>
+          <Rectangle Width="1" Margin="6,6,6,6" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+          <Button Content="Move" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="MOVE"/>
+          <Button Content="Copy" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="COPY"/>
+          <Button Content="Rotate" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="ROTATE"/>
+          <Button Content="Scale" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="SCALE"/>
+          <Button Content="Mirror" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="MIRROR"/>
+          <Button Content="Offset" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="OFFSET"/>
+          <Button Content="Trim" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="TRIM"/>
+          <Button Content="Extend" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="EXTEND"/>
+          <Button Content="Fillet" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="FILLET"/>
+          <Button Content="Erase" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="ERASE"/>
+          <Button Content="Stretch" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="STRETCH"/>
+          <Button Content="Array" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="ARRAYRECT"/>
+          <Button Content="RevCloud" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="REVCLOUD"/>
+          <Button Content="Image" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="IMAGE"/>
+          <Rectangle Width="1" Margin="6,6,6,6" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+          <Button Content="WP" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="WPOLYGON"
+                  ToolTipService.ToolTip="Window polygon select"/>
+          <Button Content="CP" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="CPOLYGON"
+                  ToolTipService.ToolTip="Crossing polygon select"/>
+          <Button Content="Fence" Style="{StaticResource AadQuietButton}" Click="ToolBtn_Click" Tag="FENCE"/>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+
+    <!-- Paper + auto-hide rails -->
+    <Grid Grid.Row="2">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="36"/>
+        <ColumnDefinition Width="*"/>
+        <ColumnDefinition Width="36"/>
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0"
+              PointerEntered="LeftRail_PointerEntered"
+              PointerExited="LeftRail_PointerExited">
+        <StackPanel>
+          <Button x:Name="LeftLayersBtn" Content="Lyr" VerticalAlignment="Top" Margin="2,8,2,0"
+                  Style="{StaticResource AadRailButton}" Click="LeftLayersBtn_Click"
+                  ToolTipService.ToolTip="Layers"/>
+          <Button x:Name="LeftElementsBtn" Content="Elm" VerticalAlignment="Top" Margin="2,4,2,0"
+                  Style="{StaticResource AadRailButton}" Click="LeftElementsBtn_Click"
+                  ToolTipService.ToolTip="Elements"/>
+          <Button x:Name="LeftFillsBtn" Content="Fil" VerticalAlignment="Top" Margin="2,4,2,0"
+                  Style="{StaticResource AadRailButton}" Click="LeftFillsBtn_Click"
+                  ToolTipService.ToolTip="Fills"/>
+        </StackPanel>
+      </Border>
+
+      <SwapChainPanel x:Name="CanvasHost" Grid.Column="1"/>
+
+      <Border Grid.Column="2" Background="{ThemeResource LayerFillColorDefaultBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0"
+              PointerEntered="RightRail_PointerEntered"
+              PointerExited="RightRail_PointerExited">
+        <Button x:Name="RightPropsBtn" Content="Prp" VerticalAlignment="Top" Margin="2,8,2,0"
+                Style="{StaticResource AadRailButton}" Click="RightPropsBtn_Click"
+                ToolTipService.ToolTip="Properties"/>
+      </Border>
+
+      <!-- Left auto-hide overlay: Layers | Elements | Fills -->
+      <Border x:Name="LeftPane" Grid.Column="1" Width="300" HorizontalAlignment="Left"
+              Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,1,0"
+              Visibility="Collapsed" Padding="8,8,8,8"
+              PointerEntered="LeftPane_PointerEntered"
+              PointerExited="LeftPane_PointerExited">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal" Spacing="4">
+            <Button x:Name="LeftTabLayers" Content="Layers" Style="{StaticResource AadQuietButton}"
+                    Click="LeftTabLayers_Click"/>
+            <Button x:Name="LeftTabElements" Content="Elements" Style="{StaticResource AadQuietButton}"
+                    Click="LeftTabElements_Click"/>
+            <Button x:Name="LeftTabFills" Content="Fills" Style="{StaticResource AadQuietButton}"
+                    Click="LeftTabFills_Click"/>
+          </StackPanel>
+          <ListView x:Name="LayersList" Grid.Row="1" Margin="0,8,0,8"
+                    SelectionMode="Single" IsItemClickEnabled="True"
+                    ItemClick="LayersList_ItemClick"
+                    DoubleTapped="LayersList_DoubleTapped"/>
+          <ListView x:Name="BlocksList" Grid.Row="1" Margin="0,8,0,8" Visibility="Collapsed"
+                    SelectionMode="Single" IsItemClickEnabled="True"
+                    ItemClick="BlocksList_ItemClick"/>
+          <ListView x:Name="FillsList" Grid.Row="1" Margin="0,8,0,8" Visibility="Collapsed"
+                    SelectionMode="Single" IsItemClickEnabled="True"
+                    ItemClick="FillsList_ItemClick"/>
+          <StackPanel x:Name="LayerActions" Grid.Row="2" Orientation="Horizontal" Spacing="4">
+            <Button Content="On" Style="{StaticResource AadQuietButton}" Click="LayerOn_Click"/>
+            <Button Content="Off" Style="{StaticResource AadQuietButton}" Click="LayerOff_Click"/>
+            <Button Content="Freeze" Style="{StaticResource AadQuietButton}" Click="LayerFreeze_Click"/>
+            <Button Content="Thaw" Style="{StaticResource AadQuietButton}" Click="LayerThaw_Click"/>
+          </StackPanel>
+          <Button x:Name="BlockPlaceBtn" Grid.Row="2" Content="Place" Style="{StaticResource AadQuietButton}"
+                  Visibility="Collapsed" Click="BlockPlace_Click"
+                  HorizontalAlignment="Left"/>
+        </Grid>
+      </Border>
+
+      <!-- Right auto-hide overlay — Properties -->
+      <Border x:Name="RightPane" Grid.Column="1" Width="280" HorizontalAlignment="Right"
+              Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+              BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0"
+              Visibility="Collapsed" Padding="12,8,12,8"
+              PointerEntered="RightPane_PointerEntered"
+              PointerExited="RightPane_PointerExited">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+          <TextBlock Text="Properties" FontWeight="SemiBold" FontSize="14"/>
+          <ScrollViewer Grid.Row="1" Margin="0,8,0,8">
+            <StackPanel x:Name="PropsBody">
+              <TextBlock x:Name="PropsEmpty"
+                         Text="No selection — click an object on the paper."
+                         TextWrapping="Wrap"
+                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+              <ListView x:Name="PropsList" Visibility="Collapsed"
+                        SelectionMode="None" IsItemClickEnabled="False"/>
+            </StackPanel>
+          </ScrollViewer>
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+            <TextBlock Text="Layer" VerticalAlignment="Center" FontSize="12"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <TextBox x:Name="PropsLayerBox" Width="140" PlaceholderText="layer name"
+                     FontFamily="Consolas" FontSize="12"/>
+            <Button Content="Apply" Style="{StaticResource AadQuietButton}" Click="PropsLayerApply_Click"/>
+          </StackPanel>
+          <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
+            <Button Content="CHSPACE" Style="{StaticResource AadQuietButton}" Click="PropsChspace_Click"
+                    ToolTipService.ToolTip="Move selection to active space"/>
+            <Button Content="Erase" Style="{StaticResource AadQuietButton}" Click="PropsErase_Click"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <!-- CLI hero -->
+    <Border Grid.Row="3" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+      <Grid Padding="8,4,8,4">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="*"/>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ListView x:Name="CliHistory" Grid.Row="0" IsItemClickEnabled="False"
+                  SelectionMode="None" FontFamily="Consolas" FontSize="12"/>
+        <ListView x:Name="CompleteList" Grid.Row="1" MaxHeight="72" Margin="0,0,0,2"
+                  Visibility="Collapsed" SelectionMode="Single" IsItemClickEnabled="True"
+                  FontFamily="Consolas" FontSize="11"
+                  ItemClick="CompleteList_ItemClick"/>
+        <TextBox x:Name="CommandLine" Grid.Row="2"
+                 PlaceholderText="Command — Enter runs · ↑↓ history · Tab completes · Space finishes"
+                 FontFamily="Consolas" KeyDown="CommandLine_KeyDown"
+                 TextChanged="CommandLine_TextChanged"/>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="4" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+      <TextBlock x:Name="StatusBar" Margin="8,0,8,0"
+                 VerticalAlignment="Center" FontSize="11"
+                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                 Text="ents 0  rev 0 — WinUI (M22)"/>
+    </Border>
+
+    <!-- Tools catalog overlay -->
+    <Border x:Name="ToolsPane" Grid.Row="1" Grid.RowSpan="3"
+            Width="280" HorizontalAlignment="Right" Margin="0,0,40,0"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+            Visibility="Collapsed" Padding="12,8,12,8">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto"/>
+          <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock Text="Tools" FontWeight="SemiBold" FontSize="14"/>
+        <ListView x:Name="ToolsList" Grid.Row="1" Margin="0,8,0,0"
+                  SelectionMode="Single" IsItemClickEnabled="True"
+                  ItemClick="ToolsList_ItemClick"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

@@ -26,5 +26,16 @@
 # Native WinUI / CMake build trees (source under native/ is tracked)
 native/**/build*/
 native/**/build-*/
+native/**/packages/
 *.dll
 !logo/**
+
+native/**/AppPackages/
+native/**/*.msix
+native/**/*.appx
+
+# WinUI build output
+native/aad-winui/winui/x64/
+native/aad-winui/winui/AadWinui/x64/
+native/aad-winui/winui/aadwinui_shot.png
+

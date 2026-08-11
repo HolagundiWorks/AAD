@@ -1,0 +1,3 @@
+[submodule "vendor/AQC"]
+	path = vendor/AQC
+	url = https://github.com/HolagundiWorks/AQC.git

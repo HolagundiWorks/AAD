@@ -276,6 +276,7 @@ fn cmd_present(args: &[String]) -> Result<(), String> {
             doc: d,
             area: *area,
             label: label.clone(),
+            preset: None,
         })
         .collect();
     let scales = aadt_docs::present(&mut doc, &views);
@@ -396,6 +397,28 @@ fn cmd_compare(args: &[String]) -> Result<(), String> {
 /// Launch the egui desktop shell (ADR-0001). Built only with `--features app`.
 #[cfg(feature = "app")]
 fn cmd_app(args: &[String]) -> Result<(), String> {
+    let (args, session_path) = aadt_cli::connect_session::take_connect_session_arg(args);
+    let bridge = aadt_cli::aorms_bridge::try_ensure_status();
+    if bridge.loaded {
+        eprintln!(
+            "aadt: {} (firm.db={} · {})",
+            if bridge.bound {
+                "Licensed · firm.db"
+            } else {
+                "Unbound · Connect"
+            },
+            bridge.firm_db,
+            bridge.note
+        );
+    } else {
+        let lic = aadt_cli::connect_session::try_read_session(&session_path);
+        eprintln!(
+            "aadt: {} ({})",
+            aadt_cli::connect_session::status_line(&lic),
+            lic.note
+        );
+    }
+
     let mut doc = match args.iter().find(|a| !a.starts_with('-')) {
         Some(path) => {
             let p = std::path::Path::new(path);
