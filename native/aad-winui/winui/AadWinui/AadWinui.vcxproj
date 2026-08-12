@@ -120,6 +120,10 @@
   <ItemGroup>
     <ApplicationDefinition Include="App.xaml" />
     <Page Include="MainWindow.xaml" />
+    <Page Include="Themes\HcwTheme.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -196,5 +200,21 @@
           Condition="Exists('$(_AadtFfiSrc)')" />
     <Warning Text="aadt_ffi.dll not found at $(_AadtFfiSrc) — run: cargo build -p aadt-ffi --release"
              Condition="!Exists('$(_AadtFfiSrc)')" />
+  </Target>
+  <!-- Aorms.Bridge NativeAOT + SQLitePCL native (firm.db). -->
+  <Target Name="CopyAadtBridgeDlls" AfterTargets="CopyAadtFfiDll">
+    <PropertyGroup>
+      <_AadtBridgePub>$(MSBuildThisFileDirectory)..\..\..\..\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish</_AadtBridgePub>
+      <_AadtBridgeDll>$(_AadtBridgePub)\aadt_bridge.dll</_AadtBridgeDll>
+      <_AadtSqliteDll>$(_AadtBridgePub)\e_sqlite3.dll</_AadtSqliteDll>
+    </PropertyGroup>
+    <ItemGroup>
+      <_AadtBridgeCopy Include="$(_AadtBridgeDll)" Condition="Exists('$(_AadtBridgeDll)')" />
+      <_AadtBridgeCopy Include="$(_AadtSqliteDll)" Condition="Exists('$(_AadtSqliteDll)')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_AadtBridgeCopy)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true"
+          Condition="'@(_AadtBridgeCopy)' != ''" />
+    <Warning Text="aadt_bridge.dll / e_sqlite3.dll missing — run: bridge\build-bridge.cmd"
+             Condition="!Exists('$(_AadtBridgeDll)') Or !Exists('$(_AadtSqliteDll)')" />
   </Target>
 </Project>

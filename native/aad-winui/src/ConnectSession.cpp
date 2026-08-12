@@ -24,6 +24,14 @@ std::wstring widen(std::string const& s)
     return out;
 }
 
+std::wstring localAppData()
+{
+    wchar_t local[MAX_PATH]{};
+    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return {};
+    return local;
+}
+
 std::optional<std::string> jsonStringField(std::string const& json, char const* key)
 {
     std::string needle = std::string("\"") + key + "\"";
@@ -83,14 +91,47 @@ std::vector<std::wstring> commandLineArgs()
     return out;
 }
 
+bool fileExists(std::wstring const& path)
+{
+    if (path.empty()) return false;
+    DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES
+        && (attrs & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring probeLogo()
+{
+    auto base = localAppData();
+    if (base.empty()) return {};
+    static wchar_t const* names[] = {
+        L"\\AORMS-Connect\\logo.png",
+        L"\\AORMS-Connect\\firm-logo.png",
+        L"\\AORMS-Connect\\branding\\logo.png",
+        L"\\AADT\\logo.png",
+        L"\\AADT\\firm-logo.png",
+    };
+    for (auto rel : names)
+    {
+        auto p = base + rel;
+        if (fileExists(p)) return p;
+    }
+    return {};
+}
+
 } // namespace
 
 std::wstring defaultSessionPath()
 {
-    wchar_t local[MAX_PATH]{};
-    DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
-    if (n == 0 || n >= MAX_PATH) return {};
-    return std::wstring(local) + L"\\AORMS-Connect\\session.json";
+    auto local = localAppData();
+    if (local.empty()) return {};
+    return local + L"\\AORMS-Connect\\session.json";
+}
+
+std::wstring defaultCatalogPath()
+{
+    auto local = localAppData();
+    if (local.empty()) return {};
+    return local + L"\\AORMS-Connect\\catalog.json";
 }
 
 std::wstring resolveSessionPath()
@@ -121,7 +162,6 @@ LicenceStatus tryReadSession(std::wstring const& pathIn)
         return s;
     }
 
-    // MSVC: ifstream accepts wchar_t paths (LOCALAPPDATA may be non-ASCII).
     std::ifstream in(s.path.c_str(), std::ios::binary);
     if (!in)
     {
@@ -165,6 +205,66 @@ std::wstring statusChipText(LicenceStatus const& s)
         return L"Licensed · Connect";
     }
     return L"Unbound · Connect";
+}
+
+std::vector<CatalogProject> listCatalog(std::wstring const& pathIn)
+{
+    std::vector<CatalogProject> out;
+    auto path = pathIn.empty() ? defaultCatalogPath() : pathIn;
+    if (path.empty()) return out;
+    std::ifstream in(path.c_str(), std::ios::binary);
+    if (!in) return out;
+    std::ostringstream oss;
+    oss << in.rdbuf();
+    auto json = oss.str();
+
+    // Naive array walk: find each {"…"} object and pull title/ref/id/status.
+    size_t pos = 0;
+    while (pos < json.size())
+    {
+        auto start = json.find('{', pos);
+        if (start == std::string::npos) break;
+        auto end = json.find('}', start);
+        if (end == std::string::npos) break;
+        auto obj = json.substr(start, end - start + 1);
+        pos = end + 1;
+        auto title = jsonStringField(obj, "title");
+        if (!title || title->empty()) continue;
+        CatalogProject p;
+        p.title = widen(*title);
+        if (auto id = jsonStringField(obj, "id")) p.id = widen(*id);
+        if (auto ref = jsonStringField(obj, "ref")) p.ref = widen(*ref);
+        if (auto st = jsonStringField(obj, "status")) p.status = widen(*st);
+        out.push_back(std::move(p));
+    }
+    return out;
+}
+
+FirmBranding readFirmBranding()
+{
+    FirmBranding b;
+    auto lic = tryReadSession();
+    b.tip = statusChipText(lic);
+    if (!lic.hubUrl.empty())
+        b.tip += L"\n" + lic.hubUrl;
+    if (!lic.note.empty())
+        b.tip += L"\n" + lic.note;
+
+    auto projects = listCatalog();
+    if (!projects.empty())
+    {
+        b.firmName = projects.front().title;
+        b.projectRef = projects.front().ref;
+        if (!b.projectRef.empty())
+            b.tip += L"\nCatalog · " + b.projectRef;
+    }
+    if (b.firmName.empty())
+        b.firmName = L"AORMS";
+
+    b.logoPath = probeLogo();
+    if (!b.logoPath.empty())
+        b.tip += L"\nLogo · " + b.logoPath;
+    return b;
 }
 
 } // namespace aadt::connect

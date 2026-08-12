@@ -11,9 +11,12 @@ cargo build -p aadt-ffi --release
 copy ..\..\..\..\target\release\aadt_ffi.dll x64\Debug\AadWinui\
 ..\..\..\..\bridge\build-bridge.cmd
 copy ..\..\..\..\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\aadt_bridge.dll x64\Debug\AadWinui\
+copy ..\..\..\..\bridge\Aadt.Bridge.Native\bin\Release\net8.0\win-x64\publish\e_sqlite3.dll x64\Debug\AadWinui\
 ```
 
-Requires **aadt_ffi.dll ABI ≥ 4** and **aadt_bridge.dll** (Aorms.Bridge → `%LocalAppData%\AADT\firm.db`).
+MSBuild also copies `aadt_ffi.dll`, `aadt_bridge.dll`, and `e_sqlite3.dll` into `$(OutDir)` when present.
+
+Requires **aadt_ffi.dll ABI ≥ 4** and **aadt_bridge.dll** + **e_sqlite3.dll** (Aorms.Bridge → `%LocalAppData%\AADT\firm.db`).
 
 ## Controls
 

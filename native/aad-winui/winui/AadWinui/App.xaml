@@ -8,18 +8,129 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
+        <ResourceDictionary Source="ms-appx:///Themes/HcwTheme.xaml"/>
       </ResourceDictionary.MergedDictionaries>
-      <Color x:Key="AadBrandOrange">#E85D04</Color>
-      <SolidColorBrush x:Key="AadBrandBrush" Color="{StaticResource AadBrandOrange}"/>
-      <Style x:Key="AadQuietButton" TargetType="Button">
-        <Setter Property="Padding" Value="10,4"/>
-        <Setter Property="FontSize" Value="12"/>
-        <Setter Property="Margin" Value="0,0,4,0"/>
-      </Style>
-      <Style x:Key="AadRailButton" TargetType="Button">
-        <Setter Property="Padding" Value="2,8"/>
+
+      <!-- AADT: square chrome — override Fluent defaults for every control -->
+      <CornerRadius x:Key="ControlCornerRadius">0</CornerRadius>
+      <CornerRadius x:Key="OverlayCornerRadius">0</CornerRadius>
+      <CornerRadius x:Key="TextControlCornerRadius">0</CornerRadius>
+
+      <SolidColorBrush x:Key="AadBrandBrush" Color="{StaticResource HcwAccentColor}"/>
+
+      <!--
+        AutoCAD-guide CAD density + WCAG 2.2 AA P0:
+        tool hits 24 (AA 2.5.8 min) · accessible names set per control in XAML
+        FocusVisualPrimary/Secondary for ghost/tool/aid (2.4.7)
+      -->
+      <Style x:Key="AadToolButton" TargetType="Button" BasedOn="{StaticResource HcwGhostButton}">
+        <Setter Property="MinWidth" Value="24"/>
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="MinHeight" Value="24"/>
+        <Setter Property="MaxHeight" Value="24"/>
+        <Setter Property="Padding" Value="4,0"/>
+        <Setter Property="Margin" Value="0,0,1,0"/>
         <Setter Property="FontSize" Value="11"/>
-        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontFamily" Value="{StaticResource HcwFontFamily}"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Foreground" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource HcwAccentBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+        <Setter Property="FocusVisualSecondaryThickness" Value="1"/>
+        <Setter Property="FocusVisualMargin" Value="-2"/>
+      </Style>
+
+      <Style x:Key="AadQuietButton" TargetType="Button" BasedOn="{StaticResource HcwGhostButton}">
+        <Setter Property="Padding" Value="8,2"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Margin" Value="0,0,4,0"/>
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="MinHeight" Value="24"/>
+        <Setter Property="MaxHeight" Value="24"/>
+        <Setter Property="Foreground" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource HcwAccentBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+      </Style>
+
+      <!-- Fixed 24×H hit; content is clipped — rotated labels must not paint into paper -->
+      <Style x:Key="AadRailButton" TargetType="Button" BasedOn="{StaticResource HcwGhostButton}">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Width" Value="24"/>
+        <Setter Property="MinWidth" Value="24"/>
+        <Setter Property="MaxWidth" Value="24"/>
+        <Setter Property="Margin" Value="0,0,0,0"/>
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource HcwAccentBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+      </Style>
+
+      <Style x:Key="AadPaneTab" TargetType="Button" BasedOn="{StaticResource HcwGhostButton}">
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="Height" Value="28"/>
+        <Setter Property="MinHeight" Value="28"/>
+        <Setter Property="MaxHeight" Value="28"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Margin" Value="0,0,2,0"/>
+        <Setter Property="BorderThickness" Value="0,0,0,2"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Foreground" Value="{StaticResource HcwMutedBrush}"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource HcwAccentBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+      </Style>
+
+      <Style x:Key="AadAidChip" TargetType="ToggleButton">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource HcwMutedBrush}"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Height" Value="24"/>
+        <Setter Property="MinHeight" Value="24"/>
+        <Setter Property="MaxHeight" Value="24"/>
+        <Setter Property="MinWidth" Value="28"/>
+        <Setter Property="Padding" Value="4,0"/>
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontFamily" Value="{StaticResource HcwFontFamily}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource HcwAccentBrush}"/>
+        <Setter Property="FocusVisualSecondaryBrush" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
+      </Style>
+
+      <Style x:Key="AadModelTab" TargetType="Button" BasedOn="{StaticResource HcwGhostButton}">
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="MinHeight" Value="22"/>
+        <Setter Property="MaxHeight" Value="22"/>
+        <Setter Property="Padding" Value="10,0"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Margin" Value="0,0,2,0"/>
+        <Setter Property="CornerRadius" Value="0"/>
+        <Setter Property="Background" Value="{StaticResource HcwWhiteBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource HcwInkBrush}"/>
+        <Setter Property="UseSystemFocusVisuals" Value="True"/>
+        <Setter Property="FocusVisualPrimaryBrush" Value="{StaticResource HcwAccentBrush}"/>
+        <Setter Property="FocusVisualPrimaryThickness" Value="2"/>
       </Style>
     </ResourceDictionary>
   </Application.Resources>

@@ -37,6 +37,8 @@ native/**/*.appx
 # WinUI build output
 native/aad-winui/winui/x64/
 native/aad-winui/winui/AadWinui/x64/
+native/aad-winui/winui/AadWinui/Generated Files/
+native/aad-winui/winui/AadWinui/AadWinui/
 native/aad-winui/winui/aadwinui_shot.png
 
 

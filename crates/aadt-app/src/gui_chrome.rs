@@ -862,9 +862,11 @@ impl AadtApp {
                                             self.insert_block = entry.name.clone();
                                             self.tool = Tool::Insert {
                                                 name: entry.name.clone(),
+                                                rotation: 0.0,
+                                                scale: 1.0,
                                             };
                                             self.note = format!(
-                                                "INSERT {} — click to place (grips: flip · width)",
+                                                "INSERT {} — click to place (type ° · Sscale · Esc)",
                                                 entry.name
                                             );
                                             self.blocks_cache.clear();
@@ -975,9 +977,14 @@ impl AadtApp {
                                 );
                                 if resp.on_hover_text(format!("INSERT {name}")).clicked() {
                                     self.insert_block = name.clone();
-                                    self.tool = Tool::Insert { name: name.clone() };
-                                    self.note =
-                                        format!("INSERT {name} — click to place (Esc finishes)");
+                                    self.tool = Tool::Insert {
+                                        name: name.clone(),
+                                        rotation: 0.0,
+                                        scale: 1.0,
+                                    };
+                                    self.note = format!(
+                                        "INSERT {name} — click to place (type ° · Sscale · Esc)"
+                                    );
                                 }
                             }
                         });
@@ -1213,7 +1220,11 @@ impl AadtApp {
                                         self.note = m.to_string();
                                     }
                                     self.insert_block = name.clone();
-                                    self.tool = Tool::Insert { name: name.clone() };
+                                    self.tool = Tool::Insert {
+                                        name: name.clone(),
+                                        rotation: 0.0,
+                                        scale: 1.0,
+                                    };
                                     self.blocks_cache.clear();
                                     self.blocks_cache_rev = None;
                                 }
@@ -1377,8 +1388,11 @@ impl AadtApp {
 
     pub(super) fn ui_history_panel(&mut self, ui: &mut egui::Ui) {
         let _ = lock_panel_width(ui);
-        section_label_first(ui, "Versions");
-        section_hint(ui, "File checkpoints inside .aadt — not the same as UNDO.");
+        section_label_first(ui, "History Manager");
+        section_hint(
+            ui,
+            ".aadt checkpoints · .vdb Merkle commits — not the same as UNDO.",
+        );
         let _ = full_width_edit(ui, &mut self.history_label, "Issued for construction");
         ui.add_space(panel_space::TIGHT);
         if full_width_button(ui, "Save version").clicked() {
@@ -1411,15 +1425,15 @@ impl AadtApp {
             self.app_feed("HISTORY PURGE");
         }
 
-        section_label(ui, "Checkpoints");
+        section_label(ui, "Versions");
         if let Some(path) = &self.file_path {
-            if path
+            let ext = path
                 .extension()
                 .and_then(|e| e.to_str())
-                .map(|e| e.eq_ignore_ascii_case("aadt"))
-                .unwrap_or(false)
-            {
-                match aadt_store::list_checkpoints(path) {
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            match ext.as_str() {
+                "aadt" => match aadt_store::list_checkpoints(path) {
                     Ok(list) => {
                         if list.is_empty() {
                             section_hint(ui, "No checkpoints yet — SAVE the drawing.");
@@ -1456,12 +1470,311 @@ impl AadtApp {
                     Err(e) => {
                         ui.colored_label(color::danger(), format!("History: {e}"));
                     }
+                },
+                "vdb" => match aadt_vdb::list_commits(path) {
+                    Ok(list) => {
+                        if list.is_empty() {
+                            section_hint(ui, "No Merkle commits yet — SAVE the .vdb drawing.");
+                        }
+                        for (i, c) in list.iter().take(40).enumerate() {
+                            let short = &c.id[..12.min(c.id.len())];
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "#{} [{}] {}",
+                                        i + 1,
+                                        c.kind,
+                                        short
+                                    ))
+                                    .size(type_scale::CAPTION),
+                                );
+                                if link_button(ui, "Restore").clicked() {
+                                    // 1-based index into newest-first LIST (CLI resolve_commit).
+                                    self.app_feed(&format!("HISTORY RESTORE {}", i + 1));
+                                    if let Some(fb) = self.session.transcript().last() {
+                                        if let Some(msg) = fb.message() {
+                                            self.note = msg.to_string();
+                                        }
+                                    }
+                                }
+                            });
+                            let label = if c.label.is_empty() {
+                                c.summary.clone()
+                            } else {
+                                format!("{} · {}", c.label, c.summary)
+                            };
+                            ui.label(
+                                egui::RichText::new(format!("{} · {}", label, c.created_at))
+                                    .size(type_scale::CAPTION)
+                                    .color(color::text_secondary()),
+                            );
+                            ui.add_space(panel_space::TIGHT);
+                        }
+                    }
+                    Err(e) => {
+                        ui.colored_label(color::danger(), format!("History: {e}"));
+                    }
+                },
+                _ => {
+                    section_hint(ui, "Save as .aadt or .vdb to enable History Manager.");
                 }
-            } else {
-                section_hint(ui, "Save as .aadt to enable the time machine.");
             }
         } else {
-            section_hint(ui, "OPEN or SAVE a .aadt drawing to use History.");
+            section_hint(ui, "OPEN or SAVE a .aadt / .vdb drawing to use History.");
+        }
+    }
+
+    /// L3 Review — sheet preview, PDF open (L3.3), MarkupList, fingerprint / raster compare.
+    pub(super) fn ui_review_panel(&mut self, ui: &mut egui::Ui) {
+        let _ = lock_panel_width(ui);
+        section_label_first(ui, "Sheet preview");
+        section_hint(
+            ui,
+            "Composed plot on canvas (same geometry as vector PDF). Esc exits.",
+        );
+        ui.add_space(panel_space::TIGHT);
+        if self.sheet_preview.is_some() {
+            if full_width_button(ui, "Exit preview").clicked() {
+                self.exit_sheet_preview();
+            }
+        } else if full_width_button(ui, "Preview sheet…").clicked() {
+            self.seed_plot_dialog();
+            self.plot_open = true;
+        }
+
+        section_label(ui, "Open PDF");
+        section_hint(
+            ui,
+            if aadt_pdf::pdfium_feature_enabled() {
+                "Needs pdfium.dll beside the exe (ADR-0019). Freehand marks the current page."
+            } else {
+                "Rebuild with --features gui (enables pdfium)."
+            },
+        );
+        ui.add_space(panel_space::TIGHT);
+        if full_width_button(ui, "Open PDF…").clicked() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("PDF", &["pdf"])
+                .pick_file()
+            {
+                let ctx = ui.ctx().clone();
+                self.open_pdf_for_review(&ctx, &path);
+            }
+        }
+        if self.pdf_view.is_some() {
+            let (name, page, count) = {
+                let pdf = self.pdf_view.as_ref().unwrap();
+                (
+                    pdf.opened
+                        .path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    pdf.page,
+                    pdf.opened.page_count,
+                )
+            };
+            ui.label(
+                egui::RichText::new(format!("{name} — page {} / {count}", page + 1))
+                    .size(type_scale::CAPTION),
+            );
+            ui.horizontal(|ui| {
+                if button(ui, BtnKind::Secondary, "Prev").clicked() && page > 0 {
+                    let ctx = ui.ctx().clone();
+                    self.pdf_set_page(&ctx, page - 1);
+                }
+                if button(ui, BtnKind::Secondary, "Next").clicked() && page + 1 < count {
+                    let ctx = ui.ctx().clone();
+                    self.pdf_set_page(&ctx, page + 1);
+                }
+                if button(ui, BtnKind::Secondary, "Close PDF").clicked() {
+                    self.pdf_view = None;
+                    self.note = "Closed PDF".into();
+                }
+            });
+            if full_width_button(ui, "Raster compare to PDF…").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("PDF", &["pdf"])
+                    .pick_file()
+                {
+                    self.compare_pdf_page_raster(&path);
+                }
+            }
+            if !self.raster_diff_report.is_empty() {
+                ui.label(
+                    egui::RichText::new(&self.raster_diff_report)
+                        .size(type_scale::CAPTION)
+                        .color(color::text_secondary()),
+                );
+            }
+        }
+
+        section_label(ui, "Place markup");
+        ui.horizontal(|ui| {
+            ui.label("Author");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.markup_author)
+                    .desired_width(120.0)
+                    .hint_text("reviewer"),
+            );
+        });
+        ui.add(
+            egui::TextEdit::singleline(&mut self.markup_note)
+                .desired_width(f32::INFINITY)
+                .hint_text("Note (optional)"),
+        );
+        ui.add_space(panel_space::TIGHT);
+        ui.horizontal_wrapped(|ui| {
+            for (label, kind) in [
+                ("Cloud", aadt_pdf::MarkupKind::Cloud),
+                ("Callout", aadt_pdf::MarkupKind::Callout),
+                ("Text", aadt_pdf::MarkupKind::Text),
+                ("Highlight", aadt_pdf::MarkupKind::Highlight),
+                ("Measure", aadt_pdf::MarkupKind::Measurement),
+                ("Freehand", aadt_pdf::MarkupKind::Freehand),
+            ] {
+                if button(ui, BtnKind::Secondary, label).clicked() {
+                    let path = if kind == aadt_pdf::MarkupKind::Freehand {
+                        Some(Vec::new())
+                    } else {
+                        None
+                    };
+                    self.tool = super::Tool::PlaceMarkup { kind, path };
+                    self.note = if kind == aadt_pdf::MarkupKind::Freehand {
+                        "MARKUP Freehand — drag stroke; Space finishes".into()
+                    } else {
+                        format!("MARKUP {} — click anchor", kind.as_str())
+                    };
+                }
+            }
+        });
+        if let Some((at, note)) = self.last_measure.clone() {
+            ui.add_space(panel_space::TIGHT);
+            if full_width_button(ui, "Capture last DIST as markup").clicked() {
+                let author = if self.markup_author.trim().is_empty() {
+                    "reviewer".into()
+                } else {
+                    self.markup_author.trim().to_string()
+                };
+                self.markup_list.add(aadt_pdf::Markup::new(
+                    aadt_pdf::MarkupKind::Measurement,
+                    at,
+                    author,
+                    note,
+                ));
+                self.note = "Measurement markup captured from DIST".into();
+            }
+        }
+
+        section_label(ui, "Markup list");
+        if self.markup_list.is_empty() {
+            section_hint(ui, "No markups yet — place one above.");
+        } else {
+            let mut remove: Option<usize> = None;
+            for (i, m) in self.markup_list.all().iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let page = m
+                        .page
+                        .map(|p| format!(" p{}", p + 1))
+                        .unwrap_or_default();
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{}. [{}]{} ({:.2},{:.2})",
+                            i + 1,
+                            m.kind.as_str(),
+                            page,
+                            m.at.x,
+                            m.at.y
+                        ))
+                        .size(type_scale::CAPTION),
+                    );
+                    if link_button(ui, "×").clicked() {
+                        remove = Some(i);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new(format!("{} — {}", m.author, m.note))
+                        .size(type_scale::CAPTION)
+                        .color(color::text_secondary()),
+                );
+                ui.add_space(panel_space::TIGHT);
+            }
+            if let Some(i) = remove {
+                self.markup_list.remove(i);
+            }
+            ui.add_space(panel_space::TIGHT);
+            if full_width_button(ui, "Copy report").clicked() {
+                ui.ctx()
+                    .copy_text(self.markup_list.to_report());
+                self.note = "Markup report copied".into();
+            }
+            if full_width_button(ui, "Export report…").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Text", &["txt"])
+                    .set_file_name("markup-report.txt")
+                    .save_file()
+                {
+                    match std::fs::write(&path, self.markup_list.to_report()) {
+                        Ok(()) => self.note = format!("Wrote {}", path.display()),
+                        Err(e) => self.note = format!("Report write failed: {e}"),
+                    }
+                }
+            }
+        }
+
+        section_label(ui, "Compare");
+        section_hint(ui, "Fingerprint diff vs another .aadt (not raster PDF).");
+        if full_width_button(ui, "Compare to file…").clicked() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("AADT drawing", &["aadt"])
+                .pick_file()
+            {
+                match aadt_store::load_path(&path) {
+                    Ok(other) => {
+                        let diff = aadt_pdf::compare(&other, self.session.document());
+                        self.compare_report = format!(
+                            "Compared to {}\n{}\n(+{} / −{} entities by fingerprint)",
+                            path.display(),
+                            diff.narrate(),
+                            diff.added_count(),
+                            diff.removed_count()
+                        );
+                        self.compare_open = true;
+                    }
+                    Err(e) => {
+                        self.note = format!("Compare load failed: {e}");
+                    }
+                }
+            }
+        }
+    }
+
+    pub(super) fn draw_compare_dialog(&mut self, ctx: &egui::Context) {
+        if !self.compare_open {
+            return;
+        }
+        let (frame, screen, max_h) = dialog_defaults(ctx);
+        let mut open = true;
+        egui::Window::new("Drawing compare")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(480.0)
+            .max_height(max_h)
+            .constrain_to(screen)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .frame(frame)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.label(egui::RichText::new(&self.compare_report).monospace());
+                });
+                ui.separator();
+                if button(ui, BtnKind::Primary, "Close").clicked() {
+                    self.compare_open = false;
+                }
+            });
+        if !open {
+            self.compare_open = false;
         }
     }
 
@@ -1523,6 +1836,23 @@ impl AadtApp {
                         {
                             self.show_server = true;
                             ui.close_menu();
+                        }
+                        #[cfg(feature = "wgpu-canvas")]
+                        if ui
+                            .button("GPU canvas…")
+                            .on_hover_text("Open optional wgpu window (ADR-0020 / L5.2)")
+                            .clicked()
+                        {
+                            self.open_wgpu_canvas_window();
+                            ui.close_menu();
+                        }
+                        #[cfg(not(feature = "wgpu-canvas"))]
+                        {
+                            let _ = ui
+                                .add_enabled(false, egui::Button::new("GPU canvas…"))
+                                .on_hover_text(
+                                    "Rebuild with --features wgpu-canvas (ADR-0020)",
+                                );
                         }
                         ui.separator();
                         ui.label(egui::RichText::new("View").small().weak());
@@ -1796,7 +2126,7 @@ impl AadtApp {
                             (
                                 self.osnap_track,
                                 "OTRACK",
-                                "Object-snap tracking F11 (click to toggle)",
+                                "Object-snap tracking F11 — hover snaps to acquire alignment paths",
                             ),
                             (
                                 self.polar,
@@ -1821,7 +2151,8 @@ impl AadtApp {
                                         self.osnap_track = !self.osnap_track;
                                         if self.osnap_track {
                                             self.osnap = true;
-                                            self.polar = true;
+                                        } else {
+                                            self.otrack.clear();
                                         }
                                     }
                                     "DYN" => self.dyn_mode = !self.dyn_mode,
@@ -1856,7 +2187,8 @@ impl AadtApp {
                                 {
                                     if self.osnap_track {
                                         self.osnap = true;
-                                        self.polar = true;
+                                    } else {
+                                        self.otrack.clear();
                                     }
                                     self.persist_prefs();
                                 }
@@ -2278,8 +2610,9 @@ impl AadtApp {
                 3 => "Nameplate template layers",
                 4 => "Drawing units",
                 5 => "Dimension styles",
-                6 => "Drawing checkpoints",
+                6 => "History Manager (.aadt / .vdb)",
                 7 => "Selection properties",
+                8 => "Sheet preview · markups · compare",
                 _ => "",
             },
         );
@@ -2310,6 +2643,7 @@ impl AadtApp {
             5 => self.ui_dimension_manager(ui),
             6 => self.ui_history_panel(ui),
             7 => self.ui_selection_properties(ui),
+            8 => self.ui_review_panel(ui),
             _ => self.ui_hatch_manager(ui),
         }
     }
@@ -2643,8 +2977,10 @@ impl AadtApp {
                 self.insert_block = nameplate.clone();
                 self.tool = Tool::Insert {
                     name: nameplate.clone(),
+                    rotation: 0.0,
+                    scale: 1.0,
                 };
-                self.note = format!("INSERT {nameplate} — click to place");
+                self.note = format!("INSERT {nameplate} — click to place (type ° · Sscale)");
             }
             section_label(ui, "Property fields (place as TEXT)");
             ui.label(
@@ -3225,31 +3561,30 @@ impl AadtApp {
             });
 
             section_label(ui, "Entry tips");
+            ui.label("• Explicit suffixes always convert: `2500mm` · `25cm` · `2.5m` · `10ft` · `6in`");
             match primary {
                 aadt_model::UnitSystem::Meters => {
-                    ui.label("• `3.5` → 3.5 metres");
+                    ui.label("• Bare `3.5` → 3.5 metres");
                     ui.label("• `12'-6\"` still parses (converted to metres)");
                     ui.label(
                         "• Door/window wall cut recognises faces at 100 / 115 / 150 / 200 / 230 mm",
                     );
                 }
                 aadt_model::UnitSystem::FeetInches => {
-                    ui.label("• `6` or `6.5` → inches (default)");
-                    ui.label("• `6\"` → 6 inches");
-                    ui.label("• `12'` → 12 feet");
-                    ui.label("• `12'-6\"` → 12 ft 6 in");
+                    ui.label("• Bare `6` or `6.5` → inches");
+                    ui.label("• `6\"` / `12'` / `12'-6\"` → feet & inches");
                     ui.label("• Door/window wall cut recognises faces at 4½″ and 9″");
                 }
             }
 
-            section_label(ui, "Secondary unit display");
+            section_label(ui, "Display units");
             let mut secondary = aadt_model::secondary_enabled(&self.props_edit.dim_secondary);
             let sec_label = match primary {
                 aadt_model::UnitSystem::FeetInches => {
-                    "Show meters in brackets on dimensions"
+                    "Multiple units — meters in brackets"
                 }
                 aadt_model::UnitSystem::Meters => {
-                    "Show feet & inches in brackets on dimensions"
+                    "Multiple units — feet & inches in brackets"
                 }
             };
             if ui.checkbox(&mut secondary, sec_label).changed() {
@@ -3259,13 +3594,53 @@ impl AadtApp {
                     "0".into()
                 };
             }
-            let sample = aadt_model::format_length_pair(
+
+            section_label(ui, "Precision");
+            let mut prec = aadt_model::precision_from_props(&self.props_edit.dim_precision);
+            ui.horizontal_wrapped(|ui| {
+                for n in 0u8..=6 {
+                    if ui.selectable_label(prec == n, format!("{n}")).clicked() {
+                        prec = n;
+                        self.props_edit.dim_precision = n.to_string();
+                    }
+                }
+            });
+
+            section_label(ui, "Imperial fractions");
+            let frac = aadt_model::fraction_den_from_props(&self.props_edit.dim_fraction);
+            ui.horizontal_wrapped(|ui| {
+                for (den, label) in [
+                    (0u32, "Decimal"),
+                    (1, "1\""),
+                    (2, "1/2"),
+                    (4, "1/4"),
+                    (8, "1/8"),
+                    (16, "1/16"),
+                ] {
+                    if ui.selectable_label(frac == den, label).clicked() {
+                        self.props_edit.dim_fraction = if den == 0 {
+                            "0".into()
+                        } else {
+                            den.to_string()
+                        };
+                    }
+                }
+            });
+            ui.label(
+                egui::RichText::new("Typed lengths: 2500mm · 25cm · 2.5m · 10ft · 6\" — any system")
+                    .small()
+                    .weak(),
+            );
+
+            let sample = aadt_model::format_length_pair_with(
                 match primary {
-                    aadt_model::UnitSystem::FeetInches => 150.0,
+                    aadt_model::UnitSystem::FeetInches => 150.5,
                     aadt_model::UnitSystem::Meters => 3.81,
                 },
                 primary,
                 secondary,
+                aadt_model::precision_from_props(&self.props_edit.dim_precision),
+                aadt_model::fraction_den_from_props(&self.props_edit.dim_fraction),
             );
             ui.label(format!("Sample label: {sample}"));
 
@@ -3405,22 +3780,56 @@ impl AadtApp {
 
             let mut secondary = aadt_model::secondary_enabled(&self.props_edit.dim_secondary);
             let sec_hint = match aadt_model::primary_from_props(&self.props_edit.units) {
-                aadt_model::UnitSystem::FeetInches => "Secondary: meters",
-                aadt_model::UnitSystem::Meters => "Secondary: feet & inches",
+                aadt_model::UnitSystem::FeetInches => "Multiple units: meters",
+                aadt_model::UnitSystem::Meters => "Multiple units: feet & inches",
             };
             if ui.checkbox(&mut secondary, sec_hint).changed() {
                 self.props_edit.dim_secondary = if secondary { "1".into() } else { "0".into() };
             }
 
-            let preview = aadt_model::format_dimension_label(
+            section_label(ui, "Precision (decimal places)");
+            let mut prec = aadt_model::precision_from_props(&self.props_edit.dim_precision);
+            ui.horizontal_wrapped(|ui| {
+                for n in 0u8..=6 {
+                    if ui.selectable_label(prec == n, format!("{n}")).clicked() {
+                        prec = n;
+                        self.props_edit.dim_precision = n.to_string();
+                    }
+                }
+            });
+
+            section_label(ui, "Imperial fraction (up to 1/16)");
+            let frac = aadt_model::fraction_den_from_props(&self.props_edit.dim_fraction);
+            ui.horizontal_wrapped(|ui| {
+                for (den, label) in [
+                    (0u32, "Decimal"),
+                    (1, "1\""),
+                    (2, "1/2"),
+                    (4, "1/4"),
+                    (8, "1/8"),
+                    (16, "1/16"),
+                ] {
+                    if ui.selectable_label(frac == den, label).clicked() {
+                        self.props_edit.dim_fraction = if den == 0 {
+                            "0".into()
+                        } else {
+                            den.to_string()
+                        };
+                    }
+                }
+            });
+
+            let preview = aadt_model::format_dimension_label_ex(
                 aadt_model::DimensionKind::Aligned,
                 match aadt_model::primary_from_props(&self.props_edit.units) {
-                    aadt_model::UnitSystem::FeetInches => 150.0,
+                    aadt_model::UnitSystem::FeetInches => 150.5,
                     aadt_model::UnitSystem::Meters => 3.81,
                 },
                 "",
                 &self.props_edit.units,
                 &self.props_edit.dim_secondary,
+                &self.props_edit.dim_precision,
+                &self.props_edit.dim_fraction,
             );
             ui.label(format!("Label preview: {preview}"));
 
@@ -3668,6 +4077,12 @@ impl AadtApp {
                     if button(ui, BtnKind::Subtle, "Cancel").clicked() {
                         self.plot_open = false;
                     }
+                    if button(ui, BtnKind::Secondary, "Preview sheet")
+                        .on_hover_text("Compose sheet on canvas (Esc exits) — L3.1, no PDF reader")
+                        .clicked()
+                    {
+                        self.enter_sheet_preview();
+                    }
                     if button(ui, BtnKind::Primary, "Export PDF…")
                         .on_hover_text("Compose sheet and save PDF")
                         .clicked()
@@ -3682,48 +4097,9 @@ impl AadtApp {
     }
 
     fn export_plot_pdf(&mut self) {
-        let paper = aadt_docs::PaperSize::from_name(&self.plot_paper)
-            .unwrap_or(aadt_docs::PaperSize::IsoA3);
-        let mut props = self.session.document().properties().clone();
-        if !self.plot_drawing_name.trim().is_empty() {
-            props.title = self.plot_drawing_name.trim().to_string();
-        }
-        props.standard_notes = self.plot_notes.clone();
-        props.plot_include_notes = if self.plot_include_notes {
-            "1".into()
-        } else {
-            "0".into()
+        let Some((sheet_doc, sheet, composed)) = self.compose_current_plot_sheet() else {
+            return;
         };
-        props.nameplate_preset = self.plot_nameplate.clone();
-        self.session.set_drawing_properties(props.clone());
-        self.props_edit = props.clone();
-
-        let tb = aadt_docs::TitleBlock::from_properties(&props, &self.plot_drawing_name);
-        let content = match self.plot_area_mode {
-            1 => aadt_docs::PlotContent::Selection(&self.selection),
-            2 => match self.plot_window {
-                Some(w) => aadt_docs::PlotContent::Window(w),
-                None => {
-                    self.note = "Plot window not set — pick a window or use Extents".into();
-                    return;
-                }
-            },
-            _ => aadt_docs::PlotContent::Extents,
-        };
-        let (mut sheet_doc, sheet, composed) =
-            aadt_docs::compose_plot_sheet_for_area(self.session.document(), paper, &tb, content);
-
-        if self.plot_include_notes {
-            let notes = aadt_docs::notes_from_text(&self.plot_notes);
-            if !notes.is_empty() {
-                let area = aadt_docs::drawing_area_for_preset(&sheet, tb.preset);
-                let notes_style = aadt_docs::NotesStyle {
-                    origin: aadt_geometry::Point2::new(area.min.x + 5.0, area.max.y - 5.0),
-                    ..Default::default()
-                };
-                aadt_docs::place_notes(&mut sheet_doc, &notes, &notes_style);
-            }
-        }
 
         let (w, h) = sheet.extent();
         let page = aadt_pdf::PageSize::from_mm(w, h);

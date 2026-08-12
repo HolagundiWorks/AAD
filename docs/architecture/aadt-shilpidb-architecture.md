@@ -172,8 +172,11 @@ definitions · layer table · revision history · configuration.
 
 - Every entity has a local ID, a GUID, and a revision number. **Object IDs never
   change.**
-- Every commit creates a revision: number · timestamp · user · modified objects ·
-  reason · previous revision.
+- On-disk **Merkle versioning** (`.vdb` v4, [ADR-0021](../adr/0021-shilpidb-merkle-versioning.md)):
+  entity/shell blobs → tree → commit → `HEAD`. SAVE commits when the tip tree
+  changes; HISTORY LIST/RESTORE walk commits. Unchanged entities reuse blob
+  hashes across versions (one file, many versions — no RevA/RevB copies).
+- Session UNDO remains operation-based in RAM and never stores complete drawings.
 
 ## Performance goals
 

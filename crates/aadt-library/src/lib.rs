@@ -1,9 +1,11 @@
-//! # aadt-library — Block, hatch, font, and element libraries
+//! # aadt-library — Block, hatch, font, element, and material libraries
 //!
 //! On-disk folders under `libraries/blocks/`, `libraries/hatches/`,
-//! `libraries/fonts/`, and `libraries/elements/`. Block import accepts DXF/SVG;
-//! raster PNG/JPEG/WebP are imported as presentation image elements (not vector
-//! blocks). Drawing text uses Adobe Source Sans 3 (OFL) from `libraries/fonts/`.
+//! `libraries/fonts/`, `libraries/elements/`, and `libraries/materials/`.
+//! Block import accepts DXF/SVG; raster PNG/JPEG/WebP are imported as
+//! presentation image elements (not vector blocks). Drawing text uses Adobe
+//! Source Sans 3 (OFL) from `libraries/fonts/`. Fill opacities live in
+//! `libraries/materials/catalog.json` (L6).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -1005,6 +1007,73 @@ fn list_image_elements_dir(
     Ok(())
 }
 
+/// Default fill opacities for hatch wash (L6 material library).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaterialOpacities {
+    pub presentation_solid: f64,
+    pub technical_solid: f64,
+    pub pattern_wash: f64,
+}
+
+impl Default for MaterialOpacities {
+    fn default() -> Self {
+        Self {
+            presentation_solid: 0.35,
+            technical_solid: 0.38,
+            pattern_wash: 0.18,
+        }
+    }
+}
+
+/// Load `root/materials/catalog.json` when present; otherwise defaults.
+pub fn load_material_opacities(root: &Path) -> MaterialOpacities {
+    let path = root.join("materials").join("catalog.json");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return MaterialOpacities::default();
+    };
+    parse_material_opacities(&text).unwrap_or_default()
+}
+
+/// Cached opacities from [`default_library_root`].
+pub fn material_opacities() -> MaterialOpacities {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<MaterialOpacities> = OnceLock::new();
+    *CACHED.get_or_init(|| load_material_opacities(&default_library_root()))
+}
+
+fn parse_material_opacities(json: &str) -> Option<MaterialOpacities> {
+    let mut out = MaterialOpacities::default();
+    let mut found = false;
+    for key in [
+        "presentation_solid",
+        "technical_solid",
+        "pattern_wash",
+    ] {
+        if let Some(v) = json_f64_field(json, key) {
+            found = true;
+            match key {
+                "presentation_solid" => out.presentation_solid = v.clamp(0.0, 1.0),
+                "technical_solid" => out.technical_solid = v.clamp(0.0, 1.0),
+                "pattern_wash" => out.pattern_wash = v.clamp(0.0, 1.0),
+                _ => {}
+            }
+        }
+    }
+    found.then_some(out)
+}
+
+fn json_f64_field(json: &str, key: &str) -> Option<f64> {
+    let needle = format!("\"{key}\"");
+    let i = json.find(&needle)?;
+    let after = json.get(i + needle.len()..)?;
+    let colon = after.find(':')?;
+    let rest = after.get(colon + 1..)?.trim_start();
+    let end = rest
+        .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
+        .unwrap_or(rest.len());
+    rest.get(..end)?.trim().parse().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1068,5 +1137,11 @@ mod tests {
         assert!(meta.path.is_file());
         assert_eq!(meta.name, "src");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn material_catalog_defaults_when_missing() {
+        let o = load_material_opacities(Path::new("/no/such/libraries"));
+        assert!((o.presentation_solid - 0.35).abs() < 1e-9);
     }
 }

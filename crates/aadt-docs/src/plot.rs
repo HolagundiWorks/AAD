@@ -11,6 +11,7 @@ use aadt_model::{Document, EntityId, Geometry};
 use crate::compose::{place_drawing, Composed, DrawingArea};
 use crate::sheet::{Orientation, PaperSize, Sheet};
 use crate::titleblock::{NameplatePreset, TitleBlock, TitleBlockLayout, STRIP_GAP_MM};
+use crate::view_preset::{document_with_view_preset, ViewPreset};
 
 /// Choose sheet + title-block orientation from a bounding box.
 /// Taller than wide → portrait (bottom title band); otherwise landscape (right strip).
@@ -239,6 +240,17 @@ pub fn compose_plot_sheet_for_area(
     tb: &TitleBlock,
     content: PlotContent<'_>,
 ) -> (Document, Sheet, Composed) {
+    compose_plot_sheet_for_area_with_preset(model, paper, tb, content, None)
+}
+
+/// [`compose_plot_sheet_for_area`] with an optional sheet-bound [`ViewPreset`] (L6).
+pub fn compose_plot_sheet_for_area_with_preset(
+    model: &Document,
+    paper: PaperSize,
+    tb: &TitleBlock,
+    content: PlotContent<'_>,
+    preset: Option<ViewPreset>,
+) -> (Document, Sheet, Composed) {
     let (source, orient) = match content {
         PlotContent::Extents => (model.clone(), orientation_from_extents(model)),
         PlotContent::Selection(ids) => {
@@ -252,7 +264,7 @@ pub fn compose_plot_sheet_for_area(
             (src, orient)
         }
     };
-    compose_plot_sheet_oriented(&source, paper, tb, orient)
+    compose_plot_sheet_oriented_with_preset(&source, paper, tb, orient, preset)
 }
 
 /// Fraction of the drawing area reserved as margin on **each** side inside the
@@ -267,6 +279,25 @@ pub fn compose_plot_sheet_oriented(
     tb: &TitleBlock,
     orientation: Orientation,
 ) -> (Document, Sheet, Composed) {
+    compose_plot_sheet_oriented_with_preset(model, paper, tb, orientation, None)
+}
+
+/// Like [`compose_plot_sheet_oriented`], but optionally applies a [`ViewPreset`] to a
+/// **clone** of the model so sheet output does not mutate live layer visibility (L6).
+pub fn compose_plot_sheet_oriented_with_preset(
+    model: &Document,
+    paper: PaperSize,
+    tb: &TitleBlock,
+    orientation: Orientation,
+    preset: Option<ViewPreset>,
+) -> (Document, Sheet, Composed) {
+    let owned;
+    let model = if let Some(p) = preset {
+        owned = document_with_view_preset(model, p);
+        &owned
+    } else {
+        model
+    };
     let sheet = Sheet::new(paper, orientation, 10.0);
     let mut doc = Document::new();
     doc.set_properties(model.properties().clone());

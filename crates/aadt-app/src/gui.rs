@@ -26,14 +26,14 @@ use aadt_standards::aci_to_srgb;
 use eframe::egui;
 
 use crate::osnap::{OsnapState, SnapKind};
+use crate::otrack::OtrackState;
 use crate::prefs::{FloatRect, PanelMode, UserPrefs};
 use crate::selection::{select_by_fence, select_in_polygon, RegionMode};
 use crate::{Feedback, Session};
 
 #[path = "gui_chrome.rs"]
 mod chrome;
-#[path = "command_engine.rs"]
-mod command_engine;
+use crate::command_engine;
 #[path = "gui_icons.rs"]
 mod icons;
 #[path = "gui_net.rs"]
@@ -344,8 +344,11 @@ pub(super) enum Tool {
         first: Option<EntityId>,
     },
     /// Place a named block reference (INSERT) at the click point.
+    /// Typed degrees set rotation; `S`+number sets uniform scale (L7).
     Insert {
         name: String,
+        rotation: f64,
+        scale: f64,
     },
     /// Create a block definition from the selection (BLOCK / WBLOCK).
     MakeBlock {
@@ -463,6 +466,12 @@ pub(super) enum Tool {
     /// Plot window: two corners for the area to plot to PDF.
     PlotWindow {
         first: Option<Point2>,
+    },
+    /// Place a non-destructive review markup (L3.1/L3.2).
+    /// Point kinds commit on click; Freehand samples into `path` while dragging.
+    PlaceMarkup {
+        kind: aadt_pdf::MarkupKind,
+        path: Option<Vec<Point2>>,
     },
     /// Section cut line on plan (two clicks).
     SectionLine {
@@ -1234,7 +1243,7 @@ struct AadtApp {
     osnap: bool,
     /// Polar tracking (F10): same soft axis constrain as Ortho while drafting.
     polar: bool,
-    /// Object-snap tracking (F11): keep osnap active while polar is on.
+    /// Object-snap tracking (F11): acquire snaps and snap to alignment paths.
     osnap_track: bool,
     /// Dynamic Input near-cursor prompts (F12).
     dyn_mode: bool,
@@ -1314,6 +1323,27 @@ struct AadtApp {
     plot_area_mode: u8,
     /// World-space window from PlotWindow tool (when mode = 2).
     plot_window: Option<aadt_geometry::Bbox>,
+    /// L3.1 sheet preview (composed plot Document); when set, canvas paints this.
+    sheet_preview: Option<aadt_model::Document>,
+    /// Drawlist for [`sheet_preview`] (built once on enter).
+    sheet_preview_list: Option<aadt_render::DrawList>,
+    /// Fit camera to sheet on next canvas frame (viewport known).
+    sheet_preview_fit: bool,
+    /// Camera restored when leaving sheet preview.
+    pre_preview_camera: Option<Camera>,
+    /// Non-destructive review markup list (aadt-pdf; not drawing entities).
+    markup_list: aadt_pdf::MarkupList,
+    markup_author: String,
+    markup_note: String,
+    /// Last DIST result for "Capture measure" in Review (midpoint + note).
+    last_measure: Option<(Point2, String)>,
+    /// Compare-to-file dialog (fingerprint narrate).
+    compare_open: bool,
+    compare_report: String,
+    /// L3.3 — open PDF page viewer (Review); markups may set `Markup.page`.
+    pdf_view: Option<PdfViewState>,
+    /// Last raster-diff narration from PDF page compare.
+    raster_diff_report: String,
     /// Drafting coordinate fields (Tab cycles X ↔ Y).
     dyn_x: String,
     dyn_y: String,
@@ -1365,6 +1395,8 @@ struct AadtApp {
     show_room_picker: bool,
     /// Object-snap throttle / scratch buffers.
     osnap_state: OsnapState,
+    /// Object-snap tracking (acquired points + alignment rays).
+    otrack: OtrackState,
     /// A command suspended by a transparent `'ZOOM` / `'PAN`, restored when the
     /// transparent command finishes (AutoCAD apostrophe convention).
     suspended: Option<Box<Suspended>>,
@@ -1407,24 +1439,24 @@ struct AadtApp {
     /// Element catalog cache from libraries/elements/catalog.json.
     element_catalog: Vec<aadt_library::ElementCatalogEntry>,
     element_catalog_at: Option<Instant>,
+    /// L1: SpatialGrid rebuilt when document revision changes (click pick).
+    spatial_pick_cache: Option<(u64, aadt_vdb::SpatialGrid)>,
+}
+
+/// Open PDF page in Review (L3.3 / ADR-0019).
+struct PdfViewState {
+    opened: aadt_pdf::OpenedPdf,
+    page: usize,
+    page_w_pt: f32,
+    page_h_pt: f32,
+    texture: Option<egui::TextureHandle>,
+    rgba: Vec<u8>,
+    tex_w: u32,
+    tex_h: u32,
 }
 
 /// Viewport presentation mode: technical drafting vs client presentation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(super) enum ViewPreset {
-    #[default]
-    TechnicalPlan,
-    Presentation,
-}
-
-impl ViewPreset {
-    pub(super) fn label(self) -> &'static str {
-        match self {
-            Self::TechnicalPlan => "Technical",
-            Self::Presentation => "Presentation",
-        }
-    }
-}
+pub(super) type ViewPreset = aadt_docs::ViewPreset;
 
 impl AadtApp {
     fn from_session(session: Session) -> Self {
@@ -1504,6 +1536,18 @@ impl AadtApp {
             plot_nameplate: "professional".into(),
             plot_area_mode: 0,
             plot_window: None,
+            sheet_preview: None,
+            sheet_preview_list: None,
+            sheet_preview_fit: false,
+            pre_preview_camera: None,
+            markup_list: aadt_pdf::MarkupList::new(),
+            markup_author: "reviewer".into(),
+            markup_note: String::new(),
+            last_measure: None,
+            compare_open: false,
+            compare_report: String::new(),
+            pdf_view: None,
+            raster_diff_report: String::new(),
             dyn_x: String::new(),
             dyn_y: String::new(),
             dyn_focus: CoordFocus::X,
@@ -1529,6 +1573,7 @@ impl AadtApp {
             show_shortcuts: false,
             show_room_picker: false,
             osnap_state: OsnapState::default(),
+            otrack: OtrackState::default(),
             suspended: None,
             right_panel_width: prefs.right_panel_width.clamp(200.0, 340.0),
             left_panel_width: prefs.left_panel_width.clamp(180.0, 260.0),
@@ -1551,6 +1596,7 @@ impl AadtApp {
             image_textures: std::collections::HashMap::new(),
             element_catalog: Vec::new(),
             element_catalog_at: None,
+            spatial_pick_cache: None,
         }
     }
 
@@ -1584,6 +1630,31 @@ impl AadtApp {
         self.theme = theme;
         theme::apply_fluent_visuals(ctx, theme);
         self.persist_prefs();
+    }
+
+    /// L1: SpatialGrid for click pick, rebuilt when `document().revision()` changes.
+    fn ensure_spatial_pick_cache(&mut self) {
+        let rev = self.session.document().revision();
+        let needs = match &self.spatial_pick_cache {
+            Some((r, _)) => *r != rev,
+            None => true,
+        };
+        if needs {
+            let grid = aadt_vdb::build_index(self.session.document());
+            self.spatial_pick_cache = Some((rev, grid));
+        }
+    }
+
+    /// Nearest entity under the cursor (SpatialGrid-assisted when possible).
+    fn pick_entity_at(&mut self, p: Point2, tol: f64) -> Option<EntityId> {
+        self.ensure_spatial_pick_cache();
+        let cands = match self.spatial_pick_cache.as_ref() {
+            Some((_, grid)) if grid.len() > 0 => aadt_vdb::query_index_point(grid, p, tol),
+            _ => {
+                return crate::pick::pick_entity_linear(self.session.document(), p, tol);
+            }
+        };
+        crate::pick::pick_nearest_in_candidates(self.session.document(), p, tol, cands)
     }
 
     /// Sibling autosave path: `drawing.aadt` → `drawing.autosave.aadt`.
@@ -1890,46 +1961,10 @@ impl AadtApp {
         self.invalidate_library_cache();
     }
 
-    /// Apply Technical / Presentation layer visibility + mute rules.
+    /// Apply Technical / Presentation layer visibility + mute rules (live canvas).
     pub(super) fn apply_view_preset(&mut self, preset: ViewPreset) {
         self.view_preset = preset;
-        let doc = self.session.document_mut();
-        match preset {
-            ViewPreset::TechnicalPlan => {
-                // Show technical + floor fills; hide presentation fills; mute furniture-pres.
-                for name in ["A-HATCH-TECH", "A-FLOOR-FIN", "A-WALL", "A-DOOR", "A-GLAZ"] {
-                    if doc.layer(name).is_none() {
-                        doc.add_layer(aadt_model::Layer::new(name));
-                    }
-                    doc.set_layer_visible(name, true);
-                }
-                for name in ["A-ANNO-PRES", "A-PRES", "A-PRES-HATCH", "A-FURN-PRES"] {
-                    if doc.layer(name).is_none() {
-                        doc.add_layer(aadt_model::Layer::new(name));
-                    }
-                    doc.set_layer_visible(name, false);
-                }
-            }
-            ViewPreset::Presentation => {
-                for name in [
-                    "A-ANNO-PRES",
-                    "A-PRES",
-                    "A-PRES-HATCH",
-                    "A-FURN-PRES",
-                    "A-FLOOR-FIN",
-                ] {
-                    if doc.layer(name).is_none() {
-                        doc.add_layer(aadt_model::Layer::new(name));
-                    }
-                    doc.set_layer_visible(name, true);
-                }
-                // Mute dense technical hatch layer (patterns still muted in render for Pres fills).
-                if doc.layer("A-HATCH-TECH").is_none() {
-                    doc.add_layer(aadt_model::Layer::new("A-HATCH-TECH"));
-                }
-                doc.set_layer_visible("A-HATCH-TECH", false);
-            }
-        }
+        aadt_docs::apply_view_preset(self.session.document_mut(), preset);
         self.note = format!("View preset: {}", preset.label());
         self.dirty = true;
     }
@@ -2323,7 +2358,7 @@ impl AadtApp {
                         .color(theme::color::text_secondary()),
                 );
                 ui.label("F1 — this sheet");
-                ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F7 — perf HUD · F8 — ortho · F10 — polar 45° · F11 — osnap track · F12 — dyn input");
+                ui.label("F3 — object snap (END/MID/CEN/QUA/INT/NEA) · F7 — perf HUD · F8 — ortho · F10 — polar 45° · F11 — OTRACK (acquire + alignment) · F12 — dyn input");
                 ui.label("Snap override — type END/MID/INT/CEN/QUA/NEA/PER/TAN at a point, or SHIFT+right-click");
                 ui.label("Delete — erase selection · W — WBLOCK · WA — WALL");
                 ui.label("Z Enter — ZOOM · A Enter — All (extents) · W — Window · P — Previous");
@@ -2676,6 +2711,7 @@ impl AadtApp {
             }
             | Tool::Erase
             | Tool::RoomArea
+            | Tool::PlaceMarkup { .. }
             | Tool::Select => None,
         }
     }
@@ -2747,7 +2783,7 @@ impl AadtApp {
         p
     }
 
-    /// Resolve a world cursor: object snap first (active + TRACE/underlay), then Ortho/Shift.
+    /// Resolve a world cursor: object snap, then OTRACK paths, then Ortho/Shift.
     fn resolve_pick(&mut self, raw: Point2, shift: bool) -> Point2 {
         let mut p = raw;
         self.snap_hit = None;
@@ -2775,8 +2811,8 @@ impl AadtApp {
                 raw
             };
         }
+        let tol = SNAP_PIXELS / self.camera.scale;
         if self.osnap {
-            let tol = SNAP_PIXELS / self.camera.scale;
             let move_tol = 2.0 / self.camera.scale;
             let spaces = self.session.document().snap_candidate_spaces();
             if let Some(hit) = self.osnap_state.resolve_in_spaces(
@@ -2793,6 +2829,42 @@ impl AadtApp {
         } else {
             self.osnap_state.clear();
         }
+
+        if self.osnap_track {
+            let same_tol = tol * 0.5;
+            if self.drafting() {
+                let _ = self
+                    .otrack
+                    .tick_hover(self.snap_hit, Instant::now(), same_tol);
+            }
+            if let Some(tp) =
+                crate::otrack::resolve_tracking(&self.otrack.acquired, self.polar, raw, tol)
+            {
+                let use_track = match self.snap_hit {
+                    Some((_, sp)) => {
+                        let d_snap = {
+                            let dx = sp.x - raw.x;
+                            let dy = sp.y - raw.y;
+                            (dx * dx + dy * dy).sqrt()
+                        };
+                        let d_tr = {
+                            let dx = tp.x - raw.x;
+                            let dy = tp.y - raw.y;
+                            (dx * dx + dy * dy).sqrt()
+                        };
+                        d_tr + 1e-12 < d_snap
+                    }
+                    None => true,
+                };
+                if use_track {
+                    self.snap_hit = Some((SnapKind::Intersection, tp));
+                    p = tp;
+                }
+            }
+        } else if !self.otrack.acquired.is_empty() {
+            self.otrack.clear();
+        }
+
         if self.drafting() {
             self.constrain_pick(p, shift)
         } else {
@@ -3764,6 +3836,47 @@ impl AadtApp {
                 }
             }
         }
+        // INSERT (L7): bare degrees → rotation; S2 / S 2 → uniform scale.
+        if let Tool::Insert {
+            name,
+            rotation,
+            scale,
+        } = self.tool.clone()
+        {
+            let t = text.trim();
+            let scale_tok = t
+                .strip_prefix('S')
+                .or_else(|| t.strip_prefix('s'))
+                .map(str::trim);
+            if let Some(rest) = scale_tok {
+                if rest.is_empty() {
+                    self.note = format!("INSERT {name} — type S then scale (e.g. S2)");
+                    return;
+                }
+                if let Ok(s) = rest.parse::<f64>() {
+                    if s > f64::EPSILON {
+                        self.tool = Tool::Insert {
+                            name: name.clone(),
+                            rotation,
+                            scale: s,
+                        };
+                        self.note = format!(
+                            "INSERT {name} scale {s} · {rotation:.1}° — click to place"
+                        );
+                        return;
+                    }
+                }
+            }
+            if let Ok(deg) = t.parse::<f64>() {
+                self.tool = Tool::Insert {
+                    name: name.clone(),
+                    rotation: deg,
+                    scale,
+                };
+                self.note = format!("INSERT {name} {deg:.1}° · scale {scale} — click to place");
+                return;
+            }
+        }
         // ROTATE: Reference keyword or typed degrees after pivot.
         if let Tool::Rotate {
             collecting: false,
@@ -4275,6 +4388,246 @@ impl AadtApp {
         self.plot_open = true;
     }
 
+    /// Compose the sheet Document that `plot` / Preview would export (L3.1).
+    pub(super) fn compose_current_plot_sheet(
+        &mut self,
+    ) -> Option<(aadt_model::Document, aadt_docs::Sheet, aadt_docs::Composed)> {
+        let paper = aadt_docs::PaperSize::from_name(&self.plot_paper)
+            .unwrap_or(aadt_docs::PaperSize::IsoA3);
+        let mut props = self.session.document().properties().clone();
+        if !self.plot_drawing_name.trim().is_empty() {
+            props.title = self.plot_drawing_name.trim().to_string();
+        }
+        props.standard_notes = self.plot_notes.clone();
+        props.plot_include_notes = if self.plot_include_notes {
+            "1".into()
+        } else {
+            "0".into()
+        };
+        props.nameplate_preset = self.plot_nameplate.clone();
+        self.session.set_drawing_properties(props.clone());
+        self.props_edit = props.clone();
+
+        let tb = aadt_docs::TitleBlock::from_properties(&props, &self.plot_drawing_name);
+        let content = match self.plot_area_mode {
+            1 => aadt_docs::PlotContent::Selection(&self.selection),
+            2 => match self.plot_window {
+                Some(w) => aadt_docs::PlotContent::Window(w),
+                None => {
+                    self.note = "Plot window not set — pick a window or use Extents".into();
+                    return None;
+                }
+            },
+            _ => aadt_docs::PlotContent::Extents,
+        };
+        let (mut sheet_doc, sheet, composed) =
+            aadt_docs::compose_plot_sheet_for_area_with_preset(
+                self.session.document(),
+                paper,
+                &tb,
+                content,
+                Some(self.view_preset),
+            );
+
+        if self.plot_include_notes {
+            let notes = aadt_docs::notes_from_text(&self.plot_notes);
+            if !notes.is_empty() {
+                let area = aadt_docs::drawing_area_for_preset(&sheet, tb.preset);
+                let notes_style = aadt_docs::NotesStyle {
+                    origin: aadt_geometry::Point2::new(area.min.x + 5.0, area.max.y - 5.0),
+                    ..Default::default()
+                };
+                aadt_docs::place_notes(&mut sheet_doc, &notes, &notes_style);
+            }
+        }
+        Some((sheet_doc, sheet, composed))
+    }
+
+    pub(super) fn enter_sheet_preview(&mut self) {
+        let Some((sheet_doc, sheet, composed)) = self.compose_current_plot_sheet() else {
+            return;
+        };
+        let list = aadt_render::build_drawlist(&sheet_doc);
+        self.pre_preview_camera = Some(self.camera);
+        self.sheet_preview_list = Some(list);
+        self.sheet_preview = Some(sheet_doc);
+        self.sheet_preview_fit = true;
+        self.plot_open = false;
+        self.right_tab = 8;
+        self.note = format!(
+            "Sheet preview — Esc to exit · scale {} · open Review for markups",
+            composed.scale_label(1000.0)
+        );
+        let _ = sheet;
+    }
+
+    pub(super) fn exit_sheet_preview(&mut self) {
+        if let Some(cam) = self.pre_preview_camera.take() {
+            self.camera = cam;
+        }
+        self.sheet_preview = None;
+        self.sheet_preview_list = None;
+        self.sheet_preview_fit = false;
+        self.note = "Left sheet preview".into();
+    }
+
+    fn commit_freehand_markup(&mut self, pts: Vec<Point2>) {
+        let note = if self.markup_note.trim().is_empty() {
+            "freehand".to_string()
+        } else {
+            self.markup_note.trim().to_string()
+        };
+        let author = if self.markup_author.trim().is_empty() {
+            "reviewer".to_string()
+        } else {
+            self.markup_author.trim().to_string()
+        };
+        let page = self.pdf_view.as_ref().map(|p| p.page as u32);
+        if let Some(m) = aadt_pdf::Markup::freehand_on_page(pts, page, author, note) {
+            let n = m.path.len();
+            let page_s = page
+                .map(|p| format!(" p{}", p + 1))
+                .unwrap_or_default();
+            let idx = self.markup_list.add(m);
+            self.note = format!("Markup #{} [freehand]{page_s} {n} pts", idx + 1);
+        } else {
+            self.note = "Freehand needs at least two points".into();
+        }
+        self.tool = Tool::Select;
+    }
+
+    /// Open a PDF into the Review viewer (needs `pdfium` feature + native DLL).
+    pub(super) fn open_pdf_for_review(&mut self, ctx: &egui::Context, path: &std::path::Path) {
+        match aadt_pdf::open_pdf(path) {
+            Ok(opened) => {
+                let mut state = PdfViewState {
+                    opened,
+                    page: 0,
+                    page_w_pt: 0.0,
+                    page_h_pt: 0.0,
+                    texture: None,
+                    rgba: Vec::new(),
+                    tex_w: 0,
+                    tex_h: 0,
+                };
+                if let Err(e) = self.rebuild_pdf_page_texture(ctx, &mut state) {
+                    self.note = format!("PDF render failed: {e}");
+                    return;
+                }
+                self.pdf_view = Some(state);
+                self.note = format!(
+                    "PDF open — {} page(s); freehand marks this page",
+                    self.pdf_view.as_ref().map(|p| p.opened.page_count).unwrap_or(0)
+                );
+                self.right_tab = 8; // Review
+            }
+            Err(e) => {
+                self.note = format!("{e}");
+            }
+        }
+    }
+
+    fn rebuild_pdf_page_texture(
+        &mut self,
+        ctx: &egui::Context,
+        state: &mut PdfViewState,
+    ) -> Result<(), String> {
+        let rendered = aadt_pdf::render_page(&state.opened, state.page, 1200)
+            .map_err(|e| e.to_string())?;
+        state.page_w_pt = rendered.page_width_pt;
+        state.page_h_pt = rendered.page_height_pt;
+        state.tex_w = rendered.width;
+        state.tex_h = rendered.height;
+        state.rgba = rendered.rgba.clone();
+        let color = egui::ColorImage::from_rgba_unmultiplied(
+            [rendered.width as usize, rendered.height as usize],
+            &rendered.rgba,
+        );
+        let name = format!(
+            "pdf:{}:{}",
+            state.opened.path.display(),
+            state.page
+        );
+        state.texture = Some(ctx.load_texture(name, color, egui::TextureOptions::LINEAR));
+        Ok(())
+    }
+
+    pub(super) fn pdf_set_page(&mut self, ctx: &egui::Context, page: usize) {
+        let Some(mut state) = self.pdf_view.take() else {
+            return;
+        };
+        if page >= state.opened.page_count {
+            self.pdf_view = Some(state);
+            return;
+        }
+        state.page = page;
+        match self.rebuild_pdf_page_texture(ctx, &mut state) {
+            Ok(()) => {
+                self.note = format!(
+                    "PDF page {} / {}",
+                    page + 1,
+                    state.opened.page_count
+                );
+                self.pdf_view = Some(state);
+            }
+            Err(e) => {
+                self.note = format!("PDF page render failed: {e}");
+                self.pdf_view = Some(state);
+            }
+        }
+    }
+
+    pub(super) fn compare_pdf_page_raster(&mut self, other: &std::path::Path) {
+        let Some(view) = &self.pdf_view else {
+            self.note = "Open a PDF in Review first".into();
+            return;
+        };
+        let page = view.page;
+        let a = view.rgba.clone();
+        let w = view.tex_w;
+        let h = view.tex_h;
+        match aadt_pdf::open_pdf(other) {
+            Ok(opened) => match aadt_pdf::render_page(&opened, page, w) {
+                Ok(rendered) => {
+                    // Resize mismatch: compare at min dimensions if needed.
+                    let cw = w.min(rendered.width);
+                    let ch = h.min(rendered.height);
+                    let crop = |rgba: &[u8], sw: u32, _sh: u32| -> Vec<u8> {
+                        let mut out = Vec::with_capacity((cw * ch * 4) as usize);
+                        for y in 0..ch {
+                            let row = (y * sw * 4) as usize;
+                            out.extend_from_slice(&rgba[row..row + (cw * 4) as usize]);
+                        }
+                        out
+                    };
+                    let aa = crop(&a, w, h);
+                    let bb = crop(&rendered.rgba, rendered.width, rendered.height);
+                    match aadt_pdf::compare_rgba(&aa, &bb, cw, ch, 8) {
+                        Ok(diff) => {
+                            self.raster_diff_report = diff.narrate();
+                            self.note = self.raster_diff_report.clone();
+                        }
+                        Err(e) => self.note = e,
+                    }
+                }
+                Err(e) => self.note = format!("Compare render failed: {e}"),
+            },
+            Err(e) => self.note = format!("{e}"),
+        }
+    }
+
+    #[cfg(feature = "wgpu-canvas")]
+    pub(super) fn open_wgpu_canvas_window(&mut self) {
+        let doc = self.session.document().clone();
+        self.note = "Opening GPU canvas window (ADR-0020)…".into();
+        // Separate thread so egui event loop keeps running.
+        std::thread::spawn(move || {
+            if let Err(e) = aadt_render::view::run(doc) {
+                eprintln!("wgpu canvas: {e}");
+            }
+        });
+    }
+
     fn has_typed_dyn(&self) -> bool {
         !self.dyn_input.trim().is_empty()
             || !self.dyn_x.trim().is_empty()
@@ -4516,6 +4869,12 @@ impl AadtApp {
                     .collect();
                 self.session
                     .feed(&format!("POLYLINE {} A-PRES-MARK", coords.join(" ")));
+            }
+            Tool::PlaceMarkup {
+                kind: aadt_pdf::MarkupKind::Freehand,
+                path: Some(pts),
+            } if pts.len() >= 2 => {
+                self.commit_freehand_markup(pts.clone());
             }
             _ => {}
         }
@@ -5143,7 +5502,7 @@ impl AadtApp {
             self.note = format!("{n} object(s) — Space when done");
             return;
         }
-        if let Some(id) = pick_entity(self.session.document(), world, tol) {
+        if let Some(id) = self.pick_entity_at(world, tol) {
             if let Some(i) = self.selection.iter().position(|x| *x == id) {
                 self.selection.remove(i);
             } else {
@@ -6027,7 +6386,7 @@ impl AadtApp {
                 // TTR: collect two tangent lines, then a typed radius finishes.
                 CircleMode::Ttr => {
                     let tol = PICK_PIXELS / self.camera.scale;
-                    match pick_entity(self.session.document(), p, tol) {
+                    match self.pick_entity_at(p, tol) {
                         Some(id) if !self.ttr_lines.iter().any(|(e, _)| *e == id) => {
                             self.ttr_lines.push((id, p));
                             self.note = if self.ttr_lines.len() < 2 {
@@ -6487,6 +6846,8 @@ impl AadtApp {
                     let fb = self.app_feed(&format!("DIST {} {} {} {}", a.x, a.y, p.x, p.y));
                     if let Some(m) = fb.message() {
                         self.note = m.to_string();
+                        let mid = Point2::new((a.x + p.x) * 0.5, (a.y + p.y) * 0.5);
+                        self.last_measure = Some((mid, m.to_string()));
                     }
                     self.tool = Tool::Select;
                 }
@@ -6501,7 +6862,7 @@ impl AadtApp {
             Tool::Fillet { radius, first } => {
                 let r = radius.unwrap_or(0.0);
                 let tol = PICK_PIXELS / self.camera.scale;
-                let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                let Some(id) = self.pick_entity_at(p, tol) else {
                     self.note = "FILLET — click a line".into();
                     return;
                 };
@@ -6547,11 +6908,20 @@ impl AadtApp {
                     }
                 }
             }
-            Tool::Insert { name } => {
+            Tool::Insert {
+                name,
+                rotation,
+                scale,
+            } => {
                 let layer = self.layer();
-                self.app_feed(&format!("INSERT {} {} {} 0 {}", name, p.x, p.y, layer));
+                self.app_feed(&format!(
+                    "INSERT {} {} {} {} {} {}",
+                    name, p.x, p.y, rotation, layer, scale
+                ));
                 // Stay in insert mode for multiple placements (AutoCAD-like).
-                self.note = format!("INSERT {name} — click to place another (Esc finishes)");
+                self.note = format!(
+                    "INSERT {name} — click to place another (Esc · type ° or Sscale)"
+                );
             }
             Tool::MakeBlock {
                 erase,
@@ -6620,7 +6990,7 @@ impl AadtApp {
             }
             Tool::RoomArea => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                let Some(id) = self.pick_entity_at(p, tol) else {
                     self.note = "IAR — click a closed polyline or circle".into();
                     return;
                 };
@@ -6683,7 +7053,7 @@ impl AadtApp {
                     }
                     PlaceStep::WallA => {
                         let tol = PICK_PIXELS / self.camera.scale;
-                        let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                        let Some(id) = self.pick_entity_at(p, tol) else {
                             self.note = format!(
                                 "{} — select the first wall line to trim",
                                 kind.elem()
@@ -6713,7 +7083,7 @@ impl AadtApp {
                     }
                     PlaceStep::WallB { wall_a } => {
                         let tol = PICK_PIXELS / self.camera.scale;
-                        let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                        let Some(id) = self.pick_entity_at(p, tol) else {
                             self.note = format!(
                                 "{} — select the opposite wall line",
                                 kind.elem()
@@ -6842,7 +7212,7 @@ impl AadtApp {
                 // fall back to a direct hit on the boundary entity itself.
                 let tol = PICK_PIXELS / self.camera.scale;
                 let target = hatch_boundary_at(self.session.document(), p)
-                    .or_else(|| pick_entity(self.session.document(), p, tol));
+                    .or_else(|| self.pick_entity_at(p, tol));
                 if let Some(id) = target {
                     let pat = self.hatch_pattern.clone();
                     let fb = self.app_feed(&format!("HATCH {} {}", id.0, pat));
@@ -6865,7 +7235,7 @@ impl AadtApp {
             }
             Tool::Trim { cutters, phase } => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                let Some(id) = self.pick_entity_at(p, tol) else {
                     self.note = match phase {
                         TrimPhase::CuttingEdges => "TRIM — click a cutting edge".into(),
                         TrimPhase::Objects => "TRIM — click object on the side to remove".into(),
@@ -6919,7 +7289,7 @@ impl AadtApp {
                 phase,
             } => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                let Some(id) = self.pick_entity_at(p, tol) else {
                     self.note = match phase {
                         TrimPhase::CuttingEdges => "EXTEND — click a boundary edge".into(),
                         TrimPhase::Objects => "EXTEND — click near the end to lengthen".into(),
@@ -7073,7 +7443,7 @@ impl AadtApp {
             } => {
                 if path.is_none() {
                     let tol = PICK_PIXELS / self.camera.scale;
-                    match pick_entity(self.session.document(), p, tol) {
+                    match self.pick_entity_at(p, tol) {
                         Some(id) => {
                             self.tool = Tool::ArrayPath {
                                 collecting: false,
@@ -7094,7 +7464,7 @@ impl AadtApp {
             }
             Tool::Explode => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                if let Some(id) = pick_entity(self.session.document(), p, tol) {
+                if let Some(id) = self.pick_entity_at(p, tol) {
                     self.app_feed(&format!("EXPLODE {}", id.0));
                     self.tool = Tool::Select;
                 } else {
@@ -7107,7 +7477,7 @@ impl AadtApp {
                     // type (line→aligned, circle→diameter, arc→radius). Empty
                     // space falls back to the two-point coordinate form.
                     let tol = PICK_PIXELS / self.camera.scale;
-                    let auto = pick_entity(self.session.document(), p, tol).filter(|&id| {
+                    let auto = self.pick_entity_at(p, tol).filter(|&id| {
                         self.session.document().get(id).is_some_and(|e| {
                             aadt_command::auto_dimension_for(&e.geometry, 0.0, String::new())
                                 .is_some()
@@ -7170,7 +7540,7 @@ impl AadtApp {
             }
             Tool::DimRadius => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                if let Some(id) = pick_entity(self.session.document(), p, tol) {
+                if let Some(id) = self.pick_entity_at(p, tol) {
                     self.app_feed(&format!("DIMRADIUS {} AN-DIMS", id.0));
                     self.tool = Tool::Select;
                 } else {
@@ -7179,7 +7549,7 @@ impl AadtApp {
             }
             Tool::DimDiameter => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                if let Some(id) = pick_entity(self.session.document(), p, tol) {
+                if let Some(id) = self.pick_entity_at(p, tol) {
                     self.app_feed(&format!("DIMDIAMETER {} AN-DIMS", id.0));
                     self.tool = Tool::Select;
                 } else {
@@ -7232,7 +7602,7 @@ impl AadtApp {
                     // Two-line form: clicking a line dimensions the angle between it
                     // and a second line. Clicking empty space uses the 3-point form.
                     let tol = PICK_PIXELS / self.camera.scale;
-                    let line = pick_entity(self.session.document(), p, tol).filter(|&id| {
+                    let line = self.pick_entity_at(p, tol).filter(|&id| {
                         matches!(
                             self.session.document().get(id).map(|e| &e.geometry),
                             Some(Geometry::Line(_))
@@ -7268,7 +7638,7 @@ impl AadtApp {
             },
             Tool::MatchProp { source } => {
                 let tol = PICK_PIXELS / self.camera.scale;
-                let Some(id) = pick_entity(self.session.document(), p, tol) else {
+                let Some(id) = self.pick_entity_at(p, tol) else {
                     self.note = "MATCHPROP — click an object".into();
                     return;
                 };
@@ -7307,6 +7677,41 @@ impl AadtApp {
                     self.note = "Plot window set — confirm Plot to PDF".into();
                 }
             },
+            Tool::PlaceMarkup { kind, path } => {
+                if kind == aadt_pdf::MarkupKind::Freehand {
+                    let mut pts = path.clone().unwrap_or_default();
+                    if pts.last().map(|q| q.distance(p) > 1e-6).unwrap_or(true) {
+                        pts.push(p);
+                    }
+                    self.tool = Tool::PlaceMarkup {
+                        kind,
+                        path: Some(pts),
+                    };
+                    self.note = "MARKUP Freehand — drag; Space finishes".into();
+                    return;
+                }
+                let note = if self.markup_note.trim().is_empty() {
+                    kind.as_str().to_string()
+                } else {
+                    self.markup_note.trim().to_string()
+                };
+                let author = if self.markup_author.trim().is_empty() {
+                    "reviewer".to_string()
+                } else {
+                    self.markup_author.trim().to_string()
+                };
+                let idx = self
+                    .markup_list
+                    .add(aadt_pdf::Markup::new(kind, p, author, note));
+                self.note = format!(
+                    "Markup #{} [{}] at ({:.3}, {:.3})",
+                    idx + 1,
+                    kind.as_str(),
+                    p.x,
+                    p.y
+                );
+                self.tool = Tool::Select;
+            }
             Tool::SectionLine { first } => match first {
                 None => self.tool = Tool::SectionLine { first: Some(p) },
                 Some(a) => {
@@ -7429,7 +7834,7 @@ impl AadtApp {
             return;
         };
         let tol = PICK_PIXELS / self.camera.scale;
-        match pick_entity(self.session.document(), world, tol) {
+        match self.pick_entity_at(world, tol) {
             Some(id) => {
                 self.tool = Tool::Offset {
                     dist: Some(d),
@@ -7717,7 +8122,7 @@ impl AadtApp {
     /// every other entity). `None` when nothing under the cursor can be trimmed.
     fn trim_hover_ghost(&self, pick: Point2, cutters: &[EntityId]) -> Option<Geometry> {
         let tol = PICK_PIXELS / self.camera.scale;
-        let id = pick_entity(self.session.document(), pick, tol)?;
+        let id = crate::pick::pick_entity_linear(self.session.document(), pick, tol)?;
         let doc = self.session.document();
         let target = doc.get(id)?.geometry.clone();
         let cutter_geoms: Vec<Geometry> = if cutters.is_empty() {
@@ -8081,7 +8486,7 @@ impl AadtApp {
                 radius: Some(_),
                 first: Some(_),
             } => "FILLET — click the second line",
-            Tool::Insert { .. } => "INSERT — click to place the block",
+            Tool::Insert { .. } => "INSERT — click to place (type degrees · Sscale · Esc)",
             Tool::MakeBlock {
                 erase: false,
                 collecting: false,
@@ -8277,6 +8682,16 @@ impl AadtApp {
             Tool::ZoomWindow { first: Some(_) } => "ZOOM Window — click opposite corner",
             Tool::PlotWindow { first: None } => "PLOT WINDOW — click first corner",
             Tool::PlotWindow { first: Some(_) } => "PLOT WINDOW — click opposite corner",
+            Tool::PlaceMarkup { kind, .. } => match kind {
+                aadt_pdf::MarkupKind::Cloud => "MARKUP Cloud — click anchor",
+                aadt_pdf::MarkupKind::Callout => "MARKUP Callout — click anchor",
+                aadt_pdf::MarkupKind::Text => "MARKUP Text — click anchor",
+                aadt_pdf::MarkupKind::Highlight => "MARKUP Highlight — click anchor",
+                aadt_pdf::MarkupKind::Measurement => "MARKUP Measure — click anchor",
+                aadt_pdf::MarkupKind::Freehand => {
+                    "MARKUP Freehand — click/drag stroke; Space finishes"
+                }
+            },
             Tool::SectionLine { first: None } => "SECTIONLINE — first point",
             Tool::SectionLine { first: Some(_) } => "SECTIONLINE — second point",
             Tool::Callout { arrow: None, .. } => "CALLOUT — arrow",
@@ -8579,15 +8994,17 @@ impl eframe::App for AadtApp {
                                 self.palette_open = false;
                                 self.snap_override = None;
                                 self.snap_menu_at = None;
-                                // Esc out of a transparent command returns to
-                                // what it interrupted, not to idle — the point
-                                // of running it transparently.
-                                if self.suspended.is_some() {
+                                if self.sheet_preview.is_some() {
+                                    self.exit_sheet_preview();
+                                } else if self.suspended.is_some() {
                                     self.finish_transparent("cancelled");
                                 } else {
                                     self.engine.cancel();
                                     if self.drafting() {
                                         self.tool = Tool::Select;
+                                    } else if !self.otrack.acquired.is_empty() {
+                                        self.otrack.clear();
+                                        self.note = "Object-snap tracking points cleared".into();
                                     } else {
                                         self.selection.clear();
                                         self.selected_hatches.clear();
@@ -8627,11 +9044,13 @@ impl eframe::App for AadtApp {
                                 self.osnap_track = !self.osnap_track;
                                 if self.osnap_track {
                                     self.osnap = true;
-                                    self.polar = true;
+                                } else {
+                                    self.otrack.clear();
                                 }
                                 self.persist_prefs();
                                 self.note = if self.osnap_track {
-                                    "Object-snap tracking ON (F11)".into()
+                                    "Object-snap tracking ON (F11) — hover snaps to acquire alignment paths"
+                                        .into()
                                 } else {
                                     "Object-snap tracking OFF (F11)".into()
                                 };
@@ -8680,6 +9099,7 @@ impl eframe::App for AadtApp {
         self.draw_left_panel(ctx);
         self.draw_right_panel(ctx);
         self.draw_plot_dialog(ctx);
+        self.draw_compare_dialog(ctx);
         self.draw_layer_map_dialog(ctx);
         self.draw_command_palette(ctx);
 
@@ -8690,6 +9110,12 @@ impl eframe::App for AadtApp {
                 let (rect, resp) =
                     ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
                 self.camera.viewport = (rect.width() as f64, rect.height() as f64);
+                if self.sheet_preview_fit {
+                    if let Some(ref doc) = self.sheet_preview {
+                        self.camera.fit_document(doc, 0.08);
+                    }
+                    self.sheet_preview_fit = false;
+                }
 
                 // Paint the paper background over the whole viewport explicitly.
                 ui.painter_at(rect)
@@ -8718,12 +9144,38 @@ impl eframe::App for AadtApp {
                 let raw_cursor = resp.hover_pos().map(|pos| to_world(&self.camera, pos));
                 self.cursor = raw_cursor.map(|p| self.resolve_pick(p, shift));
 
-                // Brush samples while dragging.
-                if matches!(self.tool, Tool::Brush { .. }) && resp.dragged() {
+                // Brush / freehand markup samples while dragging.
+                if matches!(
+                    self.tool,
+                    Tool::Brush { .. }
+                        | Tool::PlaceMarkup {
+                            kind: aadt_pdf::MarkupKind::Freehand,
+                            ..
+                        }
+                ) && resp.dragged()
+                {
                     if let Some(pos) = resp.hover_pos() {
                         let world = to_world(&self.camera, pos);
                         let p = self.resolve_pick(world, shift);
                         self.on_pick(p);
+                    }
+                }
+                if matches!(
+                    self.tool,
+                    Tool::PlaceMarkup {
+                        kind: aadt_pdf::MarkupKind::Freehand,
+                        ..
+                    }
+                ) && resp.drag_stopped()
+                {
+                    if let Tool::PlaceMarkup {
+                        kind: aadt_pdf::MarkupKind::Freehand,
+                        path: Some(pts),
+                    } = &self.tool
+                    {
+                        if pts.len() >= 2 {
+                            self.commit_freehand_markup(pts.clone());
+                        }
                     }
                 }
 
@@ -8896,7 +9348,7 @@ impl eframe::App for AadtApp {
                                         let world = to_world(&self.camera, pos);
                                         let tol = PICK_PIXELS / self.camera.scale;
                                         if let Some(id) =
-                                            pick_entity(self.session.document(), world, tol)
+                                            self.pick_entity_at(world, tol)
                                         {
                                             if !self.trim_stroke_hits.contains(&id) {
                                                 let cutters = match &self.tool {
@@ -8971,60 +9423,125 @@ impl eframe::App for AadtApp {
                 }
 
                 let build_t0 = std::time::Instant::now();
-                self.session.refresh_draw_cache();
+                let previewing = self.sheet_preview.is_some();
+                let image_paths: Vec<String> = if previewing {
+                    self.sheet_preview_list
+                        .as_ref()
+                        .map(|l| {
+                            l.commands
+                                .iter()
+                                .filter_map(|c| match c {
+                                    DrawCommand::Image { path, .. } => Some(path.clone()),
+                                    _ => None,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    self.session.refresh_draw_cache();
+                    self.session
+                        .cached_drawlist()
+                        .commands
+                        .iter()
+                        .filter_map(|c| match c {
+                            DrawCommand::Image { path, .. } => Some(path.clone()),
+                            _ => None,
+                        })
+                        .collect()
+                };
                 self.perf
                     .build_ms
                     .push(build_t0.elapsed().as_secs_f32() * 1000.0);
-                let image_paths: Vec<String> = self
-                    .session
-                    .cached_drawlist()
-                    .commands
-                    .iter()
-                    .filter_map(|c| match c {
-                        DrawCommand::Image { path, .. } => Some(path.clone()),
-                        _ => None,
-                    })
-                    .collect();
                 for path in &image_paths {
                     let _ = self.texture_for(ui.ctx(), path);
                 }
-                let list = self.session.cached_drawlist();
                 let painter = ui.painter_at(rect);
                 let paint_t0 = std::time::Instant::now();
-                paint(
-                    &painter,
-                    rect,
-                    &self.camera,
-                    list,
-                    self.session.document(),
-                    self.show_lweights,
-                    &self.image_textures,
-                    self.view_preset,
-                );
+                if previewing {
+                    if let (Some(list), Some(doc)) =
+                        (self.sheet_preview_list.as_ref(), self.sheet_preview.as_ref())
+                    {
+                        paint(
+                            &painter,
+                            rect,
+                            &self.camera,
+                            list,
+                            doc,
+                            self.show_lweights,
+                            &self.image_textures,
+                            self.view_preset,
+                        );
+                    }
+                } else {
+                    paint(
+                        &painter,
+                        rect,
+                        &self.camera,
+                        self.session.cached_drawlist(),
+                        self.session.document(),
+                        self.show_lweights,
+                        &self.image_textures,
+                        self.view_preset,
+                    );
+                    paint_selection(
+                        &painter,
+                        rect,
+                        &self.camera,
+                        self.session.document(),
+                        &self.selection,
+                    );
+                    paint_selected_hatches(
+                        &painter,
+                        rect,
+                        &self.camera,
+                        self.session.document(),
+                        &self.selected_hatches,
+                    );
+                    paint_selected_dimensions(
+                        &painter,
+                        rect,
+                        &self.camera,
+                        self.session.document(),
+                        &self.selected_dimensions,
+                    );
+                }
                 self.perf
                     .paint_ms
                     .push(paint_t0.elapsed().as_secs_f32() * 1000.0);
-                paint_selection(
-                    &painter,
-                    rect,
-                    &self.camera,
-                    self.session.document(),
-                    &self.selection,
-                );
-                paint_selected_hatches(
-                    &painter,
-                    rect,
-                    &self.camera,
-                    self.session.document(),
-                    &self.selected_hatches,
-                );
-                paint_selected_dimensions(
-                    &painter,
-                    rect,
-                    &self.camera,
-                    self.session.document(),
-                    &self.selected_dimensions,
-                );
+                if let Some(pdf) = &self.pdf_view {
+                    if let Some(tex) = &pdf.texture {
+                        let tl = world_to_screen(
+                            &self.camera,
+                            rect,
+                            Point2::new(0.0, pdf.page_h_pt as f64),
+                        );
+                        let br = world_to_screen(
+                            &self.camera,
+                            rect,
+                            Point2::new(pdf.page_w_pt as f64, 0.0),
+                        );
+                        let img_rect = egui::Rect::from_two_pos(tl, br);
+                        painter.image(
+                            tex.id(),
+                            img_rect,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                }
+                let pdf_page = self.pdf_view.as_ref().map(|p| p.page as u32);
+                let markups: Vec<_> = self
+                    .markup_list
+                    .all()
+                    .iter()
+                    .filter(|m| match (m.page, pdf_page) {
+                        (None, _) => true,
+                        (Some(p), Some(cur)) => p == cur,
+                        (Some(_), None) => false,
+                    })
+                    .cloned()
+                    .collect();
+                paint_markup_markers(&painter, rect, &self.camera, &markups);
 
                 // Rubber-band preview for the in-progress tool.
                 if let Some(pos) = self.cursor {
@@ -9036,6 +9553,16 @@ impl eframe::App for AadtApp {
                         pos,
                         self.session.document(),
                         &self.selection,
+                    );
+                }
+                // Object-snap tracking rays + acquired markers (F11 / ADR-0018).
+                if self.osnap_track && !self.otrack.acquired.is_empty() {
+                    paint_otrack(
+                        &painter,
+                        rect,
+                        &self.camera,
+                        &self.otrack.acquired,
+                        self.polar,
                     );
                 }
                 // Object-snap marker at the acquired point.
@@ -9260,7 +9787,7 @@ impl AadtApp {
             return;
         }
         // Entities (incl. hatch boundary polylines) win on a direct hit.
-        if let Some(id) = pick_entity(self.session.document(), world, tol) {
+        if let Some(id) = self.pick_entity_at(world, tol) {
             if shift {
                 if let Some(i) = self.selection.iter().position(|&x| x == id) {
                     self.selection.remove(i);
@@ -9438,80 +9965,12 @@ fn handle_zoom(camera: &mut Camera, resp: &egui::Response, rect: egui::Rect, ui:
 
 /// True when an entity may be picked / box-selected (visible + unlocked layer).
 fn entity_pickable(doc: &Document, layer: &str) -> bool {
-    if !doc.layer_shown(layer) {
-        return false;
-    }
-    !doc.layer(layer).map(|l| l.locked).unwrap_or(false)
+    crate::pick::entity_pickable(doc, layer)
 }
 
-/// Shortest distance from `p` to drawn geometry (inserts expand to block content).
-fn entity_distance(doc: &Document, g: &Geometry, p: Point2) -> f64 {
-    match g {
-        Geometry::Insert(_) => {
-            let geoms = selection_geometries(doc, g);
-            let mut best = f64::INFINITY;
-            for sg in &geoms {
-                best = best.min(entity_distance_primitive(sg, p));
-            }
-            if best.is_finite() {
-                best
-            } else if let Geometry::Insert(i) = g {
-                p.distance(i.position)
-            } else {
-                f64::INFINITY
-            }
-        }
-        other => entity_distance_primitive(other, p),
-    }
-}
-
-fn entity_distance_primitive(g: &Geometry, p: Point2) -> f64 {
-    match g {
-        Geometry::Line(s) => s.distance_to_point(p),
-        Geometry::Polyline(pl) => pl
-            .segments()
-            .iter()
-            .map(|s| s.distance_to_point(p))
-            .fold(f64::INFINITY, f64::min),
-        Geometry::Circle(c) => (p.distance(c.center) - c.radius).abs(),
-        Geometry::Arc(a) => {
-            if a.contains_angle(a.angle_of(p)) {
-                (p.distance(a.center) - a.radius).abs()
-            } else {
-                p.distance(a.start_point()).min(p.distance(a.end_point()))
-            }
-        }
-        Geometry::Text(t) => p.distance(t.position),
-        Geometry::Insert(i) => p.distance(i.position),
-        Geometry::Image(img) => {
-            let c = img.corners();
-            let segs = [
-                aadt_geometry::Segment::new(c[0], c[1]),
-                aadt_geometry::Segment::new(c[1], c[2]),
-                aadt_geometry::Segment::new(c[2], c[3]),
-                aadt_geometry::Segment::new(c[3], c[0]),
-            ];
-            segs.iter()
-                .map(|s| s.distance_to_point(p))
-                .fold(f64::INFINITY, f64::min)
-        }
-    }
-}
-
-/// The nearest entity within `tol` of `p` in the **active model space**, if any.
+/// Doc-only click pick (linear). Prefer [`AadtApp::pick_entity_at`] when `&mut self`.
 fn pick_entity(doc: &Document, p: Point2, tol: f64) -> Option<EntityId> {
-    let active = doc.active_space();
-    let mut best: Option<(f64, EntityId)> = None;
-    for e in doc.iter_entities_in_space(active) {
-        if !entity_pickable(doc, &e.layer) {
-            continue;
-        }
-        let d = entity_distance(doc, &e.geometry, p);
-        if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
-            best = Some((d, e.id));
-        }
-    }
-    best.map(|(_, id)| id)
+    crate::pick::pick_entity_linear(doc, p, tol)
 }
 
 /// Topmost hatch in the active space whose fill contains `p` (later-drawn wins).
@@ -10249,6 +10708,101 @@ fn geometry_with_grip_moved_local(
 
 const GRIP_PICK_PIXELS: f64 = 8.0;
 
+/// Non-destructive review markup anchors (L3.1 / aadt-pdf MarkupList).
+fn paint_markup_markers(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &Camera,
+    markups: &[aadt_pdf::Markup],
+) {
+    let color = theme::canvas::reference_mark();
+    let stroke = egui::Stroke::new(1.5_f32, color);
+    for m in markups {
+        let c = world_to_screen(camera, rect, m.at);
+        match m.kind {
+            aadt_pdf::MarkupKind::Cloud => {
+                painter.circle_stroke(c, 7.0, stroke);
+            }
+            aadt_pdf::MarkupKind::Callout => {
+                painter.line_segment([c, c + egui::vec2(14.0, -10.0)], stroke);
+                painter.circle_filled(c, 2.5, color);
+            }
+            aadt_pdf::MarkupKind::Text => {
+                painter.text(
+                    c + egui::vec2(4.0, -4.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    if m.note.is_empty() { "T" } else { m.note.as_str() },
+                    egui::FontId::proportional(11.0),
+                    color,
+                );
+            }
+            aadt_pdf::MarkupKind::Highlight => {
+                painter.rect_filled(
+                    egui::Rect::from_center_size(c, egui::vec2(16.0, 10.0)),
+                    0.0,
+                    color.gamma_multiply(0.35),
+                );
+            }
+            aadt_pdf::MarkupKind::Measurement => {
+                let s = 5.0_f32;
+                painter.line_segment([c + egui::vec2(-s, 0.0), c + egui::vec2(s, 0.0)], stroke);
+                painter.line_segment([c + egui::vec2(0.0, -s), c + egui::vec2(0.0, s)], stroke);
+            }
+            aadt_pdf::MarkupKind::Freehand => {
+                if m.path.len() >= 2 {
+                    for pair in m.path.windows(2) {
+                        painter.line_segment(
+                            [
+                                world_to_screen(camera, rect, pair[0]),
+                                world_to_screen(camera, rect, pair[1]),
+                            ],
+                            stroke,
+                        );
+                    }
+                } else {
+                    painter.circle_filled(c, 2.5, color);
+                }
+            }
+        }
+    }
+}
+
+/// Dashed alignment paths + acquired markers for OTRACK (ADR-0018).
+fn paint_otrack(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: &Camera,
+    acquired: &[crate::otrack::AcquiredPoint],
+    polar: bool,
+) {
+    let color = theme::canvas::snap().gamma_multiply(0.55);
+    let stroke = egui::Stroke::new(1.0_f32, color);
+    let ext = (rect.width().max(rect.height()) as f64) / camera.scale.max(1e-9) * 2.5;
+    let rays = crate::otrack::tracking_rays(acquired, polar);
+    for ray in &rays {
+        let a = Point2::new(
+            ray.origin.x - ray.dir.x * ext,
+            ray.origin.y - ray.dir.y * ext,
+        );
+        let b = Point2::new(
+            ray.origin.x + ray.dir.x * ext,
+            ray.origin.y + ray.dir.y * ext,
+        );
+        let sa = world_to_screen(camera, rect, a);
+        let sb = world_to_screen(camera, rect, b);
+        paint_dashed_segment(painter, sa, sb, stroke, 7.0, 5.0);
+    }
+    for acq in acquired {
+        let c = world_to_screen(camera, rect, acq.point);
+        let s = 3.5_f32;
+        painter.rect_filled(
+            egui::Rect::from_center_size(c, egui::vec2(s * 2.0, s * 2.0)),
+            0.0,
+            color,
+        );
+    }
+}
+
 /// Paint a small END (square), MID (triangle), or CEN (circle) marker at the snap point.
 fn paint_snap_marker(
     painter: &egui::Painter,
@@ -10665,7 +11219,12 @@ fn draw_geometry(
                 return;
             }
             let pos = to_screen(t.position);
-            let px = ((t.height * camera.scale) as f32).clamp(10.0, 36.0);
+            let px = (t.height * camera.scale) as f32;
+            // Soft floor only: skip when effectively invisible; no tight clamp so
+            // zoom keeps world CAD height (L5).
+            if px < 2.0 {
+                return;
+            }
             let galley = painter.layout_no_wrap(t.value.clone(), theme::drawing_font(px), color);
             if galley.size().x <= 0.5 || galley.size().y <= 0.5 {
                 return;
@@ -10770,7 +11329,10 @@ fn draw_command(
             if value.trim().is_empty() {
                 return;
             }
-            let px = ((*height * camera.scale) as f32).clamp(8.0, 72.0);
+            let px = (*height * camera.scale) as f32;
+            if px < 2.0 {
+                return;
+            }
             let galley = painter.layout_no_wrap(value.clone(), theme::drawing_font(px), color);
             if galley.size().x <= 0.5 || galley.size().y <= 0.5 {
                 return;
@@ -10925,6 +11487,17 @@ fn paint_preview(
             }
         }
         Tool::Brush { points: Some(pts) } => {
+            for pair in pts.windows(2) {
+                painter.line_segment([to_screen(pair[0]), to_screen(pair[1])], stroke);
+            }
+            if let Some(&last) = pts.last() {
+                painter.line_segment([to_screen(last), to_screen(cursor)], stroke);
+            }
+        }
+        Tool::PlaceMarkup {
+            kind: aadt_pdf::MarkupKind::Freehand,
+            path: Some(pts),
+        } => {
             for pair in pts.windows(2) {
                 painter.line_segment([to_screen(pair[0]), to_screen(pair[1])], stroke);
             }
@@ -11110,8 +11683,23 @@ fn paint_preview(
                 );
             }
         }
-        Tool::Insert { name } => {
-            paint_insert_ghost(painter, rect, camera, doc, name, cursor, stroke);
+        Tool::Insert {
+            name,
+            rotation,
+            scale,
+        } => {
+            paint_insert_ghost_oriented(
+                painter,
+                rect,
+                camera,
+                doc,
+                name,
+                cursor,
+                *rotation,
+                *scale,
+                false,
+                stroke,
+            );
         }
         Tool::PlaceElem { kind, step } => {
             let (pos, rot, flip) = match *step {
@@ -11141,6 +11729,7 @@ fn paint_preview(
                 kind.block_name(),
                 pos,
                 rot,
+                1.0,
                 flip,
                 stroke,
             );
@@ -11510,20 +12099,7 @@ fn normalize_sweep(start: f64, end: f64) -> f64 {
     d
 }
 
-/// Rubber-band ghost for INSERT / place-tool blocks at the cursor.
-fn paint_insert_ghost(
-    painter: &egui::Painter,
-    rect: egui::Rect,
-    camera: &Camera,
-    doc: &Document,
-    name: &str,
-    cursor: Point2,
-    stroke: egui::Stroke,
-) {
-    paint_insert_ghost_oriented(painter, rect, camera, doc, name, cursor, 0.0, false, stroke);
-}
-
-/// Oriented ghost (door/window on wall) with optional swing flip (`scale_y = -1`).
+/// Oriented ghost (door/window on wall) with optional swing flip (`scale_y = -scale`).
 fn paint_insert_ghost_oriented(
     painter: &egui::Painter,
     rect: egui::Rect,
@@ -11532,14 +12108,20 @@ fn paint_insert_ghost_oriented(
     name: &str,
     cursor: Point2,
     rotation_deg: f64,
+    scale: f64,
     swing_flip: bool,
     stroke: egui::Stroke,
 ) {
     let color = theme::canvas::selection_stroke();
+    let s = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
     match doc.block(name) {
         Some(block) => {
-            let sy = if swing_flip { -1.0 } else { 1.0 };
-            let ins = aadt_model::Insert::new(name, cursor, rotation_deg).with_scale(1.0, sy);
+            let sy = if swing_flip { -s } else { s };
+            let ins = aadt_model::Insert::new(name, cursor, rotation_deg).with_scale(s, sy);
             let mut n = 0usize;
             for be in &block.entities {
                 if n >= 48 {

@@ -19,6 +19,9 @@ aadt-model.workspace = true
 aadt-geometry.workspace = true
 aadt-object.workspace = true
 aadt-graph.workspace = true
+# Content-addressed Merkle object ids (ADR-0021). Explicit exception to the
+# format's "no external crate" rule — integrity only; still unsafe-free.
+blake3 = "1.5"
 
 [dev-dependencies]
 # For the VdbClient unit tests: build canned responses and decode sent requests.

@@ -26,9 +26,12 @@
 
 #[cfg(feature = "gpu")]
 pub mod gpu;
+pub mod glyphs;
 pub mod interact;
 #[cfg(feature = "gui")]
 pub mod view;
+
+pub use glyphs::text_outline_segments;
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -332,13 +335,14 @@ fn insert_draw_scales(
 /// Hatch boundaries as outlines; solid hatches also emit a [`DrawCommand::Fill`].
 fn hatch_commands(hatch: &Hatch) -> Vec<DrawCommand> {
     let mut out = Vec::new();
-    // Presentation solid fills use lower opacity (~0.35) for client boards.
+    // Opacities from libraries/materials/catalog.json (L6); defaults if missing.
+    let opac = aadt_library::material_opacities();
     let fill_alpha = if hatch.fill_kind == aadt_model::FillKind::Presentation && hatch.solid {
-        0.35
+        opac.presentation_solid
     } else if hatch.solid {
-        0.38
+        opac.technical_solid
     } else {
-        0.18
+        opac.pattern_wash
     };
     // Always fill the outer path (pattern hatches get a light wash + strokes).
     if let Some(outer) = hatch.boundaries.first() {
@@ -346,7 +350,7 @@ fn hatch_commands(hatch: &Hatch) -> Vec<DrawCommand> {
             out.push(DrawCommand::Fill {
                 layer: hatch.layer.clone(),
                 points: outer.vertices.clone(),
-                alpha: fill_alpha,
+                alpha: fill_alpha as f32,
             });
         }
         // Mute dense technical patterns on presentation fills (wash only).
@@ -646,12 +650,14 @@ pub fn dimension_commands(
     dim: &Dimension,
     props: &aadt_model::DrawingProperties,
 ) -> Vec<DrawCommand> {
-    let label = aadt_model::format_dimension_label(
+    let label = aadt_model::format_dimension_label_ex(
         dim.kind,
         dim.measurement,
         &dim.text,
         &props.units,
         &props.dim_secondary,
+        &props.dim_precision,
+        &props.dim_fraction,
     );
     let dim_scale = props
         .dim_scale
@@ -893,6 +899,13 @@ pub fn build_drawlist_with_trace(doc: &Document) -> DrawList {
         if doc.trace_above() {
             if let Some(above) = doc.floor_above(floor) {
                 for s in doc.spaces_on_floor(above) {
+                    push_space(&mut list, s.id, true);
+                }
+            }
+        }
+        if let Some(extra) = doc.trace_floor() {
+            if extra != floor {
+                for s in doc.spaces_on_floor(extra) {
                     push_space(&mut list, s.id, true);
                 }
             }

@@ -1,391 +1,321 @@
 # AAD Roadmap
 
-This roadmap records how AAD was built as a lean **2D architectural drafting
-tool**: keyboard-first CAD with DXF/DWG (incl. IMAGEDEF), PDF plotting, LISP,
-Elements/Fills/wall openings, sheets, object-based takeoff, assistive AI, and
-the local enterprise API.
+Lean **2D architectural drafting**: keyboard-first CAD, DXF/DWG (incl. IMAGEDEF),
+PDF sheets, LISP, Elements/Fills/wall openings, object takeoff, assistive AI, and
+a local enterprise API. Each milestone is a shippable, verifiable increment.
 
-Each milestone is a shippable, verifiable increment.
+Long-term direction (still **2D**): the
+[AI-Native CAD Platform](vision/ai-native-platform.md) —
+[ADR-0012](adr/0012-ai-native-platform-pivot.md),
+[phased plan](plans/2026-07-ai-native-phases.md). Product locks below govern what
+ships.
 
-> **Direction (2026-07):** the long-term destination is the
-> [AI-Native CAD Platform](vision/ai-native-platform.md) — engineering
-> intelligence on a multi-layer data architecture (geometry / object / metadata /
-> vector / graph / spatial stores), **still 2D**. See
-> [ADR-0012](adr/0012-ai-native-platform-pivot.md) and the
-> [phased roadmap](plans/2026-07-ai-native-phases.md). Product locks below govern
-> the shipping product.
+Milestone numbers jump (**M3 / M4 / M8** never shipped / retired). The 1.0 band
+is **M1–M2, M5–M7, M9–M15**; **M16+** is post-1.0 shell work.
+
+---
+
+## How to follow this roadmap
+
+| | Milestone | Exit |
+|---|-----------|------|
+| **Now** | — | M23 optional backlog complete |
+| **Next** | — | Full Annotate/Review/PDF docks · IMAGE bitmap blit |
+| **Done** | M1–M2, M5–M7, M9–**M23**; **L1–L7** | 1.0 + WinUI through optional gap close |
+
+Pick from **Later** top-down. Do not revive BIM / 3D or tombstone milestones.
+
+---
 
 ## Product locks
 
-- **2D CAD only — permanent.** Plan/elevation/section drafting in the plane.
-  No solids, meshes, orbit modeling, BIM authoring, or IFC model exchange.
-  Wall height and volume in takeoff are **attributes on 2D geometry**, not a
-  3D scene. This lock is not scheduled for reversal.
-- **Lean commands.** A small daily drafting band people actually use — not an
-  AutoCAD command-count chase. See [Curated command band](#curated-command-band).
-- **LISP for depth.** Firm routines and automation live in AutoLISP-flavoured
-  scripts (`aadt-*` bridge). No second scripting language.
+- **2D CAD only — permanent.** Plan/elevation/section in the plane. No solids,
+  meshes, orbit modeling, BIM authoring, or IFC. Wall height / volume in takeoff
+  are **attributes on 2D geometry**, not a 3D scene.
+- **Lean commands.** Daily band only — not an AutoCAD command-count chase. See
+  [Curated command band](#curated-command-band).
+- **LISP for depth.** Firm automation via AutoLISP-flavoured scripts
+  (`aadt-*`). No second scripting language. (Spec §10 deferred LISP to M6 — ✅.)
 - **WinUI 3 shell (shipping path).** C++/WinRT + Fluent 2 + Direct2D under
-  [`native/aad-winui/`](../native/aad-winui/). Rust engine via `aadt-ffi`
+  [`native/aad-winui/`](../native/aad-winui/); Rust engine via `aadt-ffi`
   ([ADR-0017](adr/0017-winui-shell-rust-engine.md)). egui (`aadt app`) is
-  maintenance fallback only — not a rewrite of the engine.
+  **maintenance fallback** only.
 - **Deterministic core.** Geometry, numbering, and quantities are reproducible
-  independent of AI availability. Local on-demand AI only.
-- **No cloud collaboration product.** Offline-first drafting; enterprise reach
-  is the local API + connectors (M14), not a multi-user sync service.
-
-## Guiding constraints (from the spec §8)
-
-- **Deterministic core.** Geometry, numbering, and quantity computation are
-  reproducible and auditable **independent of AI availability**.
-- **Local-first, on-demand AI.** No AI runs in the background; actions are
-  invoked explicitly and release resources afterward.
-- **Offline-capable.** Full drafting, detection/takeoff, and PDF markup work
-  with no internet connection.
-
-## Two deliberate deviations from spec §10
-
-1. **LISP is deferred from Phase 1 to M6** (now ✅). The command registry was
-   LISP-ready from M1; the interpreter ships and is reachable from the Session
-   (`LISP` / bare `(…)`).
-2. **DWG/DXF round-trip is deferred behind DXF**, then completed via open-source
-   `acadrust` R/W for a 2D subset. See
-   [`adr/0002-dwg-dxf-strategy.md`](adr/0002-dwg-dxf-strategy.md).
+  and auditable **independent of AI**. Local, on-demand AI only — never
+  background. Offline drafting / detection / takeoff / PDF markup required.
+- **No cloud collaboration product.** Offline-first; enterprise reach is the
+  local API + connectors (M14), not multi-user sync.
+- **DWG/DXF:** open-source `acadrust` 2D subset
+  ([ADR-0002](adr/0002-dwg-dxf-strategy.md)). Paper space / XREF / VP out of
+  scope. **UNDO ≠ HISTORY** — keep both.
 
 ---
 
 ## Curated command band
 
-AAD is a **powerful 2D drafting tool free of bloat**. Depth goes into LISP, not
-more command names. Interaction is **AutoCAD-like** (prompts, keywords,
-noun/verb + verb/noun, dyn input) — see [`docs/ux/`](ux/README.md).
-
-**Daily (interactive + prominent autocomplete):**
+Depth goes into LISP, not more command names. Interaction is AutoCAD-like —
+full UX notes in [`docs/ux/`](ux/README.md).
 
 | Kind | Commands |
 |---|---|
 | Draw | `LINE` `POLYLINE` `CIRCLE` `ARC` `RECTANGLE` `XLINE` `TEXT` `INSERT` |
-| Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAYRECT`/`ARRAYPOLAR`/`ARRAYPATH` `ERASE` |
-| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` (`.dxf` / `.dwg` / `.aadt` / `.vdb`) `UNITS` |
-| Annotate | `TEXT` `MLEADER` `DIM` / `DIMRADIUS` / `DIMDIAMETER` / `DIMANGULAR` `DIMSTYLE` `REVCLOUD` |
-| Arch | `WALL` `DOOR`/`WINDOW` (pick both faces · swing) `HATCH`/Fills `IMAGE` Elements catalog |
-| AAD | `SECTION` `STANDARDS` `BLOCKLIB` `DEMO`/`AIDEMO` |
-| Intelligence | `OBJECTS`/`RELATIONS` · `TAKEOFF`/`BOQ` · `PERMS` · `CONNECTOR` · `SITE` |
-| Assist (proposes, never commits) | `FIND` `ASKDOCS` · `SUGGEST` `CHECK` `ASK` · `COMPARE` (`DIFF`/`REVCOMPARE`) · `RECOMMEND DETAIL` (`DETAIL`/`DETAILS`) |
-| Power | `LISP` / bare `(…)` · `LISPLOAD` |
+| Edit | `MOVE` `COPY` `ROTATE` `SCALE` `MIRROR` `OFFSET` `TRIM` `EXTEND` `FILLET` `STRETCH` `ARRAY*` `ERASE` |
+| Org | `LAYER`/`LAYERS` `LAYERSET` `SELECT` `UNDO`/`REDO` `DIST` `LIST` `OPEN` `SAVE` `UNITS` |
+| Annotate | `TEXT` `MLEADER` `DIM*` `DIMSTYLE` `REVCLOUD` |
+| Arch | `WALL` `DOOR`/`WINDOW` `HATCH`/Fills `IMAGE` Elements |
+| AAD / Intel / Assist / Power | `SECTION` `STANDARDS` `OBJECTS` `TAKEOFF`/`BOQ` `FIND` `ASK*` `LISP` … |
 
-The **Assist** row is bounded on purpose: every command there either retrieves
-something already in the drawing or an indexed document, or emits a proposal a
-human accepts. None of them write geometry on their own (ADR-0013).
-
-**Click-tools in the egui viewport:** `L` `C` `REC` `A` `XL` `O` `T` `F` `MLEADER` `STRETCH` `BRUSH` ·
-`M` `CO` `RO` `SC` `MI` `AR`/`ARRAYPOLAR`/`ARRAYPATH` · `E` · `DIM*` · pick/box select · Ortho (Shift / F8) ·
-Osnap endpoint/midpoint (F3) · Polar (F10).
-
-**Keep but de-emphasize** (scripts / DXF fidelity, not GUI chrome): other `DIM*`
-variants, `HATCH`, `CHAMFER`, `EXPLODE`, `PURGE`, `GROUP*`/`UNGROUP`,
-`AREA`.
-
-**Do not add:** MTEXT sprawl, spline/ellipse without a real need, ribbon/toolbar
-forests, 3D commands, BIM authoring, paper-space XREF workflows.
-
-**Presentation rasters (in scope):** PNG/JPEG furniture and logos via
-`Geometry::Image` + Elements catalog / `IMAGE` place; DWG/DXF export uses
-AutoCAD `IMAGE` + `IMAGEDEF` (see [DWG fidelity matrix](interop/dwg-fidelity-matrix.md)).
-Not a freehand paint program — vector drafting stays primary.
-
-**Standards / presentation:** AIA/US NCS layers (`aadt-standards`, WCAG vs white
-paper), layer sets (`CONSTRUCTION` / `SERVICES` / `ELECTRICAL` / `PRESENTATION`),
-light print-preview GUI, `MLEADER`, `STRETCH`, `SECTION`,
-[block / hatch / detail / elements libraries](../libraries/README.md), typed
-Fills (`FillKind`), Technical / Presentation view presets.
+Assist commands **propose only** — never auto-commit geometry ([ADR-0013](adr/0013-ai-service-layer.md)).
+Do not add: MTEXT sprawl, ribbon forests, 3D/BIM, paper-space XREF.
 
 ---
 
-## M1 — CAD Core Substrate ✅ (headless) · interactive shell ✅ (WinUI path · egui fallback)
+## Done (1.0 + M16)
 
-**Headless foundations — ✅:** atomic undo/redo, command interpreter with the
-curated band above, selection sets, dimensions (full DXF set), hatch, layer
-state, DXF round-trip, drawlist/camera seam.
+### M1 — CAD core ✅
 
-**Interactive surface — shipping WinUI / Direct2D** ([`native/aad-winui/`](../native/aad-winui/),
-[ADR-0017](adr/0017-winui-shell-rust-engine.md)); **egui fallback ✅:**
-- Command-first shell with pick/box select, click-to-draw
-  (`L`/`C`/`REC`/`A`/`XL`), noun-verb **and** verb-noun `M`/`CO`/`RO`/`SC`/`MI`/`E`,
-  AutoCAD-like keywords (`[U]`/`[C]`/`[D]`/`[R]`), dynamic input, Ortho (F8),
-  native file dialogs (`rfd`), Units/Dims managers, 3-point `DIM`.
-- `OPEN`/`SAVE`/`LISP`/`LISPLOAD` on the same `Session` the
-  CLI shell uses; bare `(…)` evaluates AutoLISP against the live document.
-- Thin `aadt-ffi` cdylib — **shipping** WinUI / Direct2D host loads `aadt_ffi.dll`
-  ([ADR-0017](adr/0017-winui-shell-rust-engine.md)); egui remains a fallback driver.
-- Interaction docs: [`docs/ux/`](ux/README.md).
+Headless: undo/redo, curated interpreter, selection, dims, hatch, layers, DXF
+round-trip, drawlist. Native `.aadt` (ADR-0004). Floors + category model spaces
+([ADR-0009](adr/0009-floors-and-model-spaces.md)): `FLOOR` / `CATEGORY` /
+`ORIGIN` / `TRACE`. Transparent `'ZOOM`/`'PAN` in egui.
 
-**Transparent commands — ✅:** an apostrophe prefix (`'ZOOM`, `'PAN`) runs a
-view command without cancelling the one in progress; the interrupted command's
-tool state, engine step, and prompt are parked and restored verbatim (Esc
-during it resumes rather than cancelling). Only view commands qualify — a
-transparent command that could edit geometry is refused.
+**Interactive:** egui fallback ✅ (full click-tools, dyn input, Ortho/osnap).
+WinUI / Direct2D interim host + `aadt-ffi` ✅ for feed + M16 tools — full Fluent
+shell is **M17**. Optional wgpu canvas criteria: [ADR-0020](adr/0020-wgpu-canvas-criteria.md).
 
-**Remaining (display-bound, not command sprawl):**
-- Viewport text glyph quality.
-- True `wgpu` 2D canvas when the egui painter is actually too slow (100k+).
+### M2 — Detection ✅
 
-**Native format — ✅ v0:** SQLite `.aadt` via `aadt-store` (layers, entities with
-stable ids, blocks, hatches, dimensions). `OPEN`/`SAVE` select by extension.
-See [`adr/0004`](adr/0004-native-file-format.md).
+Openings / structural / furniture classification; rooms; tags; anomalies.
+On-canvas block-placement polish → Later.
+
+### M5 — Sheets / plot ✅
+
+`PLOTSETUP`, title block, notes, QA, `place_drawing`, `AADT-PRESENT`. Hatch
+library: 28 `.pat` patterns under [`libraries/hatches/`](../libraries/hatches/)
+(`aadt-render` multi-family parse).
+
+### M6 — LISP ✅
+
+AutoLISP-flavoured interpreter + `aadt-*` bridge; `LISP` / bare `(…)` on Session.
+
+### M7 — PDF markup ✅ (core)
+
+Vector plot, markup list, narrated compare. Interactive PDF viewer UI → Later.
+
+### M9 — BricsCAD drafting parity ✅
+
+| # | Item | Status |
+|---|------|--------|
+| M9.1 | Osnap QUA/NEA/INT + PER/TAN overrides + snap menu | ✅ |
+| M9.2 | Fence / WPolygon / CPolygon (box select only for drag) | ✅ |
+| M9.3 | Multi-mode grip edit | ✅ |
+| M9.4 | Auto-type `DIM` + hover-to-dim | ✅ |
+| M9.5 | Hatch internal-point preview | ✅ |
+| M9.6 | Floating + auto-hide docks | ✅ |
+| M9.7–9 | Capabilities · QA harness · F7 perf HUD | ✅ |
+
+Cloud generative “AI suggestions” **not scheduled**. Auto layer via `MAPMETA`
+only ([ADR-0010](adr/0010-embeddings-metadata-mapping.md)).
+
+### M10 — Objects + graph ✅
+
+`aadt-object` / `aadt-graph`; `.aadt` v8 + `.vdb` v2; `OBJECTS` / `RELATIONS`.
+ShilpiDB: 2D vectors only ([ADR-0011](adr/0011-vector-database-store.md)).
+Merkle version history in `.vdb` v4 ([ADR-0021](adr/0021-shilpidb-merkle-versioning.md)).
+
+### M11 — Semantic search ✅
+
+Embeddings, `FIND`, BM25 `ASKDOCS`, corpus in `.aadt` v9. No answer generation.
+
+### M12 — Assist layer ✅
+
+Suggest / check / ask / compare / detail recommend — propose + audited apply only.
+
+### M13 — Object takeoff ✅
+
+Quantities + CSI codes + `TAKEOFF` / `BOQ`. No pricing.
+
+### M14 — Enterprise API ✅
+
+Loopback `aadt serve`; perms; signed audit; connectors; site ingest
+([ADR-0015](adr/0015-local-api-layer.md), [ADR-0016](adr/0016-m14-enterprise.md)).
+No `POST /v1/entities`.
+
+### M15 — Arch plan CAD ✅
+
+Elements / typed Fills; dual-face openings; door swing; PNG furniture;
+Technical/Presentation presets; IMAGEDEF export; interaction trust; `DEMO`.
+DWG write for IMAGE+IMAGEDEF ✅; hatch/dim DWG write → Later.
+([market-gap case study](audit/2026-08-market-gap-case-study.md),
+[fidelity matrix](interop/dwg-fidelity-matrix.md)).
+
+### M16 — WinUI interactive tools ✅
+
+[ADR-0017](adr/0017-winui-shell-rust-engine.md): click-draw via FFI, not C++ geometry.
+
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M16.1 | `aadt_app::command_engine` outside `gui` | ✅ | Shared catalog with egui |
+| M16.2 | ABI v3 `aadt_tool_*` + preview | ✅ | `aadt_ffi_version() == 3` + tests |
+| M16.3 | Host uses FFI tools (no C++ `PickTool`) | ✅ | L / C / REC + rubber-band |
+| M16.4 | Docs match | ✅ | ROADMAP / CHANGELOG / ADR |
+
+Not in M16: polyline chain, osnap, modify tools, MSIX / real WinUI 3 (→ M17).
 
 ---
 
-## M2 — Element Detection & Classification ✅
+## Active
 
-Openings, structural, furniture classification; tags; room-from-wall-graph;
-`merged_rooms` dedup; anomaly flagging. **Remaining (display):** interactive
-on-canvas block placement polish.
+### M17 — WinUI Chrome 2.0 ✅
 
----
+Product Fluent shell on top of M16 FFI under
+[`native/aad-winui/winui/`](../native/aad-winui/winui/).
 
-### Hatch pattern library ✅ (expanded)
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M17.1 | VS Blank App (WinUI 3 C++) + Windows App SDK | ✅ | `native/aad-winui/winui/AadWinui.sln` builds (VS 2022 + WinAppSDK 1.6) |
+| M17.2 | `SwapChainPanel` (or composition) + existing Direct2D / `FfiSession` | ✅ | Paper paints via ABI v3 (`SwapChainCanvas`) |
+| M17.3 | Chrome 2.0: brand strip, CLI hero, status, auto-hide panes, Properties primary | ✅ | Rails + Properties (ABI v4 pick/props); QAT Undo/Redo |
+| M17.4 | Optional MSIX packaging | ✅ | Release MSIX + `pack-msix.ps1`; Debug stays unpackaged |
 
-28 architectural/floor `.pat` patterns internalised under
-[`libraries/hatches/`](../libraries/hatches/) (brick, block, stone, tile,
-insulation, metal, floor grids/staggers, …). `aadt-render` now **parses the
-`.pat` line families** and renders them faithfully (multi-family, native
-angle + spacing) via an embedded library, instead of the old name→angle map;
-legacy builtins keep the simple model as a fallback. Dash arrays are parsed
-but drawn solid for now (approximation).
-
-## M5 — Documentation & Sheet Production ✅
-
-`PLOTSETUP`, title block, notes library, QA, compose (`place_drawing`),
-`AADT-PRESENT` multi-view layout. Driven by `aadt sheet` / `aadt present`.
+egui stays maintenance fallback.
 
 ---
 
-## M6 — LISP Engine ✅
+### M18 — WinUI usable CAD ✅
 
-AutoLISP-flavoured interpreter + `aadt-*` query/create/modify bridge. Session
-and CLI shell evaluate `LISP` / bare `(…)` against the live document. Driven by
-`aadt lisp` for batch scripts.
+Daily drafting chrome on the M17 shell via **ABI v5** (`aadt-ffi`).
+
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M18.1 | Layers / blocks list FFI + current layer | ✅ | `aadt_layers_list` / `aadt_blocks_list` / `aadt_layer_set_current` |
+| M18.2 | Expand interactive tools (draw + modify) | ✅ | LINE/PL/REC/CIRCLE/ARC/XL + MOVE/COPY/ROTATE/SCALE/MIRROR/OFFSET/TRIM/EXTEND/FILLET/ERASE + INSERT |
+| M18.3 | WinUI Layers/Blocks panes, tool strip, New/Open/Save | ✅ | Live lists; Comdlg file pickers; Space finishes |
+| M18.4 | Properties layer edit + Tools catalog | ✅ | `CHANGE SELECTION LAYER`; Tools… palette |
+
+Out of M18 (still egui): Fills/Annotate/Review/PDF managers, OTRACK overlays, grip edit.
 
 ---
 
-## M7 — PDF Markup & Comparison ✅ (core)
+### M19 — WinUI daily polish ✅
 
-Vector PDF plot, markup list, narrated compare. **Remaining (needs PDF viewer
-UI):** interactive viewing, freehand/stamps, on-PDF measure, raster diff.
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M19.1 | HATCH + TEXT interactive tools | ✅ | Tool strip + FFI |
+| M19.2 | Osnap on tool picks (marker in preview) | ✅ | ABI v6 `aadt_osnap_*` |
+| M19.3 | Window / crossing box select | ✅ | Drag L→R window, R→L crossing |
+
+Still egui: Fills/Annotate/Review/PDF managers, OTRACK overlays, grip edit.
 
 ---
 
-## Next ✅
+### M20 — WinUI commands + Elements/Fills ✅
 
-The former Next polish items are **done**:
+Daily command-line CAD on the M19 shell via **ABI v7**.
 
-1. **DWG write / round-trip** — `export_dwg_path` via `acadrust` `DwgWriter`;
-   `SAVE *.dwg` / GUI filter; best-effort 2D subset (hatches/dims skipped on
-   DWG; **IMAGE + IMAGEDEF** shipped — see M15 / fidelity matrix).
-2. **DXF multi-path hatch** — `Hatch.boundaries` (outer + islands); DXF `91`/`93`
-   round-trip; store codec `HATCHPATHS`.
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M20.1 | Command line polish | ✅ | complete / history / is_interactive / empty Enter repeat |
+| M20.2 | Elements + Fills panes | ✅ | catalog + hatch pattern ABI; Blk→Elm; Fil tab |
+| M20.3 | Annotate / place tools | ✅ | DIM/MLEADER/DIST + DOOR/WINDOW place→INSERT |
+| M20.4 | OTRACK rays + stretch grips | ✅ | overlay via preview; grip drag → GRIPEDIT |
 
-**Locked out of scope:** paper space / XREF / VP (nameplate PDF plotting is the
-sheet path). **UNDO ≠ HISTORY** — keep both; do not merge. **2D only** — no
-solids, BIM authoring, or 3D scene.
+Still egui (pre-M22): full Annotate/Review/PDF docks. STRETCH/ARRAY/swing → M22.
 
-### Floors + category model spaces (ADR-0009) ✅
+---
 
-ArchiCAD-style **floors** with a shared **reference origin**, and per-floor
-**model spaces** that *are* the element categories (Walls / Structural / Lintel /
-BeamLayout / Furniture)—not layer filters. `TRACE` ghosts adjacent floors;
-Levels strip + `FLOOR` / `CATEGORY` / `ORIGIN` commands; `.aadt` schema v6.
+### M21 — WinUI honesty + daily CAD (audit) ✅
 
-## M9 — Drafting Workflow Parity (BricsCAD audit) ✅
+Closes doc/code gaps from [2026-08 WinUI audit](audit/2026-08-winui-doc-gap.md).
+**ABI v8.**
 
-Closes the interaction gaps found in the
-[BricsCAD workflow conformance audit](ux/bricscad-conformance-audit.md). The
-command lifecycle, spacebar semantics, command line, and modify flow already
-conform; M9 is **breadth** on top of that core. Sequenced by daily-drafting
-impact.
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M21.1 | Honest Tools catalog | ✅ | `aadt_catalog_tools` = interactive only |
+| M21.2 | Selection highlight | ✅ | selection line export + D2D accent |
+| M21.3 | LINE chain until Space | ✅ | segment commit, continue |
+| M21.4 | DOOR/WINDOW wall cut | ✅ | `cut_wall_opening` on place |
+| M21.5 | WALL interactive | ✅ | thickness + polyline → A-WALL |
+| M21.6 | FILLET radius + Ortho/Polar | ✅ | typed radius; F8/F10 |
 
-| # | Item | Spec § | Status | Notes |
-|---|------|--------|--------|-------|
-| M9.1 | Object snaps: Quadrant · Nearest · Intersection running snaps; **Perpendicular / Tangent** and `END/MID/INT/CEN/QUA/NEA/PER/TAN` keyword overrides + SHIFT+right-click snap menu | §17 | ✅ | Running snaps plus PER/TAN geometry and the one-shot override resolver (`find_override_in_spaces` / `parse_snap_keyword`) live in [`osnap.rs`](../crates/aadt-app/src/osnap.rs), headless-tested. The GUI arms an override from a keyword typed at a point prompt or the SHIFT+right-click menu; PER/TAN use the live drag anchor, and overrides work with running osnap (F3) off |
-| M9.2 | Selection: Fence, WPolygon/CPolygon | §12 | ✅ | Headless region-select in [`selection.rs`](../crates/aadt-app/src/selection.rs) (unit-tested); GUI `WP`/`CP`/`FENCE` tools (click corners → Space). Select drag is **box only** (L→R window / R→L crossing) — free-drag lasso is not shipped. See [engineering Vol 6](engineering/vol-06-selection-engine.md) |
-| M9.3 | Multi-mode grip editing (Move/Rotate/Scale/Mirror cycled with Space on a hot grip) | §14 | ✅ | `GripMode` (Stretch→Move→Rotate→Scale→Mirror) cycled with Space on a hot grip; each mode transforms the selection about the grip via the tested MOVE/ROTATE/SCALE/MIRROR/GRIPEDIT commands. Preview shows the base→cursor axis (grip ghost for Stretch) |
-| M9.4 | Single auto-type `DIM` — `DIM <id>` infers the type from the entity (line→aligned, circle→diameter, arc→radius); coordinate form kept | §22 | ✅ | Command-level auto-type in [`aadt-command`](../crates/aadt-command/src/lib.rs) (headless-tested). GUI **hover-to-auto-dim**: DIM's first click on an entity auto-dimensions it with a live ghost preview (`auto_dimension_for` + `dimension_commands`), empty space keeps the two-point form. **DIMANGULAR from two lines**: pick two lines → the angle at their intersection (`line_line_intersection`), else the 3-point vertex form |
-| M9.5 | Live hatch preview on internal-point pick | §21 | ✅ | Was boundary-entity-only. Now `hatch_boundary_at` detects the smallest enclosing closed region under the cursor (AutoCAD internal point); HATCH hovers show a translucent accent fill + boundary preview, click commits (boundary-entity pick kept as fallback) |
-| M9.6 | Docking: floating panels + auto-hide | §28 | ✅ | Without `egui_dock`: each manager has `PanelMode::{Docked, Floating, AutoHide}` persisted in prefs. Header buttons float / unpin (auto-hide) / pin (re-dock). Floating is a title-bar-less `egui::Window` with position/size remembered; auto-hide keeps the edge rail and expands a foreground overlay on hover (350 ms grace). Bottom-dock of the managers stays deferred — Drawing Properties already uses a bottom panel |
-| M9.7 | Per-command capability trait (`CanUndo`/`SupportsPreview`/`SupportsSnap`/`SupportsDynamicInput`/`SupportsCommandLine`/`SupportsSelectionPreview`) | §33 | ✅ | `Capabilities` + `CommandDef::capabilities()` derive the §33 contract from each command's step interface (query set → `can_undo`); surfaced on hover in the command palette; contract test across the catalog |
-| M9.8 | Per-command QA harness asserting the §34 checklist across every command | §34 | ✅ | `qa_checklist_every_command` iterates the whole catalog asserting starts / cancels / repeats (per `repeatable`) / keyboard-line addressable / snap+preview+mixed-input consistency / undo semantics; builds on the M9.7 capability contract |
-| M9.9 | Frame-time / latency telemetry to validate the §31 performance budgets | §31 | ✅ | **F7** toggles a performance HUD: rolling frame time (avg / p95 / max) + FPS with a build/paint breakdown, graded live against the §31 **< 16 ms / 60 FPS** redraw budget. Continuous repaint while it's on measures a real sustained loop. `PerfRing` / `PerfTelemetry` in [`gui.rs`](../crates/aadt-app/src/gui.rs) |
+Still egui after M21: STRETCH/ARRAY (→ M22), Review/PDF, WP/CP/FENCE.
 
-**§35 conflict (product lock):** cloud generative “AI command suggestions / PDF
-recognition” style features are **not scheduled**. Assist stays local,
-propose-only (M12). **Auto layer assignment** is the bounded exception:
-deterministic embeddings (`aadt-embed` / `aadt-vecdb`) map elements to AIA
-layers + model-space categories with confidence gating (`MAPMETA`) —
-[ADR-0010](adr/0010-embeddings-metadata-mapping.md).
+---
 
-**Out of scope for M9:** Ribbon (command-driven by design), View Cube (spec-optional).
+### M22 — WinUI remaining gap close ✅
 
-## M10 — AI-Native Phase 1: Intelligent objects + Graph DB ✅ (core)
+Closes the post-M21 audit backlog on the shipping shell. **ABI v9.**
 
-First implementation phase of the [AI-native platform](vision/ai-native-platform.md)
-(ADR-0012; [phased roadmap](plans/2026-07-ai-native-phases.md)). Geometry stays
-the source of truth in the `Document`; objects reference entities, never replace
-them.
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M22.1 | STRETCH interactive | ✅ | window → base → dest |
+| M22.2 | ARRAYRECT / POLAR / PATH | ✅ | select + points / count |
+| M22.3 | IMAGE place | ✅ | file picker + `aadt_tool_start_image` |
+| M22.4 | REVCLOUD | ✅ | two-corner cloud |
+| M22.5 | Multi-mode grips | ✅ | Space cycle Stretch→…→Mirror |
+| M22.6 | Door swing + Shift pick | ✅ | Tab flip; Shift additive select |
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| M10.1 | `aadt-object` — **Object DB**: typed engineering objects (Wall/Room/Door/Window/Column/Beam/Furniture) with stable `ObjectId`, member entities, engineering properties, AI confidence, revision stamp | ✅ | Seeded by promoting `aadt-detect` output |
-| M10.2 | `aadt-object` — **audit log**: append-only per-object entries (user, timestamp, action, prev/new, AI-suggested, approval, reason); nothing deleted | ✅ | Extends the ADR-0008 history model to object granularity |
-| M10.3 | `aadt-graph` — **Graph DB**: persisted typed relationships (`ConnectedTo`, `BelongsTo`, `Contains`, `Bounds`, `Supports`) with forward/reverse queries + traversal | ✅ | Door → *belongs to* → Wall; Room → *contains* → Furniture; Wall → *bounds* → Room |
-| M10.4 | Persistence: `.aadt` schema **v8** (objects/props/edges/audit tables) + ShilpiDB `.vdb` **v2** sections; carried across resave | ✅ | Both formats carry objects/graph/audit across resave (additive; v7/v1 files still open). `SAVE .vdb` writes the live Object DB via `save_path_with_objects`, and `ObjState::sync` loads it back on OPEN — round-trip proven across processes by a golden test (`OBJECTS LIST` shows the persisted objects without re-promoting). |
-| M10.5 | Surface: `OBJECTS` / `RELATIONS` commands + LISP (`aadt-objects`, `aadt-relations`) | ✅ | Promotion is deterministic and undo-safe (objects live beside the document) |
+Still optional / egui: full Review/PDF docks, hatch solid paint, WP/CP/FENCE tools,
+apostrophe `'ZOOM` suspend (wheel zoom mid-tool covers daily need).
 
-### ShilpiDB known gaps
+---
 
-ShilpiDB (`aadt-vdb`, `.vdb`; [ADR-0011](adr/0011-vector-database-store.md)) ships
-as a custom, dependency-free vector store: entities + layers/blocks/hatches/dims/
-floors/props at `.aadt` fidelity, a built-in spatial grid (`query_bbox` /
-`query_point`, `WITHIN` / `VSELECT`, LISP `aadt-within`), durable temp+rename
-writes, and OPEN/SAVE wiring in the CLI and GUI — **now including the Object DB**
-(`SAVE .vdb` persists the live `ObjectStore` / `Graph` / `AuditLog`; OPEN loads
-them back). Remaining boundaries, both intentional:
+### M23 — WinUI optional gap close ✅
 
-- **No history / time-machine** in `.vdb` — checkpoints stay a `.aadt`-only
-  feature (ADR-0011).
-- **2D vector records only** — no splines / meshes / solids. Geometry stays
-  plan-based; height is an attribute where takeoff needs it.
+Closes remaining optional items from the WinUI audit. **ABI v10.**
 
-## M11 — AI-Native Phase 2: Semantic search + local retrieval ✅ (core)
+| # | Item | Status | Exit |
+|---|------|--------|------|
+| M23.1 | WP / CPOLYGON / FENCE | ✅ | Space finishes region select |
+| M23.2 | Hatch solid fill paint | ✅ | `aadt_drawlist_copy_fills` + D2D FillGeometry |
+| M23.3 | Transparent `'ZOOM` / `'PAN` | ✅ | mid-tool feed; `aadt_nav_take` host |
+| M23.4 | Thin Review / Plot QAT | ✅ | LIST / PLOTSETUP / ZoomE |
 
-Second implementation phase (ADR-0012). Retrieval only: every answer points at
-content that already exists in the drawing or an indexed document. Nothing is
-generated, and nothing leaves the machine.
+Still egui: full Annotate/Review/PDF docks; IMAGE bitmap blit; rich apostrophe
+suspend (wheel + `'ZOOM E` cover daily need).
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| M11.1 | `aadt-embed` — **text embeddings**: 64-dim character n-gram (2/3/4-gram) hashing, plus `drawing_embedding` / `object_embedding` mean-pooling | ✅ | No training and no dependencies; `WALL` / `A-WALL` / `WALL-TYPE` cluster |
-| M11.2 | `aadt-vecdb::search` — **semantic search**: `find_by_text` over element labels, `find_similar_to` over geometry, `find_duplicates` by all-pairs cosine | ✅ | `FIND` selects its hits, so the result feeds straight into the next command |
-| M11.3 | `aadt-vecdb::corpus` — **local corpus + RAG retrieval**: paragraph chunking, **BM25** ranking over word tokens, n-gram cosine fallback | ✅ | BM25 is what stops shared boilerplate ("shall be … mm") from dominating |
-| M11.4 | Persistence: `.aadt` schema **v9** (`corpus_source`, `corpus_chunk`); carried across resave | ✅ | Additive; v8 files migrate with geometry/objects/audit intact |
-| M11.5 | Surface: `FIND` / `ASKDOCS` commands | ✅ | `ASKDOCS` cites source + paragraph for every passage it returns |
+---
 
-**Deliberately not in M11:** answer *generation*. `ASKDOCS` retrieves and cites
-passages; it never composes prose from them. Composition would mean asserting
-something no document says — the opposite of "AI never owns data" (ADR-0012).
+## Later (optional)
 
-## M12 — AI-Native Phase 3: the AI service layer ✅
+Ordered backlog — pick after M17 or in parallel if unblocked:
 
-Third implementation phase ([ADR-0013](adr/0013-ai-service-layer.md)). The first
-services that want to write, and the mechanism that keeps them gated: a service
-returns proposals, and one audited function commits them.
+| # | Item | Notes |
+|---|------|-------|
+| L1 | SpatialGrid in GUI click pick | ✅ click pick (osnap still linear) |
+| L2 | True OTRACK | ✅ F11 acquire + H/V (±polar) rays ([ADR-0018](adr/0018-otrack.md)) |
+| L3 | M7 PDF viewer UI | **L3.1–L3.3 ✅** sheet preview, freehand, PDFium open/render + raster diff ([ADR-0019](adr/0019-pdfium-reader.md)) |
+| L4 | DWG hatch + dimension write | ✅ polyline HATCH + common DIMENSION kinds via acadrust |
+| L5 | Viewport text glyphs; wgpu if egui too slow | **✅ glyphs** + **L5.2 ✅** optional wgpu path / criteria ([ADR-0020](adr/0020-wgpu-canvas-criteria.md)); WinUI stays default |
+| L6 | Sheet-bound view presets; material / opacity libraries | **✅** clone-safe plot/present presets; `libraries/materials/catalog.json` fill opacities |
+| L7 | On-canvas block placement polish | **✅** INSERT rotation/scale + oriented ghost (type ° / Sscale) |
 
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| M12.1 | `aadt-assist` — **suggestion framework**: `Suggestion` + `Action` as data, `apply` inside one undo transaction, append-only audit of both accepts and rejects | ✅ | Services never receive `&mut Document` — they structurally cannot commit |
-| M12.2 | **Dimension prediction**: propose a linear dimension per undimensioned wall, confidence from detection quality | ✅ | Re-running skips walls already dimensioned |
-| M12.3 | **Code-check rule packs**: min room area / min room width / min door width, graded violation vs warning | ✅ | Advisory only — resolving a violation is a design decision, never auto-applied |
-| M12.4 | **NL command routing**: phrase → command *string*, never geometry | ✅ | Refuses unmatched phrasings with candidates rather than guessing |
-| M12.5 | Surface: `SUGGEST` / `CHECK` / `ASK` commands | ✅ | `ASK` shows the routed command; running it stays the user's call |
-| M12.6 | **Revision-comparison narration** — fingerprint diff + detection deltas + optional corpus citations as an advisory suggestion | ✅ | `aadt-assist::narrate_revision` / `COMPARE <before>`; `Action::None` (transmittal note, never auto-edits). CLI `aadt compare` prints the same enriched note |
-| M12.7 | **Standard-detail recommendation** — BM25 retrieval over a bundled detail library | ✅ | Seed sheets in [`libraries/details/`](../libraries/details/); `aadt-assist::recommend_details` + `RECOMMEND DETAIL [query]` (auto-seeds corpus; `SuggestionKind::DetailRecommend`, `Action::None`) |
+---
 
-**Deliberately not in M12:** auto-fixing code findings, and any NL path that
-reaches geometry without passing through the command band. Both would move a
-decision from the engineer to the tool.
-
-## M13 — AI-Native Phase 4: quantity takeoff, on objects ✅ (core)
-
-Fourth implementation phase ([ADR-0014](adr/0014-object-based-takeoff.md)).
-Quantity takeoff against the Object DB — and
-[ADR-0005](adr/0005-cost-code-standard.md) CSI cost codes with it.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| M13.1 | `aadt-takeoff` — **quantity engine over objects**: wall net area / volume / bricks / plaster, room finishes, opening schedule, structural members | ✅ | Reads engineering props off objects, not geometry |
-| M13.2 | **Opening deduction via the Graph DB** (`Door —BelongsTo→ Wall`) | ✅ | The reason takeoff waited for Phase 1; an unattributed opening is *not* deducted, and that is reported |
-| M13.3 | **CSI MasterFormat cost codes** — kind first, layer-name refinement | ✅ | ADR-0005 revived unchanged; masonry vs drywall bill separately |
-| M13.4 | **BOQ generation** — aggregated by cost code, deterministic ordering | ✅ | Zero-quantity lines dropped; identical output across runs so revisions diff |
-| M13.5 | Persistence: the surviving `takeoff_*` tables re-activated | ✅ | No schema change — stable `ObjectId`s are the row key the tables always wanted |
-| M13.6 | Surface: `TAKEOFF` / `BOQ` commands | ✅ | Reports how many figures were assumed rather than measured |
-
-**Not measurable in 2D, so declared as input:** storey height, and any opening
-without drawn dimensions. Both come from `TakeoffConfig` and are flagged in the
-report rather than presented as measurements.
-
-**Deliberately not in M13:** pricing. The bill carries quantities and cost codes;
-rates belong to the estimator's system.
-
-## M14 — AI-Native Phase 5: enterprise + APIs ✅
-
-Fifth implementation phase ([ADR-0015](adr/0015-local-api-layer.md),
-[ADR-0016](adr/0016-m14-enterprise.md)). Phases 1–4 made the drawing
-understandable to this program; Phase 5 makes it reachable from others —
-without giving anything else authority over the geometry.
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| M14.1 | `aadt-api` — **local HTTP/JSON API** over a live `Session`: loopback-only, token-gated, std-only (no `tokio`/`hyper`/`serde`). Surface is `aadt serve [drawing] [--port] [--token] [--read-only] [--once]` | ✅ | Eleven routes ([reference](api/README.md)). Reads project the session; the **one** write path is `POST /v1/command` — the same line a user types, so an API caller inherits the same validation, undo record, and history entry |
-| M14.2 | Object-level permissions | ✅ | Token → principal + role caps (`--identity` / `--role`); route + command-verb gates; per-object `acl.*` props via `PERMS GRANT/REVOKE/SHOW` ([ADR-0016](adr/0016-m14-enterprise.md)) |
-| M14.3 | Signed audit trail | ✅ | Optional HMAC-SHA256 chain on `AuditEntry` (`AADT_AUDIT_KEY`); `OBJECTS AUDIT VERIFY`; `.aadt` schema v10 + `.vdb` v3 |
-| M14.4 | Enterprise connectors (ERP / BOQ / RFI / DMS) as plugins over the API | ✅ | `CONNECTOR ERP/RFI/DMS` commands emit sidecar payloads; reachable over `POST /v1/command` (needs `connector` cap) |
-| M14.5 | Site data (photos, reports) ingested into the Vector DB | ✅ | `SITE INDEX` / `ASKDOCS INDEX PHOTO\|PDF\|REPORT` → corpus text chunks (caption + PDF literals); retrieval via `ASKDOCS` |
-
-**Deliberately not in M14.1:** a REST-shaped write API (`POST /v1/entities`).
-A second door into the document means every invariant the command layer enforces
-has to be re-enforced behind it forever, in step — and the first disagreement
-between the two makes the drawing only as correct as whichever door the caller
-used. Callers compose command strings instead; that is the same bargain LISP
-made, and it keeps the deterministic core the sole author of geometry.
-
-## M15 — Architectural plan CAD (market-gap closeout) ✅
-
-Closes the [market-gap case study](audit/2026-08-market-gap-case-study.md)
-priorities (P0–P3): 2D plan production that understands walls, openings, fills,
-and presentation rasters — without Revit or AutoCAD dyn-block parity claims.
-Honest exchange is published in
-[DWG / DXF fidelity matrix](interop/dwg-fidelity-matrix.md).
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| M15.1 | **Elements + typed Fills** — `AADT-ELEM`, `FillKind` (Technical / Floor / Presentation), Elements/Fills UI | ✅ | Schema / hatch attrs; presentation vs technical boards |
-| M15.2 | **Wall openings** — dual-face cut; user picks **both** wall lines; jambs → closed hatchable bodies | ✅ | `wall_openings`; units-aware widths (4½″/9″ or metric) |
-| M15.3 | **Door / window place** — hinge on centerline; **swing side** (Tab/F / click) like a dyn-block flip | ✅ | `scale_y` flip; INSERT grips 1=`BFLIP`, 2=`WIDTH` |
-| M15.4 | **PNG furniture** — `Geometry::Image`, catalog tiles, `IMAGE` place tool | ✅ | Texture paint in GUI |
-| M15.5 | **View / plot presets** — Technical Plan / Presentation; plot compose respects hidden layers | ✅ | Canvas + plot dialog |
-| M15.6 | **IMAGEDEF export** — DWG `IMAGE`+`IMAGEDEF`+reactor via acadrust; DXF `export_path` when images present | ✅ | Import maps `RasterImage` → `ImageRef` |
-| M15.7 | **Interaction trust** — fill erase, rectangle D-mode, RECTANGLE Tab does not steal chrome / quit | ✅ | Daily-band table stakes |
-| M15.8 | **AI demo path** — `DEMO` / `AIDEMO` (detect → objects → next steps) | ✅ | Sales 5-minute narrative |
-
-**Deliberately not in M15:** Autodesk Dynamic Block action editing; hatch/dim
-DWG write; sheet-set viewports bound to presets; material opacity libraries.
-All of those stay optional Post-1.0 polish — still **2D only**.
-
-## Roadmap status summary
+## Status summary
 
 | Milestone | Status |
 |-----------|--------|
-| M1 CAD core + egui | ✅ |
+| M1 CAD core (egui ✅ · WinUI host via M16) | ✅ |
 | M2 Detection | ✅ |
 | M5 Sheets / plot | ✅ |
 | M6 LISP | ✅ |
-| M7 PDF markup | ✅ core (viewer UI Post-1.0) |
+| M7 PDF markup | ✅ core |
 | M9 BricsCAD parity | ✅ |
-| M10 Objects + graph | ✅ |
-| M11 Semantic search | ✅ |
-| M12 Assist layer | ✅ |
-| M13 Object takeoff | ✅ |
-| M14 Enterprise API | ✅ |
-| M15 Arch plan CAD / market gaps | ✅ |
+| M10–M15 AI-native + arch plan | ✅ |
+| M16 WinUI interactive tools | ✅ |
+| M17 WinUI Chrome 2.0 | ✅ |
+| M18 WinUI usable CAD | ✅ |
+| M19 WinUI daily polish | ✅ |
+| M20 WinUI commands + Elements/Fills | ✅ |
+| M21 WinUI honesty + daily CAD | ✅ |
+| M22 WinUI remaining gap close | ✅ |
+| M23 WinUI optional gap close | ✅ |
+| L5 Viewport text glyphs | ✅ |
+| L5.2 Optional wgpu path | ✅ criteria ADR-0020 (WinUI remains default) |
+| L6 Sheet presets + materials | ✅ |
+| L7 INSERT placement polish | ✅ |
+| L3.3 PDFium + raster diff | ✅ ADR-0019 |
 
-**Shipping product (1.0 band):** M1–M2, M5–M7, M9–M15. **2D architectural CAD
-only** — no BIM / 3D milestone is planned.
-
-## Post-1.0 (optional — not blocking 1.0)
-
-- M1 display: viewport text glyph quality; wgpu canvas if egui is too slow.
-- M7 PDF viewer UI: interactive viewing, freehand/stamps, on-PDF measure, raster diff.
-- Optional: further WinUI Fluent polish / MSIX packaging over `aadt-ffi`.
-  egui `aadt app` is maintenance-only.
-- DWG: hatch + dimension write; Autodesk-certified fidelity; hatch arc/ellipse edges.
-- Polish: sheet-bound view presets; material / opacity libraries; SpatialGrid in GUI pick; true OTRACK.
+**1.0 band:** M1–M2, M5–M7, M9–M15. **Post-1.0:** M16–M17 ✅; **Later L1–L7 ✅**.
+**2D only** — no BIM / 3D milestone.

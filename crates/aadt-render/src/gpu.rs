@@ -319,9 +319,19 @@ pub(crate) fn build_vertices(
                     let steps = ((sweep / 360.0 * 64.0).ceil() as usize).max(2);
                     tessellate_arc(*center, *radius, *start_angle, *end_angle, steps, &mut seg);
                 }
-                // Anchors have no glyph geometry — a small screen-space crosshair
-                // marks the spot so the frame shows where annotation sits.
-                DrawCommand::Text { position, .. } | DrawCommand::Marker { position, .. } => {
+                DrawCommand::Text {
+                    position,
+                    height,
+                    rotation,
+                    value,
+                    ..
+                } => {
+                    for (a, b) in crate::text_outline_segments(*position, *height, *rotation, value)
+                    {
+                        seg(a, b);
+                    }
+                }
+                DrawCommand::Marker { position, .. } => {
                     crosshair(camera, *position, &mut v, color);
                 }
                 DrawCommand::Fill { points, .. } | DrawCommand::Image { corners: points, .. } => {

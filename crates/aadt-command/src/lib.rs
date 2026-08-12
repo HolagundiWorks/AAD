@@ -89,6 +89,9 @@ pub struct Context {
     pub room: room::RoomSettings,
     /// Last OPEN/SAVE path (used by HISTORY / TAKEOFF PUBLISH).
     pub drawing_path: Option<String>,
+    /// Entities present in a HISTORY DIFF baseline but missing from the tip
+    /// (ghost traces for the host canvas). Cleared on the next mutating feed.
+    pub diff_ghosts: Vec<aadt_model::Entity>,
 }
 
 impl Context {
@@ -3434,11 +3437,12 @@ impl Command for SelectCmd {
         &["SEL"]
     }
     fn help(&self) -> &str {
-        "SELECT ALL | LAYER <name> | WINDOW x1 y1 x2 y2 | <id>... — build the current selection"
+        "SELECT ALL | NONE | LAYER <name> | WINDOW x1 y1 x2 y2 | <id>... — build the current selection"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let sub = args.first().ok_or("SELECT: missing criteria")?;
         let ids: Vec<EntityId> = match sub.to_ascii_uppercase().as_str() {
+            "NONE" | "CLEAR" => Vec::new(),
             "ALL" => {
                 let mut v: Vec<EntityId> = ctx.doc.entities().iter().map(|e| e.id).collect();
                 v.sort();

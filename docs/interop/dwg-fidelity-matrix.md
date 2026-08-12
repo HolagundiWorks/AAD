@@ -23,8 +23,8 @@
 | TEXT | ✅ | ✅ | ✅ | ✅ | Formatting sanitized on display |
 | INSERT (flat) | ✅ | ✅ | ✅ | ✅ | Missing def → skip + warning |
 | Nested INSERT in block def | ✅ | ✅ | ⚠️ | ⚠️ | Kept in model; depth-limited expand (8) |
-| HATCH (multi-path) | ✅ | ✅ | ⚠️ | ❌ | DWG write skips hatches (count in diagnostics) |
-| DIMENSION | ✅ | ✅ | ⚠️ | ❌ | DWG write skips dims |
+| HATCH (multi-path) | ✅ | ✅ | ⚠️ | ✅ | DWG write: polyline boundaries + pattern name / SOLID (L4) |
+| DIMENSION | ✅ | ✅ | ⚠️ | ✅ | DWG write: aligned / linear / radius / diameter / angular / ordinate (L4) |
 | IMAGE / IMAGEDEF | ⚠️ | ✅ | ✅ | ✅ | acadrust `IMAGE`+`IMAGEDEF`+reactor; DXF via `export_path` when images present |
 | AADT `FillKind` | n/a | n/a | n/a | n/a | `.aadt` only; inferred from pattern on import |
 | AutoCAD Dynamic Block actions | ⚠️ | ⚠️ | ⚠️ | ⚠️ | Import: static look / visibility if detectable; **not editable** |
@@ -38,15 +38,17 @@
 - Drawing comments tag when entities skipped: `[DWG import skipped N…]`
 
 ### Export (DWG)
-- `export_dwg_path` returns warnings for skipped hatches, dims, missing inserts, missing image files
+- `export_dwg_path` returns warnings for empty hatch boundaries, unsupported
+  dims, missing inserts, missing image files
 - Warnings also appended to drawing `properties.comments` under `[DWG export]`
 
 ## Product rules
 
 1. **Author in `.aadt`** for fills, images, dynamics.
-2. **Exchange DWG** for geometry + block refs + raster images that partners can open.
-3. **Never promise** AutoCAD Dynamic Block grip editing or hatch-perfect DWG write.
-4. Drawings with **both** images and hatches/dims: prefer `.aadt`, or DWG for images + DXF (no images) for annotation.
+2. **Exchange DWG** for geometry + block refs + hatches/dims + raster images.
+3. **Never promise** AutoCAD Dynamic Block grip editing or full `.pat` line defs
+   in DWG (pattern **name** + SOLID are written; custom pattern lines may degrade).
+4. Prefer `.aadt` when partners need AADT-only metadata (`FillKind`, dynamics).
 
 ## See also
 

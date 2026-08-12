@@ -373,8 +373,21 @@ fn read_dimension(r: &mut Reader) -> Result<Dimension, VdbError> {
 
 // --- Whole document ---------------------------------------------------------
 
+/// Encode layers/blocks/hatches/dims/spaces/meta/properties with **zero entities**.
+/// Used as the Merkle tree's shell blob so entity blobs can be content-addressed
+/// separately ([ADR-0021](../../../docs/adr/0021-shilpidb-merkle-versioning.md)).
+pub fn encode_shell(doc: &Document) -> Vec<u8> {
+    let mut w = Writer::new();
+    encode_document_parts(&mut w, doc, false);
+    w.into_bytes()
+}
+
 /// Encode the whole document body (everything after the file header).
 pub fn encode_document(w: &mut Writer, doc: &Document) {
+    encode_document_parts(w, doc, true);
+}
+
+fn encode_document_parts(w: &mut Writer, doc: &Document, include_entities: bool) {
     // Layers.
     let layers: Vec<&Layer> = doc.layers().collect();
     w.u32(layers.len() as u32);
@@ -390,11 +403,15 @@ pub fn encode_document(w: &mut Writer, doc: &Document) {
     }
 
     // Entities (ascending id → deterministic bytes).
-    let mut ents: Vec<&Entity> = doc.entities();
-    ents.sort_by_key(|e| e.id.0);
-    w.u32(ents.len() as u32);
-    for e in ents {
-        write_entity(w, e);
+    if include_entities {
+        let mut ents: Vec<&Entity> = doc.entities();
+        ents.sort_by_key(|e| e.id.0);
+        w.u32(ents.len() as u32);
+        for e in ents {
+            write_entity(w, e);
+        }
+    } else {
+        w.u32(0);
     }
 
     // Hatches.
@@ -603,6 +620,15 @@ macro_rules! for_each_prop {
     }};
 }
 
+/// Trailing property fields appended after the core set (optional on read for older .vdb).
+macro_rules! for_each_prop_ext {
+    ($p:expr, $f:ident) => {{
+        let p = $p;
+        $f!(p, dim_precision);
+        $f!(p, dim_fraction);
+    }};
+}
+
 fn write_properties(w: &mut Writer, p: &DrawingProperties) {
     macro_rules! put {
         ($p:ident, $field:ident) => {
@@ -610,6 +636,7 @@ fn write_properties(w: &mut Writer, p: &DrawingProperties) {
         };
     }
     for_each_prop!(p, put);
+    for_each_prop_ext!(p, put);
 }
 
 fn read_properties(r: &mut Reader) -> Result<DrawingProperties, VdbError> {
@@ -620,5 +647,12 @@ fn read_properties(r: &mut Reader) -> Result<DrawingProperties, VdbError> {
         };
     }
     for_each_prop!(&mut p, get);
+    // Older files end after lintel_height — treat missing ext fields as defaults.
+    if let Ok(s) = r.str() {
+        p.dim_precision = s;
+        if let Ok(s) = r.str() {
+            p.dim_fraction = s;
+        }
+    }
     Ok(p)
 }

@@ -37,6 +37,7 @@ pub fn register_essentials(r: &mut Registry) {
     r.register(Box::new(BlockCmd));
     r.register(Box::new(WblockCmd));
     r.register(Box::new(EattEditCmd));
+    r.register(Box::new(ObjMetaCmd));
     // Selection.
     r.register(Box::new(QSelectCmd));
     r.register(Box::new(PSelectCmd));
@@ -622,13 +623,13 @@ impl Command for DimStyleCmd {
         &["D"]
     }
     fn help(&self) -> &str {
-        "DIMSTYLE [name] [text_height] [scale] [secondary] — set or report the dimension style"
+        "DIMSTYLE [name] [text_height] [scale] [secondary] [precision] [fraction] — set or report dimension style"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let mut props = ctx.doc.properties().clone();
         if args.is_empty() {
             return Ok(format!(
-                "dimstyle={} text_height={} scale={} secondary={}",
+                "dimstyle={} text_height={} scale={} secondary={} precision={} fraction={}",
                 if props.dimstyle.is_empty() {
                     "STANDARD"
                 } else {
@@ -648,28 +649,121 @@ impl Command for DimStyleCmd {
                     "on"
                 } else {
                     "off"
+                },
+                if props.dim_precision.is_empty() {
+                    "3"
+                } else {
+                    &props.dim_precision
+                },
+                if props.dim_fraction.is_empty() {
+                    "decimal"
+                } else {
+                    &props.dim_fraction
                 }
             ));
         }
-        props.dimstyle = args[0].clone();
-        if let Some(h) = args.get(1) {
-            props.dim_text_height = h.clone();
-        }
-        if let Some(s) = args.get(2) {
-            props.dim_scale = s.clone();
-        }
-        if let Some(alt) = args.get(3) {
-            let on = matches!(
-                alt.to_ascii_lowercase().as_str(),
-                "1" | "on" | "true" | "yes" | "secondary"
-            );
-            props.dim_secondary = if on { "1".into() } else { "0".into() };
+        // Keyword form: PRECISION n · FRACTION 16|8|4|2|1|decimal · SECONDARY on|off
+        if args
+            .iter()
+            .any(|a| matches!(a.to_ascii_lowercase().as_str(), "precision" | "fraction" | "secondary" | "alt"))
+        {
+            let mut i = 0;
+            while i < args.len() {
+                let tok = args[i].to_ascii_lowercase();
+                match tok.as_str() {
+                    "precision" | "prec" | "dec" => {
+                        let p = args
+                            .get(i + 1)
+                            .ok_or("DIMSTYLE PRECISION needs 0..8")?;
+                        let n: u8 = p
+                            .parse()
+                            .map_err(|_| "DIMSTYLE PRECISION needs 0..8")?;
+                        if n > 8 {
+                            return Err("DIMSTYLE PRECISION needs 0..8".into());
+                        }
+                        props.dim_precision = n.to_string();
+                        i += 2;
+                    }
+                    "fraction" | "frac" => {
+                        let f = args
+                            .get(i + 1)
+                            .ok_or("DIMSTYLE FRACTION needs decimal|1|2|4|8|16")?
+                            .to_ascii_lowercase();
+                        props.dim_fraction = match f.as_str() {
+                            "0" | "dec" | "decimal" | "off" | "none" => "0".into(),
+                            "1" | "2" | "4" | "8" | "16" => f,
+                            _ => {
+                                return Err(
+                                    "DIMSTYLE FRACTION needs decimal|1|2|4|8|16".into(),
+                                )
+                            }
+                        };
+                        i += 2;
+                    }
+                    "secondary" | "alt" => {
+                        let on = args
+                            .get(i + 1)
+                            .map(|s| {
+                                matches!(
+                                    s.to_ascii_lowercase().as_str(),
+                                    "1" | "on" | "true" | "yes"
+                                )
+                            })
+                            .unwrap_or(true);
+                        props.dim_secondary = if on { "1".into() } else { "0".into() };
+                        i += 2;
+                    }
+                    _ => {
+                        // Allow leading style name before keywords.
+                        if i == 0 {
+                            props.dimstyle = args[0].clone();
+                            i += 1;
+                        } else {
+                            return Err(format!("DIMSTYLE: unknown token {:?}", args[i]));
+                        }
+                    }
+                }
+            }
+        } else {
+            props.dimstyle = args[0].clone();
+            if let Some(h) = args.get(1) {
+                props.dim_text_height = h.clone();
+            }
+            if let Some(s) = args.get(2) {
+                props.dim_scale = s.clone();
+            }
+            if let Some(alt) = args.get(3) {
+                let on = matches!(
+                    alt.to_ascii_lowercase().as_str(),
+                    "1" | "on" | "true" | "yes" | "secondary"
+                );
+                props.dim_secondary = if on { "1".into() } else { "0".into() };
+            }
+            if let Some(p) = args.get(4) {
+                let n: u8 = p
+                    .parse()
+                    .map_err(|_| "DIMSTYLE precision needs 0..8")?;
+                if n > 8 {
+                    return Err("DIMSTYLE precision needs 0..8".into());
+                }
+                props.dim_precision = n.to_string();
+            }
+            if let Some(f) = args.get(5) {
+                let f = f.to_ascii_lowercase();
+                props.dim_fraction = match f.as_str() {
+                    "0" | "dec" | "decimal" | "off" | "none" => "0".into(),
+                    "1" | "2" | "4" | "8" | "16" => f,
+                    _ => {
+                        return Err("DIMSTYLE fraction needs decimal|1|2|4|8|16".into())
+                    }
+                };
+            }
         }
         ctx.doc.transact("DIMSTYLE", |d| {
             d.set_properties(props.clone());
         });
         Ok(format!(
-            "dimstyle set to {} (text_height={}, scale={}, secondary={})",
+            "dimstyle set to {} (text_height={}, scale={}, secondary={}, precision={}, fraction={})",
             props.dimstyle,
             if props.dim_text_height.is_empty() {
                 "2.5"
@@ -685,6 +779,16 @@ impl Command for DimStyleCmd {
                 "on"
             } else {
                 "off"
+            },
+            if props.dim_precision.is_empty() {
+                "3"
+            } else {
+                &props.dim_precision
+            },
+            if props.dim_fraction.is_empty() {
+                "decimal"
+            } else {
+                &props.dim_fraction
             }
         ))
     }
@@ -910,6 +1014,91 @@ impl Command for EattEditCmd {
             d.set_attribute(id, &key, value.clone());
         });
         Ok(format!("set attribute {key}={value:?} on entity {}", id.0))
+    }
+}
+
+/// Per-selection metadata for AQC Estimation / BBS takeoff (see docs/AQC-META-TAGS.md).
+struct ObjMetaCmd;
+impl ObjMetaCmd {
+    const KEYS: &'static [&'static str] = &[
+        "MARK",
+        "WALL_NAME",
+        "NOS",
+        "AQC_CODE",
+        "COLUMN_NO",
+        "CODE",
+        "TRADE",
+        "LEVEL",
+        "ELEMENT",
+        "MATERIAL",
+        "FIRERATING",
+        "PHASE",
+        "IFC",
+        "UNIFORMAT",
+        "MASTERFORMAT",
+    ];
+}
+impl Command for ObjMetaCmd {
+    fn name(&self) -> &str {
+        "OBJMETA"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["OBJECTMETA", "META", "AQCMETA"]
+    }
+    fn help(&self) -> &str {
+        "OBJMETA [KEY VALUE] — report or set AQC/BBS tags on the SELECTION \
+         (MARK / WALL_NAME / NOS / AQC_CODE / COLUMN_NO / CODE / TRADE / LEVEL / ELEMENT / …)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        if ctx.selection.is_empty() {
+            return Err("OBJMETA: no selection — SELECT objects first".into());
+        }
+        let ids = ctx.selection.clone();
+        if args.is_empty() {
+            let mut lines = Vec::new();
+            for id in &ids {
+                let Some(e) = ctx.doc.get(*id) else { continue };
+                let mut parts = vec![format!("#{} {}", id.0, e.layer)];
+                for key in Self::KEYS {
+                    if let Some(v) = e.attribute(key) {
+                        if !v.is_empty() {
+                            parts.push(format!("{key}={v}"));
+                        }
+                    }
+                }
+                lines.push(parts.join("  ·  "));
+            }
+            return Ok(lines.join("\n"));
+        }
+        if args.len() < 2 {
+            return Err("OBJMETA: need KEY and VALUE to set (or no args to report)".into());
+        }
+        let key = args[0].to_ascii_uppercase();
+        if !Self::KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "OBJMETA: unknown key {key:?}; use one of {}",
+                Self::KEYS.join(" / ")
+            ));
+        }
+        let value = args[1..].join(" ");
+        if key == "PHASE"
+            && !matches!(
+                value.to_ascii_lowercase().as_str(),
+                "new" | "existing" | "demolish"
+            )
+        {
+            return Err("OBJMETA: PHASE must be New, Existing, or Demolish".into());
+        }
+        let n = ctx.doc.transact("OBJMETA", |d| {
+            let mut n = 0;
+            for id in &ids {
+                if d.set_attribute(*id, &key, value.clone()) {
+                    n += 1;
+                }
+            }
+            n
+        });
+        Ok(format!("set {key}={value:?} on {n} object(s)"))
     }
 }
 
@@ -1342,7 +1531,7 @@ impl Command for UnitsCmd {
         &["UN"]
     }
     fn help(&self) -> &str {
-        "UNITS [ft-in|m] [SECONDARY on|off] — set or report linear units (ft-in default inches; m = metres)"
+        "UNITS [ft-in|m] [SECONDARY on|off] [PRECISION 0..8] [FRACTION decimal|1|2|4|8|16] — set or report linear units"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let mut props = ctx.doc.properties().clone();
@@ -1350,10 +1539,20 @@ impl Command for UnitsCmd {
             let primary = aadt_model::primary_from_props(&props.units);
             let sec = aadt_model::secondary_enabled(&props.dim_secondary);
             return Ok(format!(
-                "units={} ({}) secondary={} dimstyle={}",
+                "units={} ({}) secondary={} precision={} fraction={} dimstyle={}",
                 primary.as_token(),
                 primary.label(),
                 if sec { "on" } else { "off" },
+                if props.dim_precision.is_empty() {
+                    "3"
+                } else {
+                    &props.dim_precision
+                },
+                if props.dim_fraction.is_empty() {
+                    "decimal"
+                } else {
+                    &props.dim_fraction
+                },
                 if props.dimstyle.is_empty() {
                     primary.dimstyle_name()
                 } else {
@@ -1370,6 +1569,31 @@ impl Command for UnitsCmd {
                     .map(|s| matches!(s.to_ascii_lowercase().as_str(), "1" | "on" | "true" | "yes"))
                     .unwrap_or(true);
                 props.dim_secondary = if on { "1".into() } else { "0".into() };
+                i += 2;
+                continue;
+            }
+            if tok == "precision" || tok == "prec" {
+                let p = args
+                    .get(i + 1)
+                    .ok_or("UNITS PRECISION needs 0..8")?;
+                let n: u8 = p.parse().map_err(|_| "UNITS PRECISION needs 0..8")?;
+                if n > 8 {
+                    return Err("UNITS PRECISION needs 0..8".into());
+                }
+                props.dim_precision = n.to_string();
+                i += 2;
+                continue;
+            }
+            if tok == "fraction" || tok == "frac" {
+                let f = args
+                    .get(i + 1)
+                    .ok_or("UNITS FRACTION needs decimal|1|2|4|8|16")?
+                    .to_ascii_lowercase();
+                props.dim_fraction = match f.as_str() {
+                    "0" | "dec" | "decimal" | "off" | "none" => "0".into(),
+                    "1" | "2" | "4" | "8" | "16" => f,
+                    _ => return Err("UNITS FRACTION needs decimal|1|2|4|8|16".into()),
+                };
                 i += 2;
                 continue;
             }
@@ -1391,13 +1615,23 @@ impl Command for UnitsCmd {
         });
         let primary = aadt_model::primary_from_props(&props.units);
         Ok(format!(
-            "units set to {} · dimstyle={} · secondary={}",
+            "units set to {} · dimstyle={} · secondary={} · precision={} · fraction={}",
             primary.as_token(),
             props.dimstyle,
             if aadt_model::secondary_enabled(&props.dim_secondary) {
                 "on"
             } else {
                 "off"
+            },
+            if props.dim_precision.is_empty() {
+                "3"
+            } else {
+                &props.dim_precision
+            },
+            if props.dim_fraction.is_empty() {
+                "decimal"
+            } else {
+                &props.dim_fraction
             }
         ))
     }

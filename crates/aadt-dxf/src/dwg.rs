@@ -8,8 +8,11 @@ use aadt_model::{
     Block, Dimension, DimensionKind, Document, Geometry, Hatch, ImageRef, Insert, Layer, Text,
 };
 use acadrust::entities::{
-    Arc as AcadArc, Circle as AcadCircle, EntityCommon, EntityType, Insert as AcadInsert,
-    Line as AcadLine, LwPolyline, RasterImage, Text as AcadText,
+    Arc as AcadArc, BoundaryEdge, BoundaryPath, BoundaryPathFlags, Circle as AcadCircle,
+    Dimension as AcadDim, DimensionAligned, DimensionAngular3Pt, DimensionDiameter,
+    DimensionLinear, DimensionOrdinate, DimensionRadius, EntityCommon, EntityType,
+    Hatch as AcadHatch, HatchPattern, Insert as AcadInsert, Line as AcadLine, LwPolyline,
+    PolylineEdge, RasterImage, Text as AcadText,
 };
 use acadrust::io::dwg::{DwgReader, DwgWriter};
 use acadrust::objects::{Dictionary, ImageDefinition, ImageDefinitionReactor, ObjectType};
@@ -29,8 +32,8 @@ pub fn import_dwg_path(path: impl AsRef<Path>) -> Result<Document, DxfError> {
 /// Write a [`Document`] to a DWG file (best-effort 2D subset).
 ///
 /// Raster images are written as AutoCAD `IMAGE` + `IMAGEDEF` (+ reactor).
-/// Hatches and dimensions are not written (open-source DWG subset). Returns
-/// human-readable fidelity warnings.
+/// Hatches and common dimension kinds are written when acadrust can encode them
+/// (L4). Returns human-readable fidelity warnings for skipped items.
 ///
 /// Inserts whose block is missing are skipped with a warning.
 pub fn export_dwg_path(doc: &Document, path: impl AsRef<Path>) -> Result<Vec<String>, DxfError> {
@@ -353,20 +356,73 @@ fn to_cad_document_inner(doc: &Document) -> Result<(CadDocument, Vec<String>), D
         al.set_handle(cad.allocate_handle());
         cad.layers.add_or_replace(al);
     }
-    // Annotation tables are not mapped to DWG in this subset.
-    let n_h = doc.hatches().len();
-    let n_d = doc.dimensions().len();
-    skipped += n_h + n_d;
-    if n_h > 0 {
+
+    // L4 — hatches (multi-path polyline boundaries).
+    let mut hatch_fail = 0usize;
+    for h in doc.hatches() {
+        match hatch_to_entity(h) {
+            Some(ent) => {
+                if cad.add_entity(ent).is_err() {
+                    hatch_fail += 1;
+                    skipped += 1;
+                } else {
+                    used.insert(if h.layer.is_empty() {
+                        "0".to_string()
+                    } else {
+                        h.layer.clone()
+                    });
+                }
+            }
+            None => {
+                hatch_fail += 1;
+                skipped += 1;
+            }
+        }
+    }
+    if hatch_fail > 0 {
         warnings.push(format!(
-            "skipped {n_h} hatch(es) — not written to DWG (use DXF or .aadt)"
+            "skipped {hatch_fail} hatch(es) — empty/unsupported boundary"
         ));
     }
-    if n_d > 0 {
+
+    // L4 — dimensions (aligned / linear / radius / diameter / angular / ordinate).
+    let mut dim_fail = 0usize;
+    for d in doc.dimensions() {
+        match dimension_to_entity(d) {
+            Some(ent) => {
+                if cad.add_entity(ent).is_err() {
+                    dim_fail += 1;
+                    skipped += 1;
+                } else {
+                    used.insert(if d.layer.is_empty() {
+                        "0".to_string()
+                    } else {
+                        d.layer.clone()
+                    });
+                }
+            }
+            None => {
+                dim_fail += 1;
+                skipped += 1;
+            }
+        }
+    }
+    if dim_fail > 0 {
         warnings.push(format!(
-            "skipped {n_d} dimension(s) — not written to DWG (use DXF or .aadt)"
+            "skipped {dim_fail} dimension(s) — unsupported kind or empty geometry"
         ));
     }
+
+    // Layers referenced only by hatches/dims (added after the first layer pass).
+    for name in &used {
+        if cad.layers.get(name).is_some() {
+            continue;
+        }
+        let mut al = to_cad_layer(doc, name);
+        al.set_handle(cad.allocate_handle());
+        cad.layers.add_or_replace(al);
+    }
+
     if skipped > 0 && warnings.is_empty() {
         warnings.push(format!("DWG export skipped {skipped} item(s)"));
     }
@@ -564,6 +620,130 @@ fn geometry_to_entity(layer: &str, g: &Geometry) -> Option<EntityType> {
         // Images are registered via IMAGEDEF in `add_image_to_cad`.
         Geometry::Image(_) => None,
     }
+}
+
+fn p3(p: Point2) -> Vector3 {
+    Vector3::new(p.x, p.y, 0.0)
+}
+
+/// Map an AADT hatch to an acadrust `HATCH` (polyline boundary paths).
+fn hatch_to_entity(h: &Hatch) -> Option<EntityType> {
+    if h.boundaries.is_empty() {
+        return None;
+    }
+    let mut acad = if h.solid || h.pattern.eq_ignore_ascii_case("SOLID") {
+        AcadHatch::solid()
+    } else {
+        AcadHatch::with_pattern(HatchPattern::new(h.pattern.clone()))
+    };
+    acad.common = with_layer(EntityCommon::new(), &h.layer);
+    for (i, pl) in h.boundaries.iter().enumerate() {
+        if pl.vertices.len() < 3 {
+            continue;
+        }
+        let verts: Vec<Vector2> = pl.vertices.iter().map(|v| Vector2::new(v.x, v.y)).collect();
+        let edge = PolylineEdge::new(verts, true);
+        let mut flags = BoundaryPathFlags::from_bits(
+            BoundaryPathFlags::EXTERNAL.bits() | BoundaryPathFlags::POLYLINE.bits(),
+        );
+        if i == 0 {
+            flags = BoundaryPathFlags::from_bits(flags.bits() | BoundaryPathFlags::OUTERMOST.bits());
+        }
+        let mut path = BoundaryPath::with_flags(flags);
+        path.add_edge(BoundaryEdge::Polyline(edge));
+        acad.add_path(path);
+    }
+    if !acad.has_paths() {
+        return None;
+    }
+    // Seed near the outer centroid so viewers have a fill pick point.
+    if let Some(outer) = h.boundaries.first() {
+        let n = outer.vertices.len() as f64;
+        if n > 0.0 {
+            let sx: f64 = outer.vertices.iter().map(|v| v.x).sum();
+            let sy: f64 = outer.vertices.iter().map(|v| v.y).sum();
+            acad.add_seed_point(Vector2::new(sx / n, sy / n));
+        }
+    }
+    Some(EntityType::Hatch(acad))
+}
+
+/// Map an AADT dimension to an acadrust dimension entity.
+fn dimension_to_entity(d: &Dimension) -> Option<EntityType> {
+    let mut acad = match d.kind {
+        DimensionKind::Aligned => {
+            let mut a = DimensionAligned::new(p3(d.p1), p3(d.p2));
+            a.definition_point = p3(d.vertex);
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Aligned(a)
+        }
+        DimensionKind::Linear => {
+            let mut a = DimensionLinear::new(p3(d.p1), p3(d.p2));
+            a.definition_point = p3(d.vertex);
+            let dx = (d.p2.x - d.p1.x).abs();
+            let dy = (d.p2.y - d.p1.y).abs();
+            // Prefer horizontal when wider, else vertical (AutoCAD linear axes).
+            a.rotation = if dx >= dy {
+                0.0
+            } else {
+                std::f64::consts::FRAC_PI_2
+            };
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Linear(a)
+        }
+        DimensionKind::Radius => {
+            let mut a = DimensionRadius::new(p3(d.vertex), p3(d.p1));
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Radius(a)
+        }
+        DimensionKind::Diameter => {
+            let mut a = DimensionDiameter::new(p3(d.vertex), p3(d.p1));
+            a.definition_point = p3(d.p2);
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Diameter(a)
+        }
+        DimensionKind::Angular => {
+            let mut a = DimensionAngular3Pt::new(p3(d.vertex), p3(d.p1), p3(d.p2));
+            a.definition_point = p3(d.text_anchor);
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Angular3Pt(a)
+        }
+        DimensionKind::OrdinateX => {
+            let mut a = DimensionOrdinate::new(p3(d.p1), p3(d.text_anchor), true);
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Ordinate(a)
+        }
+        DimensionKind::OrdinateY => {
+            let mut a = DimensionOrdinate::new(p3(d.p1), p3(d.text_anchor), false);
+            if d.measurement.abs() > f64::EPSILON {
+                a.base.actual_measurement = d.measurement;
+            }
+            AcadDim::Ordinate(a)
+        }
+    };
+    {
+        let base = acad.base_mut();
+        base.common = with_layer(EntityCommon::new(), &d.layer);
+        base.text_middle_point = p3(d.text_anchor);
+        if !d.text.trim().is_empty() {
+            base.text = d.text.clone();
+            base.user_text = Some(d.text.clone());
+            base.text_user_positioned = true;
+        }
+    }
+    Some(EntityType::Dimension(acad))
 }
 
 fn convert_entity(cad: &CadDocument, ent: &EntityType) -> Option<(String, Geometry)> {
@@ -1213,5 +1393,84 @@ mod tests {
         assert!((img.width - 0.9).abs() < 1e-6);
         assert!((img.height - 0.6).abs() < 1e-6);
         assert!((img.position.x - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hatch_exports_to_dwg_not_skipped() {
+        let mut doc = Document::new();
+        doc.add_layer(Layer::new("A-FLOR"));
+        let outer = Polyline::new(
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(10.0, 0.0),
+                Point2::new(10.0, 6.0),
+                Point2::new(0.0, 6.0),
+            ],
+            true,
+        );
+        doc.add_hatch(Hatch::new("A-FLOR", outer, "ANSI31"));
+
+        let (cad, warnings) = to_cad_document(&doc).expect("to cad");
+        assert!(
+            !warnings.iter().any(|w| w.contains("hatch")),
+            "hatches must not be blanket-skipped: {warnings:?}"
+        );
+        let n_h = cad
+            .entities()
+            .filter(|e| matches!(e, EntityType::Hatch(_)))
+            .count();
+        assert_eq!(n_h, 1, "expected one Hatch entity");
+
+        let path = std::env::temp_dir().join("aadt_dwg_hatch.dwg");
+        export_dwg_path(&doc, &path).expect("export");
+        let back = import_dwg_path(&path).expect("import");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(back.hatches().len(), 1);
+        let h = &back.hatches()[0];
+        assert_eq!(h.layer, "A-FLOR");
+        assert!(
+            h.pattern.eq_ignore_ascii_case("ANSI31"),
+            "pattern={}",
+            h.pattern
+        );
+        assert!(h.boundaries[0].vertices.len() >= 3);
+    }
+
+    #[test]
+    fn dimension_exports_to_dwg_not_skipped() {
+        let mut doc = Document::new();
+        doc.add_layer(Layer::new("AN-DIMS"));
+        doc.add_dimension(Dimension {
+            space: Default::default(),
+            layer: "AN-DIMS".into(),
+            kind: DimensionKind::Aligned,
+            p1: Point2::new(0.0, 0.0),
+            p2: Point2::new(5.0, 0.0),
+            vertex: Point2::new(2.5, 1.0),
+            text_anchor: Point2::new(2.5, 1.2),
+            text: String::new(),
+            measurement: 5.0,
+        });
+
+        let (cad, warnings) = to_cad_document(&doc).expect("to cad");
+        assert!(
+            !warnings.iter().any(|w| w.contains("dimension")),
+            "dimensions must not be blanket-skipped: {warnings:?}"
+        );
+        let n_d = cad
+            .entities()
+            .filter(|e| matches!(e, EntityType::Dimension(_)))
+            .count();
+        assert_eq!(n_d, 1, "expected one Dimension entity");
+
+        let path = std::env::temp_dir().join("aadt_dwg_dim.dwg");
+        export_dwg_path(&doc, &path).expect("export");
+        let back = import_dwg_path(&path).expect("import");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(back.dimensions().len(), 1);
+        let d = &back.dimensions()[0];
+        assert_eq!(d.kind, DimensionKind::Aligned);
+        assert!((d.p1.distance(Point2::new(0.0, 0.0))).abs() < 1e-6);
+        assert!((d.p2.distance(Point2::new(5.0, 0.0))).abs() < 1e-6);
     }
 }

@@ -3,9 +3,9 @@
 //! ShilpiDB stores a drawing **as vectors**: every entity (line, polyline, circle,
 //! arc, text, block insert) is a native binary record in a purpose-built `.vdb`
 //! file, alongside layers, blocks, hatches, dimensions, floors, and a built-in
-//! **spatial index** over the entities' extents. It is a self-contained database
-//! format we own end to end — no SQLite, no `serde`, no external crate,
-//! `unsafe`-free.
+//! **spatial index** over the entities' extents. Format **v4** adds a Merkle
+//! content-addressed version store (ADR-0021) so one file holds many versions.
+//! Still no SQLite/`serde`; `blake3` is the sole integrity dependency; `unsafe`-free.
 //!
 //! ```
 //! use aadt_vdb::ShilpiDb;
@@ -26,6 +26,7 @@
 mod buf;
 mod client;
 mod codec;
+mod merkle;
 mod objects;
 
 use std::path::Path;
@@ -45,6 +46,10 @@ pub use client::{VdbClient, VdbClientError};
 // (over `shilpi-client`); see `client.rs`. `PointRead`/`PointWrite` add the
 // `Point2` codec that the engine (scalar-only) deliberately omits.
 pub use buf::{PointRead, PointWrite, Reader, Writer};
+pub use merkle::{
+    change_summary, CommitKind, CommitMeta, CommitOptions, HistoryDiff, MerkleStore,
+    MAX_AUTO_COMMITS,
+};
 pub use shilpidb::SpatialGrid;
 use shilpidb::MAGIC;
 
@@ -52,9 +57,10 @@ use shilpidb::MAGIC;
 /// written before the ShilpiDB rename keep opening.
 const LEGACY_MAGIC: &[u8; 8] = b"VASTUDB\0";
 /// On-disk format version. v2 adds the Object DB / Graph DB / audit sections
-/// (AI-native Phase 1); v3 appends HMAC hash fields on each audit entry (M14.3).
-/// v1 files still load with empty object stores.
-pub const FORMAT_VERSION: u32 = 3;
+/// (AI-native Phase 1); v3 appends HMAC hash fields on each audit entry (M14.3);
+/// v4 adds the Merkle CAS trailer (ADR-0021). v1 files still load with empty
+/// object stores.
+pub const FORMAT_VERSION: u32 = 4;
 
 /// The canonical file extension for the vector database.
 pub const EXTENSION: &str = "vdb";
@@ -62,7 +68,7 @@ pub const EXTENSION: &str = "vdb";
 /// Write `doc` to `path` as a `.vdb` vector database (document + spatial index).
 ///
 /// Written to a sibling temp file and renamed, so a failed write never truncates
-/// an existing database.
+/// an existing database. Auto-commits when the tip tree differs from `HEAD`.
 pub fn save_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), VdbError> {
     save_path_with_objects(
         doc,
@@ -74,13 +80,25 @@ pub fn save_path(doc: &Document, path: impl AsRef<Path>) -> Result<(), VdbError>
 }
 
 /// Write `doc` plus its Object DB / Graph DB / audit log (`.vdb` object sections;
-/// format version is [`FORMAT_VERSION`], currently v3).
+/// format version is [`FORMAT_VERSION`], currently v4 with Merkle trailer).
 pub fn save_path_with_objects(
     doc: &Document,
     path: impl AsRef<Path>,
     objects: &ObjectStore,
     graph: &Graph,
     audit: &AuditLog,
+) -> Result<(), VdbError> {
+    save_path_with_commit(doc, path, objects, graph, audit, &CommitOptions::auto())
+}
+
+/// Like [`save_path_with_objects`], but control commit kind/label.
+pub fn save_path_with_commit(
+    doc: &Document,
+    path: impl AsRef<Path>,
+    objects: &ObjectStore,
+    graph: &Graph,
+    audit: &AuditLog,
+    opts: &CommitOptions,
 ) -> Result<(), VdbError> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
@@ -89,14 +107,148 @@ pub fn save_path_with_objects(
         }
     }
 
+    let mut store = if path.exists() {
+        merkle::load_merkle_from_path(path)?
+    } else {
+        MerkleStore::new()
+    };
+
+    let tree = store.build_tree(doc, objects, graph, audit);
+    let head_tree = store.head_tree_hash()?;
+    let unchanged = head_tree == Some(tree);
+    if !(opts.skip_if_unchanged && unchanged) {
+        let parent = store.head();
+        let summary = change_summary(doc);
+        let label = if opts.label.is_empty() {
+            opts.kind.as_str()
+        } else {
+            opts.label.as_str()
+        };
+        store.commit(tree, parent, opts.kind, label, &summary);
+    }
+
     let mut w = Writer::new();
     w.raw(MAGIC);
     w.u32(FORMAT_VERSION);
     codec::encode_document(&mut w, doc);
     build_index(doc).write(&mut w);
     objects::write_sections(&mut w, objects, graph, audit);
+    merkle::write_merkle(&mut w, &store);
     let bytes = w.into_bytes();
 
+    let tmp = path.with_extension("vdb.tmp");
+    std::fs::write(&tmp, &bytes)?;
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+/// List Merkle commits newest-first (empty for pre-v4 files with no trailer).
+pub fn list_commits(path: impl AsRef<Path>) -> Result<Vec<CommitMeta>, VdbError> {
+    merkle::load_merkle_from_path(path)?.list_commits()
+}
+
+/// Diff a Merkle commit against the working document (entity blob hashes).
+/// Also returns the baseline document for removed-entity ghost traces.
+pub fn diff_commit(
+    path: impl AsRef<Path>,
+    id: &str,
+    doc: &Document,
+    objects: &ObjectStore,
+    graph: &Graph,
+    audit: &AuditLog,
+) -> Result<(HistoryDiff, Document), VdbError> {
+    let mut store = merkle::load_merkle_from_path(path)?;
+    merkle::diff_commit_vs_doc(&mut store, id, doc, objects, graph, audit)
+}
+
+/// Save a named Merkle commit for the current tip (forces a commit even if unchanged).
+pub fn save_named_commit(
+    path: impl AsRef<Path>,
+    doc: &Document,
+    objects: &ObjectStore,
+    graph: &Graph,
+    audit: &AuditLog,
+    label: &str,
+) -> Result<String, VdbError> {
+    let opts = CommitOptions::named(label);
+    save_path_with_commit(doc, path.as_ref(), objects, graph, audit, &opts)?;
+    let store = merkle::load_merkle_from_path(path)?;
+    let head = store
+        .head()
+        .ok_or_else(|| VdbError::Format("named commit did not set HEAD".into()))?;
+    Ok(merkle::hex_encode(&head))
+}
+
+/// Restore a commit (hex prefix or 1-based list index): set HEAD, rewrite tip.
+pub fn restore_commit(
+    path: impl AsRef<Path>,
+    id: &str,
+) -> Result<(Document, ObjectStore, Graph, AuditLog), VdbError> {
+    let path = path.as_ref();
+    let mut store = merkle::load_merkle_from_path(path)?;
+    let commit = store.resolve_commit(id)?;
+    let (doc, objects, graph, audit) = store.materialize(&commit)?;
+    store.set_head(commit);
+
+    // Rewrite tip from materialized doc; do not add another commit (tree == HEAD).
+    let opts = CommitOptions {
+        kind: CommitKind::Auto,
+        label: "auto".into(),
+        skip_if_unchanged: true,
+    };
+    // Persist HEAD move + tip even when tree matches (HEAD may have moved).
+    write_tip_with_store(path, &doc, &objects, &graph, &audit, &store)?;
+    let _ = opts; // HEAD already points at restored commit; tip rewritten.
+    Ok((doc, objects, graph, audit))
+}
+
+/// Purge old auto commits beyond [`MAX_AUTO_COMMITS`]; rewrite the file tip + CAS.
+pub fn purge_auto_commits(path: impl AsRef<Path>) -> Result<usize, VdbError> {
+    let path = path.as_ref();
+    let bytes = std::fs::read(path)?;
+    let mut r = Reader::new(&bytes);
+    let ver = read_header(&mut r)?;
+    let doc = codec::decode_document(&mut r)?;
+    let _ = SpatialGrid::read(&mut r);
+    let (objects, graph, audit) = if ver >= 2 {
+        objects::read_sections(&mut r, ver >= 3)?
+    } else {
+        (ObjectStore::new(), Graph::new(), AuditLog::new())
+    };
+    let mut store = if ver >= 4 {
+        merkle::read_merkle(&mut r)?
+    } else {
+        MerkleStore::new()
+    };
+    let n = store.purge_auto_commits()?;
+    write_tip_with_store(path, &doc, &objects, &graph, &audit, &store)?;
+    Ok(n)
+}
+
+fn write_tip_with_store(
+    path: &Path,
+    doc: &Document,
+    objects: &ObjectStore,
+    graph: &Graph,
+    audit: &AuditLog,
+    store: &MerkleStore,
+) -> Result<(), VdbError> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let mut w = Writer::new();
+    w.raw(MAGIC);
+    w.u32(FORMAT_VERSION);
+    codec::encode_document(&mut w, doc);
+    build_index(doc).write(&mut w);
+    objects::write_sections(&mut w, objects, graph, audit);
+    merkle::write_merkle(&mut w, store);
+    let bytes = w.into_bytes();
     let tmp = path.with_extension("vdb.tmp");
     std::fs::write(&tmp, &bytes)?;
     if path.exists() {
@@ -114,7 +266,7 @@ pub fn load_path(path: impl AsRef<Path>) -> Result<Document, VdbError> {
     codec::decode_document(&mut r)
 }
 
-fn read_header(r: &mut Reader) -> Result<u32, VdbError> {
+pub(crate) fn read_header(r: &mut Reader) -> Result<u32, VdbError> {
     let magic = r.raw(MAGIC.len())?;
     if magic != MAGIC && magic != LEGACY_MAGIC {
         return Err(VdbError::Format(
@@ -263,6 +415,16 @@ pub fn query_index_bbox(index: &SpatialGrid, rect: Bbox) -> Vec<EntityId> {
         .collect()
 }
 
+/// Query a built [`SpatialGrid`] with a point aperture of radius `tol`, mapping
+/// engine `u64` ids back to [`EntityId`].
+pub fn query_index_point(index: &SpatialGrid, p: Point2, tol: f64) -> Vec<EntityId> {
+    index
+        .query_point(shilpidb::Point::new(p.x, p.y), tol)
+        .into_iter()
+        .map(EntityId)
+        .collect()
+}
+
 /// The axis-aligned bounding box of an entity, expanding block inserts.
 pub fn entity_bbox(doc: &Document, entity: &Entity) -> Option<Bbox> {
     Bbox::of_points(geometry_points(doc, &entity.geometry))
@@ -342,7 +504,11 @@ mod tests {
     fn tmp(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join("aadt-vdb-tests");
         let _ = std::fs::create_dir_all(&dir);
-        dir.join(name)
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        dir.join(format!("{nanos}-{name}"))
     }
 
     #[test]
@@ -492,6 +658,25 @@ mod tests {
     }
 
     #[test]
+    fn spatial_index_point_query_hits_nearby_only() {
+        let mut doc = Document::new();
+        for i in 0..25 {
+            let x = (i % 5) as f64 * 100.0;
+            let y = (i / 5) as f64 * 100.0;
+            doc.add_geometry("0", Geometry::Circle(Circle::new(Point2::new(x, y), 1.0)));
+        }
+        let index = build_index(&doc);
+        assert_eq!(index.len(), 25);
+
+        let hits = query_index_point(&index, Point2::new(200.0, 100.0), 2.0);
+        assert_eq!(hits.len(), 1, "only the circle at (200,100)");
+        let e = doc.get(hits[0]).unwrap();
+        assert!(matches!(e.geometry, Geometry::Circle(_)));
+
+        assert!(query_index_point(&index, Point2::new(42.0, 42.0), 2.0).is_empty());
+    }
+
+    #[test]
     fn atomic_save_does_not_corrupt_on_resave() {
         let mut doc = Document::new();
         doc.add_geometry(
@@ -554,5 +739,140 @@ mod tests {
         let path = tmp("garbage.vdb");
         std::fs::write(&path, b"not a vdb file at all").unwrap();
         assert!(load_path(&path).is_err());
+    }
+
+    #[test]
+    fn merkle_diff_detects_added_modified_removed() {
+        let mut doc = Document::new();
+        let keep = doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0))),
+        );
+        let drop_id = doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 1.0), Point2::new(4.0, 1.0))),
+        );
+        let path = tmp("merkle-diff.vdb");
+        save_path(&doc, &path).unwrap();
+        let commits = list_commits(&path).unwrap();
+        assert_eq!(commits.len(), 1);
+
+        // Modify keep, remove drop, add new.
+        if let Some(e) = doc.get(keep).cloned() {
+            if let Geometry::Line(mut seg) = e.geometry {
+                seg.b.x = 8.0;
+                doc.replace_geometry(keep, Geometry::Line(seg));
+            }
+        }
+        doc.remove_entity(drop_id);
+        let added = doc.add_geometry(
+            "0",
+            Geometry::Circle(aadt_geometry::Circle::new(Point2::new(1.0, 1.0), 0.5)),
+        );
+
+        let empty = ObjectStore::new();
+        let g = Graph::new();
+        let audit = AuditLog::new();
+        let (diff, _) = diff_commit(&path, "1", &doc, &empty, &g, &audit).unwrap();
+        assert_eq!(diff.added, vec![added.0]);
+        assert_eq!(diff.removed, vec![drop_id.0]);
+        assert_eq!(diff.modified, vec![keep.0]);
+    }
+
+    #[test]
+    fn merkle_auto_commit_on_save_and_dedup() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(4.0, 0.0))),
+        );
+        let path = tmp("merkle-dedup.vdb");
+        save_path(&doc, &path).unwrap();
+        let c1 = list_commits(&path).unwrap();
+        assert_eq!(c1.len(), 1);
+        let objs1 = merkle::load_merkle_from_path(&path).unwrap().object_count();
+
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 1.0), Point2::new(4.0, 1.0))),
+        );
+        save_path(&doc, &path).unwrap();
+        let c2 = list_commits(&path).unwrap();
+        assert_eq!(c2.len(), 2);
+        let objs2 = merkle::load_merkle_from_path(&path).unwrap().object_count();
+        // Second commit reuses the unchanged entity blob + shared empty object section.
+        assert!(objs2 < objs1 * 2, "expected blob dedup ({objs2} vs 2×{objs1})");
+
+        // Identical re-SAVE creates no new commit.
+        save_path(&doc, &path).unwrap();
+        assert_eq!(list_commits(&path).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn merkle_restore_moves_head() {
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(1.0, 0.0))),
+        );
+        let path = tmp("merkle-restore.vdb");
+        save_path(&doc, &path).unwrap();
+        let first = list_commits(&path).unwrap()[0].id.clone();
+
+        doc.add_geometry(
+            "0",
+            Geometry::Circle(Circle::new(Point2::new(2.0, 2.0), 0.5)),
+        );
+        save_path(&doc, &path).unwrap();
+        assert_eq!(load_path(&path).unwrap().len(), 2);
+
+        let (restored, _, _, _) = restore_commit(&path, "2").unwrap(); // 1-based: #2 is older? newest first
+        // list is newest-first: #1 = second save (2 ents), #2 = first save (1 ent)
+        assert_eq!(restored.len(), 1);
+        assert_eq!(load_path(&path).unwrap().len(), 1);
+
+        // Re-SAVE with a change forks from restored parent.
+        let mut doc2 = load_path(&path).unwrap();
+        doc2.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(9.0, 9.0), Point2::new(10.0, 9.0))),
+        );
+        save_path(&doc2, &path).unwrap();
+        let commits = list_commits(&path).unwrap();
+        assert!(commits.len() >= 2);
+        assert_eq!(commits[0].parent, first);
+    }
+
+    #[test]
+    fn v3_file_upgrades_to_v4_with_root_commit() {
+        // Write a minimal tip using the on-disk layout without MERK, version 3.
+        let mut doc = Document::new();
+        doc.add_geometry(
+            "0",
+            Geometry::Line(Segment::new(Point2::new(0.0, 0.0), Point2::new(2.0, 0.0))),
+        );
+        let path = tmp("upgrade-v3.vdb");
+        let mut w = Writer::new();
+        w.raw(MAGIC);
+        w.u32(3);
+        codec::encode_document(&mut w, &doc);
+        build_index(&doc).write(&mut w);
+        objects::write_sections(
+            &mut w,
+            &ObjectStore::new(),
+            &Graph::new(),
+            &AuditLog::new(),
+        );
+        std::fs::write(&path, w.into_bytes()).unwrap();
+
+        assert!(list_commits(&path).unwrap().is_empty());
+        assert_eq!(load_path(&path).unwrap().len(), 1);
+
+        save_path(&doc, &path).unwrap();
+        let commits = list_commits(&path).unwrap();
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].kind, "auto");
+        // Tip still loads.
+        assert_eq!(ShilpiDb::open(&path).unwrap().document().len(), 1);
     }
 }

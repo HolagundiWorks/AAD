@@ -26,7 +26,8 @@ not the system of record.
 
 - Auto-checkpoint on every `SAVE` of `.aadt` (keep last 20 autos; named kept forever).
 - Commands: `HISTORY LIST|SAVE|RESTORE|PURGE` (aliases `HIST`, `VERSIONS`).
-- GUI: right panel **History** tab.
+- GUI: right panel **History Manager** (egui + WinUI) — `.aadt` checkpoints;
+  `.vdb` Merkle commits are ADR-0021.
 - Title-block `revision` / `revision_history` remain sheet metadata; they are **not**
   conflated with machine checkpoints.
 

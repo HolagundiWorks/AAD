@@ -13,9 +13,14 @@
 //! unit tests below do. LISP (`LISP` / bare `(…)`) is evaluated here against the
 //! live document so `defun`s persist for the life of the session.
 
+/// Spacebar-primary interactive catalog + FSM (shared by egui and `aadt-ffi` / M16).
+pub mod command_engine;
+
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod osnap;
+pub mod otrack;
+pub mod pick;
 pub mod prefs;
 pub mod selection;
 
@@ -303,6 +308,16 @@ impl Session {
     /// highlight. Read-only; the GUI drives it through `SELECT` like any command.
     pub fn selection(&self) -> &[aadt_model::EntityId] {
         &self.ctx.selection
+    }
+
+    /// Ghost entities from the last `HISTORY DIFF` (removed since the baseline).
+    pub fn diff_ghosts(&self) -> &[aadt_model::Entity] {
+        &self.ctx.diff_ghosts
+    }
+
+    /// Last OPEN/SAVE / HISTORY auto-path.
+    pub fn drawing_path(&self) -> Option<&str> {
+        self.ctx.drawing_path.as_deref()
     }
 
     /// The feedback transcript, oldest first.

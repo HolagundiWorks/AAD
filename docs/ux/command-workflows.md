@@ -76,6 +76,9 @@ Tab cycles dyn X ↔ Y (and is swallowed so it cannot focus the command line mid
 | Hor / Ver | `H` / `V` → specify a point |
 | Ang | `A` → type degrees → specify a point |
 
+**WinUI tool strip:** `XL` (through) · `Hor` (`XLH`) · `Ver` (`XLV`). Dyn card
+(F12) and CLI prompt show the active mode; keywords `H`/`V`/`T` switch mid-tool.
+
 ### TEXT (`T`)
 
 Insertion point → type height (Space = last / dim default) → type value → Space/Enter. Rotation stays 0 this release.
@@ -301,12 +304,18 @@ Managers: Annotate and Dims panels → Quick Dim / Auto Dim / Restore layers.
 
 ### UNITS / DIMSTYLE
 
+Typed lengths accept **explicit unit suffixes in any system**: `2500mm`, `25cm`,
+`2.5m`, `10ft`, `6in`, `12'-6"`. Bare numbers follow the drawing system
+(inches for ft-in, metres for m). WinUI status **Units** chip → **Dimension
+manager…** sets single vs multiple-unit labels, decimal precision (0–6), and
+imperial fractions through **1/16**.
+
 | Command | Examples |
 |---------|----------|
-| `UNITS` | `UNITS` · `UNITS ft-in` · `UNITS m` · `UNITS m SECONDARY on` |
-| `DIMSTYLE` | Report or set name, text height, scale, secondary |
+| `UNITS` | `UNITS` · `UNITS ft-in` · `UNITS m` · `UNITS m SECONDARY on` · `UNITS PRECISION 3 FRACTION 16` |
+| `DIMSTYLE` | Report/set name, height, scale, secondary, precision, fraction · `DIMSTYLE PRECISION 2 FRACTION 8` |
 
-Managers: right panel **Units** and **Dims**. Status bar (left) shows the active unit token (`ft-in` / `m`).
+Managers: right panel **Units** and **Dims**. Status bar shows the active unit token (`ft-in` / `m`).
 
 | Primary | Model | Typed bare number | Secondary (when on) |
 |---------|-------|-------------------|---------------------|
@@ -371,20 +380,21 @@ Elements manager: create from selection, add params, edit selected INSERT attrs 
 
 | Command | Role |
 |---------|------|
-| `OPEN` / `SAVE` | `.dxf` / `.dwg` / `.aadt` / `.vdb` (SAVE to `.aadt` auto-checkpoints; `.vdb` also carries the Object DB) |
+| `OPEN` / `SAVE` | `.dxf` / `.dwg` / `.aadt` / `.vdb` (SAVE auto-checkpoints / Merkle commits; `.vdb` also carries the Object DB) |
 | `TAKEOFF` / `BOQ` | Quantities and bill of quantities over the Object DB (M13) |
-| `HISTORY LIST\|SAVE\|RESTORE\|PURGE` | Drawing time machine (one `.aadt`, many versions) |
+| `HISTORY LIST\|SAVE\|RESTORE\|DIFF\|PURGE` | History Manager — checkpoints / Merkle commits; DIFF traces tip vs version |
 | `LISP` / `(…)` | AutoLISP against the live document |
 
 **Workflow — revise without copying files**
 
-1. Draft in a single `.aadt`.
-2. `SAVE` (or History → Save version) creates checkpoints.
+1. Draft in a single `.aadt` or `.vdb`.
+2. `SAVE` (or History Manager → Save version) creates a checkpoint / Merkle commit.
 3. `TAKEOFF` measures the promoted objects and reports what it assumed.
-4. On a bad edit: History → Restore, or `HISTORY RESTORE <id>`.
+4. On a bad edit: History Manager → Restore, or `HISTORY RESTORE <id>`.
 5. Title-block Rev text remains for sheets; machine history is the rollback log.
 
-Managers: right panel **History**. See [ADR-0008](../adr/0008-drawing-history-takeoff-db.md).
+Managers: right panel **History Manager** (egui tab · WinUI **Hst** rail).
+See [ADR-0008](../adr/0008-drawing-history-takeoff-db.md) · [ADR-0021](../adr/0021-shilpidb-merkle-versioning.md).
 
 ---
 

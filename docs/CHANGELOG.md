@@ -2,6 +2,171 @@
 
 ## Unreleased
 
+### M23 — WinUI optional gap close (ABI v10)
+
+- WP / CPOLYGON / FENCE region select (Space finishes).
+- Hatch solid fills painted in Direct2D (`aadt_drawlist_copy_fills`).
+- Transparent `'ZOOM` / `'PAN` mid-tool via feed + `aadt_nav_take`.
+- Thin QAT: ZoomE, Review (LIST), Plot (PLOTSETUP).
+
+### M22 — WinUI remaining gap close (ABI v9)
+
+- STRETCH, ARRAYRECT/POLAR/PATH, IMAGE place, REVCLOUD.
+- Grip mode cycle (Space); door Tab swing flip; Shift additive pick.
+- Wheel zoom mid-tool remains the transparent-view path on WinUI.
+
+### M21 — WinUI honesty + daily CAD (ABI v8)
+
+- Audit: [docs/audit/2026-08-winui-doc-gap.md](audit/2026-08-winui-doc-gap.md).
+- Catalog honesty; selection highlight; LINE chain; DOOR/WINDOW wall cut; WALL
+  tool; FILLET radius; Ortho (F8) / Polar OTRACK (F10).
+
+### M20 — WinUI commands + Elements/Fills (ABI v7)
+
+- Command line: `aadt_complete` / `aadt_is_interactive`; history ↑↓; empty Enter
+  repeats last line; completions ListView.
+- Elements + Fills panes (`aadt_elements_catalog`, hatch pattern list/set);
+  Blocks rail renamed Elements.
+- Interactive: DIM, MLEADER, DIST, DIMRADIUS/DIMDIAMETER, place tools
+  (DOOR/WINDOW/…) via INSERT; HATCH uses active pattern.
+- OTRACK rays + stretch grips (`aadt_otrack_*`, `aadt_grips_*` / `aadt_grip_move`).
+- Review/PDF managers remain egui-only.
+
+### M19 — WinUI daily polish (ABI v6)
+
+- HATCH / TEXT click tools; osnap on picks with preview marker; window/crossing
+  drag-select (`aadt_select_box`). WinUI tool strip + idle drag select.
+- Test set: `cargo test -p aadt-ffi` (`m19_*`),
+  [docs/qa/winui-m19-test-set.md](qa/winui-m19-test-set.md),
+  [scripts/full-build-and-test.ps1](../scripts/full-build-and-test.ps1),
+  [scripts/make-winui-fixture.ps1](../scripts/make-winui-fixture.ps1).
+
+### M18 — WinUI usable CAD (ABI v5)
+
+- [`aadt-ffi`](../crates/aadt-ffi) ABI **5**: layer/block lists, current layer,
+  catalog export, `aadt_tool_finish`, `aadt_tool_start_insert`, `aadt_session_reset`.
+- Interactive tools beyond LINE/CIRCLE/REC: polyline, arc, xline, daily modify
+  band, OFFSET/TRIM/EXTEND/FILLET, INSERT place.
+- WinUI: tool strip, live Layers/Blocks panes, New/Open/Save (file dialogs),
+  Properties layer Apply, Tools… catalog. egui still owns Fills/Annotate/Review.
+
+### L3.3 — PDFium open / page freehand / raster diff
+
+- [ADR-0019](adr/0019-pdfium-reader.md): `pdfium-render` behind `aadt-pdf` feature
+  `pdfium` (enabled with `aadt-app` `gui`). Runtime `pdfium.dll`.
+- Review **Open PDF…**, page prev/next, page-space freehand (`Markup.page`),
+  **Raster compare to PDF…** via [`compare_rgba`](../crates/aadt-pdf/src/raster_diff.rs).
+- Fetch helper: [`crates/aadt-pdf/fetch-pdfium.ps1`](../crates/aadt-pdf/fetch-pdfium.ps1).
+
+### L5.2 — Optional wgpu canvas (criteria ADR)
+
+- [ADR-0020](adr/0020-wgpu-canvas-criteria.md): WinUI/egui remain defaults; wgpu is
+  optional. `aadt render --features gpu` PNG; egui **⋯ → GPU canvas…** with
+  `--features wgpu-canvas` opens `aadt_render::view`.
+
+### L7 — On-canvas INSERT polish
+
+- `Tool::Insert` carries rotation + uniform scale; ghost uses oriented block
+  geometry. Type degrees or `S2` before click; multi-place + Esc unchanged.
+
+### L6 — Sheet-bound view presets + material opacities
+
+- [`ViewPreset`](../crates/aadt-docs/src/view_preset.rs) + `document_with_view_preset`
+  clone so plot/present do not thrash live layers; `View.preset` for dual
+  Technical/Presentation on one sheet.
+- [`libraries/materials/catalog.json`](../libraries/materials/catalog.json) drives
+  hatch fill alphas via `aadt_library::material_opacities`.
+
+### L3.2 — Freehand review markups
+
+- `MarkupKind::Freehand` + stroke `path` on [`Markup`](../crates/aadt-pdf/src/markup.rs)
+  (non-destructive MarkupList; not `A-PRES-MARK` polylines).
+- Review dock **Freehand**: drag on canvas / sheet preview; Space or drag-stop
+  commits. Report lists point count.
+- Open arbitrary PDF / PDFium / raster sheet diff still deferred (needs ADR +
+  native reader).
+
+### L5 — Viewport text glyphs
+
+- Bundled Source Sans 3 outlines (`aadt-render::text_outline_segments`) for
+  TEXT / dim labels on FFI Direct2D and optional wgpu line lists (no ABI bump).
+- egui TEXT paints at world `height * camera.scale` (soft 2 px floor; no tight clamp).
+- wgpu default canvas still optional (criteria ADR before switching shell).
+
+### M17.4 — Release MSIX sideload
+
+- Release|x64 builds `AppPackages/AadWinui_*_Test/*.msix` (signed `CN=AAD`).
+- Debug stays unpackaged (`WindowsPackageType=None`).
+- [`pack-msix.ps1`](../native/aad-winui/winui/AadWinui/pack-msix.ps1): cargo release
+  FFI → MSBuild MSIX; documents Root-cert trust for first sideload.
+
+### M17.3 — Chrome panes + Properties
+
+- Auto-hide left/right rails; Properties primary (selection summary via ABI v4).
+- Idle click pick → `SELECT`; Erase/CHSPACE via `feed` only. Quiet QAT + Undo/Redo.
+- `SELECT NONE` clears selection; FFI `aadt_pick_at` / `aadt_selection_copy_ids` /
+  `aadt_entity_prop_summary` (ABI **4**).
+
+### M17.2 — SwapChainPanel paper paint
+
+- [`SwapChainCanvas`](../native/aad-winui/src/SwapChainCanvas.cpp): DXGI composition
+  swap chain + Direct2D on `SwapChainPanel`; ABI v3 drawlists / preview.
+- WinUI shell: pan (MMB/RMB), wheel zoom, LINE/CIRCLE/REC click tools, Esc cancel.
+
+### M17.1 — WinUI 3 project builds
+
+- Scaffolded [`AadWinui.sln`](../native/aad-winui/winui/AadWinui.sln) (VS 2022,
+  WinAppSDK 1.6, Chrome 2.0 XAML). Debug|x64 builds.
+- CLI Enter → `FfiSession::feed`; SwapChainPanel paint is M17.2.
+
+### L4 — DWG hatch + dimension write
+
+- `to_cad_document` / `export_dwg_path` write multi-path `HATCH` (polyline
+  boundaries, SOLID or pattern name) and common `DIMENSION` kinds (aligned,
+  linear, radius, diameter, angular, ordinate) via acadrust.
+- Fidelity matrix DWG-out flipped to ✅ for hatch/dim; empty boundaries still
+  warn and skip.
+
+### L3.1 — Sheet preview + Review markups
+
+- Plot dialog **Preview sheet** composes the same sheet as vector PDF onto the
+  egui canvas (Esc exits). No PDF reader / PDFium yet.
+- Right dock **Review**: place Cloud/Callout/Text/Highlight/Measure markups
+  (`aadt_pdf::MarkupList`), list/export report, capture last DIST, fingerprint
+  **Compare to .aadt**.
+
+### L2 — True OTRACK
+
+- F11 / `osnap_track` acquires running snaps (250 ms dwell) and snaps to H/V
+  alignment paths (±45° when polar is on): ray∩ray and projection onto rays
+  ([ADR-0018](adr/0018-otrack.md), [`otrack.rs`](../crates/aadt-app/src/otrack.rs)).
+- Dashed tracking lines + acquired markers in the egui viewport. Esc clears
+  acquired points when idle.
+
+### L1 — SpatialGrid-assisted click pick
+
+- egui click pick uses a revision-cached [`SpatialGrid`](../crates/aadt-vdb)
+  aperture (`query_index_point`) then the same distance hit-test as before
+  ([`aadt_app::pick`](../crates/aadt-app/src/pick.rs)).
+- Osnap / box / region select remain linear for now.
+
+### ROADMAP restructured (followable workflow)
+
+- [ROADMAP](ROADMAP.md) now leads with **How to follow** (Now → Next → Later),
+  one Product locks list, compact **Done (1.0 + M16)**, **Active M17**, and an
+  ordered Later backlog. Stray `Next ✅`, hatch orphan essay, duplicate §8
+  locks, and unordered Post-1.0 bullets are gone.
+- **Now:** M17 WinUI Chrome 2.0 (Fluent / SwapChainPanel when WinAppSDK is
+  available). M16 interactive FFI tools remain ✅.
+
+### M16 — WinUI interactive tools
+
+- ROADMAP **M16**: click-draw L/C/REC for the Direct2D host via `aadt-ffi` ABI
+  **v3** (`aadt_tool_start` / `accept_point` / preview), sharing
+  `aadt_app::command_engine` (lifted out of the egui `gui` feature).
+- Interim host drops the C++-only LINE pick loop; Document writes stay on
+  `Session::feed` ([ADR-0017](adr/0017-winui-shell-rust-engine.md)).
+
 ### WinUI 3 hybrid shell (ADR-0017)
 
 - Shipping UI path: C++ / WinUI 3 + Fluent 2 + Direct2D; Rust engine retained.
@@ -22,12 +187,10 @@
 - Quieter neutrals; orange only for brand mark and selected-rail focus bar.
 - Status chips (ORTHO/OSNAP/…) use pressed neutrals, not orange fills.
 
-### ROADMAP stripped to shipping 2D CAD
+### ROADMAP followable workflow (2D shipping band)
 
-- [ROADMAP](ROADMAP.md) keeps only shipping milestones (M1–M2, M5–M7, M9–M15).
-  Tombstone milestones and any Phase 6 / BIM / 3D path are gone.
-- Product lock: **2D CAD only — permanent.** Presentation rasters
-  (`Geometry::Image` / IMAGEDEF) stay in scope.
+- [ROADMAP](ROADMAP.md): Now → Next → Later; 1.0 band M1–M2, M5–M7, M9–M15;
+  M16 ✅; **Now = M17**. No BIM / 3D path. Presentation rasters stay in scope.
 
 ### IMAGEDEF on DWG / DXF export
 

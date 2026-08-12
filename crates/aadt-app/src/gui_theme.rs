@@ -548,8 +548,14 @@ pub fn right_manager_nav() -> &'static [NavDest] {
         NavDest {
             tab: 6,
             label: "History",
-            tip: "Drawing time machine / versions",
+            tip: "History Manager — .aadt checkpoints / .vdb Merkle versions",
             icon: Icon::History,
+        },
+        NavDest {
+            tab: 8,
+            label: "Review",
+            tip: "Sheet preview markups + fingerprint compare (L3.1)",
+            icon: Icon::Plot,
         },
     ]
 }
@@ -570,6 +576,7 @@ pub fn right_manager_title(tab: usize) -> &'static str {
         5 => "Dimensions",
         6 => "History",
         7 => "Properties",
+        8 => "Review",
         _ => "Properties",
     }
 }

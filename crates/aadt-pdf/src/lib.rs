@@ -9,18 +9,22 @@
 //!   by kind and author, exportable as a markup report.
 //! - [`compare`] — diff two revisions by content fingerprint and **narrate** the
 //!   change set for a transmittal (spec §6.4), with no AI needed.
+//! - [`reader`] — open/rasterize pages via PDFium ([ADR-0019](../../docs/adr/0019-pdfium-reader.md));
+//!   feature `pdfium` + runtime native library.
+//! - [`raster_diff`] — pixel compare of two RGBA pages (L3.3).
 //!
-//! Deferred to a display/rendering pass: interactive PDF *viewing*, freehand and
-//! stamp markup tools, calibrated on-PDF measurement, and raster diff of scanned
-//! sheets. A PDF *reader* (PDFium/MuPDF) is the engine those need; this crate is
-//! the write/markup/compare half that stands alone.
+//! L3.1 sheet preview + MarkupList UI; L3.2 freehand on preview; L3.3 PDF open.
 
 pub mod compare;
 pub mod markup;
+pub mod raster_diff;
+pub mod reader;
 pub mod writer;
 
 pub use compare::{compare, Change, Diff};
 pub use markup::{Markup, MarkupKind, MarkupList};
+pub use raster_diff::{compare_rgba, RasterDiff};
+pub use reader::{open_pdf, pdfium_feature_enabled, render_page, OpenedPdf, PdfError, RenderedPage};
 pub use writer::{plot, PageSize};
 
 /// Milestone in which the PDF module is implemented.

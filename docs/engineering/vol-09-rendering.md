@@ -77,8 +77,8 @@ Stubs: `VP`, `MVIEW`, `UCS`, `PLAN` — refuse / not interactive.
 
 ## Target / planned
 
-- Viewport text glyph quality.
-- wgpu canvas if egui cannot hold 60 FPS zoom target.
+- Viewport text glyph quality — **✅ L5**.
+- Optional wgpu path — **✅ L5.2** ([ADR-0020](../adr/0020-wgpu-canvas-criteria.md)); WinUI remains default shell.
 - True layout viewports deferred (ROADMAP lock).
 
 ## Gap analysis
@@ -86,8 +86,9 @@ Stubs: `VP`, `MVIEW`, `UCS`, `PLAN` — refuse / not interactive.
 | Topic | Gap |
 |-------|-----|
 | Paper space viewports | Stub only |
-| GPU default path | Optional, not default shell |
-| Display polish | Remaining M1 display-bound items |
+| GPU default path | Optional only (ADR-0020); not default shell |
+| Viewport TEXT glyphs | **Closed (L5)** |
+| PDF open / raster diff | **Closed (L3.3 / ADR-0019)** |
 
 ## Module layout
 

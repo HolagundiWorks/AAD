@@ -52,11 +52,11 @@ DLL is copied beside the exe on build.
 ### Controls
 
 - Command edit — **Enter** feeds `Session` (same as CLI)
-- `LINE` or `L` alone — two **LMB** clicks draw a segment
+- `LINE` / `L`, `CIRCLE` / `C`, `RECTANGLE` / `REC` alone — FFI tools (ABI v3); LMB accepts points
 - Idle **LMB** — appends world `x,y` into the command edit
-- **F** fit · **Wheel** zoom · **RMB/MMB** pan · **Esc** cancel pick
-- Status bar: entity count, revision, cursor world coords
-- Try `LINE` then click two points, or `CIRCLE 5 3 2`
+- **F** fit · **Wheel** zoom · **RMB/MMB** pan · **Esc** cancel tool
+- Status bar: entity count, revision, cursor, tool prompt + rubber-band preview
+- Or type full lines: `CIRCLE 5 3 2`
 
 ## WinUI 3 next steps
 

@@ -16,8 +16,11 @@ name = "aadt_ffi"
 aadt-app.workspace = true
 aadt-cli.workspace = true
 aadt-command.workspace = true
+aadt-docs.workspace = true
 aadt-geometry.workspace = true
+aadt-library.workspace = true
 aadt-model.workspace = true
+aadt-pdf.workspace = true
 aadt-render.workspace = true
 
 [lints.rust]

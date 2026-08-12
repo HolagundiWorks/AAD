@@ -15,7 +15,7 @@ git submodule update --init --recursive
 bridge\build-bridge.cmd
 ```
 
-Copies `aadt_bridge.dll` next to WinUI output when present. Smoke:
+Copies `aadt_bridge.dll` and `e_sqlite3.dll` next to WinUI output when present. Smoke:
 
 ```bat
 dotnet run --project bridge\Aadt.Bridge.Smoke -c Release

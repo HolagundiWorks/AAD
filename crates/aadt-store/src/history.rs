@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use aadt_model::Document;
+use aadt_model::{Document, EntityId};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::{init_schema_tables, read_document, write_document, StoreError, SCHEMA_VERSION};
@@ -581,6 +581,63 @@ pub fn save_named_checkpoint(
 ) -> Result<i64, StoreError> {
     // Full save with named checkpoint instead of auto.
     crate::save_path_with_checkpoint(doc, path.as_ref(), Some((label, note, author)))
+}
+
+/// Entity-level diff of a checkpoint vs the working document.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HistoryDiff {
+    pub added: Vec<u64>,
+    pub removed: Vec<u64>,
+    pub modified: Vec<u64>,
+    pub unchanged: usize,
+}
+
+impl HistoryDiff {
+    pub fn narrate(&self) -> String {
+        format!(
+            "+{} added · ~{} modified · -{} removed · {} unchanged",
+            self.added.len(),
+            self.modified.len(),
+            self.removed.len(),
+            self.unchanged
+        )
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.removed.is_empty() && self.modified.is_empty()
+    }
+}
+
+/// Diff checkpoint `id` against `doc`. Returns baseline document for ghost traces.
+pub fn diff_checkpoint_vs_doc(
+    path: impl AsRef<Path>,
+    id: i64,
+    doc: &Document,
+) -> Result<(HistoryDiff, Document), StoreError> {
+    let old = restore_checkpoint(path, id)?;
+    let mut old_ids: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+    let mut new_ids: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+    for e in old.entities() {
+        old_ids.insert(e.id.0);
+    }
+    for e in doc.entities() {
+        new_ids.insert(e.id.0);
+    }
+    let mut diff = HistoryDiff::default();
+    for id in &new_ids {
+        match (old.get(EntityId(*id)), doc.get(EntityId(*id))) {
+            (None, Some(_)) => diff.added.push(*id),
+            (Some(a), Some(b)) if a != b => diff.modified.push(*id),
+            (Some(_), Some(_)) => diff.unchanged += 1,
+            _ => {}
+        }
+    }
+    for id in &old_ids {
+        if !new_ids.contains(id) {
+            diff.removed.push(*id);
+        }
+    }
+    Ok((diff, old))
 }
 
 /// Load document from a checkpoint id inside `path`.

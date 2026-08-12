@@ -22,6 +22,10 @@ bool Direct2DCanvas::init(HWND hwnd) {
 }
 
 void Direct2DCanvas::discardDeviceResources() {
+  if (previewBrush_) {
+    previewBrush_->Release();
+    previewBrush_ = nullptr;
+  }
   if (brush_) {
     brush_->Release();
     brush_ = nullptr;
@@ -47,7 +51,12 @@ HRESULT Direct2DCanvas::createDeviceResources() {
   if (FAILED(hr)) {
     return hr;
   }
-  return rt_->CreateSolidColorBrush(D2D1::ColorF(0.14f, 0.14f, 0.14f), &brush_);
+  hr = rt_->CreateSolidColorBrush(D2D1::ColorF(0.14f, 0.14f, 0.14f), &brush_);
+  if (FAILED(hr)) {
+    return hr;
+  }
+  // Quieter rubber-band (not brand orange).
+  return rt_->CreateSolidColorBrush(D2D1::ColorF(0.45f, 0.45f, 0.5f), &previewBrush_);
 }
 
 void Direct2DCanvas::resize(UINT width, UINT height) {
@@ -59,6 +68,8 @@ void Direct2DCanvas::resize(UINT width, UINT height) {
 }
 
 void Direct2DCanvas::setLines(const std::vector<float>& xy) { lines_ = xy; }
+
+void Direct2DCanvas::setPreview(const std::vector<float>& xy) { preview_ = xy; }
 
 void Direct2DCanvas::fitWorld(float minX, float minY, float maxX, float maxY) {
   const float w = std::max(1e-3f, maxX - minX);
@@ -112,6 +123,16 @@ void Direct2DCanvas::render() {
     const float x1 = originX_ + lines_[i + 2] * scale_;
     const float y1 = originY_ - lines_[i + 3] * scale_;
     rt_->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), brush_, 1.0f);
+  }
+
+  if (previewBrush_) {
+    for (size_t i = 0; i + 3 < preview_.size(); i += 4) {
+      const float x0 = originX_ + preview_[i] * scale_;
+      const float y0 = originY_ - preview_[i + 1] * scale_;
+      const float x1 = originX_ + preview_[i + 2] * scale_;
+      const float y1 = originY_ - preview_[i + 3] * scale_;
+      rt_->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), previewBrush_, 1.0f);
+    }
   }
 
   const HRESULT hr = rt_->EndDraw();

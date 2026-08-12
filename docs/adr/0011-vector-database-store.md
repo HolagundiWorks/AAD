@@ -42,8 +42,10 @@ Add **ShilpiDB**, a **custom, self-contained on-disk vector database**, crate
   alternative you can `SAVE`/`OPEN`.
 - `aadt-vdb` depends only on `aadt-model` + `aadt-geometry`; `aadt-cli` and
   `aadt-lisp` gain a dependency on it. Layering stays acyclic.
-- The `.vdb` format is versioned (`FORMAT_VERSION`); it does not yet persist the
-  drawing time-machine (history checkpoints) — that stays a `.aadt` feature.
+- The `.vdb` format is versioned (`FORMAT_VERSION`). **v4+** embeds a Merkle
+  content-addressed version store (blobs → tree → commit → `HEAD`) so one drawing
+  file holds versions — see [ADR-0021](0021-shilpidb-merkle-versioning.md).
+  `.aadt` keeps full-blob checkpoints ([ADR-0008](0008-drawing-history-takeoff-db.md)).
 
 ## Alternatives considered
 

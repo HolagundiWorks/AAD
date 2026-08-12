@@ -1,9 +1,9 @@
-// Interim Win32 + Direct2D host that LoadLibrary's aadt_ffi.dll (ADR-0017).
+// Interim Win32 + Direct2D host that LoadLibrary's aadt_ffi.dll (ADR-0017 / M16).
 //
 // Controls:
-//   Type command + Enter  ·  LINE (no args) then two LMB clicks
-//   LMB (idle): append world x,y into the command edit
-//   MMB / RMB drag: pan · Wheel: zoom · F: fit · Esc: cancel pick
+//   Type command + Enter  ·  LINE / CIRCLE / REC alone → click points (FFI tools)
+//   Idle LMB: append world x,y into the command edit
+//   MMB / RMB drag: pan · Wheel: zoom · F: fit · Esc: cancel tool
 
 #include <windows.h>
 #include <windowsx.h>
@@ -16,9 +16,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
-#include <optional>
 #include <string>
-#include <vector>
 
 #ifdef _MSC_VER
 #pragma comment(linker, "\"/manifestdependency:type='win32' \
@@ -28,15 +26,13 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 
 static constexpr wchar_t kClassName[] = L"AadWinuiHost";
 static constexpr wchar_t kCanvasClass[] = L"AadCanvasHost";
-static constexpr int kCliH = 112;   // Chrome 2.0 CLI hero
+static constexpr int kCliH = 112;
 static constexpr int kTopH = 32;
 static constexpr int kStatusH = 22;
 static constexpr COLORREF kBrandOrange = RGB(232, 93, 4);
 static constexpr COLORREF kInk = RGB(36, 36, 36);
 static constexpr COLORREF kHairline = RGB(232, 232, 232);
 static constexpr COLORREF kPaper = RGB(250, 250, 250);
-
-enum class PickTool { None, Line };
 
 struct AppState {
   FfiSession session;
@@ -51,8 +47,6 @@ struct AppState {
   int lastY = 0;
   float cursorWx = 0.f;
   float cursorWy = 0.f;
-  PickTool pick = PickTool::None;
-  std::optional<std::pair<float, float>> pickP1;
   std::wstring log;
 };
 
@@ -71,7 +65,6 @@ static void appendLog(AppState* app, const std::string& line) {
   app->log.append(line.begin(), line.end());
   app->log.push_back(L'\r');
   app->log.push_back(L'\n');
-  // Keep roughly last 3 “screens” of history readable.
   if (app->log.size() > 4096) {
     app->log.erase(0, app->log.size() - 4096);
   }
@@ -86,22 +79,26 @@ static void updateStatus(AppState* app) {
   if (!app->hwndStatus) {
     return;
   }
-  wchar_t buf[256];
-  const wchar_t* tool = L"";
-  if (app->pick == PickTool::Line) {
-    tool = app->pickP1 ? L"  ·  LINE: click end point" : L"  ·  LINE: click start point";
+  wchar_t buf[320];
+  std::string prompt = app->session.toolPrompt();
+  std::wstring wprompt(prompt.begin(), prompt.end());
+  if (wprompt.empty() && app->session.toolActive()) {
+    wprompt = L"tool active";
   }
-  std::swprintf(buf, 256, L"ents %llu  rev %llu%s  ·  %.3f, %.3f%s",
+  std::swprintf(buf, 320, L"ents %llu  rev %llu%s  ·  %.3f, %.3f%s%s",
                 static_cast<unsigned long long>(app->session.entityCount()),
                 static_cast<unsigned long long>(app->session.revision()),
                 app->session.dirty() ? L"  ·  dirty" : L"",
-                static_cast<double>(app->cursorWx), static_cast<double>(app->cursorWy), tool);
+                static_cast<double>(app->cursorWx), static_cast<double>(app->cursorWy),
+                wprompt.empty() ? L"" : L"  ·  ", wprompt.c_str());
   SetWindowTextW(app->hwndStatus, buf);
 }
 
 static void refreshCanvas(AppState* app) {
   const auto& lines = app->session.rebuildLines();
   app->canvas.setLines(lines);
+  const auto& preview = app->session.rebuildPreview();
+  app->canvas.setPreview(preview);
   if (app->hwndCanvas) {
     InvalidateRect(app->hwndCanvas, nullptr, FALSE);
   }
@@ -118,14 +115,13 @@ static void fitExtents(AppState* app) {
   }
 }
 
-static void cancelPick(AppState* app) {
-  if (app->pick == PickTool::None) {
+static void cancelTool(AppState* app) {
+  if (!app->session.toolActive()) {
     return;
   }
-  app->pick = PickTool::None;
-  app->pickP1.reset();
+  app->session.toolCancel();
   appendLog(app, "*Cancel*");
-  updateStatus(app);
+  refreshCanvas(app);
 }
 
 static void feedLine(AppState* app, const std::string& utf8) {
@@ -156,6 +152,12 @@ static bool iequals(const std::string& a, const char* b) {
   return true;
 }
 
+static bool isToolCommand(const std::string& line) {
+  return iequals(line, "LINE") || iequals(line, "L") || iequals(line, "CIRCLE") ||
+         iequals(line, "C") || iequals(line, "RECTANGLE") || iequals(line, "REC") ||
+         iequals(line, "RECTANG");
+}
+
 static void runCommand(AppState* app) {
   wchar_t buf[512]{};
   GetWindowTextW(app->hwndCmd, buf, 512);
@@ -166,7 +168,6 @@ static void runCommand(AppState* app) {
     return;
   }
   std::string line(utf8);
-  // Trim
   while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) {
     line.pop_back();
   }
@@ -176,11 +177,16 @@ static void runCommand(AppState* app) {
   }
   line = line.substr(start);
 
-  if (iequals(line, "LINE") || iequals(line, "L")) {
-    app->pick = PickTool::Line;
-    app->pickP1.reset();
-    appendLog(app, "Command: LINE");
-    appendLog(app, "Specify first point:");
+  if (isToolCommand(line)) {
+    if (!app->session.toolStart(line)) {
+      appendLog(app, "tool start failed");
+      return;
+    }
+    appendLog(app, std::string("Command: ") + line);
+    const std::string prompt = app->session.toolPrompt();
+    if (!prompt.empty()) {
+      appendLog(app, prompt);
+    }
     updateStatus(app);
     SetFocus(app->hwndCanvas);
     return;
@@ -203,23 +209,20 @@ static void appendCoordToCmd(AppState* app, float wx, float wy) {
 }
 
 static void onCanvasClick(AppState* app, float wx, float wy) {
-  if (app->pick == PickTool::Line) {
-    if (!app->pickP1) {
-      app->pickP1 = std::make_pair(wx, wy);
-      appendLog(app, std::string("First point: ") + formatCoord(wx, wy));
-      appendLog(app, "Specify second point:");
-      updateStatus(app);
-      return;
+  if (app->session.toolActive()) {
+    app->session.toolAcceptPoint(static_cast<double>(wx), static_cast<double>(wy));
+    const std::string fb = app->session.lastFeedback();
+    if (!fb.empty()) {
+      appendLog(app, fb);
     }
-    const auto p1 = *app->pickP1;
-    app->pick = PickTool::None;
-    app->pickP1.reset();
-    char cmd[128];
-    std::snprintf(cmd, sizeof(cmd), "LINE %.6g %.6g %.6g %.6g", static_cast<double>(p1.first),
-                  static_cast<double>(p1.second), static_cast<double>(wx),
-                  static_cast<double>(wy));
-    feedLine(app, cmd);
-    SetFocus(app->hwndCmd);
+    const std::string prompt = app->session.toolPrompt();
+    if (!prompt.empty() && app->session.toolActive()) {
+      appendLog(app, prompt);
+    }
+    refreshCanvas(app);
+    if (!app->session.toolActive()) {
+      SetFocus(app->hwndCmd);
+    }
     return;
   }
   appendCoordToCmd(app, wx, wy);
@@ -262,6 +265,12 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
       const int y = GET_Y_LPARAM(lParam);
       app->cursorWx = app->canvas.worldX(static_cast<float>(x));
       app->cursorWy = app->canvas.worldY(static_cast<float>(y));
+      if (app->session.toolActive()) {
+        app->session.toolSetCursor(static_cast<double>(app->cursorWx),
+                                   static_cast<double>(app->cursorWy));
+        app->canvas.setPreview(app->session.rebuildPreview());
+        InvalidateRect(hwnd, nullptr, FALSE);
+      }
       updateStatus(app);
       if (app->panning) {
         app->canvas.pan(static_cast<float>(x - app->lastX), static_cast<float>(y - app->lastY));
@@ -298,7 +307,7 @@ static LRESULT CALLBACK CanvasProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lP
       return 0;
     }
     if (wParam == VK_ESCAPE) {
-      cancelPick(app);
+      cancelTool(app);
       return 0;
     }
     break;
@@ -312,7 +321,6 @@ static void paintTopStrip(HDC hdc, const RECT& rc) {
   FillRect(hdc, &top, bar);
   DeleteObject(bar);
 
-  // Brand mark — 4px orange focus bar (Chrome 2.0: orange chrome-only).
   RECT brand{0, 0, 4, kTopH};
   HBRUSH orange = CreateSolidBrush(kBrandOrange);
   FillRect(hdc, &brand, orange);
@@ -329,12 +337,11 @@ static void paintTopStrip(HDC hdc, const RECT& rc) {
   SetTextColor(hdc, kInk);
   RECT textRc{14, 0, rc.right - 8, kTopH};
   DrawTextW(hdc, L"AAD", -1, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
-  // Secondary caption after brand.
   SIZE sz{};
   GetTextExtentPoint32W(hdc, L"AAD", 3, &sz);
   RECT sub{14 + sz.cx + 10, 0, rc.right - 8, kTopH};
   SetTextColor(hdc, RGB(110, 110, 110));
-  DrawTextW(hdc, L"Direct2D host  ·  Rust engine (aadt_ffi)", -1, &sub,
+  DrawTextW(hdc, L"Direct2D host  ·  M16 tools via aadt_ffi", -1, &sub,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
 }
 
@@ -361,22 +368,22 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
         nullptr, cs->hInstance, nullptr);
     app->hwndLog = CreateWindowExW(
         WS_EX_CLIENTEDGE, L"EDIT", L"",
-        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL,
-        0, 0, 100, 40, hwnd, nullptr, cs->hInstance, nullptr);
+        WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, 0, 0, 100,
+        40, hwnd, nullptr, cs->hInstance, nullptr);
     app->hwndCmd = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, 0, 0, 100, 24, hwnd,
                                    reinterpret_cast<HMENU>(1), cs->hInstance, nullptr);
-    app->hwndStatus = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT,
-                                      0, 0, 100, kStatusH, hwnd, nullptr, cs->hInstance, nullptr);
+    app->hwndStatus = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0, 100,
+                                      kStatusH, hwnd, nullptr, cs->hInstance, nullptr);
     SendMessageW(app->hwndCmd, EM_SETCUEBANNER, TRUE,
                  reinterpret_cast<LPARAM>(
-                     L"Command — Enter runs · LINE then two clicks · F fit · Esc cancel"));
+                     L"Command — LINE/C/REC then clicks · F fit · Esc cancel"));
 
     if (!app->canvas.init(app->hwndCanvas)) {
       MessageBoxW(hwnd, L"Direct2D init failed", L"AAD", MB_ICONERROR);
     }
-    appendLog(app, "AAD host (Win32+Direct2D) — ADR-0017 hybrid");
-    appendLog(app, "Engine: aadt_ffi.dll  |  Try: LINE  (then click two points)");
+    appendLog(app, "AAD host (Win32+Direct2D) — M16 FFI tools");
+    appendLog(app, "Engine: aadt_ffi.dll  |  Try: LINE  then two clicks");
     updateStatus(app);
     SetFocus(app->hwndCmd);
     return 0;
@@ -432,7 +439,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
     std::wstring msg = L"Failed to load aadt_ffi.dll / create session.\n\n";
     msg.append(app.session.loadError().begin(), app.session.loadError().end());
     msg.append(L"\n\nBuild: cargo build -p aadt-ffi --release\n"
-               L"Place aadt_ffi.dll next to this exe.");
+               L"Place aadt_ffi.dll next to this exe (ABI v3).");
     MessageBoxW(nullptr, msg.c_str(), L"AAD", MB_ICONERROR);
     return 1;
   }
@@ -447,9 +454,8 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
   wc.lpszClassName = kClassName;
   RegisterClassExW(&wc);
 
-  HWND hwnd =
-      CreateWindowExW(0, kClassName, L"AAD", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                      1280, 800, nullptr, nullptr, hInst, &app);
+  HWND hwnd = CreateWindowExW(0, kClassName, L"AAD", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                              CW_USEDEFAULT, 1280, 800, nullptr, nullptr, hInst, &app);
   if (!hwnd) {
     return 1;
   }
@@ -465,7 +471,7 @@ int APIENTRY wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int nShow) {
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0)) {
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) {
-      cancelPick(&app);
+      cancelTool(&app);
     }
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN && GetFocus() == app.hwndCmd) {
       runCommand(&app);

@@ -38,7 +38,9 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(SaveCmd {
         st: objstate.clone(),
     }));
-    registry.register(Box::new(HistoryCmd));
+    registry.register(Box::new(HistoryCmd {
+        st: objstate.clone(),
+    }));
     let mapstate: SharedMapState = Rc::new(RefCell::new(None));
     registry.register(Box::new(MapMetaCmd::new(mapstate.clone())));
     registry.register(Box::new(FindCmd { st: mapstate }));
@@ -543,6 +545,15 @@ impl Command for AdoptLayersCmd {
 struct ObjMetaCmd;
 impl ObjMetaCmd {
     const KEYS: &'static [&'static str] = &[
+        "MARK",
+        "WALL_NAME",
+        "NOS",
+        "AQC_CODE",
+        "COLUMN_NO",
+        "CODE",
+        "TRADE",
+        "LEVEL",
+        "ELEMENT",
         "MATERIAL",
         "FIRERATING",
         "PHASE",
@@ -556,10 +567,11 @@ impl Command for ObjMetaCmd {
         "OBJMETA"
     }
     fn aliases(&self) -> &'static [&'static str] {
-        &["OBJECTMETA", "META"]
+        &["OBJECTMETA", "META", "AQCMETA"]
     }
     fn help(&self) -> &str {
-        "OBJMETA [KEY VALUE] — report or set per-object metadata (MATERIAL / FIRERATING / PHASE / IFC / UNIFORMAT / MASTERFORMAT) on the SELECTION"
+        "OBJMETA [KEY VALUE] — report or set AQC/BBS tags on the SELECTION \
+         (MARK / WALL_NAME / NOS / AQC_CODE / COLUMN_NO / CODE / TRADE / LEVEL / ELEMENT / MATERIAL / …)"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         if ctx.selection.is_empty() {
@@ -1352,7 +1364,9 @@ impl Command for WithinCmd {
     }
 }
 
-struct HistoryCmd;
+struct HistoryCmd {
+    st: Rc<RefCell<ObjState>>,
+}
 impl Command for HistoryCmd {
     fn name(&self) -> &str {
         "HISTORY"
@@ -1361,7 +1375,7 @@ impl Command for HistoryCmd {
         &["HIST", "VERSIONS"]
     }
     fn help(&self) -> &str {
-        "HISTORY [LIST]|SAVE [label]|RESTORE id|PURGE — drawing time machine (.aadt)"
+        "HISTORY [LIST]|SAVE [label]|RESTORE id|DIFF id|PURGE — .aadt checkpoints or .vdb Merkle commits"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
         let sub = args
@@ -1371,8 +1385,34 @@ impl Command for HistoryCmd {
         match sub.as_str() {
             "LIST" | "" => {
                 let path = resolve_drawing_path(ctx, args.get(1).map(|s| s.as_str()))?;
+                if is_vdb_path(&path) {
+                    let list = aadt_vdb::list_commits(&path).map_err(|e| e.to_string())?;
+                    if list.is_empty() {
+                        return Ok("no Merkle commits yet (SAVE the .vdb drawing)".into());
+                    }
+                    let lines: Vec<_> = list
+                        .iter()
+                        .enumerate()
+                        .take(30)
+                        .map(|(i, c)| {
+                            format!(
+                                "  #{} [{}] {} — {} ({})",
+                                i + 1,
+                                c.kind,
+                                &c.id[..12.min(c.id.len())],
+                                c.summary,
+                                c.created_at
+                            )
+                        })
+                        .collect();
+                    return Ok(format!(
+                        "{} Merkle commit(s):\n{}",
+                        list.len(),
+                        lines.join("\n")
+                    ));
+                }
                 if !is_aadt_path(&path) {
-                    return Err("HISTORY: .aadt file required".into());
+                    return Err("HISTORY: .aadt or .vdb file required".into());
                 }
                 let list = aadt_store::list_checkpoints(&path).map_err(|e| e.to_string())?;
                 if list.is_empty() {
@@ -1395,29 +1435,136 @@ impl Command for HistoryCmd {
                 ))
             }
             "SAVE" => {
-                let path = resolve_drawing_path(ctx, None)?;
-                if !is_aadt_path(&path) {
-                    return Err("HISTORY SAVE: .aadt file required".into());
-                }
                 let label = args
                     .get(1)
                     .cloned()
                     .unwrap_or_else(|| "Named version".into());
+                // No OPEN/SAVE yet — create a local ShilpiDB so the commit lands.
+                let path = match resolve_drawing_path(ctx, None) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let p = default_untitled_vdb()?;
+                        let mut st = self.st.borrow_mut();
+                        st.sync(ctx);
+                        aadt_vdb::save_path_with_objects(
+                            &ctx.doc,
+                            &p,
+                            &st.objects,
+                            &st.graph,
+                            &st.audit,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        ctx.drawing_path = Some(p.clone());
+                        p
+                    }
+                };
+                if is_vdb_path(&path) {
+                    let mut st = self.st.borrow_mut();
+                    st.sync(ctx);
+                    let id = aadt_vdb::save_named_commit(
+                        &path,
+                        &ctx.doc,
+                        &st.objects,
+                        &st.graph,
+                        &st.audit,
+                        &label,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    ctx.diff_ghosts.clear();
+                    return Ok(format!(
+                        "saved named Merkle commit {} ({label})",
+                        &id[..12.min(id.len())]
+                    ));
+                }
+                if !is_aadt_path(&path) {
+                    return Err("HISTORY SAVE: .aadt or .vdb file required".into());
+                }
                 let note = args.get(2).cloned().unwrap_or_default();
                 let id = aadt_store::save_named_checkpoint(&path, &ctx.doc, &label, &note, "")
                     .map_err(|e| e.to_string())?;
+                ctx.diff_ghosts.clear();
                 Ok(format!("saved named checkpoint #{id} ({label})"))
             }
-            "RESTORE" => {
-                let id: i64 = args
+            "DIFF" => {
+                let id_arg = args
                     .get(1)
-                    .ok_or("HISTORY RESTORE: missing checkpoint id")?
-                    .parse()
-                    .map_err(|_| "HISTORY RESTORE: id must be an integer")?;
+                    .ok_or("HISTORY DIFF: missing checkpoint/commit id")?;
                 let path = resolve_drawing_path(ctx, None)?;
-                if !is_aadt_path(&path) {
-                    return Err("HISTORY RESTORE: .aadt file required".into());
+                ctx.diff_ghosts.clear();
+                if is_vdb_path(&path) {
+                    let mut st = self.st.borrow_mut();
+                    st.sync(ctx);
+                    let (diff, old) = aadt_vdb::diff_commit(
+                        &path,
+                        id_arg,
+                        &ctx.doc,
+                        &st.objects,
+                        &st.graph,
+                        &st.audit,
+                    )
+                    .map_err(|e| e.to_string())?;
+                    let mut sel = Vec::new();
+                    for id in diff.added.iter().chain(diff.modified.iter()) {
+                        sel.push(EntityId(*id));
+                    }
+                    ctx.selection = sel;
+                    for id in &diff.removed {
+                        if let Some(e) = old.get(EntityId(*id)) {
+                            ctx.diff_ghosts.push(e.clone());
+                        }
+                    }
+                    let details = history_diff_details(&diff.added, &diff.modified, &diff.removed, &ctx.doc, &old);
+                    return Ok(format!(
+                        "vs commit {id_arg}: {}\n{}",
+                        diff.narrate(),
+                        details
+                    ));
                 }
+                if !is_aadt_path(&path) {
+                    return Err("HISTORY DIFF: .aadt or .vdb file required".into());
+                }
+                let id: i64 = id_arg
+                    .parse()
+                    .map_err(|_| "HISTORY DIFF: .aadt id must be an integer")?;
+                let (diff, old) = aadt_store::diff_checkpoint_vs_doc(&path, id, &ctx.doc)
+                    .map_err(|e| e.to_string())?;
+                let mut sel = Vec::new();
+                for eid in diff.added.iter().chain(diff.modified.iter()) {
+                    sel.push(EntityId(*eid));
+                }
+                ctx.selection = sel;
+                for eid in &diff.removed {
+                    if let Some(e) = old.get(EntityId(*eid)) {
+                        ctx.diff_ghosts.push(e.clone());
+                    }
+                }
+                let details = history_diff_details(&diff.added, &diff.modified, &diff.removed, &ctx.doc, &old);
+                Ok(format!("vs checkpoint #{id}: {}\n{}", diff.narrate(), details))
+            }
+            "RESTORE" => {
+                let id_arg = args
+                    .get(1)
+                    .ok_or("HISTORY RESTORE: missing checkpoint/commit id")?;
+                let path = resolve_drawing_path(ctx, None)?;
+                if is_vdb_path(&path) {
+                    let (restored, objects, graph, audit) =
+                        aadt_vdb::restore_commit(&path, id_arg).map_err(|e| e.to_string())?;
+                    let n = restored.len();
+                    ctx.doc = restored;
+                    let mut st = self.st.borrow_mut();
+                    st.objects = objects;
+                    st.graph = graph;
+                    st.audit = audit;
+                    return Ok(format!(
+                        "restored Merkle commit {id_arg} ({n} entities); HEAD updated"
+                    ));
+                }
+                if !is_aadt_path(&path) {
+                    return Err("HISTORY RESTORE: .aadt or .vdb file required".into());
+                }
+                let id: i64 = id_arg
+                    .parse()
+                    .map_err(|_| "HISTORY RESTORE: .aadt id must be an integer")?;
                 let restored =
                     aadt_store::restore_checkpoint(&path, id).map_err(|e| e.to_string())?;
                 let n = restored.len();
@@ -1434,13 +1581,79 @@ impl Command for HistoryCmd {
             }
             "PURGE" => {
                 let path = resolve_drawing_path(ctx, None)?;
+                if is_vdb_path(&path) {
+                    let n = aadt_vdb::purge_auto_commits(&path).map_err(|e| e.to_string())?;
+                    return Ok(format!("purged {n} auto Merkle commit(s)"));
+                }
                 let n = aadt_store::purge_auto_checkpoints(&path).map_err(|e| e.to_string())?;
                 Ok(format!("purged {n} auto checkpoint(s)"))
             }
             other => Err(format!(
-                "HISTORY: unknown subcommand {other:?} (LIST|SAVE|RESTORE|PURGE)"
+                "HISTORY: unknown subcommand {other:?} (LIST|SAVE|RESTORE|DIFF|PURGE)"
             )),
         }
+    }
+}
+
+fn default_untitled_vdb() -> Result<String, String> {
+    let base = std::env::var("LOCALAPPDATA")
+        .or_else(|_| std::env::var("TMP"))
+        .map_err(|_| "LOCALAPPDATA/TMP unset — SAVE a .vdb path first".to_string())?;
+    let dir = std::path::PathBuf::from(base).join("AADT");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("untitled.vdb").to_string_lossy().into_owned())
+}
+
+fn geom_kind_label(g: &aadt_model::Geometry) -> &'static str {
+    match g {
+        aadt_model::Geometry::Line(_) => "LINE",
+        aadt_model::Geometry::Polyline(_) => "PLINE",
+        aadt_model::Geometry::Circle(_) => "CIRCLE",
+        aadt_model::Geometry::Arc(_) => "ARC",
+        aadt_model::Geometry::Text(_) => "TEXT",
+        aadt_model::Geometry::Insert(_) => "INSERT",
+        aadt_model::Geometry::Image(_) => "IMAGE",
+    }
+}
+
+fn history_diff_details(
+    added: &[u64],
+    modified: &[u64],
+    removed: &[u64],
+    tip: &aadt_model::Document,
+    old: &aadt_model::Document,
+) -> String {
+    let mut lines = Vec::new();
+    for id in added.iter().take(24) {
+        if let Some(e) = tip.get(EntityId(*id)) {
+            lines.push(format!("  + #{id} {} · {}", geom_kind_label(&e.geometry), e.layer));
+        } else {
+            lines.push(format!("  + #{id}"));
+        }
+    }
+    for id in modified.iter().take(24) {
+        if let Some(e) = tip.get(EntityId(*id)) {
+            lines.push(format!("  ~ #{id} {} · {}", geom_kind_label(&e.geometry), e.layer));
+        } else {
+            lines.push(format!("  ~ #{id}"));
+        }
+    }
+    for id in removed.iter().take(24) {
+        if let Some(e) = old.get(EntityId(*id)) {
+            lines.push(format!("  - #{id} {} · {}", geom_kind_label(&e.geometry), e.layer));
+        } else {
+            lines.push(format!("  - #{id}"));
+        }
+    }
+    let shown = lines.len();
+    let total = added.len() + modified.len() + removed.len();
+    if total > shown {
+        lines.push(format!("  … {} more", total - shown));
+    }
+    if lines.is_empty() {
+        "(no entity changes vs this version)".into()
+    } else {
+        lines.join("\n")
     }
 }
 

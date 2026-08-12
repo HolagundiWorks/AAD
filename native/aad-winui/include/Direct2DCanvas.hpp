@@ -14,6 +14,7 @@ public:
   bool init(HWND hwnd);
   void resize(UINT width, UINT height);
   void setLines(const std::vector<float>& xy);
+  void setPreview(const std::vector<float>& xy);
   void fitWorld(float minX, float minY, float maxX, float maxY);
   void pan(float dxPx, float dyPx);
   void zoomAt(float factor, float pivotXPx, float pivotYPx);
@@ -30,8 +31,10 @@ private:
   ID2D1Factory* factory_ = nullptr;
   ID2D1HwndRenderTarget* rt_ = nullptr;
   ID2D1SolidColorBrush* brush_ = nullptr;
+  ID2D1SolidColorBrush* previewBrush_ = nullptr;
 
   std::vector<float> lines_;
+  std::vector<float> preview_;
   float scale_ = 1.f;
   float originX_ = 0.f;
   float originY_ = 0.f;

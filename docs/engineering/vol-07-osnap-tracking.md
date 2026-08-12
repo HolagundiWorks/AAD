@@ -7,7 +7,9 @@ Internal engineering handbook. Status: [STATUS.md](./STATUS.md).
 1. Running object snaps during point prompts (AutoCAD muscle memory).
 2. One-shot keyword / menu overrides including PER and TAN.
 3. Ortho and polar constrain the raw cursor before snap.
-4. Tracking (OTRACK) is a future capability — don’t pretend F11 is full tracking.
+4. Tracking (OTRACK) — F11 acquires snaps and snaps to H/V (±polar) paths
+   ([ADR-0018](../adr/0018-otrack.md)). Temporary tracking from the live tool
+   anchor is still future work.
 
 ## Current implementation
 
@@ -56,17 +58,22 @@ flowchart TD
 
 - F3 toggles running osnap.
 - Shift+RMB / typed `END`… arm one-shot override (Vol 3).
-- F11 `osnap_track` in prefs currently **forces osnap+polar** — not alignment rays.
+- F11 `osnap_track` enables **true OTRACK** (ADR-0018): dwell-acquire snaps,
+  H/V (±polar) rays, snap to path intersections / projections. Esc clears
+  acquired points when idle.
 
 ## Target / planned
 
-AutoCAD-style object-snap tracking:
+Shipped (L2 / ADR-0018):
 
-1. Acquire points (hover+shift or click-acquire policy — TBD).
-- Draw infinite tracking rays / xlines from acquired points.
-- Snap to intersections of rays with geometry / other rays.
+1. Acquire points via hover dwell (≥250 ms) while OTRACK is on.
+2. Infinite H/V tracking rays from acquired points (±45° when polar on).
+3. Snap to ray∩ray and projection onto rays within aperture.
 
-Also: SpatialGrid candidates for INT/NEAR (Vol 13).
+Still future:
+
+- Temporary tracking ray from the live tool anchor.
+- Also: SpatialGrid candidates for INT/NEAR (Vol 13).
 
 ## Gap analysis
 
@@ -75,8 +82,9 @@ Also: SpatialGrid candidates for INT/NEAR (Vol 13).
 | Running END/MID/CEN/QUA/INT/NEA | Done |
 | PER/TAN override | Done |
 | Keyword + menu | Done |
-| True OTRACK paths | **Missing** |
-| F11 semantics | Prefs shortcut ≠ tracking |
+| True OTRACK paths (acquired) | **Done (L2)** |
+| Temporary tracking from tool anchor | Missing |
+| F11 semantics | OTRACK on/off (forces osnap) |
 | Indexed candidates | Missing |
 
 ## Data structures
@@ -94,7 +102,8 @@ GUI holds `snap_hit: Option<(SnapKind, Point2)>` for marker paint
 
 ```
 osnap.rs          kinds, resolve, override, keywords
-gui.rs            F-keys, menu, paint_snap_marker, constrain_pick
+otrack.rs         acquire, H/V (±polar) rays, resolve (ADR-0018)
+gui.rs            F-keys, menu, paint_snap_marker, paint_otrack, constrain_pick
 prefs.rs          osnap, polar, osnap_track
 ```
 
@@ -112,12 +121,12 @@ prefs.rs          osnap, polar, osnap_track
 ## Tests
 
 Unit tests in `osnap.rs` for keywords, PER/TAN, multi-space resolve.
+Unit tests in `otrack.rs` for acquire dwell, ray∩ray, polar diagonals.
 
 ## Extension points
 
-1. Spec acquired-point list + ray math in an ADR before coding OTRACK.
-2. Decide F11: keep “enable osnap+polar” or reclaim for true tracking.
-3. Candidate stage: `SpatialGrid::query_bbox(aperture)` → existing precise tests.
+1. Temporary tracking from the live tool / drag anchor.
+2. Candidate stage: `SpatialGrid::query_bbox(aperture)` → existing precise tests.
 
 ## Related
 

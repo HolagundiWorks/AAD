@@ -1,0 +1,5 @@
+﻿RECTANGLE 0 0 100 60
+CIRCLE 50 30 18
+LINE -20 -10 120 -10
+TEXT 5 65 3 0 SMOKE
+SAVE D:/Work Development/Repos/AADT/fixtures/winui-smoke.dxf

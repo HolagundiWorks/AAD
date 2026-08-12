@@ -12,6 +12,7 @@ use aadt_geometry::{Arc, Bbox, Circle, Point2, Polyline, Segment};
 use aadt_model::{Document, EntityId, Geometry, Insert, Text};
 
 use crate::sheet::Sheet;
+use crate::view_preset::{document_with_view_preset, ViewPreset};
 
 /// A rectangular region of a sheet, in paper millimetres.
 #[derive(Debug, Clone, Copy)]
@@ -220,10 +221,13 @@ fn transform(geom: &Geometry, map: &impl Fn(Point2) -> Point2, scale: f64) -> Ge
 pub const VIEWPORT_LAYER: &str = "A-VIEWPORT";
 
 /// One view on a presentation sheet: a drawing, the area it occupies, and a label.
+/// Optional [`ViewPreset`] clones+filters the model so two views can differ
+/// (Technical vs Presentation) without mutating the live document (L6).
 pub struct View<'a> {
     pub doc: &'a Document,
     pub area: DrawingArea,
     pub label: String,
+    pub preset: Option<ViewPreset>,
 }
 
 /// `AADT-PRESENT` — lay several views out on one sheet (spec §5.3). Each view is
@@ -235,7 +239,14 @@ pub struct View<'a> {
 pub fn present(sheet_doc: &mut Document, views: &[View]) -> Vec<f64> {
     let mut scales = Vec::with_capacity(views.len());
     for v in views {
-        let composed = place_drawing(sheet_doc, v.doc, &v.area);
+        let owned;
+        let model = if let Some(preset) = v.preset {
+            owned = document_with_view_preset(v.doc, preset);
+            &owned
+        } else {
+            v.doc
+        };
+        let composed = place_drawing(sheet_doc, model, &v.area);
         scales.push(composed.scale);
 
         // A frame around the viewport…
@@ -451,11 +462,13 @@ mod tests {
                 doc: &a,
                 area: areas[0],
                 label: "PLAN".into(),
+                preset: None,
             },
             View {
                 doc: &b,
                 area: areas[1],
                 label: "DETAIL".into(),
+                preset: None,
             },
         ];
 
@@ -496,11 +509,13 @@ mod tests {
                     doc: &a,
                     area: areas[0],
                     label: "one".into(),
+                    preset: None,
                 },
                 View {
                     doc: &a,
                     area: areas[1],
                     label: "two".into(),
+                    preset: None,
                 },
             ];
             let mut doc = Document::new();

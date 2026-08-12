@@ -24,7 +24,9 @@ A complete move of the engine to C++ would rewrite ~24 crates and risk file-form
 
 - Dual toolchain (MSVC + cargo) in CI for Windows GUI builds.
 - FFI surface must grow (full command registration, drawlist lines, dirty/path) and stay versioned.
-- Interactive tool FSM currently in egui must migrate behind Session/FFI over time; until then WinUI can run headless-style commands and simple pick loops via `feed`.
+- Interactive tool FSM migrates behind Session/FFI — **ROADMAP M16** ✅ (ABI v3
+  `aadt_tool_*`). Full Fluent / `SwapChainPanel` chrome is **ROADMAP M17**.
+  Further tools (polyline, modify, osnap) follow the same FFI seam.
 - Brand tokens (AAD Chrome 2.0) apply to WinUI resources; orange only for brand/focus.
 
 ## Alternatives considered

@@ -215,21 +215,60 @@ impl Command for TraceCmd {
         &["TRACEFLOOR"]
     }
     fn help(&self) -> &str {
-        "TRACE BELOW|ABOVE|BOTH|OFF — ghost adjacent floors while drafting"
+        "TRACE BELOW|ABOVE|BOTH|OFF|FLOOR <name> — ghost adjacent or any selected floor"
     }
     fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
-        let mode = args
-            .first()
-            .map(|s| s.to_ascii_uppercase())
-            .unwrap_or_else(|| "BOTH".into());
+        ctx.doc.ensure_default_spaces();
+        if args.is_empty() {
+            if let Some(id) = ctx.doc.trace_floor() {
+                let name = ctx
+                    .doc
+                    .floor(id)
+                    .map(|f| f.name.clone())
+                    .unwrap_or_else(|| format!("#{id:?}"));
+                return Ok(format!("trace selected floor → {name}"));
+            }
+            return Ok(format!(
+                "trace below={} above={}",
+                if ctx.doc.trace_below() { "on" } else { "off" },
+                if ctx.doc.trace_above() { "on" } else { "off" }
+            ));
+        }
+        let mode = args[0].to_ascii_uppercase();
+        if mode == "FLOOR" || mode == "LEVEL" || mode == "SELECTED" {
+            let name = args.get(1..).map(|a| a.join(" ")).unwrap_or_default();
+            if name.trim().is_empty() {
+                return Err("TRACE FLOOR needs a level name".into());
+            }
+            let id = ctx
+                .doc
+                .floors()
+                .into_iter()
+                .find(|f| f.name.eq_ignore_ascii_case(name.trim()))
+                .map(|f| f.id)
+                .ok_or_else(|| format!("TRACE FLOOR: unknown level {name:?}"))?;
+            let label = ctx
+                .doc
+                .floor(id)
+                .map(|f| f.name.clone())
+                .unwrap_or_else(|| name);
+            ctx.doc
+                .transact("TRACE", |d| d.set_trace_ex(false, false, Some(id)));
+            return Ok(format!("trace selected floor → {label}"));
+        }
         let (below, above) = match mode.as_str() {
             "BELOW" | "DOWN" => (true, false),
             "ABOVE" | "UP" => (false, true),
             "BOTH" | "ON" => (true, true),
             "OFF" | "NONE" => (false, false),
-            other => return Err(format!("TRACE {other:?}: use BELOW, ABOVE, BOTH, or OFF")),
+            other => {
+                return Err(format!(
+                    "TRACE {other:?}: use BELOW, ABOVE, BOTH, OFF, or FLOOR <name>"
+                ))
+            }
         };
-        ctx.doc.transact("TRACE", |d| d.set_trace(below, above));
+        ctx.doc
+            .transact("TRACE", |d| d.set_trace_ex(below, above, None));
         Ok(format!(
             "trace below={} above={}",
             if below { "on" } else { "off" },

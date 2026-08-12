@@ -30,8 +30,8 @@ use crate::codec::{
 
 pub use corpus_io::{read_corpus, read_corpus_path, write_corpus, write_corpus_path};
 pub use history::{
-    list_checkpoints, purge_auto_checkpoints, restore_checkpoint, save_named_checkpoint,
-    CheckpointMeta, MAX_AUTO_CHECKPOINTS,
+    diff_checkpoint_vs_doc, list_checkpoints, purge_auto_checkpoints, restore_checkpoint,
+    save_named_checkpoint, CheckpointMeta, HistoryDiff, MAX_AUTO_CHECKPOINTS,
 };
 pub use object_io::{read_objects, read_objects_path, write_objects, write_objects_path};
 pub use takeoff_db::{
@@ -795,6 +795,8 @@ fn write_properties(
         ("prop.dim_text_height", p.dim_text_height.as_str()),
         ("prop.dim_scale", p.dim_scale.as_str()),
         ("prop.dim_secondary", p.dim_secondary.as_str()),
+        ("prop.dim_precision", p.dim_precision.as_str()),
+        ("prop.dim_fraction", p.dim_fraction.as_str()),
         ("prop.autonum_prefix", p.autonum_prefix.as_str()),
         ("prop.autonum_next", p.autonum_next.as_str()),
         ("prop.standard_notes", p.standard_notes.as_str()),
@@ -860,6 +862,8 @@ fn read_properties(conn: &Connection) -> Result<aadt_model::DrawingProperties, S
             "prop.dim_text_height" => p.dim_text_height = v,
             "prop.dim_scale" => p.dim_scale = v,
             "prop.dim_secondary" => p.dim_secondary = v,
+            "prop.dim_precision" => p.dim_precision = v,
+            "prop.dim_fraction" => p.dim_fraction = v,
             "prop.autonum_prefix" => p.autonum_prefix = v,
             "prop.autonum_next" => p.autonum_next = v,
             "prop.standard_notes" => p.standard_notes = v,

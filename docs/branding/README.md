@@ -1,9 +1,10 @@
-# AAD brand guidelines
+# AADT brand guidelines
 
-**Product:** AAD — 2D Architectural Drafting  
-**Voice:** Command-first, local-first, paper-first Chrome 2.0 with a bold orange mark.  
-**Primary brand color:** Orange (`#E85D04`)  
-**Design system:** **AAD Chrome 2.0** (shell) + **AAD Canvas** (drafting overlays) — one mono component language; do not invent one-off controls.
+**Product:** **AADT** — Accelerated Architectural Drafting (suite short mark **A** on Radiant Orange)  
+**Voice:** Command-first, local-first, paper-first; suite chrome matches AQC / AStudio.  
+**Primary brand color:** Radiant Orange (`#FF4F18`) — HCW suite accent  
+**Design system:** **HCW WinUI shell** ([WINUI-SHELL.md](../WINUI-SHELL.md)) + **AAD Canvas** (drafting overlays).  
+Legacy Chrome 2.0 sharp-radius notes below apply to **egui/canvas** only; WinUI uses 8px neu.
 
 ---
 

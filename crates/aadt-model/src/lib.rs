@@ -23,8 +23,10 @@ pub use floors::{
     floors_sorted, DefaultSpaces, Floor, LevelId, ModelSpace, ModelSpaceId, SpaceCategory,
 };
 pub use units::{
-    format_dimension_label, format_length, format_length_pair, parse_length, primary_from_props,
-    secondary_enabled, UnitSystem, INCHES_PER_METER, METERS_PER_INCH,
+    format_dimension_label, format_dimension_label_ex, format_length, format_length_pair,
+    format_length_pair_with, format_length_with, fraction_den_from_props, parse_length,
+    precision_from_props, primary_from_props, secondary_enabled, UnitSystem, INCHES_PER_METER,
+    METERS_PER_INCH,
 };
 
 /// Stable identifier for an entity within a [`Document`].
@@ -1130,12 +1132,14 @@ enum Op {
         before: ModelSpaceId,
         after: ModelSpaceId,
     },
-    /// Trace above/below flags changed.
+    /// Trace above/below / selected-floor flags changed.
     SetTrace {
         before_below: bool,
         before_above: bool,
+        before_floor: Option<LevelId>,
         after_below: bool,
         after_above: bool,
+        after_floor: Option<LevelId>,
     },
     /// Shared reference origin changed.
     SetReferenceOrigin { before: Point2, after: Point2 },
@@ -1220,6 +1224,10 @@ pub struct DrawingProperties {
     pub dim_scale: String,
     /// `"1"` / `"0"` — show secondary units on dimension labels.
     pub dim_secondary: String,
+    /// Decimal places for dimension labels (`0`..=`8`; empty → 3).
+    pub dim_precision: String,
+    /// Imperial fraction denominator: `0`/`decimal` or `1`/`2`/`4`/`8`/`16` (empty → decimal).
+    pub dim_fraction: String,
     /// Auto-number prefix (e.g. `D-` for doors).
     pub autonum_prefix: String,
     /// Next auto-number value (decimal string).
@@ -1313,6 +1321,8 @@ pub struct Document {
     active_space: ModelSpaceId,
     trace_below: bool,
     trace_above: bool,
+    /// Optional extra floor to ghost (any level — not only adjacent).
+    trace_floor: Option<LevelId>,
     next_id: u64,
     next_floor_id: u64,
     next_space_id: u64,
@@ -1341,6 +1351,7 @@ impl Default for Document {
             active_space: ModelSpaceId(0),
             trace_below: false,
             trace_above: false,
+            trace_floor: None,
             next_id: 0,
             next_floor_id: 1,
             next_space_id: 1,
@@ -1456,6 +1467,11 @@ impl Document {
         self.trace_above
     }
 
+    /// Explicit floor ghosted via `TRACE FLOOR <name>` (any level).
+    pub fn trace_floor(&self) -> Option<LevelId> {
+        self.trace_floor
+    }
+
     pub fn space_on_floor(&self, floor: LevelId, category: SpaceCategory) -> Option<ModelSpaceId> {
         self.spaces
             .values()
@@ -1513,6 +1529,13 @@ impl Document {
                 }
             }
         }
+        if let Some(extra) = self.trace_floor() {
+            if extra != floor {
+                for s in self.spaces_on_floor(extra) {
+                    out.push(s.id);
+                }
+            }
+        }
         out
     }
 
@@ -1556,18 +1579,27 @@ impl Document {
     }
 
     pub fn set_trace(&mut self, below: bool, above: bool) {
-        if self.trace_below == below && self.trace_above == above {
+        self.set_trace_ex(below, above, None);
+    }
+
+    /// Set adjacent-floor ghosts and/or an explicit floor to ghost.
+    pub fn set_trace_ex(&mut self, below: bool, above: bool, floor: Option<LevelId>) {
+        if self.trace_below == below && self.trace_above == above && self.trace_floor == floor {
             return;
         }
         let before_below = self.trace_below;
         let before_above = self.trace_above;
+        let before_floor = self.trace_floor;
         self.trace_below = below;
         self.trace_above = above;
+        self.trace_floor = floor;
         self.record(Op::SetTrace {
             before_below,
             before_above,
+            before_floor,
             after_below: below,
             after_above: above,
+            after_floor: floor,
         });
         self.revision += 1;
     }
@@ -1906,6 +1938,7 @@ impl Document {
         self.reference_origin = origin;
         self.trace_below = trace_below;
         self.trace_above = trace_above;
+        self.trace_floor = None;
         self.next_floor_id = next_floor_id.max(1);
         self.next_space_id = next_space_id.max(1);
         if self.floors.is_empty() {
@@ -2093,10 +2126,12 @@ impl Document {
             Op::SetTrace {
                 after_below,
                 after_above,
+                after_floor,
                 ..
             } => {
                 self.trace_below = *after_below;
                 self.trace_above = *after_above;
+                self.trace_floor = *after_floor;
             }
             Op::SetReferenceOrigin { after, .. } => {
                 self.reference_origin = *after;
@@ -2192,10 +2227,12 @@ impl Document {
             Op::SetTrace {
                 before_below,
                 before_above,
+                before_floor,
                 ..
             } => {
                 self.trace_below = *before_below;
                 self.trace_above = *before_above;
+                self.trace_floor = *before_floor;
             }
             Op::SetReferenceOrigin { before, .. } => {
                 self.reference_origin = *before;
@@ -2375,6 +2412,22 @@ impl Document {
         }
         self.ensure_default_spaces();
         self.add_layer(Layer::new(layer.clone()));
+        let mut attributes = attributes;
+        // Stamp drafting context for AQC / BBS takeoff (docs/AQC-META-TAGS.md).
+        if !attributes.contains_key("LEVEL") {
+            if let Some(name) = self
+                .active_floor_id()
+                .and_then(|id| self.floor(id))
+                .map(|f| f.name.clone())
+            {
+                attributes.insert("LEVEL".into(), name);
+            }
+        }
+        if !attributes.contains_key("ELEMENT") {
+            if let Some(cat) = self.active_model_space().map(|s| s.category.as_str()) {
+                attributes.insert("ELEMENT".into(), cat.to_string());
+            }
+        }
         let id = EntityId(self.next_id);
         self.next_id += 1;
         let entity = Entity {
