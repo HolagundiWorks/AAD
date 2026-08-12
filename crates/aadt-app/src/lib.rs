@@ -320,6 +320,16 @@ impl Session {
         self.ctx.drawing_path.as_deref()
     }
 
+    /// Bind the working drawing path (local ShilpiDB / `.aadt` SoT on disk).
+    pub fn set_drawing_path(&mut self, path: Option<String>) {
+        self.ctx.drawing_path = path;
+    }
+
+    /// Document revision — used by hosts to skip redraw / tessellation when idle.
+    pub fn revision(&self) -> u64 {
+        self.ctx.doc.revision()
+    }
+
     /// The feedback transcript, oldest first.
     pub fn transcript(&self) -> &[Feedback] {
         &self.transcript

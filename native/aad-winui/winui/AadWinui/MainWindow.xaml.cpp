@@ -194,6 +194,15 @@ namespace winrt::AadWinui::implementation
         return lt.c_str();
     }
 
+    /// Quote a filesystem path for OPEN/SAVE when it contains spaces.
+    std::string quoteCmdPath(std::string const& path)
+    {
+        if (path.empty()) return {};
+        if (path.find(' ') == std::string::npos && path.find('\t') == std::string::npos)
+            return path;
+        return std::string("\"") + path + "\"";
+    }
+
     std::string pickOpenPath()
     {
         wchar_t file[MAX_PATH]{};
@@ -202,7 +211,33 @@ namespace winrt::AadWinui::implementation
         ofn.lpstrFile = file;
         ofn.nMaxFile = MAX_PATH;
         ofn.lpstrFilter =
-            L"Drawings (*.dxf;*.dwg;*.aadt)\0*.dxf;*.dwg;*.aadt\0All\0*.*\0";
+            L"Drawings (*.dwg;*.dxf;*.aadt;*.vdb)\0*.dwg;*.dxf;*.aadt;*.vdb\0"
+            L"AutoCAD DWG (*.dwg)\0*.dwg\0"
+            L"DXF (*.dxf)\0*.dxf\0"
+            L"AADT (*.aadt)\0*.aadt\0"
+            L"ShilpiDB (*.vdb)\0*.vdb\0"
+            L"All\0*.*\0";
+        ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
+        if (!GetOpenFileNameW(&ofn))
+        {
+            return {};
+        }
+        return to_string(hstring{ file });
+    }
+
+    std::string pickImportDwgPath()
+    {
+        wchar_t file[MAX_PATH]{};
+        OPENFILENAMEW ofn{};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.lpstrFile = file;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.lpstrFilter =
+            L"AutoCAD DWG (*.dwg)\0*.dwg\0"
+            L"DXF (*.dxf)\0*.dxf\0"
+            L"All drawings (*.dwg;*.dxf)\0*.dwg;*.dxf\0"
+            L"All\0*.*\0";
+        ofn.lpstrTitle = L"Import DWG / DXF";
         ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER;
         if (!GetOpenFileNameW(&ofn))
         {
@@ -228,22 +263,52 @@ namespace winrt::AadWinui::implementation
         return to_string(hstring{ file });
     }
 
-    std::string pickSavePath()
+    /// Save / Save As / Export. `preferDwg` puts DWG first and defaults extension.
+    std::string pickSavePath(bool preferDwg = false)
     {
         wchar_t file[MAX_PATH]{};
-        wcscpy_s(file, L"drawing.dxf");
+        wcscpy_s(file, preferDwg ? L"drawing.dwg" : L"drawing.dxf");
         OPENFILENAMEW ofn{};
         ofn.lStructSize = sizeof(ofn);
         ofn.lpstrFile = file;
         ofn.nMaxFile = MAX_PATH;
-        ofn.lpstrFilter = L"DXF drawing (*.dxf)\0*.dxf\0All\0*.*\0";
-        ofn.lpstrDefExt = L"dxf";
+        // Filter index 1-based: 1=DWG, 2=DXF, 3=AADT, 4=VDB, 5=All
+        ofn.lpstrFilter =
+            L"AutoCAD DWG (*.dwg)\0*.dwg\0"
+            L"DXF drawing (*.dxf)\0*.dxf\0"
+            L"AADT drawing (*.aadt)\0*.aadt\0"
+            L"ShilpiDB (*.vdb)\0*.vdb\0"
+            L"All\0*.*\0";
+        ofn.nFilterIndex = preferDwg ? 1 : 2;
+        ofn.lpstrDefExt = preferDwg ? L"dwg" : L"dxf";
+        ofn.lpstrTitle = preferDwg ? L"Export DWG" : L"Save drawing";
         ofn.Flags = OFN_OVERWRITEPROMPT | OFN_EXPLORER;
         if (!GetSaveFileNameW(&ofn))
         {
             return {};
         }
-        return to_string(hstring{ file });
+        auto path = to_string(hstring{ file });
+        // Ensure extension when the user typed a bare name (no dot).
+        auto leaf = path;
+        auto slash = leaf.find_last_of("\\/");
+        if (slash != std::string::npos) leaf = leaf.substr(slash + 1);
+        if (leaf.find('.') == std::string::npos)
+        {
+            switch (ofn.nFilterIndex)
+            {
+            case 1: path += ".dwg"; break;
+            case 2: path += ".dxf"; break;
+            case 3: path += ".aadt"; break;
+            case 4: path += ".vdb"; break;
+            default: path += preferDwg ? ".dwg" : ".dxf"; break;
+            }
+        }
+        return path;
+    }
+
+    std::string pickExportDwgPath()
+    {
+        return pickSavePath(true);
     }
 
     void appendSeg(std::vector<float>& out, float x0, float y0, float x1, float y1)
@@ -695,6 +760,59 @@ namespace winrt::AadWinui::implementation
         refreshCanvas();
     }
 
+    bool MainWindow::allowCanvasPresent()
+    {
+        using clock = std::chrono::steady_clock;
+        const auto now = clock::now();
+        if (lastCanvasPresent_.time_since_epoch().count() != 0 &&
+            now - lastCanvasPresent_ < std::chrono::milliseconds{ 33 })
+        {
+            return false;
+        }
+        lastCanvasPresent_ = now;
+        return true;
+    }
+
+    void MainWindow::refreshToolOverlay()
+    {
+        if (!canvasReady_ || !session_ || !session_->ok())
+        {
+            return;
+        }
+        auto preview = session_->rebuildPreview();
+        if (activeTool_ == "XLINE" && session_->toolActive())
+        {
+            applyXlinePreview(preview);
+        }
+        if (boxActive_)
+        {
+            const double x0 = canvas_.worldX(boxX0_);
+            const double y0 = canvas_.worldY(boxY0_);
+            const double x1 = canvas_.worldX(boxX1_);
+            const double y1 = canvas_.worldY(boxY1_);
+            auto push = [&](double ax, double ay, double bx, double by) {
+                preview.push_back(static_cast<float>(ax));
+                preview.push_back(static_cast<float>(ay));
+                preview.push_back(static_cast<float>(bx));
+                preview.push_back(static_cast<float>(by));
+            };
+            push(x0, y0, x1, y0);
+            push(x1, y0, x1, y1);
+            push(x1, y1, x0, y1);
+            push(x0, y1, x0, y0);
+        }
+        if (session_->toolActive())
+        {
+            const auto& rays = session_->rebuildOtrackRays();
+            preview.insert(preview.end(), rays.begin(), rays.end());
+        }
+        canvas_.setPreview(preview);
+        if (allowCanvasPresent())
+        {
+            canvas_.render();
+        }
+    }
+
     void MainWindow::refreshCanvas(bool fitIfEmptyView)
     {
         if (!canvasReady_)
@@ -703,9 +821,46 @@ namespace winrt::AadWinui::implementation
         }
         if (session_ && session_->ok())
         {
-            canvas_.setLines(session_->rebuildLines());
-            canvas_.setFills(session_->rebuildFills());
-            canvas_.setSelection(session_->selectionRebuildLines());
+            const uint64_t rev = session_->revision();
+            if (rev != lastCanvasGeomRev_)
+            {
+                // Borrow FfiSession buffers — no third full stroke pack in RAM.
+                const auto& lines = session_->rebuildLines();
+                const auto& fills = session_->rebuildFills();
+                canvas_.setLinesView(lines.data(), lines.size());
+                canvas_.setFillsView(fills.data(), fills.size());
+                lastCanvasGeomRev_ = rev;
+            }
+
+            const uint64_t nSel = session_->selectionCount();
+            const uint64_t nDim = session_->selectionDimCount();
+            if (rev != lastSelOverlayRev_ || nSel != lastSelOverlayCount_ ||
+                nDim != lastSelOverlayDimCount_)
+            {
+                canvas_.setSelection(session_->selectionRebuildLines());
+                const auto& grips = session_->rebuildGrips();
+                std::vector<float> gripXy;
+                gripXy.reserve(grips.size() / 2);
+                for (size_t i = 0; i + 3 < grips.size(); i += 4)
+                {
+                    gripXy.push_back(grips[i + 2]);
+                    gripXy.push_back(grips[i + 3]);
+                }
+                canvas_.setGrips(gripXy);
+                lastSelOverlayRev_ = rev;
+                lastSelOverlayCount_ = nSel;
+                lastSelOverlayDimCount_ = nDim;
+            }
+            double hot[2] = {};
+            if (session_->hotGrip(hot))
+            {
+                canvas_.setHotGrip(static_cast<float>(hot[0]), static_cast<float>(hot[1]), true);
+            }
+            else
+            {
+                canvas_.setHotGrip(0.f, 0.f, false);
+            }
+
             auto preview = session_->rebuildPreview();
             if (activeTool_ == "XLINE" && session_->toolActive())
             {
@@ -737,16 +892,6 @@ namespace winrt::AadWinui::implementation
             }
             canvas_.setPreview(preview);
 
-            // Grips: id,idx,x,y → AutoCAD squares in SwapChainCanvas (screen-fixed).
-            const auto& grips = session_->rebuildGrips();
-            std::vector<float> gripXy;
-            gripXy.reserve(grips.size() / 2);
-            for (size_t i = 0; i + 3 < grips.size(); i += 4)
-            {
-                gripXy.push_back(grips[i + 2]);
-                gripXy.push_back(grips[i + 3]);
-            }
-            canvas_.setGrips(gripXy);
             float b[4]{};
             if (session_->bounds(b))
             {
@@ -767,6 +912,7 @@ namespace winrt::AadWinui::implementation
         {
             canvas_.setCursorDip(0.f, 0.f, false);
         }
+        lastCanvasPresent_ = std::chrono::steady_clock::now();
         canvas_.render();
         refreshManagersIfNeeded();
     }
@@ -778,14 +924,18 @@ namespace winrt::AadWinui::implementation
             return;
         }
         // Rebuild geometry first so bounds match the latest drawing.
-        canvas_.setLines(session_->rebuildLines());
-        canvas_.setFills(session_->rebuildFills());
+        const auto& lines = session_->rebuildLines();
+        const auto& fills = session_->rebuildFills();
+        canvas_.setLinesView(lines.data(), lines.size());
+        canvas_.setFillsView(fills.data(), fills.size());
+        lastCanvasGeomRev_ = session_->revision();
         float b[4]{};
         if (session_->bounds(b))
         {
             canvas_.fitWorld(b[0], b[1], b[2], b[3]);
             didFit_ = true;
         }
+        lastCanvasPresent_ = std::chrono::steady_clock::now();
         canvas_.render();
         appendHistory(L"Zoom → extents");
     }
@@ -2693,7 +2843,7 @@ namespace winrt::AadWinui::implementation
 
     bool MainWindow::handleEscape()
     {
-        // 1) Cancel active tool  2) close Tools catalog  3) close overlays
+        // CAD-like Esc: 1) cancel tool  2) clear selection  3) close UI chrome
         if (session_ && session_->ok() && session_->toolActive())
         {
             session_->toolCancel();
@@ -2702,6 +2852,19 @@ namespace winrt::AadWinui::implementation
             hideCompletions();
             refreshCanvas();
             refreshStatus();
+            return true;
+        }
+        if (session_ && session_->ok() && session_->hasSelection())
+        {
+            session_->selectionClear();
+            lastSelOverlayRev_ = UINT64_MAX;
+            lastSelOverlayCount_ = UINT64_MAX;
+            lastSelOverlayDimCount_ = UINT64_MAX;
+            appendHistory(L"*Unselect*");
+            hideCompletions();
+            refreshCanvas();
+            refreshStatus();
+            refreshProperties();
             return true;
         }
         hideCompletions();
@@ -3262,6 +3425,16 @@ namespace winrt::AadWinui::implementation
             gripDrag_ = true;
             gripId_ = gid;
             gripIdx_ = gidx;
+            double hot[2] = {};
+            if (session_->hotGrip(hot))
+            {
+                canvas_.setHotGrip(
+                    static_cast<float>(hot[0]), static_cast<float>(hot[1]), true);
+            }
+            if (allowCanvasPresent())
+            {
+                canvas_.render();
+            }
             CanvasHost().CapturePointer(e.Pointer());
             e.Handled(true);
             return;
@@ -3291,7 +3464,11 @@ namespace winrt::AadWinui::implementation
             canvas_.pan(x - lastX_, y - lastY_);
             lastX_ = x;
             lastY_ = y;
-            canvas_.render();
+            // Retained display list — Present is a transform + DrawGeometry, still throttle.
+            if (allowCanvasPresent())
+            {
+                canvas_.render();
+            }
             e.Handled(true);
             return;
         }
@@ -3312,7 +3489,7 @@ namespace winrt::AadWinui::implementation
             const float dx = std::abs(boxX1_ - boxX0_);
             const float dy = std::abs(boxY1_ - boxY0_);
             boxActive_ = dx > 4.f || dy > 4.f;
-            refreshCanvas();
+            refreshToolOverlay();
             e.Handled(true);
             return;
         }
@@ -3324,11 +3501,11 @@ namespace winrt::AadWinui::implementation
             wchar_t coords[64]{};
             swprintf_s(coords, L"%.2f, %.2f", wx, wy);
             CoordStatus().Text(coords);
-            session_->toolSetCursor(wx, wy);
             if (session_->toolActive())
             {
-                refreshCanvas();
-                refreshStatus();
+                session_->toolSetCursor(wx, wy);
+                // Rubber-band only — scene display list stays retained.
+                refreshToolOverlay();
                 updateDynOverlay(x, y, wx, wy);
             }
             else
@@ -3337,14 +3514,32 @@ namespace winrt::AadWinui::implementation
                 {
                     DynInputCard().Visibility(Visibility::Collapsed);
                 }
-                // Idle: redraw for crosshair/pickbox without rebuilding geometry.
-                if (canvasReady_)
+                // Idle: hot-grip hover + crosshair Present (no osnap / no tess).
+                if (session_ && session_->ok() && session_->hasSelection())
+                {
+                    const double tol =
+                        std::abs(static_cast<double>(canvas_.worldX(8.f) - canvas_.worldX(0.f)));
+                    uint64_t gid = 0;
+                    uint64_t gidx = 0;
+                    session_->gripPick(wx, wy, tol > 1e-9 ? tol : 1.0, &gid, &gidx);
+                    double hot[2] = {};
+                    if (session_->hotGrip(hot))
+                    {
+                        canvas_.setHotGrip(
+                            static_cast<float>(hot[0]), static_cast<float>(hot[1]), true);
+                    }
+                    else
+                    {
+                        canvas_.setHotGrip(0.f, 0.f, false);
+                    }
+                }
+                if (canvasReady_ && allowCanvasPresent())
                 {
                     canvas_.render();
                 }
             }
         }
-        else if (canvasReady_)
+        else if (canvasReady_ && allowCanvasPresent())
         {
             canvas_.render();
         }
@@ -3438,8 +3633,10 @@ namespace winrt::AadWinui::implementation
                 const bool shiftHeld =
                     (e.KeyModifiers() & VirtualKeyModifiers::Shift) == VirtualKeyModifiers::Shift;
                 session_->pickAddSet(shiftHeld);
-                session_->pickAt(wx, wy, tol > 1e-9 ? tol : 1.0);
+                const bool hit = session_->pickAt(wx, wy, tol > 1e-9 ? tol : 1.0);
                 session_->pickAddSet(false);
+                lastSelOverlayRev_ = UINT64_MAX;
+                lastSelOverlayDimCount_ = UINT64_MAX;
                 const auto fb = session_->lastFeedback();
                 if (!fb.empty())
                 {
@@ -3448,7 +3645,7 @@ namespace winrt::AadWinui::implementation
                 refreshCanvas();
                 refreshStatus();
                 refreshProperties();
-                if (session_->selectionCount() > 0)
+                if (hit || session_->hasSelection())
                 {
                     showRightTab(RightTab::Properties);
                     showRightPane(true);
@@ -3469,7 +3666,10 @@ namespace winrt::AadWinui::implementation
         const int delta = pt.Properties().MouseWheelDelta();
         const float factor = delta > 0 ? 1.1f : (1.f / 1.1f);
         canvas_.zoomAt(factor, x, y);
-        canvas_.render();
+        if (allowCanvasPresent())
+        {
+            canvas_.render();
+        }
         e.Handled(true);
     }
 
@@ -4437,11 +4637,11 @@ namespace winrt::AadWinui::implementation
                 c = '_';
             }
         }
-        // Creates %LOCALAPPDATA%\AADT\untitled.vdb when no file is open yet.
-        feedCommand(std::string("HISTORY SAVE ") + label);
+        // Local work .vdb + Merkle only (realtime sync OFF). Use COMMIT PUSH to upload.
+        feedCommand(std::string("COMMIT ") + label);
         refreshHistory();
         refreshCanvas();
-        HistoryDiffText().Text(L"Commit point saved. Select a version to trace changes vs tip.");
+        HistoryDiffText().Text(L"Committed locally to work DB. Realtime sync is off — use COMMIT PUSH to upload.");
     }
 
     void MainWindow::HistoryRefresh_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
@@ -4519,6 +4719,10 @@ namespace winrt::AadWinui::implementation
         session_->otrackSet(false);
         didFit_ = false;
         lastMgrRev_ = 0;
+        lastCanvasGeomRev_ = UINT64_MAX;
+        lastSelOverlayRev_ = UINT64_MAX;
+        canvas_.setLinesView(nullptr, 0);
+        canvas_.setFillsView(nullptr, 0);
         appendHistory(L"New drawing");
         setRibbonPath({});
         feedCommand("STANDARDS");
@@ -4540,11 +4744,34 @@ namespace winrt::AadWinui::implementation
         {
             return;
         }
-        feedCommand(std::string("OPEN ") + path);
+        feedCommand(std::string("OPEN ") + quoteCmdPath(path));
         setRibbonPath(path);
         didFit_ = false;
         refreshCanvas(false);
         zoomToExtents();
+        refreshLevels();
+        refreshLayers();
+        refreshStatus();
+    }
+
+    void MainWindow::ImportDwg_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        auto path = pickImportDwgPath();
+        if (path.empty())
+        {
+            return;
+        }
+        appendHistory(to_hstring(std::string("Import DWG ← ") + path));
+        feedCommand(std::string("OPEN ") + quoteCmdPath(path));
+        setRibbonPath(path);
+        didFit_ = false;
+        refreshCanvas(false);
+        zoomToExtents();
+        refreshLevels();
+        refreshLayers();
+        refreshBlocks();
+        refreshFills();
+        refreshStatus();
     }
 
     void MainWindow::QatSave_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
@@ -4552,17 +4779,60 @@ namespace winrt::AadWinui::implementation
         auto existing = session_ && session_->ok() ? session_->sessionPath() : std::string{};
         if (!existing.empty())
         {
-            feedCommand(std::string("SAVE ") + existing);
+            feedCommand(std::string("SAVE ") + quoteCmdPath(existing));
             setRibbonPath(existing);
             return;
         }
-        auto path = pickSavePath();
+        auto path = pickSavePath(false);
         if (path.empty())
         {
             return;
         }
-        feedCommand(std::string("SAVE ") + path);
+        feedCommand(std::string("SAVE ") + quoteCmdPath(path));
         setRibbonPath(path);
+    }
+
+    void MainWindow::SaveAs_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        auto path = pickSavePath(false);
+        if (path.empty())
+        {
+            return;
+        }
+        appendHistory(to_hstring(std::string("Save As → ") + path));
+        feedCommand(std::string("SAVE ") + quoteCmdPath(path));
+        setRibbonPath(path);
+        refreshStatus();
+    }
+
+    void MainWindow::ExportDwg_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
+    {
+        auto path = pickExportDwgPath();
+        if (path.empty())
+        {
+            return;
+        }
+        // Force .dwg if filter/default somehow omitted.
+        auto low = path;
+        for (auto& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (low.size() < 4 || low.compare(low.size() - 4, 4, ".dwg") != 0)
+        {
+            if (low.size() >= 4
+                && (low.compare(low.size() - 4, 4, ".dxf") == 0
+                    || low.compare(low.size() - 5, 5, ".aadt") == 0
+                    || low.compare(low.size() - 4, 4, ".vdb") == 0))
+            {
+                // User explicitly chose another type in the dialog — allow it.
+            }
+            else
+            {
+                path += ".dwg";
+            }
+        }
+        appendHistory(to_hstring(std::string("Export DWG → ") + path));
+        feedCommand(std::string("SAVE ") + quoteCmdPath(path));
+        setRibbonPath(path);
+        refreshStatus();
     }
 
     void MainWindow::QatUndo_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
@@ -5705,6 +5975,87 @@ namespace winrt::AadWinui::implementation
         refreshStatus();
     }
 
+    void MainWindow::AidOsnap_RightTapped(
+        Windows::Foundation::IInspectable const&,
+        RightTappedRoutedEventArgs const& e)
+    {
+        AidOsnapFlyout_Opening(nullptr, nullptr);
+        if (auto flyout = AidOsnap().ContextFlyout())
+        {
+            flyout.ShowAt(AidOsnap());
+        }
+        e.Handled(true);
+    }
+
+    void MainWindow::AidOsnapFlyout_Opening(
+        Windows::Foundation::IInspectable const&,
+        Windows::Foundation::IInspectable const&)
+    {
+        if (!session_ || !session_->ok())
+        {
+            return;
+        }
+        const uint32_t m = session_->osnapModesGet();
+        auto sync = [m](ToggleMenuFlyoutItem const& item, uint32_t bit) {
+            item.IsChecked((m & bit) != 0);
+        };
+        sync(OsnapEnd(), 1u);
+        sync(OsnapInt(), 2u);
+        sync(OsnapMid(), 4u);
+        sync(OsnapCen(), 8u);
+        sync(OsnapQua(), 16u);
+        sync(OsnapNea(), 32u);
+        sync(OsnapPer(), 64u);
+        sync(OsnapTan(), 128u);
+    }
+
+    void MainWindow::AidOsnapMode_Click(
+        Windows::Foundation::IInspectable const& sender,
+        RoutedEventArgs const&)
+    {
+        if (!session_ || !session_->ok())
+        {
+            return;
+        }
+        auto item = sender.try_as<ToggleMenuFlyoutItem>();
+        if (!item)
+        {
+            return;
+        }
+        uint32_t bit = 0;
+        if (auto hs = item.Tag().try_as<winrt::hstring>())
+        {
+            bit = static_cast<uint32_t>(std::wcstoul((*hs).c_str(), nullptr, 10));
+        }
+        else
+        {
+            const auto tag = winrt::unbox_value_or<winrt::hstring>(item.Tag(), L"0");
+            bit = static_cast<uint32_t>(std::wcstoul(tag.c_str(), nullptr, 10));
+        }
+        if (bit == 0)
+        {
+            return;
+        }
+        uint32_t modes = session_->osnapModesGet();
+        const bool on = item.IsChecked();
+        if (on)
+        {
+            modes |= bit;
+        }
+        else
+        {
+            modes &= ~bit;
+        }
+        session_->osnapModesSet(modes);
+        appendHistory(to_hstring(
+            std::string("OSNAP modes 0x") +
+            ([](uint32_t v) {
+                char buf[16];
+                std::snprintf(buf, sizeof(buf), "%X", v);
+                return std::string(buf);
+            })(modes)));
+    }
+
     void MainWindow::AidOrtho_Click(Windows::Foundation::IInspectable const&, RoutedEventArgs const&)
     {
         if (!session_ || !session_->ok())
@@ -5867,6 +6218,7 @@ namespace winrt::AadWinui::implementation
             tickPomodoro();
         });
         clockTimer_.Start();
+        // Realtime work-DB tip sync is OFF — flush only on SAVE / History COMMIT.
         tickClock();
         updatePomodoroUi();
     }

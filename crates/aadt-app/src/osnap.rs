@@ -59,6 +59,36 @@ pub fn snap_label(kind: SnapKind) -> &'static str {
     }
 }
 
+/// Bitmask for running object-snap kinds (OSMODE-style).
+pub const OSNAP_END: u32 = 1 << 0;
+pub const OSNAP_INT: u32 = 1 << 1;
+pub const OSNAP_MID: u32 = 1 << 2;
+pub const OSNAP_CEN: u32 = 1 << 3;
+pub const OSNAP_QUA: u32 = 1 << 4;
+pub const OSNAP_NEA: u32 = 1 << 5;
+pub const OSNAP_PER: u32 = 1 << 6;
+pub const OSNAP_TAN: u32 = 1 << 7;
+/// Default running snaps (PER/TAN stay override-only unless enabled).
+pub const OSNAP_MODE_DEFAULT: u32 =
+    OSNAP_END | OSNAP_INT | OSNAP_MID | OSNAP_CEN | OSNAP_QUA | OSNAP_NEA;
+
+fn mode_bit(kind: SnapKind) -> u32 {
+    match kind {
+        SnapKind::Endpoint => OSNAP_END,
+        SnapKind::Intersection => OSNAP_INT,
+        SnapKind::Midpoint => OSNAP_MID,
+        SnapKind::Center => OSNAP_CEN,
+        SnapKind::Quadrant => OSNAP_QUA,
+        SnapKind::Nearest => OSNAP_NEA,
+        SnapKind::Perpendicular => OSNAP_PER,
+        SnapKind::Tangent => OSNAP_TAN,
+    }
+}
+
+pub fn mode_enabled(modes: u32, kind: SnapKind) -> bool {
+    modes & mode_bit(kind) != 0
+}
+
 /// Parse a typed snap-override keyword (`END`, `MID`, `INT`, `CEN`, `QUA`,
 /// `NEA`, `PER`, `TAN`, plus common long forms) into a [`SnapKind`].
 ///
@@ -79,12 +109,26 @@ pub fn parse_snap_keyword(s: &str) -> Option<SnapKind> {
 }
 
 /// Reusable buffers + throttle state for hover osnap.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct OsnapState {
     scratch: Vec<(SnapKind, Point2)>,
     last_raw: Option<Point2>,
     last_at: Option<Instant>,
     last_hit: Option<(SnapKind, Point2)>,
+    /// Running snap kinds (bitmask — see `OSNAP_*` constants).
+    pub modes: u32,
+}
+
+impl Default for OsnapState {
+    fn default() -> Self {
+        Self {
+            scratch: Vec::new(),
+            last_raw: None,
+            last_at: None,
+            last_hit: None,
+            modes: OSNAP_MODE_DEFAULT,
+        }
+    }
 }
 
 impl OsnapState {
@@ -125,7 +169,9 @@ impl OsnapState {
         move_tol: f64,
         now: Instant,
     ) -> Option<(SnapKind, Point2)> {
-        let throttle = Duration::from_millis(8);
+        // 24 ms ≈ 40 Hz — enough for snap feedback without scanning the whole
+        // drawing on every WM_POINTERMOVE (find_osnap is still O(entities)).
+        let throttle = Duration::from_millis(24);
         let moved = self
             .last_raw
             .map(|p| p.distance(raw) > move_tol)
@@ -137,7 +183,8 @@ impl OsnapState {
         if !moved && !aged {
             return self.last_hit;
         }
-        let hit = find_osnap_in_spaces(doc, spaces, raw, snap_tol, &mut self.scratch);
+        let hit =
+            find_osnap_in_spaces(doc, spaces, raw, snap_tol, &mut self.scratch, self.modes);
         self.last_raw = Some(raw);
         self.last_at = Some(now);
         self.last_hit = hit;
@@ -422,7 +469,7 @@ pub fn find_osnap_in_space(
     scratch: &mut Vec<(SnapKind, Point2)>,
 ) -> Option<(SnapKind, Point2)> {
     let spaces = space.map(|s| vec![s]);
-    find_osnap_in_spaces(doc, spaces.as_deref(), p, tol, scratch)
+    find_osnap_in_spaces(doc, spaces.as_deref(), p, tol, scratch, OSNAP_MODE_DEFAULT)
 }
 
 /// Nearest snap among entities in any of `spaces` (or the whole document when `None`).
@@ -432,6 +479,7 @@ pub fn find_osnap_in_spaces(
     p: Point2,
     tol: f64,
     scratch: &mut Vec<(SnapKind, Point2)>,
+    modes: u32,
 ) -> Option<(SnapKind, Point2)> {
     let mut best: Option<(f64, u8, SnapKind, Point2)> = None;
     // NEA (nearest-on-object) fallback, used only when no discrete snap is found.
@@ -456,16 +504,22 @@ pub fn find_osnap_in_spaces(
         scratch.clear();
         snap_candidates_into(&e.geometry, scratch);
         for &(kind, sp) in scratch.iter() {
-            consider(&mut best, p, tol, kind, sp);
-        }
-        // NEA fallback candidate.
-        if let Some(np) = nearest_on_geometry(&e.geometry, p) {
-            let d = p.distance(np);
-            if d <= tol && best_near.map(|(bd, _)| d < bd).unwrap_or(true) {
-                best_near = Some((d, np));
+            if mode_enabled(modes, kind) {
+                consider(&mut best, p, tol, kind, sp);
             }
         }
-        near.push(&e.geometry);
+        // NEA fallback candidate.
+        if mode_enabled(modes, SnapKind::Nearest) {
+            if let Some(np) = nearest_on_geometry(&e.geometry, p) {
+                let d = p.distance(np);
+                if d <= tol && best_near.map(|(bd, _)| d < bd).unwrap_or(true) {
+                    best_near = Some((d, np));
+                }
+            }
+        }
+        if mode_enabled(modes, SnapKind::Intersection) {
+            near.push(&e.geometry);
+        }
     }
 
     // INT: intersections among the near geometries.
@@ -938,6 +992,7 @@ mod tests {
             Point2::new(0.1, 0.0),
             0.5,
             &mut Vec::new(),
+            OSNAP_MODE_DEFAULT,
         )
         .unwrap();
         assert_eq!(hit.0, SnapKind::Endpoint);

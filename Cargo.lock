@@ -132,6 +132,7 @@ dependencies = [
  "aadt-model",
  "aadt-pdf",
  "aadt-render",
+ "aadt-vdb",
 ]
 
 [[package]]

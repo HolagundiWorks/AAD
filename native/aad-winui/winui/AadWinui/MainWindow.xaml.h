@@ -5,6 +5,8 @@
 #include "../../include/FfiSession.hpp"
 #include "../../include/SwapChainCanvas.hpp"
 
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -152,6 +154,9 @@ namespace winrt::AadWinui::implementation
         void QatNew_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void QatOpen_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void QatSave_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void SaveAs_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void ImportDwg_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void ExportDwg_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void QatUndo_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void QatRedo_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void QatZoomE_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -183,6 +188,9 @@ namespace winrt::AadWinui::implementation
         void refreshCalcResult();
 
         void AidOsnap_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void AidOsnap_RightTapped(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::Input::RightTappedRoutedEventArgs const&);
+        void AidOsnapMode_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
+        void AidOsnapFlyout_Opening(winrt::Windows::Foundation::IInspectable const&, winrt::Windows::Foundation::IInspectable const&);
         void AidOrtho_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void AidPolar_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
         void AidDyn_Click(winrt::Windows::Foundation::IInspectable const&, winrt::Microsoft::UI::Xaml::RoutedEventArgs const&);
@@ -205,6 +213,10 @@ namespace winrt::AadWinui::implementation
         void initCanvas();
         void resizeCanvas();
         void refreshCanvas(bool fitIfEmptyView = false);
+        /// Preview / crosshair only — no geometry rebuild (tool hover path).
+        void refreshToolOverlay();
+        /// Cap pointer-move Present rate (~30 FPS).
+        bool allowCanvasPresent();
         void refreshStatus();
         void refreshProperties();
         void refreshHistory();
@@ -289,8 +301,14 @@ namespace winrt::AadWinui::implementation
         RightTab rightTab_ = RightTab::Properties;
         std::vector<std::string> historyRestoreIds_;
         uint64_t lastMgrRev_ = 0;
+        uint64_t lastCanvasGeomRev_ = UINT64_MAX;
+        uint64_t lastSelOverlayRev_ = UINT64_MAX;
+        uint64_t lastSelOverlayCount_ = UINT64_MAX;
+        uint64_t lastSelOverlayDimCount_ = UINT64_MAX;
+        std::chrono::steady_clock::time_point lastCanvasPresent_{};
 
         winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer clockTimer_{ nullptr };
+        winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer workdbTimer_{ nullptr };
         winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer pomodoroClickTimer_{ nullptr };
         int pomodoroDurationSec_ = 25 * 60;
         int pomodoroLeftSec_ = 25 * 60;

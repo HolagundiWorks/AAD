@@ -22,6 +22,7 @@ aadt-library.workspace = true
 aadt-model.workspace = true
 aadt-pdf.workspace = true
 aadt-render.workspace = true
+aadt-vdb.workspace = true
 
 [lints.rust]
 # C ABI requires unsafe extern "C" and pointer handling; engine crates stay forbid.

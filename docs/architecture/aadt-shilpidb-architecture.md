@@ -228,6 +228,33 @@ rather than commit ([ADR-0013](../adr/0013-ai-service-layer.md)).
 
 ---
 
+## Interim work-DB bridge (shipping now)
+
+Target architecture still says “no monolithic drawing in RAM.” Until entity
+paging lands, AADT uses this **workaround**. **Realtime sync is OFF** by default.
+
+```
+Edits → RAM Document (working cache + undo, depth capped)
+COMMIT [label] / SAVE
+      → flush tip → %LocalAppData%\AADT\work\active.vdb  (disk SoT)
+      → Merkle named commit (ADR-0021)
+COMMIT PUSH [label]   ← only when the user asks (needs SERVER CONNECT)
+      → SERVER PUSH + SERVER SAVE
+```
+
+| Piece | Behaviour |
+|-------|-----------|
+| Work `.vdb` | Bound on session new/reset; DWG/DXF OPEN writes tip here once |
+| OPEN `.vdb` | That path becomes the work file |
+| Realtime tip timer | **Off** — no periodic `workdb_tick` / mid-gesture flush |
+| WinUI draw | CAD display-list: world-space PathGeometry batches on REGEN; pan/zoom/cursor Present via view transform (not N× DrawLine) |
+| Undo | Cap 32 transactions; redo cleared after COMMIT |
+| Commit UX | History “Save version” → local `COMMIT`; upload via `COMMIT PUSH` |
+| `firm.db` | Unchanged — Connect/licence/ops only; never CAD geometry |
+
+`Document` remains the interactive cache (undo/tools). Durable tip and remote
+upload are **explicit**, not continuous.
+
 ## Implementation status (spec → today)
 
 Where the current workspace already realises this target, and where it is
@@ -251,6 +278,7 @@ aspirational. Crate references are the concrete starting points.
 | Revision model | **Partial** | `.aadt` (SQLite) keeps history/checkpoints; per-entity revision numbers and commit-reason metadata are not yet modelled |
 | Collaboration / locks | **Not started** | Entity-lock hierarchy and multi-user modes are future; the [standalone ShilpiDB server](../plans/shilpidb-standalone-server.md) is the enabling plan |
 | Error recovery | **Built (subset)** | Autosave + crash-recovery prompt + save-before-exit; durable `.vdb`/`.aadt` writes (temp+rename). *Missing:* corruption detection, revision recovery UI |
+| Local work-DB SoT + commit push | **Built (bridge)** | Work `.vdb` on SAVE/COMMIT; realtime tip sync OFF; `COMMIT PUSH` for upload; undo capped; canvas borrows stroke buffers (ABI 16: dim pick · hot grip · osnap modes) |
 
 ### Nearest gaps to close first
 

@@ -116,21 +116,40 @@ pub fn apply_layer_set(doc: &mut Document, set_name: &str) -> Result<String, Str
     apply_standard_layers(doc);
 
     if set.name == "IMPORT" {
+        // OPEN adopts recognized ORG-DWG_LAYER-* names onto AIA shims (A-DOOR…).
+        // Turning *all* AIA off would hide those inserts/blocks. Keep every layer
+        // that currently hosts geometry (plus remaining ORG-* names) visible.
+        let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for e in doc.iter_entities() {
+            used.insert(e.layer.clone());
+        }
+        for h in doc.hatches() {
+            used.insert(h.layer.clone());
+        }
+        for d in doc.dimensions() {
+            used.insert(d.layer.clone());
+        }
+
         let mut on = 0usize;
         let mut off = 0usize;
         for std in AIA_LAYERS {
-            doc.set_layer_visible(std.name, false);
-            off += 1;
+            let keep = used.contains(std.name);
+            doc.set_layer_visible(std.name, keep);
+            if keep {
+                on += 1;
+            } else {
+                off += 1;
+            }
         }
         let names: Vec<String> = doc.layers().map(|l| l.name.clone()).collect();
         for name in names {
-            if name.starts_with(aadt_model::IMPORTED_LAYER_PREFIX) {
+            if name.starts_with(aadt_model::IMPORTED_LAYER_PREFIX) || used.contains(&name) {
                 doc.set_layer_visible(&name, true);
                 on += 1;
             }
         }
         return Ok(format!(
-            "layer set IMPORT applied ({on} import layers on, {off} AIA off)"
+            "layer set IMPORT applied ({on} layers on with content/import, {off} unused AIA off)"
         ));
     }
 
@@ -215,12 +234,34 @@ mod tests {
     }
 
     #[test]
-    fn import_set_shows_org_layers_hides_aia() {
+    fn import_set_shows_org_layers_hides_unused_aia() {
         let mut doc = Document::new();
         doc.add_layer(aadt_model::Layer::new("ORG-DWG_LAYER-WALLS"));
         apply_layer_set(&mut doc, "IMPORT").unwrap();
         assert!(doc.layer("ORG-DWG_LAYER-WALLS").unwrap().visible);
         assert!(!doc.layer("A-WALL").unwrap().visible);
         assert!(LayerSet::names().any(|n| n == "IMPORT"));
+    }
+
+    #[test]
+    fn import_set_keeps_adopted_aia_layers_with_geometry() {
+        use aadt_geometry::Point2;
+        use aadt_model::{Geometry, Insert};
+        let mut doc = Document::new();
+        apply_standard_layers(&mut doc);
+        // Simulate post-ADOPT: INSERT on A-DOOR (standard name, no ORG- prefix).
+        doc.add_geometry(
+            "A-DOOR",
+            Geometry::Insert(Insert::new("DOOR-1", Point2::new(0.0, 0.0), 0.0)),
+        );
+        apply_layer_set(&mut doc, "IMPORT").unwrap();
+        assert!(
+            doc.layer("A-DOOR").unwrap().visible,
+            "adopted insert layer must stay on so blocks render"
+        );
+        assert!(
+            !doc.layer("E-LITE").unwrap().visible,
+            "unused AIA layers still hide"
+        );
     }
 }

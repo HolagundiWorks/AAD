@@ -75,8 +75,12 @@ bool FfiSession::loadDll() {
       !loadFn(module_, "aadt_tool_preview_rebuild_lines", &fn_preview_rebuild_, &loadError_) ||
       !loadFn(module_, "aadt_tool_preview_copy_lines", &fn_preview_copy_, &loadError_) ||
       !loadFn(module_, "aadt_osnap_set", &fn_osnap_set_, &loadError_) ||
+      !loadFn(module_, "aadt_osnap_modes_get", &fn_osnap_modes_get_, &loadError_) ||
+      !loadFn(module_, "aadt_osnap_modes_set", &fn_osnap_modes_set_, &loadError_) ||
       !loadFn(module_, "aadt_osnap_marker", &fn_osnap_marker_, &loadError_) ||
       !loadFn(module_, "aadt_select_box", &fn_select_box_, &loadError_) ||
+      !loadFn(module_, "aadt_selection_dim_count", &fn_sel_dim_count_, &loadError_) ||
+      !loadFn(module_, "aadt_selection_clear", &fn_sel_clear_, &loadError_) ||
       !loadFn(module_, "aadt_layers_list", &fn_layers_list_, &loadError_) ||
       !loadFn(module_, "aadt_layer_set_current", &fn_layer_set_current_, &loadError_) ||
       !loadFn(module_, "aadt_layer_current", &fn_layer_current_, &loadError_) ||
@@ -96,6 +100,7 @@ bool FfiSession::loadDll() {
       !loadFn(module_, "aadt_grips_rebuild", &fn_grips_rebuild_, &loadError_) ||
       !loadFn(module_, "aadt_grips_copy", &fn_grips_copy_, &loadError_) ||
       !loadFn(module_, "aadt_grip_pick", &fn_grip_pick_, &loadError_) ||
+      !loadFn(module_, "aadt_hot_grip", &fn_hot_grip_, &loadError_) ||
       !loadFn(module_, "aadt_grip_move", &fn_grip_move_, &loadError_) ||
       !loadFn(module_, "aadt_selection_rebuild_lines", &fn_sel_rebuild_, &loadError_) ||
       !loadFn(module_, "aadt_selection_copy_lines", &fn_sel_copy_lines_, &loadError_) ||
@@ -113,13 +118,16 @@ bool FfiSession::loadDll() {
       !loadFn(module_, "aadt_plot_pdf_to_path", &fn_plot_pdf_, &loadError_) ||
       !loadFn(module_, "aadt_plot_setup", &fn_plot_setup_, &loadError_) ||
       !loadFn(module_, "aadt_drawing_props_get", &fn_drawing_props_get_, &loadError_) ||
-      !loadFn(module_, "aadt_drawing_props_set", &fn_drawing_props_set_, &loadError_)) {
+      !loadFn(module_, "aadt_drawing_props_set", &fn_drawing_props_set_, &loadError_) ||
+      !loadFn(module_, "aadt_workdb_flush", &fn_workdb_flush_, &loadError_) ||
+      !loadFn(module_, "aadt_workdb_tick", &fn_workdb_tick_, &loadError_) ||
+      !loadFn(module_, "aadt_workdb_path", &fn_workdb_path_, &loadError_)) {
     unload();
     return false;
   }
 
-  if (fn_version_() < 14) {
-    loadError_ = "aadt_ffi.dll ABI too old (need version >= 14 for drawing properties)";
+  if (fn_version_() < 16) {
+    loadError_ = "aadt_ffi.dll ABI too old (need version >= 16 for dim pick / osnap modes)";
     unload();
     return false;
   }
@@ -205,6 +213,9 @@ void FfiSession::unload() {
   fn_plot_setup_ = nullptr;
   fn_drawing_props_get_ = nullptr;
   fn_drawing_props_set_ = nullptr;
+  fn_workdb_flush_ = nullptr;
+  fn_workdb_tick_ = nullptr;
+  fn_workdb_path_ = nullptr;
 }
 
 FfiSession::FfiSession() {
@@ -233,6 +244,9 @@ bool FfiSession::feed(const std::string& line) {
   if (!session_ || !fn_feed_) {
     return false;
   }
+  lines_rev_ = UINT64_MAX; // force host stroke cache refresh after any feed
+  sel_rev_ = UINT64_MAX;
+  grips_rev_ = UINT64_MAX;
   return fn_feed_(session_, line.c_str()) == 0;
 }
 
@@ -248,6 +262,13 @@ void FfiSession::reset() {
   if (session_ && fn_reset_) {
     fn_reset_(session_);
   }
+  lines_rev_ = UINT64_MAX;
+  sel_rev_ = UINT64_MAX;
+  grips_rev_ = UINT64_MAX;
+  lines_.clear();
+  fills_.clear();
+  selection_.clear();
+  grips_.clear();
 }
 
 uint64_t FfiSession::entityCount() const {
@@ -256,6 +277,22 @@ uint64_t FfiSession::entityCount() const {
 
 uint64_t FfiSession::selectionCount() const {
   return (session_ && fn_sel_count_) ? fn_sel_count_(session_) : 0;
+}
+
+uint64_t FfiSession::selectionDimCount() const {
+  return (session_ && fn_sel_dim_count_) ? fn_sel_dim_count_(session_) : 0;
+}
+
+bool FfiSession::hasSelection() const {
+  return selectionCount() > 0 || selectionDimCount() > 0;
+}
+
+void FfiSession::selectionClear() {
+  if (session_ && fn_sel_clear_) {
+    fn_sel_clear_(session_);
+  }
+  sel_rev_ = UINT64_MAX;
+  grips_rev_ = UINT64_MAX;
 }
 
 uint64_t FfiSession::revision() const {
@@ -282,16 +319,25 @@ std::vector<uint64_t> FfiSession::selectionIds() const {
 }
 
 const std::vector<float>& FfiSession::selectionRebuildLines() {
-  selection_.clear();
   if (!session_ || !fn_sel_rebuild_ || !fn_sel_copy_lines_) {
+    selection_.clear();
     return selection_;
   }
+  const uint64_t rev = revision();
+  const uint64_t nSel = selectionCount();
+  const uint64_t nDim = selectionDimCount();
+  if (sel_rev_ == rev && sel_count_ == nSel && sel_dim_count_ == nDim) {
+    return selection_;
+  }
+  selection_.clear();
   const uint64_t n = fn_sel_rebuild_(session_);
-  if (n == 0) {
-    return selection_;
+  if (n > 0) {
+    selection_.resize(static_cast<size_t>(n));
+    fn_sel_copy_lines_(session_, selection_.data(), n);
   }
-  selection_.resize(static_cast<size_t>(n));
-  fn_sel_copy_lines_(session_, selection_.data(), n);
+  sel_rev_ = rev;
+  sel_count_ = nSel;
+  sel_dim_count_ = nDim;
   return selection_;
 }
 
@@ -311,6 +357,9 @@ bool FfiSession::pickAt(double x, double y, double tol, uint64_t* outId) {
   if (outId) {
     *outId = id;
   }
+  // Selection / grips overlay must refresh even when document revision is unchanged.
+  sel_rev_ = UINT64_MAX;
+  grips_rev_ = UINT64_MAX;
   return hit;
 }
 
@@ -443,6 +492,16 @@ void FfiSession::osnapSet(bool on) {
   }
 }
 
+uint32_t FfiSession::osnapModesGet() const {
+  return (session_ && fn_osnap_modes_get_) ? fn_osnap_modes_get_(session_) : 0x3Fu;
+}
+
+void FfiSession::osnapModesSet(uint32_t modes) {
+  if (session_ && fn_osnap_modes_set_) {
+    fn_osnap_modes_set_(session_, modes);
+  }
+}
+
 bool FfiSession::osnapMarker(double out2[2]) const {
   if (!session_ || !fn_osnap_marker_ || !out2) {
     return false;
@@ -474,7 +533,10 @@ uint64_t FfiSession::selectBox(double x0, double y0, double x1, double y1) {
   if (!session_ || !fn_select_box_) {
     return 0;
   }
-  return fn_select_box_(session_, x0, y0, x1, y1);
+  const uint64_t n = fn_select_box_(session_, x0, y0, x1, y1);
+  sel_rev_ = UINT64_MAX;
+  grips_rev_ = UINT64_MAX;
+  return n;
 }
 
 std::string FfiSession::layersList() const {
@@ -603,16 +665,23 @@ const std::vector<float>& FfiSession::rebuildOtrackRays() {
 }
 
 const std::vector<float>& FfiSession::rebuildGrips() {
-  grips_.clear();
   if (!session_ || !fn_grips_rebuild_ || !fn_grips_copy_) {
+    grips_.clear();
     return grips_;
   }
+  const uint64_t rev = revision();
+  const uint64_t nSel = selectionCount();
+  if (grips_rev_ == rev && grips_sel_count_ == nSel) {
+    return grips_;
+  }
+  grips_.clear();
   const uint64_t n = fn_grips_rebuild_(session_);
-  if (n == 0) {
-    return grips_;
+  if (n > 0) {
+    grips_.resize(static_cast<size_t>(n));
+    fn_grips_copy_(session_, grips_.data(), n);
   }
-  grips_.resize(static_cast<size_t>(n));
-  fn_grips_copy_(session_, grips_.data(), n);
+  grips_rev_ = rev;
+  grips_sel_count_ = nSel;
   return grips_;
 }
 
@@ -632,6 +701,13 @@ bool FfiSession::gripPick(double x, double y, double tol, uint64_t* outId, uint6
   return hit;
 }
 
+bool FfiSession::hotGrip(double out2[2]) const {
+  if (!session_ || !fn_hot_grip_ || !out2) {
+    return false;
+  }
+  return fn_hot_grip_(session_, out2) != 0;
+}
+
 bool FfiSession::gripMove(uint64_t id, uint64_t gripIdx, double nx, double ny) {
   if (!session_ || !fn_grip_move_) {
     return false;
@@ -647,11 +723,18 @@ std::string FfiSession::sessionPath() const {
 }
 
 const std::vector<float>& FfiSession::rebuildLines() {
-  lines_.clear();
-  fills_.clear();
   if (!session_ || !fn_rebuild_ || !fn_copy_) {
+    lines_.clear();
+    fills_.clear();
     return lines_;
   }
+  // Tip flush is owned by a low-frequency timer / COMMIT — never the draw path.
+  const uint64_t rev = revision();
+  if (lines_rev_ == rev) {
+    return lines_;
+  }
+  lines_.clear();
+  fills_.clear();
   const uint64_t n = fn_rebuild_(session_);
   if (n > 0) {
     lines_.resize(static_cast<size_t>(n));
@@ -664,7 +747,28 @@ const std::vector<float>& FfiSession::rebuildLines() {
       fn_copy_fills_(session_, fills_.data(), nf);
     }
   }
+  lines_rev_ = rev;
   return lines_;
+}
+
+void FfiSession::workdbTick() {
+  if (session_ && fn_workdb_tick_) {
+    fn_workdb_tick_(session_);
+  }
+}
+
+bool FfiSession::workdbFlush() {
+  if (!session_ || !fn_workdb_flush_) {
+    return false;
+  }
+  return fn_workdb_flush_(session_) == 0;
+}
+
+std::string FfiSession::workdbPath() const {
+  if (!session_ || !fn_workdb_path_) {
+    return {};
+  }
+  return takeHeapString(fn_workdb_path_(session_));
 }
 
 const std::vector<float>& FfiSession::rebuildFills() {

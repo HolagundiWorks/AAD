@@ -56,9 +56,16 @@
                Foreground="{StaticResource HcwInkBrush}">
         <MenuBarItem Title="File" AccessKey="F">
           <MenuFlyoutItem Text="New" Click="QatNew_Click" AccessKey="N"/>
-          <MenuFlyoutItem Text="Open…" Click="QatOpen_Click" AccessKey="O"/>
+          <MenuFlyoutItem Text="Open…" Click="QatOpen_Click" AccessKey="O"
+                          ToolTipService.ToolTip="Open DWG, DXF, AADT, or VDB"/>
+          <MenuFlyoutItem Text="Import DWG…" Click="ImportDwg_Click" AccessKey="I"
+                          ToolTipService.ToolTip="Replace drawing from AutoCAD DWG or DXF"/>
           <MenuFlyoutSeparator/>
           <MenuFlyoutItem Text="Save" Click="QatSave_Click" AccessKey="S"/>
+          <MenuFlyoutItem Text="Save As…" Click="SaveAs_Click" AccessKey="A"
+                          ToolTipService.ToolTip="Save as DWG, DXF, AADT, or VDB"/>
+          <MenuFlyoutItem Text="Export DWG…" Click="ExportDwg_Click" AccessKey="E"
+                          ToolTipService.ToolTip="Write AutoCAD DWG (2D subset via acadrust)"/>
           <MenuFlyoutItem Text="Drawing properties…" Click="DrawingProps_Click"/>
           <MenuFlyoutSeparator/>
           <MenuFlyoutItem Text="Plot to PDF…" Click="PlotPdf_Click" AccessKey="P"/>
@@ -819,8 +826,23 @@
                      AutomationProperties.LiveSetting="Polite"/>
           <ToggleButton x:Name="AidOsnap" Content="OS" Style="{StaticResource AadAidChip}"
                         IsChecked="True" Click="AidOsnap_Click"
+                        RightTapped="AidOsnap_RightTapped"
                         AutomationProperties.Name="Object snap"
-                        ToolTipService.ToolTip="Object snap (F3)"/>
+                        ToolTipService.ToolTip="Object snap (F3) — right-click for snap types">
+            <ToggleButton.ContextFlyout>
+              <MenuFlyout x:Name="OsnapFlyout" Opening="AidOsnapFlyout_Opening">
+                <ToggleMenuFlyoutItem x:Name="OsnapEnd" Text="Endpoint (END)" Tag="1" Click="AidOsnapMode_Click"/>
+                <ToggleMenuFlyoutItem x:Name="OsnapMid" Text="Midpoint (MID)" Tag="4" Click="AidOsnapMode_Click"/>
+                <ToggleMenuFlyoutItem x:Name="OsnapCen" Text="Center (CEN)" Tag="8" Click="AidOsnapMode_Click"/>
+                <ToggleMenuFlyoutItem x:Name="OsnapInt" Text="Intersection (INT)" Tag="2" Click="AidOsnapMode_Click"/>
+                <ToggleMenuFlyoutItem x:Name="OsnapQua" Text="Quadrant (QUA)" Tag="16" Click="AidOsnapMode_Click"/>
+                <ToggleMenuFlyoutItem x:Name="OsnapNea" Text="Nearest (NEA)" Tag="32" Click="AidOsnapMode_Click"/>
+                <MenuFlyoutSeparator/>
+                <ToggleMenuFlyoutItem x:Name="OsnapPer" Text="Perpendicular (PER)" Tag="64" Click="AidOsnapMode_Click"/>
+                <ToggleMenuFlyoutItem x:Name="OsnapTan" Text="Tangent (TAN)" Tag="128" Click="AidOsnapMode_Click"/>
+              </MenuFlyout>
+            </ToggleButton.ContextFlyout>
+          </ToggleButton>
           <ToggleButton x:Name="AidOrtho" Content="OR" Style="{StaticResource AadAidChip}"
                         Click="AidOrtho_Click"
                         AutomationProperties.Name="Ortho mode"

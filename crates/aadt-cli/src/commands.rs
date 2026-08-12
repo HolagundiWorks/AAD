@@ -78,6 +78,14 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(crate::enterprise::PermsCmd {
         st: objstate.clone(),
     }));
+    let server = Rc::new(RefCell::new(ServerState::default()));
+    registry.register(Box::new(ServerCmd {
+        st: server.clone(),
+    }));
+    registry.register(Box::new(CommitCmd {
+        obj: objstate.clone(),
+        server,
+    }));
     registry.register(Box::new(crate::enterprise::ConnectorCmd { st: objstate }));
     registry.register(Box::new(crate::enterprise::SiteCmd { corpus }));
     registry.register(Box::new(LayerSetCmd));
@@ -89,9 +97,6 @@ pub fn register(interp: &mut Interpreter) {
     registry.register(Box::new(SectionCmd));
     registry.register(Box::new(BlockLibCmd));
     registry.register(Box::new(HatchLibCmd));
-    registry.register(Box::new(ServerCmd {
-        st: Rc::new(RefCell::new(ServerState::default())),
-    }));
 }
 
 fn is_aadt_path(path: &str) -> bool {
@@ -195,17 +200,36 @@ impl Command for OpenCmd {
         // Preserve CAD layers under ORG-DWG_LAYER-* before seeding AIA standards.
         doc.retag_imported_layers();
         ctx.doc = doc;
-        ctx.drawing_path = Some(path.clone());
+        // Native stores stay on their path. DWG/DXF imports bind a local work
+        // `.vdb` immediately so ShilpiDB on disk is the working SoT (not RAM-only).
+        if is_vdb_path(&path) || is_aadt_path(&path) {
+            ctx.drawing_path = Some(path.clone());
+        } else {
+            let work = default_work_vdb()?;
+            aadt_vdb::save_path(&ctx.doc, &work).map_err(|e| e.to_string())?;
+            ctx.drawing_path = Some(work.clone());
+        }
         let seeded = apply_standard_layers(&mut ctx.doc);
         // Imports whose name already is a standard layer are adopted directly
         // (ORG-DWG_LAYER-A-WALL → A-WALL); the rest stay namespaced for mapping.
         let (adopted, _moved) = adopt_recognized_imports(&mut ctx.doc);
         let _ = apply_layer_set(&mut ctx.doc, "IMPORT");
         ctx.doc.assign_imported_by_layer();
+        // Layer adopt/IMPORT can mutate entities — flush tip again for DWG/DXF work DB.
+        if let Some(work) = ctx
+            .drawing_path
+            .as_ref()
+            .filter(|p| is_vdb_path(p) && !is_vdb_path(&path))
+        {
+            aadt_vdb::save_path(&ctx.doc, work).map_err(|e| e.to_string())?;
+        }
         let mut msg = format!(
             "opened {path} ({} entities; seeded {seeded} AIA layers; adopted {adopted} standard-named import layer(s); floors=Ground; import layers ORG-DWG_LAYER-* / IMPORT)",
             ctx.doc.len()
         );
+        if let Some(work) = ctx.drawing_path.as_ref().filter(|p| *p != &path) {
+            msg.push_str(&format!("; work DB {work}"));
+        }
         if !warnings.is_empty() {
             msg.push_str("; warning: ");
             msg.push_str(&warnings.join("; "));
@@ -1596,12 +1620,107 @@ impl Command for HistoryCmd {
 }
 
 fn default_untitled_vdb() -> Result<String, String> {
+    default_work_vdb()
+}
+
+/// Local ShilpiDB work file — disk source of truth while drafting (not firm.db).
+fn default_work_vdb() -> Result<String, String> {
     let base = std::env::var("LOCALAPPDATA")
         .or_else(|_| std::env::var("TMP"))
         .map_err(|_| "LOCALAPPDATA/TMP unset — SAVE a .vdb path first".to_string())?;
-    let dir = std::path::PathBuf::from(base).join("AADT");
+    let dir = std::path::PathBuf::from(base).join("AADT").join("work");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.join("untitled.vdb").to_string_lossy().into_owned())
+    Ok(dir.join("active.vdb").to_string_lossy().into_owned())
+}
+
+/// Flush tip → local `.vdb` + named Merkle commit.
+/// Realtime / auto remote sync is OFF — use `COMMIT PUSH [label]` to push.
+struct CommitCmd {
+    obj: Rc<RefCell<ObjState>>,
+    server: Rc<RefCell<ServerState>>,
+}
+impl Command for CommitCmd {
+    fn name(&self) -> &str {
+        "COMMIT"
+    }
+    fn aliases(&self) -> &'static [&'static str] {
+        &["AADT-COMMIT"]
+    }
+    fn help(&self) -> &str {
+        "COMMIT [label] | COMMIT PUSH [label] — local work .vdb + Merkle; PUSH only when asked (realtime sync OFF)"
+    }
+    fn run(&self, ctx: &mut Context, args: &[String]) -> Result<String, String> {
+        let (want_push, label) = match args.first().map(|s| s.as_str()) {
+            Some(s) if s.eq_ignore_ascii_case("PUSH") => (
+                true,
+                args.get(1).cloned().unwrap_or_else(|| "Commit".into()),
+            ),
+            Some(s) => (false, s.to_string()),
+            None => (false, "Commit".into()),
+        };
+        let path = match resolve_drawing_path(ctx, None) {
+            Ok(p) if is_vdb_path(&p) || is_aadt_path(&p) => p,
+            _ => {
+                let p = default_work_vdb()?;
+                ctx.drawing_path = Some(p.clone());
+                p
+            }
+        };
+        let mut parts = Vec::new();
+        if is_vdb_path(&path) {
+            let mut st = self.obj.borrow_mut();
+            st.sync(ctx);
+            aadt_vdb::save_path_with_objects(
+                &ctx.doc,
+                &path,
+                &st.objects,
+                &st.graph,
+                &st.audit,
+            )
+            .map_err(|e| format!("COMMIT flush: {e}"))?;
+            let id = aadt_vdb::save_named_commit(
+                &path,
+                &ctx.doc,
+                &st.objects,
+                &st.graph,
+                &st.audit,
+                &label,
+            )
+            .map_err(|e| format!("COMMIT: {e}"))?;
+            parts.push(format!(
+                "flushed {path}; Merkle {} ({label})",
+                &id[..12.min(id.len())]
+            ));
+        } else if is_aadt_path(&path) {
+            aadt_store::save_path(&ctx.doc, &path).map_err(|e| format!("COMMIT flush: {e}"))?;
+            let id = aadt_store::save_named_checkpoint(&path, &ctx.doc, &label, "", "")
+                .map_err(|e| format!("COMMIT: {e}"))?;
+            parts.push(format!("flushed {path}; checkpoint #{id} ({label})"));
+        } else {
+            return Err("COMMIT: bind a .vdb or .aadt work path first".into());
+        }
+        ctx.diff_ghosts.clear();
+        // Drop redo after a durable commit — frees RAM; undo window stays capped elsewhere.
+        ctx.doc.clear_redo();
+
+        if want_push {
+            let mut st = self.server.borrow_mut();
+            let host = st.host.clone();
+            let client = st.client.as_mut().ok_or_else(|| {
+                "COMMIT PUSH: not connected (run SERVER CONNECT first)".to_string()
+            })?;
+            let n = client
+                .push_document(&ctx.doc)
+                .map_err(|e| format!("COMMIT PUSH: {e}"))?;
+            client
+                .save()
+                .map_err(|e| format!("COMMIT PUSH SERVER SAVE: {e}"))?;
+            parts.push(format!("pushed {n} entities to {host} and flushed server DB"));
+        } else {
+            parts.push("local only (realtime sync OFF; use COMMIT PUSH to upload)".into());
+        }
+        Ok(parts.join("; "))
+    }
 }
 
 fn geom_kind_label(g: &aadt_model::Geometry) -> &'static str {
@@ -2809,6 +2928,17 @@ mod server_tests {
     fn push_and_pull_require_a_connection() {
         assert!(run("SERVER PUSH").unwrap_err().contains("not connected"));
         assert!(run("SERVER PULL").unwrap_err().contains("not connected"));
+    }
+
+    #[test]
+    fn commit_local_without_server() {
+        let msg = run("COMMIT smoke_test").unwrap().unwrap();
+        assert!(msg.contains("Merkle") || msg.contains("checkpoint"), "{msg}");
+        assert!(msg.contains("local only"), "{msg}");
+        assert!(
+            run("COMMIT PUSH no_server").unwrap_err().contains("not connected"),
+            "COMMIT PUSH must require SERVER CONNECT"
+        );
     }
 }
 

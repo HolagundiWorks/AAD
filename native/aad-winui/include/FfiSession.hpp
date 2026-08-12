@@ -25,6 +25,10 @@ public:
 
   uint64_t entityCount() const;
   uint64_t selectionCount() const;
+  uint64_t selectionDimCount() const;
+  /// Entity + dimension selection non-empty.
+  bool hasSelection() const;
+  void selectionClear();
   uint64_t revision() const;
   bool dirty() const;
 
@@ -65,6 +69,8 @@ public:
   bool plotSetup(const std::string& paper);
 
   void osnapSet(bool on);
+  uint32_t osnapModesGet() const;
+  void osnapModesSet(uint32_t modes);
   bool osnapMarker(double out2[2]) const;
   void orthoSet(bool on);
   bool orthoGet() const;
@@ -97,6 +103,7 @@ public:
   const std::vector<float>& rebuildOtrackRays();
   const std::vector<float>& rebuildGrips();
   bool gripPick(double x, double y, double tol, uint64_t* outId, uint64_t* outIdx);
+  bool hotGrip(double out2[2]) const;
   bool gripMove(uint64_t id, uint64_t gripIdx, double nx, double ny);
 
   std::string sessionPath() const;
@@ -113,6 +120,12 @@ public:
   /// Consume pending nav hint after feed (`extents`, `zoom_window`, …).
   std::string takeNav();
 
+  /// Debounced flush of tip → local work `.vdb` (ABI 15).
+  void workdbTick();
+  /// Force flush tip → work `.vdb`.
+  bool workdbFlush();
+  std::string workdbPath() const;
+
 private:
   bool loadDll();
   void unload();
@@ -127,6 +140,13 @@ private:
   std::vector<float> selection_;
   std::vector<float> otrackRays_;
   std::vector<float> grips_;
+  /// Host-side caches: skip rebuild/copy when inputs unchanged.
+  uint64_t lines_rev_ = UINT64_MAX;
+  uint64_t sel_rev_ = UINT64_MAX;
+  uint64_t sel_count_ = UINT64_MAX;
+  uint64_t sel_dim_count_ = UINT64_MAX;
+  uint64_t grips_rev_ = UINT64_MAX;
+  uint64_t grips_sel_count_ = UINT64_MAX;
 
   decltype(&aadt_ffi_version) fn_version_ = nullptr;
   decltype(&aadt_session_new) fn_new_ = nullptr;
@@ -161,8 +181,12 @@ private:
   decltype(&aadt_tool_preview_rebuild_lines) fn_preview_rebuild_ = nullptr;
   decltype(&aadt_tool_preview_copy_lines) fn_preview_copy_ = nullptr;
   decltype(&aadt_osnap_set) fn_osnap_set_ = nullptr;
+  decltype(&aadt_osnap_modes_get) fn_osnap_modes_get_ = nullptr;
+  decltype(&aadt_osnap_modes_set) fn_osnap_modes_set_ = nullptr;
   decltype(&aadt_osnap_marker) fn_osnap_marker_ = nullptr;
   decltype(&aadt_select_box) fn_select_box_ = nullptr;
+  decltype(&aadt_selection_dim_count) fn_sel_dim_count_ = nullptr;
+  decltype(&aadt_selection_clear) fn_sel_clear_ = nullptr;
   decltype(&aadt_layers_list) fn_layers_list_ = nullptr;
   decltype(&aadt_layer_set_current) fn_layer_set_current_ = nullptr;
   decltype(&aadt_layer_current) fn_layer_current_ = nullptr;
@@ -182,6 +206,7 @@ private:
   decltype(&aadt_grips_rebuild) fn_grips_rebuild_ = nullptr;
   decltype(&aadt_grips_copy) fn_grips_copy_ = nullptr;
   decltype(&aadt_grip_pick) fn_grip_pick_ = nullptr;
+  decltype(&aadt_hot_grip) fn_hot_grip_ = nullptr;
   decltype(&aadt_grip_move) fn_grip_move_ = nullptr;
   decltype(&aadt_selection_rebuild_lines) fn_sel_rebuild_ = nullptr;
   decltype(&aadt_selection_copy_lines) fn_sel_copy_lines_ = nullptr;
@@ -200,4 +225,7 @@ private:
   decltype(&aadt_plot_setup) fn_plot_setup_ = nullptr;
   decltype(&aadt_drawing_props_get) fn_drawing_props_get_ = nullptr;
   decltype(&aadt_drawing_props_set) fn_drawing_props_set_ = nullptr;
+  decltype(&aadt_workdb_flush) fn_workdb_flush_ = nullptr;
+  decltype(&aadt_workdb_tick) fn_workdb_tick_ = nullptr;
+  decltype(&aadt_workdb_path) fn_workdb_path_ = nullptr;
 };

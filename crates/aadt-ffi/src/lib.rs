@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::ptr;
 
 use aadt_app::command_engine::{self, CommandEngine, CommandId};
-use aadt_app::osnap::OsnapState;
+use aadt_app::osnap::{self, OsnapState};
 use aadt_app::otrack::{self, OtrackState};
 use aadt_app::selection::{select_by_fence, select_in_polygon, RegionMode};
 use aadt_app::{pick, Feedback, Session};
@@ -99,6 +99,14 @@ pub struct AadtSession {
     /// Last path used with OPEN/SAVE (best-effort; host may also track).
     file_path: Option<PathBuf>,
     dirty: bool,
+    /// Local ShilpiDB work file (disk SoT). Distinct from Connect `firm.db`.
+    work_path: PathBuf,
+    /// Document revision last flushed to [`Self::work_path`].
+    work_flushed_rev: Option<u64>,
+    /// Last successful work-DB flush (debounce).
+    work_flush_at: Option<Instant>,
+    /// Document revision last tessellated into [`Self::line_xy`] / [`Self::fill_xy`].
+    tess_rev: Option<u64>,
     /// Cached strokes for Direct2D: x0,y0,x1,y1,lw_mm,aci per segment (stride 6).
     line_xy: Vec<f32>,
     /// Interactive tool FSM (M16/M18) — shared catalog with egui.
@@ -138,6 +146,10 @@ pub struct AadtSession {
     otrack_rays_xy: Vec<f32>,
     /// Grip cache: id, idx, x, y as f32 quads.
     grip_xy: Vec<f32>,
+    /// Hot grip world position (hover / drag highlight).
+    hot_grip_xy: Option<(f64, f64)>,
+    /// Selected dimensions (indices into `document().dimensions()`).
+    selected_dimensions: Vec<usize>,
     /// Selection overlay segments.
     sel_xy: Vec<f32>,
     /// HISTORY DIFF ghost traces (removed entities from baseline).
@@ -408,6 +420,18 @@ fn rebuild_selection_lines(s: &mut AadtSession) {
             push_geom_segs(&mut s.sel_xy, &e.geometry);
         }
     }
+    // Drop stale dim indices after erase / undo.
+    let n_dims = s.inner.document().dimensions().len();
+    s.selected_dimensions.retain(|&i| i < n_dims);
+    pick::push_dimension_selection_segs(
+        s.inner.document(),
+        &s.selected_dimensions,
+        &mut s.sel_xy,
+    );
+}
+
+fn clear_dimension_selection(s: &mut AadtSession) {
+    s.selected_dimensions.clear();
 }
 
 fn circle_from_3_points(a: Point2, b: Point2, c: Point2) -> Option<(Point2, f64)> {
@@ -599,6 +623,33 @@ fn tessellate_drawlist(list: &aadt_render::DrawList, doc: &Document, out: &mut V
     }
 }
 
+fn path_after_open_save(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let mut parts = trimmed.split_whitespace();
+    let head = parts.next()?;
+    if !matches!(head.to_ascii_uppercase().as_str(), "OPEN" | "SAVE") {
+        return None;
+    }
+    let rest: Vec<&str> = parts.collect();
+    if rest.is_empty() {
+        return None;
+    }
+    let joined = rest.join(" ");
+    let path = if joined.len() >= 2
+        && ((joined.starts_with('"') && joined.ends_with('"'))
+            || (joined.starts_with('\'') && joined.ends_with('\'')))
+    {
+        joined[1..joined.len() - 1].to_string()
+    } else {
+        joined
+    };
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
+}
+
 fn track_open_save(s: &mut AadtSession, line: &str, fb: &Feedback) {
     if fb.is_err() {
         return;
@@ -609,13 +660,41 @@ fn track_open_save(s: &mut AadtSession, line: &str, fb: &Feedback) {
     };
     let up = head.to_ascii_uppercase();
     if up == "OPEN" || up == "SAVE" {
-        if let Some(path) = parts.next() {
-            if !path.is_empty() {
-                s.file_path = Some(PathBuf::from(path));
-                if up == "SAVE" {
-                    s.dirty = false;
-                }
+        if let Some(path) = path_after_open_save(line) {
+            s.file_path = Some(PathBuf::from(path));
+            if up == "SAVE" {
+                s.dirty = false;
             }
+        }
+        // Prefer engine drawing_path (work .vdb after DWG import) over import path.
+        if let Some(p) = s.inner.drawing_path() {
+            let pb = PathBuf::from(p);
+            if pb
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("vdb"))
+            {
+                s.work_path = pb;
+            }
+        }
+        if up == "OPEN" {
+            s.tess_rev = None;
+            s.dirty = false;
+        }
+        if up == "OPEN" || up == "SAVE" {
+            let _ = flush_work_db(s, true);
+        }
+    } else if matches!(up.as_str(), "COMMIT" | "AADT-COMMIT") {
+        s.dirty = false;
+        let _ = flush_work_db(s, true);
+    } else if up == "HISTORY" {
+        let sub = parts
+            .next()
+            .map(|t| t.to_ascii_uppercase())
+            .unwrap_or_default();
+        if sub == "SAVE" {
+            s.dirty = false;
+            let _ = flush_work_db(s, true);
         }
     } else if !matches!(up.as_str(), "UNDO" | "REDO" | "LIST" | "DIST" | "ZOOM" | "PAN") {
         // Heuristic: mutating commands dirty the doc (host may refine later).
@@ -626,9 +705,50 @@ fn track_open_save(s: &mut AadtSession, line: &str, fb: &Feedback) {
             );
             if !skip {
                 s.dirty = true;
+                // Do NOT flush here — tip rewrite is too heavy for the command path.
+                // Hosts call aadt_workdb_tick on a timer; tools flush on commit.
             }
         }
     }
+}
+
+fn default_work_vdb_path() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("TMP"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let dir = base.join("AADT").join("work");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("active.vdb")
+}
+
+fn bind_work_db(s: &mut AadtSession) {
+    s.work_path = default_work_vdb_path();
+    s.inner
+        .set_drawing_path(Some(s.work_path.to_string_lossy().into_owned()));
+    s.file_path = Some(s.work_path.clone());
+    s.work_flushed_rev = None;
+    s.work_flush_at = None;
+    // Realtime sync OFF — do not write an empty tip on every New/session.
+    // First SAVE / COMMIT / OPEN(import) materializes the work `.vdb` on disk.
+}
+
+fn flush_work_db(s: &mut AadtSession, force: bool) -> Result<(), String> {
+    let rev = s.inner.revision();
+    if !force && s.work_flushed_rev == Some(rev) {
+        return Ok(());
+    }
+    if let Some(parent) = s.work_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    aadt_vdb::save_path(s.inner.document(), &s.work_path).map_err(|e| e.to_string())?;
+    s.work_flushed_rev = Some(rev);
+    s.work_flush_at = Some(Instant::now());
+    if s.inner.drawing_path().is_none() {
+        s.inner
+            .set_drawing_path(Some(s.work_path.to_string_lossy().into_owned()));
+    }
+    Ok(())
 }
 
 fn clear_tool(s: &mut AadtSession) {
@@ -1014,6 +1134,12 @@ fn rebuild_preview(s: &mut AadtSession) {
 }
 
 fn feed_line(s: &mut AadtSession, line: &str) {
+    let mut parts = line.split_whitespace();
+    let head = parts.next().unwrap_or("").to_ascii_uppercase();
+    // Entity SELECT / SELECT NONE drops annotation selection (dims have no EntityId).
+    if head == "SELECT" {
+        clear_dimension_selection(s);
+    }
     let fb = s.inner.feed(line);
     track_open_save(s, line, &fb);
     s.last_feedback = feedback_cstring(&fb);
@@ -1269,6 +1395,8 @@ fn commit_tool(s: &mut AadtSession) -> bool {
         return false;
     };
     feed_line(s, &line);
+    s.dirty = true;
+    // Realtime tip sync OFF — disk flush only on SAVE / COMMIT / explicit workdb_flush.
     if token == "INSERT" {
         if s.place_flip {
             // Flip last INSERT about local X (door swing).
@@ -1368,11 +1496,15 @@ pub extern "C" fn aadt_session_new() -> *mut AadtSession {
     register(&mut interp);
     let session = Session::from_interpreter(interp);
     let current_layer = session.document().active_category_layer();
-    Box::into_raw(Box::new(AadtSession {
+    let mut s = AadtSession {
         inner: session,
         last_feedback: CString::new("").unwrap(),
         file_path: None,
         dirty: false,
+        work_path: default_work_vdb_path(),
+        work_flushed_rev: None,
+        work_flush_at: None,
+        tess_rev: None,
         line_xy: Vec::new(),
         engine: CommandEngine::default(),
         tool_id: None,
@@ -1398,6 +1530,8 @@ pub extern "C" fn aadt_session_new() -> *mut AadtSession {
         otrack_on: true,
         otrack_rays_xy: Vec::new(),
         grip_xy: Vec::new(),
+        hot_grip_xy: None,
+        selected_dimensions: Vec::new(),
         sel_xy: Vec::new(),
         history_trace_xy: Vec::new(),
         ortho_on: false,
@@ -1417,7 +1551,9 @@ pub extern "C" fn aadt_session_new() -> *mut AadtSession {
         pick_add: false,
         fill_xy: Vec::new(),
         nav_pending: None,
-    }))
+    };
+    bind_work_db(&mut s);
+    Box::into_raw(Box::new(s))
 }
 
 /// Free a session created by [`aadt_session_new`].
@@ -1427,7 +1563,9 @@ pub extern "C" fn aadt_session_new() -> *mut AadtSession {
 #[no_mangle]
 pub unsafe extern "C" fn aadt_session_free(session: *mut AadtSession) {
     if !session.is_null() {
-        drop(Box::from_raw(session));
+        let mut s = Box::from_raw(session);
+        let _ = flush_work_db(&mut s, true);
+        drop(s);
     }
 }
 
@@ -1734,8 +1872,10 @@ pub unsafe extern "C" fn aadt_entity_prop_summary(
         .unwrap_or(ptr::null_mut())
 }
 
-/// Pick nearest entity within `tol` (world units), run `SELECT <id>` or
-/// `SELECT NONE`. Returns 1 on hit (writes `*out_id`), 0 on miss/clear.
+/// Pick nearest entity or dimension within `tol` (world units).
+/// Entities → `SELECT <id>` / `SELECT NONE`. Dimensions update
+/// [`AadtSession::selected_dimensions`] (no EntityId). Returns 1 on hit
+/// (writes entity id into `*out_id`, or 0 for a dimension hit), 0 on miss/clear.
 /// `out_id` may be null.
 ///
 /// # Safety
@@ -1753,50 +1893,90 @@ pub unsafe extern "C" fn aadt_pick_at(
     }
     let s = &mut *session;
     let p = Point2::new(x, y);
-    let hit = pick::pick_entity_linear(s.inner.document(), p, tol.max(1e-9));
-    let line = if s.pick_add {
-        match hit {
-            Some(id) => {
-                let mut ids: Vec<u64> = s.inner.selection().iter().map(|e| e.0).collect();
-                if let Some(pos) = ids.iter().position(|&x| x == id.0) {
-                    ids.remove(pos);
-                } else {
-                    ids.push(id.0);
-                }
-                if ids.is_empty() {
-                    "SELECT NONE".into()
-                } else {
-                    format!(
-                        "SELECT {}",
-                        ids.iter()
-                            .map(|i| i.to_string())
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    )
-                }
-            }
-            None => "SELECT NONE".into(),
-        }
-    } else {
-        match hit {
-            Some(id) => format!("SELECT {}", id.0),
-            None => "SELECT NONE".to_string(),
-        }
+    let tol = tol.max(1e-9);
+    // Closest-wins: a dim line often sits near its source entity — prefer the
+    // nearer of entity vs dimension so dims are actually selectable.
+    let ent = pick::pick_entity_dist(s.inner.document(), p, tol);
+    let dim = pick::pick_dimension_dist(s.inner.document(), p, tol);
+    let prefer_dim = match (ent, dim) {
+        (Some((ed, _)), Some((dd, _))) => dd <= ed,
+        (None, Some(_)) => true,
+        (Some(_), None) => false,
+        (None, None) => false,
     };
-    let fb = s.inner.feed(&line);
-    s.last_feedback = feedback_cstring(&fb);
-    rebuild_selection_lines(s);
-    if let Some(id) = hit {
+
+    if prefer_dim {
+        if let Some((_, di)) = dim {
+            if s.pick_add {
+                if let Some(pos) = s.selected_dimensions.iter().position(|&x| x == di) {
+                    s.selected_dimensions.remove(pos);
+                } else {
+                    s.selected_dimensions.push(di);
+                }
+            } else {
+                // Clear entities without wiping the dim we are about to select.
+                let fb = s.inner.feed("SELECT NONE");
+                s.last_feedback = feedback_cstring(&fb);
+                s.selected_dimensions.clear();
+                s.selected_dimensions.push(di);
+                s.last_feedback = CString::new("1 dimension selected").unwrap_or_default();
+            }
+            s.hot_grip_xy = None;
+            rebuild_selection_lines(s);
+            if !out_id.is_null() {
+                *out_id = 0;
+            }
+            return 1;
+        }
+    }
+
+    if let Some((_, id)) = ent {
+        let line = if s.pick_add {
+            let mut ids: Vec<u64> = s.inner.selection().iter().map(|e| e.0).collect();
+            if let Some(pos) = ids.iter().position(|&x| x == id.0) {
+                ids.remove(pos);
+            } else {
+                ids.push(id.0);
+            }
+            if ids.is_empty() {
+                "SELECT NONE".into()
+            } else {
+                format!(
+                    "SELECT {}",
+                    ids.iter()
+                        .map(|i| i.to_string())
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                )
+            }
+        } else {
+            format!("SELECT {}", id.0)
+        };
+        if s.pick_add {
+            // Keep annotation selection; do not route through feed_line (clears dims).
+            let fb = s.inner.feed(&line);
+            s.last_feedback = feedback_cstring(&fb);
+        } else {
+            feed_line(s, &line); // clears dims on replace
+        }
+        s.hot_grip_xy = None;
+        rebuild_selection_lines(s);
         if !out_id.is_null() {
             *out_id = id.0;
         }
-        1
-    } else {
-        if !out_id.is_null() {
-            *out_id = 0;
-        }
-        0
+        return 1;
     }
+
+    // Miss: clear entities + dimensions.
+    clear_dimension_selection(s);
+    let fb = s.inner.feed("SELECT NONE");
+    s.last_feedback = feedback_cstring(&fb);
+    s.hot_grip_xy = None;
+    rebuild_selection_lines(s);
+    if !out_id.is_null() {
+        *out_id = 0;
+    }
+    0
 }
 
 /// Document revision (increments on mutating edits).
@@ -1857,6 +2037,9 @@ pub unsafe extern "C" fn aadt_drawlist_len(session: *mut AadtSession) -> u64 {
 /// Rebuild the tessellated stroke cache from the current drawlist. Returns the
 /// number of floats (multiple of 6: x0,y0,x1,y1,lw_mm,aci per seg).
 ///
+/// Skips work when [`Document::revision`] matches the last tessellation — hosts
+/// may call this every pointer move without paying full rebuild cost.
+///
 /// # Safety
 /// `session` must be valid.
 #[no_mangle]
@@ -1865,9 +2048,24 @@ pub unsafe extern "C" fn aadt_drawlist_rebuild_lines(session: *mut AadtSession) 
         return 0;
     }
     let s = &mut *session;
-    let list = s.inner.drawlist().clone();
-    tessellate_drawlist(&list, s.inner.document(), &mut s.line_xy);
-    rebuild_fills_from_drawlist(&list, &mut s.fill_xy);
+    // Never flush the work DB from the draw path — tip rewrite stalls the UI.
+    let rev = s.inner.revision();
+    if s.tess_rev == Some(rev) {
+        return s.line_xy.len() as u64;
+    }
+    s.inner.refresh_draw_cache();
+    // Take buffers so we can borrow the drawlist/document without cloning.
+    let mut line_xy = std::mem::take(&mut s.line_xy);
+    let mut fill_xy = std::mem::take(&mut s.fill_xy);
+    {
+        let list = s.inner.cached_drawlist();
+        let doc = s.inner.document();
+        tessellate_drawlist(list, doc, &mut line_xy);
+        rebuild_fills_from_drawlist(list, &mut fill_xy);
+    }
+    s.line_xy = line_xy;
+    s.fill_xy = fill_xy;
+    s.tess_rev = Some(rev);
     s.line_xy.len() as u64
 }
 
@@ -2529,8 +2727,8 @@ pub unsafe extern "C" fn aadt_tool_set_cursor(session: *mut AadtSession, x: f64,
     }
     let s = &mut *session;
     if s.tool_token.is_none() {
-        // Still update snap marker for idle hover when enabled.
-        let _ = snap_world(s, x, y, 1.0);
+        // Idle hover: no osnap scan (CAD-like — snap runs during commands only).
+        s.snap_xy = None;
         return;
     }
     let (sx, sy) = snap_world(s, x, y, 1.0);
@@ -2609,10 +2807,53 @@ pub unsafe extern "C" fn aadt_tool_preview_copy_lines(
 }
 
 /// ABI version (bump when breaking C layouts).
-/// 11 plot/PDF · 12 layer TSV LTYPE/LW · 13 stroke pack lw_mm+aci · 14 drawing props.
+/// 11 plot/PDF · 12 layer TSV LTYPE/LW · 13 stroke pack lw_mm+aci · 14 drawing props
+/// · 15 work-DB flush / revision-gated tessellation
+/// · 16 dim pick · hot grip · osnap mode bitmask.
 #[no_mangle]
 pub extern "C" fn aadt_ffi_version() -> u32 {
-    14
+    16
+}
+
+/// Force-flush the tip into the local work `.vdb` (disk SoT). Returns 0 ok, 1 err.
+///
+/// # Safety
+/// `session` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn aadt_workdb_flush(session: *mut AadtSession) -> i32 {
+    if session.is_null() {
+        return 1;
+    }
+    i32::from(flush_work_db(&mut *session, true).is_err())
+}
+
+/// Formerly debounced tip flush. **Realtime sync is OFF** — this is a no-op.
+/// Use [`aadt_workdb_flush`] or `COMMIT` / `SAVE` for disk writes.
+///
+/// # Safety
+/// `session` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn aadt_workdb_tick(session: *mut AadtSession) -> i32 {
+    if session.is_null() {
+        return 1;
+    }
+    let _ = session;
+    0
+}
+
+/// Heap UTF-8 path of the local work `.vdb`. Free with [`aadt_string_free`].
+///
+/// # Safety
+/// `session` must be valid.
+#[no_mangle]
+pub unsafe extern "C" fn aadt_workdb_path(session: *const AadtSession) -> *mut c_char {
+    if session.is_null() {
+        return ptr::null_mut();
+    }
+    let s = (*session).work_path.to_string_lossy();
+    CString::new(s.as_ref().replace('\0', ""))
+        .map(|c| c.into_raw())
+        .unwrap_or(ptr::null_mut())
 }
 
 fn drawing_props_pack(p: &DrawingProperties) -> String {
@@ -2726,6 +2967,24 @@ pub unsafe extern "C" fn aadt_osnap_set(session: *mut AadtSession, on: i32) {
     (*session).osnap_on = on != 0;
 }
 
+/// Running object-snap mode bitmask (`OSNAP_END` … — see aadt_app::osnap).
+#[no_mangle]
+pub unsafe extern "C" fn aadt_osnap_modes_get(session: *const AadtSession) -> u32 {
+    if session.is_null() {
+        return osnap::OSNAP_MODE_DEFAULT;
+    }
+    (*session).osnap.modes
+}
+
+/// Set running object-snap mode bitmask. `0` disables all discrete kinds.
+#[no_mangle]
+pub unsafe extern "C" fn aadt_osnap_modes_set(session: *mut AadtSession, modes: u32) {
+    if session.is_null() {
+        return;
+    }
+    (*session).osnap.modes = modes;
+}
+
 /// Write last snap marker into out2 (x,y). Returns 1 if active snap, else 0.
 #[no_mangle]
 pub unsafe extern "C" fn aadt_osnap_marker(session: *const AadtSession, out2: *mut f64) -> i32 {
@@ -2740,6 +2999,28 @@ pub unsafe extern "C" fn aadt_osnap_marker(session: *const AadtSession, out2: *m
         }
         None => 0,
     }
+}
+
+/// Number of selected dimensions (annotation table indices).
+#[no_mangle]
+pub unsafe extern "C" fn aadt_selection_dim_count(session: *const AadtSession) -> u64 {
+    if session.is_null() {
+        return 0;
+    }
+    (*session).selected_dimensions.len() as u64
+}
+
+/// Clear entity + dimension selection (SELECT NONE + dims).
+#[no_mangle]
+pub unsafe extern "C" fn aadt_selection_clear(session: *mut AadtSession) {
+    if session.is_null() {
+        return;
+    }
+    let s = &mut *session;
+    clear_dimension_selection(s);
+    feed_line(s, "SELECT NONE");
+    s.hot_grip_xy = None;
+    rebuild_selection_lines(s);
 }
 
 /// Window (left→right) or crossing (right→left) box select. Replaces selection.
@@ -2771,7 +3052,11 @@ pub unsafe extern "C" fn aadt_select_box(
         RegionMode::Window
     };
     let ids = select_in_polygon(s.inner.document(), &poly, mode);
-    apply_selection_ids(s, &ids)
+    let dims = pick::dimension_box_select(s.inner.document(), lo, hi, crossing);
+    let n = apply_selection_ids(s, &ids);
+    s.selected_dimensions = dims;
+    rebuild_selection_lines(s);
+    n + s.selected_dimensions.len() as u64
 }
 
 fn finish_region_select(s: &mut AadtSession) {
@@ -2793,6 +3078,7 @@ fn finish_region_select(s: &mut AadtSession) {
 }
 
 fn apply_selection_ids(s: &mut AadtSession, ids: &[EntityId]) -> u64 {
+    clear_dimension_selection(s);
     if ids.is_empty() {
         feed_line(s, "SELECT NONE");
         rebuild_selection_lines(s);
@@ -3260,12 +3546,38 @@ pub unsafe extern "C" fn aadt_grip_pick(
     }
     match best {
         Some((_, id, idx)) => {
+            let (gx, gy) = s
+                .grip_xy
+                .chunks_exact(4)
+                .find(|c| c[0] as u64 == id && c[1] as u64 == idx)
+                .map(|c| (c[2] as f64, c[3] as f64))
+                .unwrap_or((x, y));
+            s.hot_grip_xy = Some((gx, gy));
             if !out_id.is_null() {
                 *out_id = id;
             }
             if !out_idx.is_null() {
                 *out_idx = idx;
             }
+            1
+        }
+        None => {
+            s.hot_grip_xy = None;
+            0
+        }
+    }
+}
+
+/// Write hot grip world (x,y) into out2. Returns 1 if a grip is hot.
+#[no_mangle]
+pub unsafe extern "C" fn aadt_hot_grip(session: *const AadtSession, out2: *mut f64) -> i32 {
+    if session.is_null() || out2.is_null() {
+        return 0;
+    }
+    match (*session).hot_grip_xy {
+        Some((x, y)) => {
+            *out2 = x;
+            *out2.add(1) = y;
             1
         }
         None => 0,
@@ -3503,12 +3815,15 @@ pub unsafe extern "C" fn aadt_session_reset(session: *mut AadtSession) {
     s.inner = fresh;
     s.file_path = None;
     s.dirty = false;
+    s.tess_rev = None;
     s.line_xy.clear();
     s.hatch_pattern = "SOLID".into();
     s.hatch_pattern_c = CString::new("SOLID").unwrap_or_default();
     s.otrack.clear();
     s.otrack_rays_xy.clear();
     s.grip_xy.clear();
+    s.hot_grip_xy = None;
+    s.selected_dimensions.clear();
     s.sel_xy.clear();
     s.ortho_on = false;
     s.polar_on = false;
@@ -3527,6 +3842,7 @@ pub unsafe extern "C" fn aadt_session_reset(session: *mut AadtSession) {
     s.pick_add = false;
     s.fill_xy.clear();
     s.nav_pending = None;
+    bind_work_db(s);
     s.last_feedback = CString::new("New drawing").unwrap_or_default();
 }
 
@@ -3638,8 +3954,50 @@ mod tests {
     use std::ffi::CString;
 
     #[test]
-    fn abi_version_is_14() {
-        assert_eq!(aadt_ffi_version(), 14);
+    fn abi_version_is_16() {
+        assert_eq!(aadt_ffi_version(), 16);
+    }
+
+    #[test]
+    fn pick_at_selects_dimension_over_nearby_entity() {
+        let session = aadt_session_new();
+        unsafe {
+            let line = CString::new("LINE 0 0 10 0").unwrap();
+            assert_eq!(aadt_session_feed(session, line.as_ptr()), 0);
+            // Dim line / text at y=2 — closer to (5,2) than the entity at y=0.
+            let dim = CString::new("DIM 0 0 10 0 5 2 AN-DIMS").unwrap();
+            assert_eq!(aadt_session_feed(session, dim.as_ptr()), 0);
+            assert!(aadt_entity_count(session) >= 1);
+            let mut id = 99u64;
+            assert_eq!(aadt_pick_at(session, 5.0, 2.0, 0.75, &mut id), 1);
+            assert_eq!(id, 0, "dimension hit should report entity id 0");
+            assert_eq!(aadt_selection_dim_count(session), 1);
+            assert_eq!(aadt_selection_count(session), 0);
+            aadt_session_free(session);
+        }
+    }
+
+    #[test]
+    fn drawlist_rebuild_is_revision_gated() {
+        let session = aadt_session_new();
+        let line = CString::new("LINE 0 0 10 0").unwrap();
+        unsafe {
+            assert_eq!(
+                aadt_session_feed(session, line.as_ptr()),
+                0,
+                "{}",
+                cstr_msg(session)
+            );
+            let n1 = aadt_drawlist_rebuild_lines(session);
+            assert!(n1 >= 6);
+            let n2 = aadt_drawlist_rebuild_lines(session);
+            assert_eq!(n1, n2, "second rebuild must reuse tessellation cache");
+            assert_eq!(aadt_workdb_flush(session), 0);
+            let path = aadt_workdb_path(session);
+            assert!(!path.is_null());
+            aadt_string_free(path);
+            aadt_session_free(session);
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 /* aadt_ffi.h — C ABI for WinUI / Direct2D host (ADR-0017 / M16–M24).
  * Link against aadt_ffi.dll built from crates/aadt-ffi.
- * ABI version: aadt_ffi_version() == 14
+ * ABI version: aadt_ffi_version() == 16
  */
 #pragma once
 
@@ -45,8 +45,9 @@ AADT_API uint64_t aadt_selection_copy_ids(const AadtSession* session, uint64_t* 
 /* Heap UTF-8 Properties: newline-separated "Label\tValue" rows (Type, Layer,
  * Color, Linetype, Lineweight, geometry/text fields…). Free with aadt_string_free. */
 AADT_API char* aadt_entity_prop_summary(const AadtSession* session, uint64_t entity_id);
-/* Pick nearest entity; SELECT id or SELECT NONE.
- * Returns 1 on hit (writes *out_id), 0 on miss/clear. out_id may be null. */
+/* Pick nearest entity or dimension; SELECT id / SELECT NONE / dim highlight.
+ * Returns 1 on hit (entity id in *out_id, or 0 for dimension), 0 on miss.
+ * out_id may be null. */
 AADT_API int32_t aadt_pick_at(AadtSession* session, double x, double y, double tol,
                               uint64_t* out_id);
 
@@ -84,9 +85,14 @@ AADT_API uint64_t aadt_tool_preview_copy_lines(const AadtSession* session, float
 
 /* --- M19 osnap + box select --- */
 AADT_API void aadt_osnap_set(AadtSession* session, int32_t on);
+/* Running snap kinds bitmask: END=1 INT=2 MID=4 CEN=8 QUA=16 NEA=32 PER=64 TAN=128 */
+AADT_API uint32_t aadt_osnap_modes_get(const AadtSession* session);
+AADT_API void aadt_osnap_modes_set(AadtSession* session, uint32_t modes);
 AADT_API int32_t aadt_osnap_marker(const AadtSession* session, double* out2);
 AADT_API uint64_t aadt_select_box(AadtSession* session, double x0, double y0, double x1,
                                   double y1);
+AADT_API uint64_t aadt_selection_dim_count(const AadtSession* session);
+AADT_API void aadt_selection_clear(AadtSession* session);
 
 /* --- M18 Layers / Blocks / catalog --- */
 /* Heap TSV: name\taci\ton\tfrozen\tlocked\tcurrent\tlinetype\tlw_mm. Free with aadt_string_free. */
@@ -121,9 +127,11 @@ AADT_API uint64_t aadt_otrack_rays_copy(const AadtSession* session, float* out, 
 /* Grips for current selection: id,idx,x,y as float quads. */
 AADT_API uint64_t aadt_grips_rebuild(AadtSession* session);
 AADT_API uint64_t aadt_grips_copy(const AadtSession* session, float* out, uint64_t max_floats);
-/* Pick grip within tol; returns 1 and writes *out_id / *out_idx. */
+/* Pick grip within tol; returns 1 and writes *out_id / *out_idx (sets hot grip). */
 AADT_API int32_t aadt_grip_pick(AadtSession* session, double x, double y, double tol,
                                 uint64_t* out_id, uint64_t* out_idx);
+/* Hot grip world x,y — returns 1 if set. */
+AADT_API int32_t aadt_hot_grip(const AadtSession* session, double* out2);
 /* Commit GRIPEDIT. Returns 0 ok. */
 AADT_API int32_t aadt_grip_move(AadtSession* session, uint64_t id, uint64_t grip_idx, double nx,
                                 double ny);
@@ -158,6 +166,14 @@ AADT_API int32_t aadt_plot_setup(AadtSession* session, const char* paper);
 AADT_API char* aadt_drawing_props_get(const AadtSession* session);
 /* Apply key\tvalue rows. Returns 0 ok. */
 AADT_API int32_t aadt_drawing_props_set(AadtSession* session, const char* pack);
+
+/* --- Local ShilpiDB work DB (ABI 15) --- */
+/* Force tip → %LocalAppData%\AADT\work\active.vdb (or OPEN .vdb). 0 = ok. */
+AADT_API int32_t aadt_workdb_flush(AadtSession* session);
+/* Realtime sync OFF — no-op. Use flush / COMMIT / SAVE for disk writes. */
+AADT_API int32_t aadt_workdb_tick(AadtSession* session);
+/* Heap UTF-8 work .vdb path. Free with aadt_string_free. */
+AADT_API char* aadt_workdb_path(const AadtSession* session);
 
 #ifdef __cplusplus
 }

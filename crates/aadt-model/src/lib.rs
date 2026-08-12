@@ -2004,8 +2004,19 @@ impl Document {
         if !tx.ops.is_empty() {
             self.undo_stack.push(tx);
             self.redo_stack.clear();
+            // Cap undo depth so long sessions do not keep unbounded entity clones in RAM.
+            // Durable tip lives on the local work `.vdb` (disk), not in the undo stack.
+            const MAX_UNDO: usize = 32;
+            while self.undo_stack.len() > MAX_UNDO {
+                self.undo_stack.remove(0);
+            }
         }
         result
+    }
+
+    /// Drop redo history (e.g. after a durable COMMIT to disk).
+    pub fn clear_redo(&mut self) {
+        self.redo_stack.clear();
     }
 
     pub fn can_undo(&self) -> bool {

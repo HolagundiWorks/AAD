@@ -9,6 +9,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <unordered_map>
+#include <utility>
+#include <vector>
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "d3d11.lib")
@@ -24,19 +27,41 @@ void safeRelease(T*& p) {
   }
 }
 
+uint32_t batchKey(uint8_t aci, float lwMm) {
+  // Quantize lineweight so near-identical weights share one PathGeometry.
+  const int q = static_cast<int>(std::lround(lwMm * 100.f));
+  return (static_cast<uint32_t>(aci) << 16) | static_cast<uint32_t>(q & 0xffff);
+}
+
 } // namespace
 
 SwapChainCanvas::SwapChainCanvas() = default;
 
 SwapChainCanvas::~SwapChainCanvas() { discardAll(); }
 
+void SwapChainCanvas::discardScene() {
+  for (auto& b : strokeBatches_) {
+    safeRelease(b.geom);
+  }
+  strokeBatches_.clear();
+  for (auto& f : fillBatches_) {
+    safeRelease(f.geom);
+  }
+  fillBatches_.clear();
+  sceneDirty_ = true;
+}
+
+void SwapChainCanvas::invalidateScene() { sceneDirty_ = true; }
+
 void SwapChainCanvas::discardTarget() {
   safeRelease(cursorBrush_);
+  safeRelease(hotGripBrush_);
   safeRelease(gripBrush_);
   safeRelease(previewBrush_);
   safeRelease(selectionBrush_);
   safeRelease(fillBrush_);
   safeRelease(brush_);
+  safeRelease(fixedStroke_);
   if (dc_) {
     dc_->SetTarget(nullptr);
   }
@@ -44,6 +69,7 @@ void SwapChainCanvas::discardTarget() {
 }
 
 void SwapChainCanvas::discardAll() {
+  discardScene();
   discardTarget();
   safeRelease(dc_);
   safeRelease(d2dDevice_);
@@ -136,12 +162,24 @@ HRESULT SwapChainCanvas::createTarget() {
   if (FAILED(hr)) {
     return hr;
   }
-  // AutoCAD grip fill (white) — edge drawn with selectionBrush_
   hr = dc_->CreateSolidColorBrush(D2D1::ColorF(1.f, 1.f, 1.f), &gripBrush_);
   if (FAILED(hr)) {
     return hr;
   }
-  return dc_->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.18f), &cursorBrush_);
+  // Radiant Orange accent for the hot grip.
+  hr = dc_->CreateSolidColorBrush(D2D1::ColorF(1.f, 0.31f, 0.094f), &hotGripBrush_);
+  if (FAILED(hr)) {
+    return hr;
+  }
+  hr = dc_->CreateSolidColorBrush(D2D1::ColorF(0.15f, 0.15f, 0.18f), &cursorBrush_);
+  if (FAILED(hr)) {
+    return hr;
+  }
+  // Stroke widths stay in screen DIPs while geometry is in world space.
+  const D2D1_STROKE_STYLE_PROPERTIES1 ssp = D2D1::StrokeStyleProperties1(
+      D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_MITER,
+      10.0f, D2D1_DASH_STYLE_SOLID, 0.0f, D2D1_STROKE_TRANSFORM_TYPE_FIXED);
+  return factory_->CreateStrokeStyle(ssp, nullptr, 0, &fixedStroke_);
 }
 
 bool SwapChainCanvas::attach(IUnknown* panel) {
@@ -217,7 +255,6 @@ void SwapChainCanvas::resize(float widthDips, float heightDips, float scaleX, fl
     return;
   }
 
-  // WinUI SwapChainPanel: inverse composition scale so the buffer fills the panel.
   IDXGISwapChain2* sc2 = nullptr;
   if (SUCCEEDED(swapChain_->QueryInterface(IID_PPV_ARGS(&sc2))) && sc2) {
     DXGI_MATRIX_3X2_F inverse{};
@@ -230,15 +267,69 @@ void SwapChainCanvas::resize(float widthDips, float heightDips, float scaleX, fl
   createTarget();
 }
 
-void SwapChainCanvas::setLines(const std::vector<float>& xy) { lines_ = xy; }
+void SwapChainCanvas::setLines(const std::vector<float>& xy) {
+  linesView_ = nullptr;
+  linesViewN_ = 0;
+  if (xy.size() == lines_.size() && (xy.empty() || xy.data() == lines_.data())) {
+    return;
+  }
+  lines_ = xy;
+  invalidateScene();
+}
 
-void SwapChainCanvas::setFills(const std::vector<float>& pack) { fills_ = pack; }
+void SwapChainCanvas::setLinesView(const float* data, size_t count) {
+  lines_.clear();
+  lines_.shrink_to_fit();
+  // Host calls this only when tess pack changed — always REGEN the display list.
+  linesView_ = data;
+  linesViewN_ = count;
+  invalidateScene();
+}
 
-void SwapChainCanvas::setSelection(const std::vector<float>& xy) { selection_ = xy; }
+void SwapChainCanvas::setFills(const std::vector<float>& pack) {
+  fillsView_ = nullptr;
+  fillsViewN_ = 0;
+  if (pack.size() == fills_.size() && (pack.empty() || pack.data() == fills_.data())) {
+    return;
+  }
+  fills_ = pack;
+  invalidateScene();
+}
 
-void SwapChainCanvas::setPreview(const std::vector<float>& xy) { preview_ = xy; }
+void SwapChainCanvas::setFillsView(const float* data, size_t count) {
+  fills_.clear();
+  fills_.shrink_to_fit();
+  fillsView_ = data;
+  fillsViewN_ = count;
+  invalidateScene();
+}
 
-void SwapChainCanvas::setGrips(const std::vector<float>& xy) { grips_ = xy; }
+void SwapChainCanvas::setSelection(const std::vector<float>& xy) {
+  if (xy.size() == selection_.size() && (xy.empty() || xy.data() == selection_.data())) {
+    return;
+  }
+  selection_ = xy;
+}
+
+void SwapChainCanvas::setPreview(const std::vector<float>& xy) {
+  if (xy.size() == preview_.size() && (xy.empty() || xy.data() == preview_.data())) {
+    return;
+  }
+  preview_ = xy;
+}
+
+void SwapChainCanvas::setGrips(const std::vector<float>& xy) {
+  if (xy.size() == grips_.size() && (xy.empty() || xy.data() == grips_.data())) {
+    return;
+  }
+  grips_ = xy;
+}
+
+void SwapChainCanvas::setHotGrip(float wx, float wy, bool visible) {
+  hotGripX_ = wx;
+  hotGripY_ = wy;
+  hotGripVisible_ = visible;
+}
 
 void SwapChainCanvas::setCursorDip(float x, float y, bool visible) {
   cursorX_ = x;
@@ -375,6 +466,125 @@ float SwapChainCanvas::worldY(float screenY) const {
   return (originY_ - screenY) / scale_;
 }
 
+D2D1_MATRIX_3X2_F SwapChainCanvas::worldToScreen() const {
+  // sx = originX + wx * scale ; sy = originY - wy * scale
+  return D2D1::Matrix3x2F(scale_, 0.f, 0.f, -scale_, originX_, originY_);
+}
+
+void SwapChainCanvas::rebuildSceneIfNeeded() {
+  if (!sceneDirty_ || !factory_) {
+    return;
+  }
+  // Clear batches without flipping dirty (we are about to rebuild).
+  for (auto& b : strokeBatches_) {
+    safeRelease(b.geom);
+  }
+  strokeBatches_.clear();
+  for (auto& f : fillBatches_) {
+    safeRelease(f.geom);
+  }
+  fillBatches_.clear();
+  sceneDirty_ = false;
+
+  const float* lines = linesView_ ? linesView_ : lines_.data();
+  const size_t linesN = linesView_ ? linesViewN_ : lines_.size();
+  if (lines && linesN > 0) {
+    const bool styled = (linesN % 6) == 0;
+    const size_t stride = styled ? 6 : 4;
+
+    struct Acc {
+      uint8_t aci;
+      float lwMm;
+      std::vector<D2D1_POINT_2F> pts; // pairs: a,b,a,b,…
+    };
+    std::unordered_map<uint32_t, Acc> map;
+    map.reserve(64);
+
+    for (size_t i = 0; i + stride - 1 < linesN; i += stride) {
+      float lwMm = 0.25f;
+      uint8_t aci = 7;
+      if (styled) {
+        lwMm = lines[i + 4];
+        aci = static_cast<uint8_t>(
+            (std::clamp)(static_cast<int>(lines[i + 5] + 0.5f), 0, 255));
+      }
+      const uint32_t key = batchKey(aci, lwMm);
+      Acc& acc = map[key];
+      if (acc.pts.empty()) {
+        acc.aci = aci;
+        acc.lwMm = lwMm;
+      }
+      // World-space endpoints — transform applied at Present time.
+      acc.pts.push_back(D2D1::Point2F(lines[i], lines[i + 1]));
+      acc.pts.push_back(D2D1::Point2F(lines[i + 2], lines[i + 3]));
+    }
+
+    strokeBatches_.reserve(map.size());
+    for (auto& kv : map) {
+      Acc& acc = kv.second;
+      if (acc.pts.size() < 2) {
+        continue;
+      }
+      ID2D1PathGeometry* geom = nullptr;
+      if (FAILED(factory_->CreatePathGeometry(&geom)) || !geom) {
+        continue;
+      }
+      ID2D1GeometrySink* sink = nullptr;
+      if (FAILED(geom->Open(&sink)) || !sink) {
+        geom->Release();
+        continue;
+      }
+      for (size_t i = 0; i + 1 < acc.pts.size(); i += 2) {
+        sink->BeginFigure(acc.pts[i], D2D1_FIGURE_BEGIN_HOLLOW);
+        sink->AddLine(acc.pts[i + 1]);
+        sink->EndFigure(D2D1_FIGURE_END_OPEN);
+      }
+      sink->Close();
+      sink->Release();
+      StrokeBatch b;
+      b.aci = acc.aci;
+      b.lwMm = acc.lwMm;
+      b.geom = geom;
+      strokeBatches_.push_back(b);
+    }
+  }
+
+  const float* fills = fillsView_ ? fillsView_ : fills_.data();
+  const size_t fillsN = fillsView_ ? fillsViewN_ : fills_.size();
+  if (fills && fillsN > 0) {
+    size_t i = 0;
+    while (i + 2 < fillsN) {
+      const int nPts = static_cast<int>(fills[i]);
+      const float alpha = fills[i + 1];
+      i += 2;
+      if (nPts < 3 || i + static_cast<size_t>(nPts) * 2 > fillsN) {
+        break;
+      }
+      ID2D1PathGeometry* geom = nullptr;
+      if (SUCCEEDED(factory_->CreatePathGeometry(&geom)) && geom) {
+        ID2D1GeometrySink* sink = nullptr;
+        if (SUCCEEDED(geom->Open(&sink)) && sink) {
+          sink->BeginFigure(D2D1::Point2F(fills[i], fills[i + 1]), D2D1_FIGURE_BEGIN_FILLED);
+          for (int p = 1; p < nPts; ++p) {
+            sink->AddLine(D2D1::Point2F(fills[i + static_cast<size_t>(p) * 2],
+                                        fills[i + static_cast<size_t>(p) * 2 + 1]));
+          }
+          sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+          sink->Close();
+          sink->Release();
+          FillBatch fb;
+          fb.alpha = alpha > 0.f ? alpha : 0.35f;
+          fb.geom = geom;
+          fillBatches_.push_back(fb);
+        } else {
+          geom->Release();
+        }
+      }
+      i += static_cast<size_t>(nPts) * 2;
+    }
+  }
+}
+
 void SwapChainCanvas::render() {
   if (!dc_ || !target_) {
     if (FAILED(createTarget())) {
@@ -385,93 +595,66 @@ void SwapChainCanvas::render() {
     return;
   }
 
+  rebuildSceneIfNeeded();
+
   dc_->BeginDraw();
-  // Pure white paper (model space).
   dc_->Clear(D2D1::ColorF(1.f, 1.f, 1.f));
 
-  // Solid hatch fills under strokes (pack: n_pts, alpha, xy…).
-  if (fillBrush_ && factory_ && !fills_.empty()) {
-    size_t i = 0;
-    while (i + 2 < fills_.size()) {
-      const int nPts = static_cast<int>(fills_[i]);
-      const float alpha = fills_[i + 1];
-      i += 2;
-      if (nPts < 3 || i + static_cast<size_t>(nPts) * 2 > fills_.size()) {
-        break;
+  // --- Scene (retained display list) under world→screen transform ---
+  const D2D1_MATRIX_3X2_F view = worldToScreen();
+  dc_->SetTransform(view);
+
+  if (fillBrush_) {
+    for (const auto& fb : fillBatches_) {
+      if (!fb.geom) {
+        continue;
       }
-      ID2D1PathGeometry* path = nullptr;
-      if (SUCCEEDED(factory_->CreatePathGeometry(&path)) && path) {
-        ID2D1GeometrySink* sink = nullptr;
-        if (SUCCEEDED(path->Open(&sink)) && sink) {
-          const float x0 = originX_ + fills_[i] * scale_;
-          const float y0 = originY_ - fills_[i + 1] * scale_;
-          sink->BeginFigure(D2D1::Point2F(x0, y0), D2D1_FIGURE_BEGIN_FILLED);
-          for (int p = 1; p < nPts; ++p) {
-            const float x = originX_ + fills_[i + static_cast<size_t>(p) * 2] * scale_;
-            const float y = originY_ - fills_[i + static_cast<size_t>(p) * 2 + 1] * scale_;
-            sink->AddLine(D2D1::Point2F(x, y));
-          }
-          sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-          sink->Close();
-          sink->Release();
-          fillBrush_->SetColor(D2D1::ColorF(0.45f, 0.52f, 0.62f, alpha > 0.f ? alpha : 0.35f));
-          dc_->FillGeometry(path, fillBrush_);
-        }
-        path->Release();
-      }
-      i += static_cast<size_t>(nPts) * 2;
+      fillBrush_->SetColor(D2D1::ColorF(0.45f, 0.52f, 0.62f, fb.alpha));
+      dc_->FillGeometry(fb.geom, fillBrush_);
     }
   }
 
-  // Entity strokes — stride 6: x0,y0,x1,y1,lw_mm,aci (legacy stride-4 also accepted).
-  if (brush_ && !lines_.empty()) {
-    const bool styled = (lines_.size() % 6) == 0;
-    const size_t stride = styled ? 6 : 4;
-    for (size_t i = 0; i + stride - 1 < lines_.size(); i += stride) {
-      const float x0 = originX_ + lines_[i] * scale_;
-      const float y0 = originY_ - lines_[i + 1] * scale_;
-      const float x1 = originX_ + lines_[i + 2] * scale_;
-      const float y1 = originY_ - lines_[i + 3] * scale_;
-      float lwMm = 0.25f;
-      uint8_t aci = 7;
-      if (styled) {
-        lwMm = lines_[i + 4];
-        aci = static_cast<uint8_t>(
-            (std::clamp)(static_cast<int>(lines_[i + 5] + 0.5f), 0, 255));
+  if (brush_) {
+    for (const auto& b : strokeBatches_) {
+      if (!b.geom) {
+        continue;
       }
-      float r = 0.1f, g = 0.1f, b = 0.1f;
-      aciBrushColor(aci, r, g, b);
-      brush_->SetColor(D2D1::ColorF(r, g, b));
-      // ISO mm → screen px (egui peer: scale * 25.4/plot * 0.15); plot≈100.
+      float r = 0.1f, g = 0.1f, bl = 0.1f;
+      aciBrushColor(b.aci, r, g, bl);
+      brush_->SetColor(D2D1::ColorF(r, g, bl));
       float stroke = 1.25f;
-      if (showLineweights_ && styled) {
-        stroke = (lwMm * scale_ * (25.4f / 100.f) * 0.15f);
+      if (showLineweights_) {
+        stroke = (b.lwMm * scale_ * (25.4f / 100.f) * 0.15f);
         stroke = (std::clamp)(stroke, 0.8f, 10.f);
       }
-      dc_->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), brush_, stroke);
+      dc_->DrawGeometry(b.geom, brush_, stroke, fixedStroke_);
     }
   }
+
+  // Selection / preview / grips in world space (same transform).
   if (selectionBrush_) {
+    selectionBrush_->SetColor(D2D1::ColorF(0.12f, 0.47f, 1.0f));
     for (size_t i = 0; i + 3 < selection_.size(); i += 4) {
-      const float x0 = originX_ + selection_[i] * scale_;
-      const float y0 = originY_ - selection_[i + 1] * scale_;
-      const float x1 = originX_ + selection_[i + 2] * scale_;
-      const float y1 = originY_ - selection_[i + 3] * scale_;
-      dc_->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), selectionBrush_, 2.5f);
+      dc_->DrawLine(D2D1::Point2F(selection_[i], selection_[i + 1]),
+                    D2D1::Point2F(selection_[i + 2], selection_[i + 3]), selectionBrush_, 2.5f,
+                    fixedStroke_);
     }
   }
   if (previewBrush_) {
     previewBrush_->SetColor(D2D1::ColorF(0.45f, 0.45f, 0.5f));
     for (size_t i = 0; i + 3 < preview_.size(); i += 4) {
-      const float x0 = originX_ + preview_[i] * scale_;
-      const float y0 = originY_ - preview_[i + 1] * scale_;
-      const float x1 = originX_ + preview_[i + 2] * scale_;
-      const float y1 = originY_ - preview_[i + 3] * scale_;
-      dc_->DrawLine(D2D1::Point2F(x0, y0), D2D1::Point2F(x1, y1), previewBrush_, 1.0f);
+      dc_->DrawLine(D2D1::Point2F(preview_[i], preview_[i + 1]),
+                    D2D1::Point2F(preview_[i + 2], preview_[i + 3]), previewBrush_, 1.0f,
+                    fixedStroke_);
     }
   }
+  if (gripBrush_ && selectionBrush_ && !grips_.empty()) {
+    // Grips are screen-fixed size — draw in screen space below.
+  }
 
-  // AutoCAD grips — white fill + blue edge, fixed screen size.
+  // --- Screen-space overlays (identity transform) ---
+  dc_->SetTransform(D2D1::Matrix3x2F::Identity());
+
   if (gripBrush_ && selectionBrush_ && !grips_.empty()) {
     constexpr float kGripHalf = 4.f;
     selectionBrush_->SetColor(D2D1::ColorF(0.12f, 0.47f, 1.0f));
@@ -484,10 +667,19 @@ void SwapChainCanvas::render() {
       dc_->DrawRectangle(rc, selectionBrush_, 1.5f);
     }
   }
+  if (hotGripVisible_ && hotGripBrush_ && selectionBrush_) {
+    constexpr float kHotHalf = 6.f;
+    const float sx = originX_ + hotGripX_ * scale_;
+    const float sy = originY_ - hotGripY_ * scale_;
+    const D2D1_RECT_F rc =
+        D2D1::RectF(sx - kHotHalf, sy - kHotHalf, sx + kHotHalf, sy + kHotHalf);
+    dc_->FillRectangle(rc, hotGripBrush_);
+    selectionBrush_->SetColor(D2D1::ColorF(0.08f, 0.08f, 0.1f));
+    dc_->DrawRectangle(rc, selectionBrush_, 2.f);
+  }
 
-  // AutoCAD crosshair — fixed size matching suite clock Viewbox (72 DIP).
   if (cursorVisible_ && cursorBrush_) {
-    constexpr float kCross = 72.f; // same as AnalogueClock Viewbox
+    constexpr float kCross = 72.f;
     constexpr float kHalf = kCross * 0.5f;
     constexpr float kPick = 5.f;
     cursorBrush_->SetColor(D2D1::ColorF(0.12f, 0.12f, 0.14f));

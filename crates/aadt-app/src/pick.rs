@@ -3,9 +3,13 @@
 //! Distance predicates match the egui viewport. An optional [`SpatialGrid`]
 //! narrows candidates via [`aadt_vdb::query_index_point`]; the precise hit is
 //! always the same nearest-distance rule as a full scan.
+//!
+//! Dimensions live in a separate annotation table (no [`EntityId`]) — use
+//! [`pick_dimension`] for click select.
 
-use aadt_geometry::Point2;
+use aadt_geometry::{Point2, Segment};
 use aadt_model::{Document, EntityId, Geometry};
+use aadt_render::{dimension_commands, DrawCommand};
 use aadt_vdb::{query_index_point, SpatialGrid};
 
 /// True when an entity may be picked (visible + unlocked layer).
@@ -146,6 +150,125 @@ pub fn pick_entity(doc: &Document, index: Option<&SpatialGrid>, p: Point2, tol: 
     match index {
         Some(ix) if ix.len() > 0 => pick_entity_indexed(doc, ix, p, tol),
         _ => pick_entity_linear(doc, p, tol),
+    }
+}
+
+/// Nearest dimension (index into [`Document::dimensions`]) within `tol`.
+pub fn pick_dimension(doc: &Document, p: Point2, tol: f64) -> Option<usize> {
+    pick_dimension_dist(doc, p, tol).map(|(_, i)| i)
+}
+
+/// Like [`pick_dimension`], but also returns the hit distance.
+pub fn pick_dimension_dist(doc: &Document, p: Point2, tol: f64) -> Option<(f64, usize)> {
+    let active = doc.active_space();
+    let props = doc.properties();
+    let mut best: Option<(f64, usize)> = None;
+    for (i, dim) in doc.dimensions().iter().enumerate() {
+        if dim.space != active || !entity_pickable(doc, &dim.layer) {
+            continue;
+        }
+        let d = dimension_hit_dist(dim, props, p);
+        if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, i));
+        }
+    }
+    best
+}
+
+/// Nearest pickable entity within `tol`, with distance (for closest-wins vs dims).
+pub fn pick_entity_dist(doc: &Document, p: Point2, tol: f64) -> Option<(f64, EntityId)> {
+    let active = doc.active_space();
+    let mut best: Option<(f64, EntityId)> = None;
+    for e in doc.iter_entities_in_space(active) {
+        if !entity_pickable(doc, &e.layer) {
+            continue;
+        }
+        let d = entity_distance(doc, &e.geometry, p);
+        if d <= tol && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, e.id));
+        }
+    }
+    best
+}
+
+/// Min distance from `p` to a dimension's drawn primitives.
+pub fn dimension_hit_dist(
+    dim: &aadt_model::Dimension,
+    props: &aadt_model::DrawingProperties,
+    p: Point2,
+) -> f64 {
+    let mut best = f64::INFINITY;
+    for cmd in dimension_commands(dim, props) {
+        match cmd {
+            DrawCommand::Polyline { points, .. } => {
+                for w in points.windows(2) {
+                    best = best.min(Segment::new(w[0], w[1]).distance_to_point(p));
+                }
+            }
+            DrawCommand::Text { position, .. } => best = best.min(p.distance(position)),
+            _ => {}
+        }
+    }
+    best
+}
+
+/// Dimensions caught by a box. Window needs every drawn point inside; crossing
+/// needs any point inside.
+pub fn dimension_box_select(doc: &Document, lo: Point2, hi: Point2, crossing: bool) -> Vec<usize> {
+    let active = doc.active_space();
+    let props = doc.properties();
+    let in_box = |p: Point2| p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y;
+    let mut hits = Vec::new();
+    for (i, dim) in doc.dimensions().iter().enumerate() {
+        if dim.space != active || !entity_pickable(doc, &dim.layer) {
+            continue;
+        }
+        let (mut all_in, mut any_in, mut saw) = (true, false, false);
+        for cmd in dimension_commands(dim, props) {
+            match cmd {
+                DrawCommand::Polyline { points, .. } => {
+                    for &pt in &points {
+                        saw = true;
+                        let inside = in_box(pt);
+                        any_in |= inside;
+                        all_in &= inside;
+                    }
+                }
+                DrawCommand::Text { position, .. } => {
+                    saw = true;
+                    let inside = in_box(position);
+                    any_in |= inside;
+                    all_in &= inside;
+                }
+                _ => {}
+            }
+        }
+        if saw && if crossing { any_in } else { all_in } {
+            hits.push(i);
+        }
+    }
+    hits
+}
+
+/// Append world-space segments for selected dimension indices into `out`
+/// (x0,y0,x1,y1 floats) for selection highlight.
+pub fn push_dimension_selection_segs(doc: &Document, indices: &[usize], out: &mut Vec<f32>) {
+    let props = doc.properties();
+    let dims = doc.dimensions();
+    for &idx in indices {
+        let Some(dim) = dims.get(idx) else {
+            continue;
+        };
+        for cmd in dimension_commands(dim, props) {
+            if let DrawCommand::Polyline { points, .. } = cmd {
+                for w in points.windows(2) {
+                    out.push(w[0].x as f32);
+                    out.push(w[0].y as f32);
+                    out.push(w[1].x as f32);
+                    out.push(w[1].y as f32);
+                }
+            }
+        }
     }
 }
 

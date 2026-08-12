@@ -116,6 +116,9 @@ when drawing units are **ft-in** (model inches).
 ## HCW suite peers (kept, compacted)
 
 - ActionDock collapsed by default (menus cover New/Open/Save).
+- **File → Import DWG…** / **Export DWG…** / **Save As…** — engine `OPEN` /
+  `SAVE` with extension routing (`.dwg` via acadrust 2D subset; also DXF /
+  `.aadt` / `.vdb`). See [`dwg-fidelity-matrix.md`](./interop/dwg-fidelity-matrix.md).
 - AnalogueClock + Pomodoro at BR, **0.57×** visual (Viewbox 72) so paper stays primary.
 - Licence chip on status strip — Activate only in Connect.
 - **Corner radius 0** everywhere (CAD square chrome — AADT exception to suite 8px).
