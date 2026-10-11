@@ -1,0 +1,24 @@
+[package]
+name = "cadcraft-aorms"
+description = "AAD's connection to AORMS: shared sign-in, one session per app, project info pull (contract 2026-10-aqc-1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# OS credential store for the sign-in shared with the other AORMS desktop apps (Windows Credential Manager, macOS Keychain,
+# Linux keyutils). Off by default so the library and CI need no platform keychain; the desktop app turns it on.
+keyring-store = ["dep:keyring"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# Network and OS credentials exist on native builds only; the web (wasm) build gets "not available".
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = { version = "2", default-features = false, features = ["tls"] }
+keyring = { version = "3", default-features = false, features = ["windows-native", "apple-native", "linux-native"], optional = true }
