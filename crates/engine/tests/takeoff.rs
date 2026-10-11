@@ -118,7 +118,7 @@ fn areas_columns_slab_and_rectangles() {
     on(&mut s, "MEASURE-AREA");
     s.execute("circle", &json!({"center": [0, 0], "radius": 1000})).unwrap();
     let r = s.execute("takeoff.area", &json!({"table": false})).unwrap();
-    assert!((r["items"][0]["area"].as_f64().unwrap() - 3.14).abs() < 0.01);
+    assert!((r["items"][0]["area"].as_f64().unwrap() - std::f64::consts::PI).abs() < 0.01);
 }
 
 #[test]

@@ -90,7 +90,7 @@ pub fn specs() -> Vec<CommandSpec> {
 // ---------------------------------------------------------------------------------------------
 // Context, units and rounding
 
-struct Ctx {
+pub(crate) struct Ctx {
     unit: Unit,
     /// Label text height in drawing units (about 125 mm of real size).
     th: f64,
@@ -154,7 +154,7 @@ struct Wall {
     handle: Handle,
 }
 
-fn segments_of(kind: &EntityKind) -> Vec<Segment> {
+pub(crate) fn segments_of(kind: &EntityKind) -> Vec<Segment> {
     match kind {
         EntityKind::Line(l) => vec![Segment::Line(cadcraft_geom::Line::new(l.a.xy(), l.b.xy()))],
         EntityKind::Arc(a) => {
@@ -733,7 +733,7 @@ fn rect_size(sh: &Shape) -> Option<(f64, f64)> {
     }
     let (a, b) = (p[0].dist(p[1]), p[1].dist(p[2]));
     let ok = (p[0].dist(p[2]) - p[1].dist(p[3])).abs() <= 1e-6 * (a + b);
-    ok.then(|| if a >= b { (a, b) } else { (b, a) })
+    ok.then_some(if a >= b { (a, b) } else { (b, a) })
 }
 
 fn run_columns(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1017,4 +1017,14 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Ok(json!({ "files": files }))
     }
+}
+
+/// A context for drawing tables only (text height `th`, no units).
+pub(crate) fn table_ctx(th: f64) -> Ctx {
+    Ctx { unit: Unit::M, th, tol: 0.0 }
+}
+
+/// Draw a table with its top-left corner at `at` on `MEASURE-TABLE`.
+pub(crate) fn table(s: &mut Session, c: &Ctx, at: Vec2, title: &str, header: &[String], rows: &[Vec<String>]) -> Result<()> {
+    draw_table(s, c, at, title, header, rows)
 }
