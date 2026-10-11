@@ -212,6 +212,9 @@ impl DocState {
                         }
                     });
                 }
+                // The viewport shows the model through this view, so the drawn content changes: redraw
+                // it now. (Without this the display list kept the old view until another edit.)
+                self.revision += 1;
             }
             return;
         }
