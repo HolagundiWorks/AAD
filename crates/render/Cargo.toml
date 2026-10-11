@@ -16,4 +16,9 @@ cadcraft-fonts = { workspace = true }
 tiny-skia = { workspace = true }
 
 [dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 serde_json = { workspace = true }
+
+[[bench]]
+name = "render"
+harness = false

@@ -1,0 +1,84 @@
+# Scheduled quality checks: long mutation runs against the file readers, the DWG worker, a
+# dependency audit, and a report that says what was run and what failed. Nothing here changes the
+# repository or publishes anything.
+name: CAD nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Mutants per seed file (default 4000)"
+        required: false
+        default: "4000"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  mutation:
+    name: long mutation runs
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Pick a seed that changes every night
+        id: seed
+        shell: bash
+        run: echo "seed=$(date +%j)000" >> "$GITHUB_OUTPUT"
+      - name: DXF reader (text corruption)
+        env:
+          AAD_MUTATION_ITERS: ${{ github.event.inputs.iterations || '4000' }}
+          AAD_MUTATION_SEED: ${{ steps.seed.outputs.seed }}
+        run: cargo test -p cadcraft-io --test mutation_robustness
+      - name: DWG reader (through the worker process)
+        env:
+          AAD_MUTATION_ITERS: "1500"
+          AAD_MUTATION_SEED: ${{ steps.seed.outputs.seed }}
+        run: cargo test -p cadcraft-cli --test dwg_isolation corrupted -- --nocapture
+      - name: Report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Nightly mutation runs"
+            echo
+            echo "- Seed start: ${{ steps.seed.outputs.seed }}"
+            echo "- DXF mutants per file: ${{ github.event.inputs.iterations || '4000' }}"
+            echo "- Job status: ${{ job.status }}"
+            echo
+            if ls target/quality/crashes/*-seed* >/dev/null 2>&1; then
+              echo "### Inputs that failed (attached as an artifact)"
+              ls -1 target/quality/crashes/*-seed*
+            else
+              echo "No failing inputs were saved."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep failing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-crash-inputs
+          path: target/quality/crashes/
+          if-no-files-found: ignore
+
+  audit:
+    name: dependency audit
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit the lockfile against the RustSec advisory database
+        run: cargo audit

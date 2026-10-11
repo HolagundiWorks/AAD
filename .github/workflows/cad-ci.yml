@@ -1,0 +1,67 @@
+# Quality gate for every pull request and every push to main: formatting, lint, the whole test
+# suite (unit, integration, regression, mutation smoke), repository checks (assets, layering,
+# wasm compile) and a release build. Windows is the supported platform for now, so the jobs run
+# there; macOS and Linux get their own jobs in the later phases.
+#
+# The same gate runs locally with `cargo xtask ci`; `tools/quality/baseline.ps1` records timings.
+# Long-running work (large mutation runs, dependency audit, trends) is in cad-nightly.yml so a
+# pull request stays fast.
+name: CAD CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  gate:
+    name: fmt, clippy, tests, repository checks
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo xtask ci (fmt, clippy -D warnings, tests, assets, layers, wasm)
+        run: cargo xtask ci
+      - name: Mutation robustness (larger than the in-suite run)
+        env:
+          AAD_MUTATION_ITERS: "600"
+          AAD_MUTATION_SEED: "100000"
+        run: cargo test -p cadcraft-io --test mutation_robustness -p cadcraft-cli --test dwg_isolation
+      - name: Keep any crash input for reproduction
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-inputs
+          path: target/quality/crashes/
+          if-no-files-found: ignore
+
+  release-build:
+    name: release build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Release build of the program and the command-line tool
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli
+      - name: The command-line tool runs
+        run: target/release/cadcraft-cli.exe --version
