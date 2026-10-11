@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+pub mod autocollapse;
 pub mod blocks;
 pub mod canvas;
 pub mod chrome;
@@ -78,6 +79,10 @@ pub struct UiState {
     pub workspace: WorkspaceMode,
     /// Whether the palettes were open when Pro was entered, restored when Classic returns.
     pub classic_palettes: bool,
+    /// Keep the side panels open. Unpinned, they collapse after `auto_collapse_ms` away from the pointer.
+    pub pin_panels: bool,
+    /// Milliseconds before unpinned panels collapse.
+    pub auto_collapse_ms: u32,
 }
 
 /// The workspace. Pro hides the persistent toolbars and side palettes for a full-screen drafting
@@ -169,6 +174,8 @@ impl Default for UiState {
             save_format: SaveFormat::default(),
             workspace: WorkspaceMode::default(),
             classic_palettes: true,
+            pin_panels: true,
+            auto_collapse_ms: 1500,
         }
     }
 }
@@ -186,6 +193,8 @@ pub struct CadApp {
     pub ui: UiState,
     pub services: Services,
     pub canvas: canvas::CanvasState,
+    /// Pin and auto-collapse state of the side panels.
+    pub collapse: autocollapse::CollapseState,
     pub cmd: cmdline::CmdLine,
     pub status: Option<(String, f64)>,
     pub integrated_titlebar: bool,
@@ -217,6 +226,7 @@ impl CadApp {
             ui: UiState::default(),
             services,
             canvas: canvas::CanvasState::default(),
+            collapse: autocollapse::CollapseState::default(),
             cmd: cmdline::CmdLine::default(),
             status: None,
             integrated_titlebar: false,
@@ -315,6 +325,8 @@ impl CadApp {
             "grid": self.session.settings.gridmode,
             "gridSnap": self.session.settings.snapmode,
             "workspace": self.ui.workspace.as_str(),
+            "pinPanels": self.ui.pin_panels,
+            "autoCollapseMs": self.ui.auto_collapse_ms,
             "classicPalettes": self.ui.classic_palettes,
         })
         .to_string()
@@ -323,6 +335,12 @@ impl CadApp {
     /// Restore preferences saved by [`Self::prefs_json`]; unknown or malformed values are ignored.
     pub fn load_prefs(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
+        if let Some(p) = v.get("pinPanels").and_then(Value::as_bool) {
+            self.ui.pin_panels = p;
+        }
+        if let Some(ms) = v.get("autoCollapseMs").and_then(Value::as_u64) {
+            self.ui.auto_collapse_ms = ms.clamp(250, 30_000) as u32;
+        }
         if let Some(p) = v.get("classicPalettes").and_then(Value::as_bool) {
             self.ui.classic_palettes = p;
         }
@@ -482,13 +500,18 @@ impl CadApp {
             toolbars::draw_toolbar(self, ui);
             toolbars::modify_toolbar(self, ui);
         }
+        let mut dock = egui::Rect::NOTHING;
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+            dock = ui.max_rect();
             if has_doc {
                 docking::show(self, ui);
             } else {
                 chrome::start_page(self, ui);
             }
         });
+        if has_doc {
+            autocollapse::run(self, ui.ctx(), dock);
+        }
         dialogs::show(self, ui.ctx());
         closing::prompt(self, ui.ctx());
         self.frame_ms = now_ms() - t0;

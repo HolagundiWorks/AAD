@@ -1000,3 +1000,14 @@
 	Pro Workspace	Про робочий простір
 	Toggle Pro/Classic Workspace	Перемкнути Pro/Класичний простір
 	Workspace	Робочий простір
+	Block definitions	Визначення блоків
+	No drawing open	Немає відкритого креслення
+	This drawing defines no blocks.	У цьому кресленні немає блоків.
+	objects	об’єктів
+	references	посилань
+	Insert the selected block (asks for the insertion point)	Вставити вибраний блок (запитує точку вставки)
+	Select references	Вибрати посилання
+	Attribute definitions	Визначення атрибутів
+	Edit attribute values on a reference with ATTEDIT.	Значення атрибутів посилання редагуйте командою ATTEDIT.
+	External references are not supported.	Зовнішні посилання не підтримуються.
+	Pin Side Panels	Закріпити бічні панелі

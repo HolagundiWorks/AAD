@@ -22,6 +22,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.toggle.filetabs", "File Tab", &["Window", "File Tab"], None),
     ("ui.toggle.statusbar", "Status Bar", &["Window", "Status Bar"], None),
     ("ui.toggle.cmdline", "Command Line", &["Window", "Command Line"], Some("Cmd+9")),
+    ("ui.toggle.pinpanels", "Pin Side Panels", &["Window", "Pin Side Panels"], None),
     ("ui.toggle.ucsicon", "UCS Icon", &["View", "UCS Icon", "On"], None),
     ("ui.theme.toggle", "Toggle Light/Dark Theme", &["View", "Toggle Light/Dark Theme"], None),
     ("ui.workspace", "Workspace", &[], None),
@@ -137,6 +138,10 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             app.session.open_drawing(d, "Bracket", None);
             app.canvas.zoom_pending = true;
             app.ui.start_tab = false;
+            Ok(Value::Null)
+        }
+        "ui.toggle.pinpanels" => {
+            toggle(&mut app.ui.pin_panels, params);
             Ok(Value::Null)
         }
         "ui.toggle.palettes" => {

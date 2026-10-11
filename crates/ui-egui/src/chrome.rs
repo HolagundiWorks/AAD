@@ -387,8 +387,18 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         // Coordinates.
         let coord = app.canvas.cursor.map(|c| {
             let (lu, lp) = app.session.doc().map(|d| (d.header.i64("LUNITS", 2), d.header.i64("LUPREC", 4))).unwrap_or((2, 4));
+            let units = match app.session.doc().map(|d| d.header.i64("INSUNITS", 0)).unwrap_or(0) {
+                1 => "in",
+                2 => "ft",
+                4 => "mm",
+                5 => "cm",
+                6 => "m",
+                _ => "units",
+            };
+            let selected = app.session.selection().len();
+            let sel = if selected > 0 { format!("  |  {selected} selected") } else { String::new() };
             format!(
-                "{}, {}, {}",
+                "{}, {}, {}  ({units}){sel}",
                 cadcraft_engine::units::format_distance(c.x, lu, lp),
                 cadcraft_engine::units::format_distance(c.y, lu, lp),
                 cadcraft_engine::units::format_distance(0.0, lu, lp)

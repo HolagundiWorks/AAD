@@ -18,7 +18,7 @@ marks, isometric drafting).
 | Layouts and output | Paper-space layouts, viewports, page setup, PDF plotting |
 | Maintenance | `PURGE`, `AUDIT`, `RECOVER`, `FLATTEN` ([maintenance.md](maintenance.md)) |
 | Architectural tools | `hcwlayers` (HCW and building-permission layer sets), `room` (room labels with area), `rarea` ([hcw-kit-port.md](hcw-kit-port.md)) |
-| Interface | Command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, tool sets, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
+| Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
 | AI agent tool layer | Allow-listed, validated tools for flatten, audit, purge, recover, summary ([ai-agent.md](ai-agent.md)) |
 

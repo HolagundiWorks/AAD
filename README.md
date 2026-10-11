@@ -84,6 +84,7 @@ tool layer is built and tested; the Qwen3-1.7B model runtime is not integrated y
 | File | Contents |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Crates, layering, data model, commands, rendering, files |
+| [docs/workspaces.md](docs/workspaces.md) | Pro and Classic workspaces, panels, property toolbar, text editing, hatch selection |
 | [docs/maintenance.md](docs/maintenance.md) | Flatten on import, `PURGE`, `AUDIT`, `RECOVER`, backups |
 | [docs/ai-agent.md](docs/ai-agent.md) | Local AI agent: tools, validation, confirmation, loop limits |
 | [docs/status.md](docs/status.md) | Implemented and planned functionality |

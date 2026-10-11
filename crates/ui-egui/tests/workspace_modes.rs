@@ -76,3 +76,38 @@ fn workspace_mode_is_saved_with_the_preferences() {
 fn has(h: &Harness<'_, CadApp>, label: &str) -> bool {
     h.query_all_by_label(label).next().is_some()
 }
+
+#[test]
+fn unpinned_panels_collapse_away_from_the_pointer_and_return_at_the_edge_strip() {
+    let mut h = harness();
+    let before = h.state().canvas.rect.unwrap();
+    h.state_mut().ui.pin_panels = false;
+    h.state_mut().ui.auto_collapse_ms = 60;
+    let circle = h.state().session.doc().unwrap().model.iter().nth(1).unwrap().handle;
+    h.state_mut().session.set_selection(vec![circle]);
+    let drawing = h.state().session.doc().unwrap().clone();
+    // Pointer in the middle of the drawing: not over any panel.
+    h.event(egui::Event::PointerMoved(before.center()));
+    for _ in 0..8 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    assert!(!h.state().ui.show_palettes, "collapsed after the delay");
+    assert!(h.state().collapse.auto_collapsed);
+    let after = h.state().canvas.rect.unwrap();
+    assert!(after.width() > before.width(), "the drawing area grew into the freed space");
+    assert_eq!(h.state().session.selection(), vec![circle]);
+    assert_eq!(h.state().session.doc().unwrap(), &drawing);
+    // Moving to the left edge strip opens them again.
+    h.event(egui::Event::PointerMoved(egui::pos2(after.left() + 2.0, after.center().y)));
+    h.run_steps(3);
+    assert!(h.state().ui.show_palettes, "edge strip expands the panels");
+    // Pinning keeps them open however long the pointer is away.
+    h.state_mut().ui.pin_panels = true;
+    h.event(egui::Event::PointerMoved(h.state().canvas.rect.unwrap().center()));
+    for _ in 0..8 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+    assert!(h.state().ui.show_palettes);
+}
