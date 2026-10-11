@@ -63,7 +63,7 @@ fn title_left(left: f32, width: f32, text_w: f32) -> f32 {
 pub fn title_and_toolbar(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     let title_h = if app.integrated_titlebar { MAC_TITLE_BAR } else { 0.0 };
-    let tb_h = if app.ui.show_toolbar { 34.0 } else { 0.0 };
+    let tb_h = if app.toolbars_shown() { 34.0 } else { 0.0 };
     egui::Panel::top("cc_title_toolbar").exact_size(title_h + tb_h).frame(egui::Frame::NONE.fill(t.chrome)).show(ui, |ui| {
         let r = ui.max_rect();
         if title_h > 0.0 {
@@ -343,10 +343,11 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             (Icon::QuickProps, s.qpmode, "qpmode", "Quick Properties"),
             (Icon::Annotation, s.annoallvisible, "ui.noop", "Annotation Visibility"),
             (Icon::Workspace, false, "ui.noop", "Workspace Switching"),
+            (Icon::List, app.ui.show_command_line, "ui.toggle.cmdline", "Command Line (Ctrl+9)"),
             (Icon::Gear, false, "ui.dialog.dsettings", "Drafting Settings"),
         ];
         let size = 20.0;
-        let mut rx = r.right() - 8.0 - 60.0 - toggles.len() as f32 * (size + 4.0);
+        let mut rx = r.right() - 8.0 - 60.0 - 128.0 - toggles.len() as f32 * (size + 4.0);
         // Light/dark theme toggle at the far right: it shows the theme it switches to.
         let theme_br = Rect::from_min_max(pos2(r.right() - 8.0 - 52.0, r.center().y - 9.0), pos2(r.right() - 8.0, r.center().y + 9.0));
         let theme_label = if app.ui.theme == crate::theme::ThemePref::Dark { "Light" } else { "Dark" };
@@ -355,6 +356,33 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         p.text(theme_br.center(), egui::Align2::CENTER_CENTER, crate::i18n::t(theme_label), crate::theme::small(), t.text);
         if theme_resp.on_hover_text(crate::tl!("Switch between the light and dark theme")).clicked() {
             let _ = app.run("ui.theme.toggle", json!({}));
+        }
+        // Workspace selector `Pro | Classic` left of the theme toggle; the active side is lit.
+        let ws_w = 112.0;
+        let ws_br = Rect::from_min_max(pos2(theme_br.left() - 8.0 - ws_w, r.center().y - 9.0), pos2(theme_br.left() - 8.0, r.center().y + 9.0));
+        p.rect_filled(ws_br, 3.0, t.control);
+        for (i, (mode, label)) in [(crate::WorkspaceMode::Pro, "Pro"), (crate::WorkspaceMode::Classic, "Classic")].into_iter().enumerate() {
+            let half = Rect::from_min_max(
+                pos2(ws_br.left() + if i == 0 { 0.0 } else { 40.0 }, ws_br.top()),
+                pos2(if i == 0 { ws_br.left() + 40.0 } else { ws_br.right() }, ws_br.bottom()),
+            );
+            let resp = ui.interact(half, ui.id().with(("workspace", label)), Sense::click());
+            let active = app.ui.workspace == mode;
+            if active {
+                p.rect_filled(half, 3.0, t.accent);
+            } else if resp.hovered() {
+                p.rect_filled(half, 3.0, t.control_hover);
+            }
+            p.text(half.center(), egui::Align2::CENTER_CENTER, label, crate::theme::small(), if active { egui::Color32::WHITE } else { t.text });
+            icons::describe_control(ui, &resp, label, Some(active), false);
+            let tip = if mode == crate::WorkspaceMode::Pro {
+                "Pro: full-screen drafting, no toolbars or palettes"
+            } else {
+                "Classic: toolbars, Properties, Layers and Blocks"
+            };
+            if resp.on_hover_text(tip).clicked() {
+                let _ = app.run(if mode == crate::WorkspaceMode::Pro { "ui.workspace.pro" } else { "ui.workspace.classic" }, json!({}));
+            }
         }
         // Coordinates.
         let coord = app.canvas.cursor.map(|c| {

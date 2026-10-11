@@ -739,6 +739,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             app.session.echo(e.to_string());
         }
     }
+    // Double-click on text starts TEXTEDIT on it (the first click of the pair selected it).
+    if inside
+        && dbl_primary
+        && app.session.running.is_none()
+        && let Some(w) = raw_world
+    {
+        edit_selected_text_at(app, w);
+    }
     // Press-and-drag selection window (AutoCAD's PICKDRAG = 2; click-click still works): a drag
     // that starts while objects are being selected opens a window where the button went down,
     // and letting go closes it. Drags on grips and drags while drawing are left alone.
@@ -1229,6 +1237,31 @@ fn grip_at(app: &CadApp, xf: &Xf, hover: Option<Pos2>) -> Option<HotGrip> {
         }
     }
     None
+}
+
+/// Start TEXTEDIT on the selected object when it is a single text, mtext, attribute definition or
+/// dimension, picking it at world point `w`. Returns whether the command started.
+pub fn edit_selected_text_at(app: &mut CadApp, w: Vec2) -> bool {
+    let editable = app.session.state().ok().and_then(|st| match st.selection.as_slice() {
+        [h] => st.doc.entity(*h).map(|e| {
+            matches!(
+                e.kind,
+                cadcraft_doc::EntityKind::Text(_)
+                    | cadcraft_doc::EntityKind::MText(_)
+                    | cadcraft_doc::EntityKind::AttDef(_)
+                    | cadcraft_doc::EntityKind::Dimension(_)
+            )
+        }),
+        _ => None,
+    });
+    if editable != Some(true) {
+        return false;
+    }
+    app.start("textedit");
+    if let Err(e) = app.session.input(Input::Point(w)) {
+        app.session.echo(e.to_string());
+    }
+    app.session.running.is_some()
 }
 
 #[cfg(test)]

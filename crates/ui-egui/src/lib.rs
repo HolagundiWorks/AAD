@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+pub mod blocks;
 pub mod canvas;
 pub mod chrome;
 pub mod clipboard;
@@ -73,6 +74,39 @@ pub struct UiState {
     pub theme: theme::ThemePref,
     /// The format Save As suggests for a drawing that has no file yet: "dxf" or "dwg".
     pub save_format: SaveFormat,
+    /// Pro or Classic workspace.
+    pub workspace: WorkspaceMode,
+    /// Whether the palettes were open when Pro was entered, restored when Classic returns.
+    pub classic_palettes: bool,
+}
+
+/// The workspace. Pro hides the persistent toolbars and side palettes for a full-screen drafting
+/// surface (command line and status bar stay); Classic shows the toolbars, the Properties panel
+/// on the left and the Layers/Blocks panel on the right. Switching changes visibility only: the
+/// drawing, selection, view and command history are untouched.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WorkspaceMode {
+    #[default]
+    Classic,
+    Pro,
+}
+
+impl WorkspaceMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WorkspaceMode::Classic => "classic",
+            WorkspaceMode::Pro => "pro",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<WorkspaceMode> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "classic" => Some(WorkspaceMode::Classic),
+            "pro" => Some(WorkspaceMode::Pro),
+            _ => None,
+        }
+    }
 }
 
 /// The default save format for new drawings, like AutoCAD's Options > Open and Save > "Save as".
@@ -118,7 +152,7 @@ impl Default for UiState {
             docking: docking::Workspace::default(),
 
             interface_language: i18n::Preference::default(),
-            show_palettes: false,
+            show_palettes: true,
             show_toolbar: true,
             show_file_tabs: true,
             show_status_bar: true,
@@ -133,6 +167,8 @@ impl Default for UiState {
             history_lines: 3,
             theme: theme::ThemePref::default(),
             save_format: SaveFormat::default(),
+            workspace: WorkspaceMode::default(),
+            classic_palettes: true,
         }
     }
 }
@@ -260,6 +296,11 @@ impl CadApp {
         Some(e)
     }
 
+    /// Whether the persistent toolbars are drawn: the Tool Bar switch is on and the workspace is Classic.
+    pub fn toolbars_shown(&self) -> bool {
+        self.ui.show_toolbar && self.ui.workspace == WorkspaceMode::Classic
+    }
+
     /// The theme the interface shows now.
     pub fn shown_theme(&self) -> egui::Theme {
         self.shown_theme.unwrap_or_else(|| self.ui.theme.resolve())
@@ -271,6 +312,10 @@ impl CadApp {
             "theme": self.ui.theme.as_str(),
             "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
+            "grid": self.session.settings.gridmode,
+            "gridSnap": self.session.settings.snapmode,
+            "workspace": self.ui.workspace.as_str(),
+            "classicPalettes": self.ui.classic_palettes,
         })
         .to_string()
     }
@@ -278,6 +323,21 @@ impl CadApp {
     /// Restore preferences saved by [`Self::prefs_json`]; unknown or malformed values are ignored.
     pub fn load_prefs(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
+        if let Some(p) = v.get("classicPalettes").and_then(Value::as_bool) {
+            self.ui.classic_palettes = p;
+        }
+        if let Some(w) = v.get("workspace").and_then(Value::as_str).and_then(WorkspaceMode::parse) {
+            self.ui.workspace = w;
+            if w == WorkspaceMode::Pro {
+                self.ui.show_palettes = false;
+            }
+        }
+        if let Some(g) = v.get("grid").and_then(Value::as_bool) {
+            self.session.settings.gridmode = g;
+        }
+        if let Some(g) = v.get("gridSnap").and_then(Value::as_bool) {
+            self.session.settings.snapmode = g;
+        }
         if let Some(t) = v.get("theme").and_then(Value::as_str).and_then(theme::ThemePref::parse) {
             self.ui.theme = t;
         }
@@ -408,7 +468,7 @@ impl CadApp {
         if !classic_order && self.ui.in_window_menu {
             menus::menu_bar(self, ui);
         }
-        if self.ui.show_toolbar {
+        if self.toolbars_shown() {
             toolbars::top_row(self, ui);
         }
         if self.ui.show_status_bar {
@@ -418,7 +478,7 @@ impl CadApp {
             chrome::file_tabs(self, ui);
         }
         let has_doc = !self.session.docs.is_empty() && !self.ui.start_tab;
-        if has_doc && self.ui.show_toolbar {
+        if has_doc && self.toolbars_shown() {
             toolbars::draw_toolbar(self, ui);
             toolbars::modify_toolbar(self, ui);
         }
@@ -566,6 +626,16 @@ mod tests {
         b.start("ui.theme.toggle");
         frame(&mut b, &ctx, None);
         assert_eq!((b.ui.theme, Tokens::get().canvas), (ThemePref::Dark, egui::Color32::BLACK));
+    }
+
+    #[test]
+    fn grid_preferences_persist() {
+        let mut a = app();
+        assert!(!a.session.settings.gridmode && !a.session.settings.snapmode);
+        a.session.settings.gridmode = true;
+        let mut b = app();
+        b.load_prefs(&a.prefs_json());
+        assert!(b.session.settings.gridmode && !b.session.settings.snapmode);
     }
 
     #[test]

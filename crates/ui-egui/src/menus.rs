@@ -24,6 +24,10 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.toggle.cmdline", "Command Line", &["Window", "Command Line"], Some("Cmd+9")),
     ("ui.toggle.ucsicon", "UCS Icon", &["View", "UCS Icon", "On"], None),
     ("ui.theme.toggle", "Toggle Light/Dark Theme", &["View", "Toggle Light/Dark Theme"], None),
+    ("ui.workspace", "Workspace", &[], None),
+    ("ui.workspace.classic", "Classic Workspace", &["Window", "Workspace", "Classic"], None),
+    ("ui.workspace.pro", "Pro Workspace", &["Window", "Workspace", "Pro"], None),
+    ("ui.workspace.toggle", "Toggle Pro/Classic Workspace", &["Window", "Toggle Pro/Classic Workspace"], Some("Ctrl+F11")),
     ("ui.theme.light", "Light", &[], None),
     ("ui.theme.dark", "Dark", &[], None),
     ("ui.theme", "Interface Theme", &[], None),
@@ -167,6 +171,20 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             toggle(&mut app.ui.in_window_menu, params);
             Ok(Value::Null)
         }
+        "ui.workspace.classic" => Ok(set_workspace(app, crate::WorkspaceMode::Classic)),
+        "ui.workspace.pro" => Ok(set_workspace(app, crate::WorkspaceMode::Pro)),
+        "ui.workspace.toggle" => {
+            let next = if app.ui.workspace == crate::WorkspaceMode::Pro { crate::WorkspaceMode::Classic } else { crate::WorkspaceMode::Pro };
+            Ok(set_workspace(app, next))
+        }
+        // `{"mode": "pro"|"classic"}` sets the workspace; without it, reports it.
+        "ui.workspace" => match params.get("mode").and_then(Value::as_str) {
+            Some(name) => match crate::WorkspaceMode::parse(name) {
+                Some(mode) => Ok(set_workspace(app, mode)),
+                None => Err(format!("unknown workspace \"{name}\" (pro or classic)")),
+            },
+            None => Ok(json!({ "workspace": app.ui.workspace.as_str() })),
+        },
         "ui.theme.toggle" => set_theme(app, app.ui.theme.toggled()),
         "ui.theme.light" | "ui.theme.dark" => {
             let pref = crate::theme::ThemePref::parse(id.trim_start_matches("ui.theme.")).unwrap_or_default();
@@ -574,4 +592,20 @@ mod units_dialog_tests {
         let h = &app.session.doc().unwrap().header;
         assert_eq!((h.i64("LUNITS", 0), h.i64("LUPREC", 0), h.i64("INSUNITS", 0)), (4, 3, 4));
     }
+}
+
+/// Switch workspace. Only visibility changes: Pro hides the toolbars and side palettes (and
+/// remembers whether the palettes were open), Classic brings them back.
+fn set_workspace(app: &mut CadApp, mode: crate::WorkspaceMode) -> Value {
+    if app.ui.workspace != mode {
+        match mode {
+            crate::WorkspaceMode::Pro => {
+                app.ui.classic_palettes = app.ui.show_palettes;
+                app.ui.show_palettes = false;
+            }
+            crate::WorkspaceMode::Classic => app.ui.show_palettes = app.ui.classic_palettes,
+        }
+        app.ui.workspace = mode;
+    }
+    json!({ "workspace": app.ui.workspace.as_str() })
 }

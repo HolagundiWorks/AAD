@@ -197,7 +197,7 @@ mod tests {
         let (mut first, restored, error) = Workspace::at(Some(path.clone()));
         assert!(restored.is_none() && error.is_none());
         let ui = UiState {
-            show_palettes: true,
+            show_palettes: false,
             show_command_line: false,
             history_lines: 5,
             dialog: Some("layers".into()),
@@ -260,7 +260,7 @@ mod tests {
             let (mut store, ui, error) = Workspace::at(Some(path.clone()));
             assert!(ui.is_none());
             assert!(error.as_deref().is_some_and(|error| error.contains("left unchanged")));
-            store.save_if_changed(&UiState { show_palettes: true, ..Default::default() }).unwrap();
+            store.save_if_changed(&UiState { show_palettes: false, ..Default::default() }).unwrap();
             assert_eq!(fs::read(&path).unwrap(), bytes);
         }
         fs::remove_dir_all(directory).unwrap();
@@ -294,7 +294,7 @@ mod tests {
         let directory = temp_dir();
         let path = directory.join("workspace.json");
         let (mut store, _, _) = Workspace::at(Some(path.clone()));
-        let mut ui = UiState { show_palettes: true, ..Default::default() };
+        let mut ui = UiState { show_palettes: false, ..Default::default() };
         store.save_if_changed(&ui).unwrap();
         let good = fs::read(&path).unwrap();
         ui.history_lines = 99;
@@ -310,13 +310,13 @@ mod tests {
         let (mut store, _, _) = Workspace::at(Some(path.clone()));
         // Simulate a destination becoming unavailable after startup.
         fs::create_dir(&path).unwrap();
-        let ui = UiState { show_palettes: true, ..Default::default() };
+        let ui = UiState { show_palettes: false, ..Default::default() };
         let first_error = store.save_if_changed(&ui).unwrap_err();
         fs::remove_dir(&path).unwrap();
         assert_eq!(store.save_if_changed(&ui).unwrap_err(), first_error);
         assert!(!path.exists(), "ordinary frames must not retry disk writes");
         store.save_on_exit(&ui).unwrap();
-        assert!(read(&path).unwrap().unwrap().show_palettes);
+        assert!(!read(&path).unwrap().unwrap().show_palettes);
         fs::remove_dir_all(directory).unwrap();
     }
 }

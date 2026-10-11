@@ -1,7 +1,7 @@
 //! Hit testing and window/crossing selection.
 
 use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, Prim, Space, entity_bounds};
-use cadcraft_geom::{Bounds2, Line, Vec2};
+use cadcraft_geom::{Bounds2, Line, Polyline, Vec2, point_in_polygon};
 
 use crate::spatial::{self, SpatialIndex};
 
@@ -69,14 +69,41 @@ fn dist_to_polyline(pts: &[Vec2], p: Vec2) -> f64 {
     pts.windows(2).filter_map(|w| Some(Line::new(*w.first()?, *w.get(1)?).dist(p))).fold(f64::INFINITY, f64::min)
 }
 
+/// Whether `p` lies in the filled area of a hatch: odd parity across all loops for the normal
+/// style, inside an outer loop (or the first loop) for the outer and ignore styles. A click
+/// between the lines of a pattern hatch is inside its area even though no line is near.
+fn inside_hatch(h: &cadcraft_doc::Hatch, p: Vec2, tol: f64) -> bool {
+    let rings: Vec<(bool, Vec<Vec2>)> = h
+        .loops
+        .iter()
+        .map(|l| {
+            let pts = Polyline { vertices: l.vertices.clone(), closed: true }.tessellate(tol);
+            (l.outer, pts)
+        })
+        .filter(|(_, pts)| pts.len() >= 3)
+        .collect();
+    if h.style == 0 {
+        rings.iter().filter(|(_, pts)| point_in_polygon(pts, p)).count() % 2 == 1
+    } else {
+        let any_outer = rings.iter().any(|(o, _)| *o);
+        rings.iter().enumerate().any(|(i, (o, pts))| (*o || (!any_outer && i == 0)) && point_in_polygon(pts, p))
+    }
+}
 /// Distance from `p` to the entity (0 inside text boxes and solid fills).
 pub fn entity_distance(d: &Drawing, e: &Entity, p: Vec2, tol: f64) -> f64 {
     let polys = hit_polylines(d, e, tol);
     let mut best = polys.iter().map(|pl| dist_to_polyline(pl, p)).fold(f64::INFINITY, f64::min);
-    let filled = matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::AttDef(_) | EntityKind::Solid(_) | EntityKind::Table(_))
-        || matches!(&e.kind, EntityKind::Hatch(h) if h.solid);
+    let filled = matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::AttDef(_) | EntityKind::Solid(_) | EntityKind::Table(_));
     if filled && entity_bounds(d, e, 0).contains(p) {
         best = 0.0;
+    }
+    // A hatch is picked anywhere inside its area, but as a last resort: its boundary and any other
+    // object within the pick aperture (4 × `tol`) win over it, so the hatch and its boundary
+    // geometry stay independently selectable.
+    if let EntityKind::Hatch(h) = &e.kind
+        && inside_hatch(h, p, tol)
+    {
+        best = best.min(tol * 3.9);
     }
     best
 }

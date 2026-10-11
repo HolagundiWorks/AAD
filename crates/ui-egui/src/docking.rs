@@ -12,15 +12,17 @@ pub enum Panel {
     Canvas,
     Layers,
     Properties,
+    Blocks,
 }
 
 impl Panel {
-    pub const ALL: &[Self] = &[Self::Canvas, Self::Layers, Self::Properties];
+    pub const ALL: &[Self] = &[Self::Canvas, Self::Layers, Self::Properties, Self::Blocks];
     pub fn id(self) -> &'static str {
         match self {
             Self::Canvas => "canvas",
             Self::Layers => "layers",
             Self::Properties => "properties",
+            Self::Blocks => "blocks",
         }
     }
     fn label(self) -> &'static str {
@@ -28,13 +30,15 @@ impl Panel {
             Self::Canvas => "Drawing",
             Self::Layers => "Layers",
             Self::Properties => "Properties",
+            Self::Blocks => "Blocks",
         }
     }
     fn default_side(self) -> Zone {
         match self {
             Self::Canvas => Zone::Right,
             Self::Layers => Zone::Right,
-            Self::Properties => Zone::Right,
+            Self::Properties => Zone::Left,
+            Self::Blocks => Zone::Right,
         }
     }
     fn parse(id: &str) -> Result<Self, String> {
@@ -68,14 +72,14 @@ impl Default for Workspace {
             layout: Layout {
                 root: Some(split(
                     SplitAxis::Horizontal,
-                    SplitSize::FixedSecond(300.0),
-                    tabs(Panel::Canvas),
-                    Node::Stack {
-                        entries: vec![
-                            craft_ui::docking::StackEntry { panel: Panel::Layers, open: true, height: Some(280.0) },
-                            craft_ui::docking::StackEntry { panel: Panel::Properties, open: true, height: None },
-                        ],
-                    },
+                    SplitSize::FixedFirst(260.0),
+                    tabs(Panel::Properties),
+                    split(
+                        SplitAxis::Horizontal,
+                        SplitSize::FixedSecond(300.0),
+                        tabs(Panel::Canvas),
+                        Node::Tabs { panels: vec![Panel::Layers, Panel::Blocks], active: 0 },
+                    ),
                 )),
                 floating: Vec::new(),
             },
@@ -265,19 +269,22 @@ impl Workspace {
 }
 
 fn sync(workspace: &mut Workspace, app: &crate::CadApp) -> Result<(), String> {
+    let panels = [Panel::Properties, Panel::Layers, Panel::Blocks];
     if !app.ui.show_palettes {
-        workspace.set_visible(Panel::Layers, false)?;
-        workspace.set_visible(Panel::Properties, false)?;
-    } else if !workspace.layout.contains(&Panel::Layers) && !workspace.layout.contains(&Panel::Properties) {
-        // Reopen the last surviving accordion entry before restoring its earlier sibling.
-        workspace.set_visible(Panel::Properties, true)?;
-        workspace.set_visible(Panel::Layers, true)?;
+        for p in panels {
+            workspace.set_visible(p, false)?;
+        }
+    } else if !panels.iter().any(|p| workspace.layout.contains(p)) {
+        // Reopen all of them when none survives.
+        for p in panels {
+            workspace.set_visible(p, true)?;
+        }
     }
     Ok(())
 }
 
 fn publish_visibility(app: &mut crate::CadApp, workspace: &Workspace) {
-    app.ui.show_palettes = workspace.layout.contains(&Panel::Layers) || workspace.layout.contains(&Panel::Properties);
+    app.ui.show_palettes = [Panel::Layers, Panel::Properties, Panel::Blocks].iter().any(|p| workspace.layout.contains(p));
 }
 
 pub fn command(app: &mut crate::CadApp, reset: bool, params: &Value) -> Result<Value, String> {
@@ -332,6 +339,9 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
                     .auto_shrink([false, false])
                     .show(ui, |ui| crate::palettes::layers_section(app, ui));
             }
+            Panel::Blocks => {
+                egui::ScrollArea::vertical().id_salt("dock-blocks").auto_shrink([false, false]).show(ui, |ui| crate::blocks::blocks_section(app, ui));
+            }
             Panel::Properties => {
                 egui::ScrollArea::vertical()
                     .id_salt("dock-properties")
@@ -365,7 +375,7 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
 fn panel_limits(panel: &Panel) -> PanelLimits {
     let (min, max_width) = match panel {
         Panel::Canvas => (egui::vec2(300.0, 180.0), 1_000_000.0),
-        Panel::Layers | Panel::Properties => (egui::vec2(220.0, 100.0), 720.0),
+        Panel::Layers | Panel::Properties | Panel::Blocks => (egui::vec2(220.0, 100.0), 720.0),
     };
     PanelLimits { min, max: egui::vec2(max_width, 1_000_000.0) }
 }

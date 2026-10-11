@@ -155,6 +155,20 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
     if hs.is_empty() {
         return Err(bad("properties.set", "nothing selected"));
     }
+    // Objects on locked layers are never changed; say so rather than skipping silently.
+    let before = hs.len();
+    let hs: Vec<Handle> = hs.into_iter().filter(|h| !curves::is_locked(s, *h)).collect();
+    let skipped_locked = before - hs.len();
+    if hs.is_empty() {
+        return Err(bad("properties.set", "the selected objects are on locked layers"));
+    }
+    if let Some(lt) = str_param(p, "linetype")
+        && !lt.eq_ignore_ascii_case("ByLayer")
+        && !lt.eq_ignore_ascii_case("ByBlock")
+        && s.doc()?.linetype(lt).is_none()
+    {
+        return Err(bad("properties.set", format!("linetype `{lt}` is not loaded (load it with LINETYPE)")));
+    }
     let color = p.get("color").map(|c| parse_color(c).ok_or_else(|| bad("properties.set", "bad colour"))).transpose()?;
     let transparency = p
         .get("transparency")
@@ -334,7 +348,7 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
             }
         })?;
     }
-    Ok(json!({ "changed": hs.len() }))
+    Ok(json!({ "changed": hs.len(), "skippedLocked": skipped_locked }))
 }
 
 fn run_matchprop(s: &mut Session, p: &Value) -> Result<Value> {

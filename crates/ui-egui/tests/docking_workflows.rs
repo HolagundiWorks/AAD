@@ -104,7 +104,7 @@ fn docking_renders_default_float_and_redocked_at_normal_and_narrow_sizes() {
                 harness.run_steps(5);
                 harness.state().ui.docking.validate().unwrap();
                 let content = harness.state().ui.docking.layout.panels();
-                assert_eq!(content.len(), 3);
+                assert_eq!(content.len(), 4);
                 assert!(content.contains(&&Panel::Canvas));
                 if let Ok(directory) = std::env::var("CRAFT_UI_DOCKING_DIR") {
                     std::fs::create_dir_all(&directory).unwrap();
@@ -119,6 +119,7 @@ fn docking_renders_default_float_and_redocked_at_normal_and_narrow_sizes() {
 fn automation_reaches_split_stack_resize_and_tab_reorder_through_the_same_handler() {
     use craft_ui::{docking::Action, layout::SplitSize};
     let mut h = harness(None, 1280.0, 1.0);
+    use_stacked_layout(&mut h);
     h.state_mut()
         .run(
             "ui.dock",
@@ -137,6 +138,7 @@ fn automation_reaches_split_stack_resize_and_tab_reorder_through_the_same_handle
 #[test]
 fn stack_boundary_resizes_by_pointer_and_keyboard_without_changing_the_drawing() {
     let mut h = harness(None, 1280.0, 1.0);
+    use_stacked_layout(&mut h);
     let drawing = h.state().session.doc().unwrap().clone();
     let center = h
         .get_all_by_role_and_label(egui::accesskit::Role::Splitter, "Resize panels")
@@ -316,4 +318,24 @@ fn canvas_reset_during_splitter_drag_discards_old_resize_and_ends_gesture() {
     h.run_steps(3);
     assert_eq!(h.state().ui.docking.layout, expected.layout);
     assert_eq!(h.state().session.doc().unwrap(), &drawing);
+}
+
+/// The accordion layout: the drawing, and Layers over Properties in a stack on the right. The
+/// default layout uses tabs, so the stack tests install this one.
+fn use_stacked_layout(h: &mut Harness<'_, CadApp>) {
+    use craft_ui::docking::{Node, StackEntry};
+    use craft_ui::layout::{SplitAxis, SplitSize};
+    h.state_mut().ui.docking.layout.root = Some(Node::Split {
+        axis: SplitAxis::Horizontal,
+        size: SplitSize::FixedSecond(300.0),
+        first: Box::new(Node::Tabs { panels: vec![Panel::Canvas], active: 0 }),
+        second: Box::new(Node::Stack {
+            entries: vec![
+                StackEntry { panel: Panel::Layers, open: true, height: Some(280.0) },
+                StackEntry { panel: Panel::Properties, open: true, height: None },
+            ],
+        }),
+    });
+    h.state_mut().ui.docking.hidden.clear();
+    h.run_steps(4);
 }

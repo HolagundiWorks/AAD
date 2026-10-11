@@ -326,7 +326,7 @@ impl Default for Settings {
             orthomode: false,
             polarmode: true,
             polarang: std::f64::consts::FRAC_PI_2,
-            gridmode: true,
+            gridmode: false,
             snapmode: false,
             snapunit: Vec2::new(0.5, 0.5),
             osnaphatch: false,
