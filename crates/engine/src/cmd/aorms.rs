@@ -48,6 +48,8 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("aorms.pull", "Refresh project info from AORMS", run_pull)
             .menu(&["AORMS", "Refresh project info"])
             .params("{} → as aorms.open, for the project this drawing is linked to"),
+        CommandSpec::new("aorms.apply", "Apply AORMS project info", run_apply)
+            .params("{projectOfficeId, seed, settings} → as aorms.open. The drawing half of a pull whose network half ran elsewhere (the UI fetches on a worker thread); one undo step"),
         CommandSpec::new("aorms.drawings", "AORMS drawings", run_drawings)
             .enabled(always)
             .noundo()
@@ -75,7 +77,7 @@ fn text<'a>(cmd: &str, p: &'a Value, key: &str, max: usize) -> Result<&'a str> {
 }
 
 /// Only https, or http to this computer (a local AORMS for development). No credentials in the URL.
-fn valid_base(u: &str) -> bool {
+pub fn valid_base(u: &str) -> bool {
     let rest = if let Some(r) = u.strip_prefix("https://") {
         r
     } else if let Some(r) = u.strip_prefix("http://") {
@@ -103,7 +105,7 @@ fn base_url(cmd: &str, p: &Value) -> Result<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn make_client(base: &str) -> Result<Client> {
+pub fn make_client(base: &str) -> Result<Client> {
     use cadcraft_aorms::UreqTransport;
     #[cfg(feature = "aorms-keyring")]
     let (shared, local): (Box<dyn cadcraft_aorms::SharedSignInStore>, Box<dyn cadcraft_aorms::SessionStore>) =
@@ -115,7 +117,7 @@ fn make_client(base: &str) -> Result<Client> {
 }
 
 #[cfg(target_arch = "wasm32")]
-fn make_client(_base: &str) -> Result<Client> {
+pub fn make_client(_base: &str) -> Result<Client> {
     Err(EngineError::Other("AORMS is not available in the web build".into()))
 }
 
@@ -128,11 +130,17 @@ fn client<'a>(s: &'a mut Session, cmd: &str, p: &Value) -> Result<&'a mut Client
     s.aorms.client.as_mut().ok_or_else(|| EngineError::Other("AORMS client unavailable".into()))
 }
 
+/// The label this computer shows in AORMS ("AAD <version> · <computer>").
+pub fn client_label() -> String {
+    format!("AAD {} · {}", env!("CARGO_PKG_VERSION"), computer())
+}
+
 fn computer() -> String {
     std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_else(|_| "computer".into()).chars().take(40).collect()
 }
 
-fn summary(c: &Client) -> Value {
+/// `{signedIn, connected, email?, studio?, role?, plan?, canWrite?}` for a client.
+pub fn summary(c: &Client) -> Value {
     match c.session() {
         Some(si) => json!({
             "signedIn": c.is_signed_in(), "connected": c.is_connected(), "email": si.email, "studio": si.studio.name, "role": si.role, "plan": si.plan,
@@ -153,7 +161,7 @@ fn run_signin(s: &mut Session, p: &Value) -> Result<Value> {
         .and_then(Value::as_str)
         .filter(|t| !t.is_empty() && t.len() <= 200)
         .ok_or_else(|| bad(C, "`password` (text) is required"))?;
-    let label = format!("AAD {} · {}", env!("CARGO_PKG_VERSION"), computer());
+    let label = client_label();
     let c = client(s, C, p)?;
     c.sign_in(email, password, &label).map_err(fail)?;
     s.echo("Signed in to AORMS.");
@@ -220,7 +228,7 @@ fn run_projects(s: &mut Session, _p: &Value) -> Result<Value> {
     })).collect::<Vec<_>>() }))
 }
 
-fn id_param(cmd: &str, v: &str) -> Result<String> {
+pub fn id_param(cmd: &str, v: &str) -> Result<String> {
     if !v.is_empty() && v.len() <= 64 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         Ok(v.to_string())
     } else {
@@ -228,25 +236,29 @@ fn id_param(cmd: &str, v: &str) -> Result<String> {
     }
 }
 
-fn pull_into_drawing(s: &mut Session, project_id: &str) -> Result<Value> {
-    let (seed, settings) = {
-        let c = need_connected(s, "aorms.open")?;
-        let seed = c.seed(project_id).map_err(fail)?;
-        let aqc_id = seed.get("aqc").and_then(|a| a.get("id")).and_then(Value::as_str).map(str::to_string);
-        let settings = match &aqc_id {
-            Some(id) => c.project_settings(id).map_err(fail)?,
-            None => Value::Null,
-        };
-        (seed, settings)
+/// The network half of a pull: the portal's seed and the project's shared settings. Touches no drawing, so the UI runs it on a worker
+/// thread while the drawing stays responsive. The caller has checked the client is connected.
+pub fn fetch_project(c: &mut Client, project_id: &str) -> std::result::Result<(Value, Value), AormsError> {
+    let seed = c.seed(project_id)?;
+    let aqc_id = seed.get("aqc").and_then(|a| a.get("id")).and_then(Value::as_str).map(str::to_string);
+    let settings = match &aqc_id {
+        Some(id) => c.project_settings(id)?,
+        None => Value::Null,
     };
+    Ok((seed, settings))
+}
+
+/// The drawing half of a pull: project details and floors into the drawing's project data, and the link to the project. Never touches
+/// drawn geometry. Called directly it records no undo step; the `aorms.apply` command wraps it so the UI's pull is one undo step.
+pub fn apply_project(s: &mut Session, project_id: &str, seed: &Value, settings: &Value) -> Result<Value> {
     let mut warnings = Vec::<String>::new();
-    let details = cadcraft_aorms::mapping::details_from_seed(&seed);
+    let details = cadcraft_aorms::mapping::details_from_seed(seed);
     let mut out = json!({});
     if !details.is_empty() {
         out["details"] = project::run_project(s, &json!({ "details": Value::Object(details) }))?["details"].clone();
     }
     let existing = project::floors(s.doc()?);
-    match cadcraft_aorms::mapping::floors_from_settings(&settings, &existing) {
+    match cadcraft_aorms::mapping::floors_from_settings(settings, &existing) {
         Some(floors) => match project::run_floors(s, &json!({ "floors": floors })) {
             Ok(v) => out["floors"] = v["floors"].clone(),
             Err(e) => warnings.push(format!("floors not updated: {e}")),
@@ -266,9 +278,24 @@ fn pull_into_drawing(s: &mut Session, project_id: &str) -> Result<Value> {
     Ok(out)
 }
 
+fn pull_into_drawing(s: &mut Session, project_id: &str) -> Result<Value> {
+    let (seed, settings) = {
+        let c = need_connected(s, "aorms.open")?;
+        fetch_project(c, project_id).map_err(fail)?
+    };
+    apply_project(s, project_id, &seed, &settings)
+}
+
 fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
     let id = id_param("aorms.open", text("aorms.open", p, "projectOfficeId", 64)?)?;
     pull_into_drawing(s, &id)
+}
+
+fn run_apply(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = id_param("aorms.apply", text("aorms.apply", p, "projectOfficeId", 64)?)?;
+    let seed = p.get("seed").filter(|v| v.is_object()).ok_or_else(|| bad("aorms.apply", "`seed` (object) is required"))?;
+    let settings = p.get("settings").cloned().unwrap_or(Value::Null);
+    apply_project(s, &id, seed, &settings)
 }
 
 fn run_pull(s: &mut Session, _p: &Value) -> Result<Value> {

@@ -23,6 +23,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "commands" => commands(app, ctx, &mut open),
         "blocks" => blocks(app, ctx, &mut open),
         "stylesmanager" => crate::plotstyles::dialog(app, ctx, &mut open),
+        "aorms" => crate::aorms_ui::dialog(app, ctx, &mut open),
         other => crate::managers::dialog(app, ctx, other, &mut open),
     }
     if !open {

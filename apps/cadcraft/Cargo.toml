@@ -11,7 +11,8 @@ default-run = "cadcraft"
 workspace = true
 
 [dependencies]
-cadcraft-engine = { workspace = true }
+# The AORMS sign-in is kept in the OS credential store (Windows Credential Manager, shared with AQC); in memory only if that fails.
+cadcraft-engine = { workspace = true, features = ["aorms-keyring"] }
 cadcraft-ui-egui = { workspace = true }
 cadcraft-io = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "links", "persistence"] }

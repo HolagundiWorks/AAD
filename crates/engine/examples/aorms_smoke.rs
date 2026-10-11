@@ -27,7 +27,11 @@ fn main() {
         let id = target["projectOfficeId"].as_str().unwrap_or("");
         let r = s.execute("aorms.open", &json!({ "projectOfficeId": id }));
         let o = r.as_ref().cloned().unwrap_or(Value::Null);
-        check("project info pulled into the drawing", r.is_ok() && o["details"]["title"].is_string(), format!("{} · warnings {}", o["details"]["title"], o["warnings"]));
+        check(
+            "project info pulled into the drawing",
+            r.is_ok() && o["details"]["title"].is_string(),
+            format!("{} · warnings {}", o["details"]["title"], o["warnings"]),
+        );
         let d = s.execute("project", &json!({})).unwrap_or(Value::Null);
         check("details are in the drawing's project data", d["details"]["title"] == o["details"]["title"], String::new());
         let dr = s.execute("aorms.drawings", &json!({ "projectOfficeId": id })).unwrap_or(Value::Null);
