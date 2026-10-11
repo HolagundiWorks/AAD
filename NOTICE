@@ -23,3 +23,10 @@ hcwCAD-KIT
 The architectural tools in crates/engine/src/cmd/hcw.rs (layer sets, room types, room label and
 area behaviour) are re-implemented in Rust from hcwCAD-KIT, Copyright (c) Holgundi Consulting
 Works, MIT License (https://github.com/HolagundiWorks/hcwCAD-KIT). No C# source is included.
+
+Architect Calculator and Pomodoro widget
+crates/engine/src/calc.rs is a Rust port of the Architect Calculator Android app
+(https://github.com/HolagundiWorks/architect-calculator, by the author of this project).
+crates/engine/src/pomodoro.rs follows the behaviour of the Pomodoro clock in the AQC desktop
+program (https://github.com/HolagundiWorks/AQC, AGPL-3.0); it was written independently and
+contains no AQC source.

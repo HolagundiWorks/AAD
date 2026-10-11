@@ -1,4 +1,4 @@
-//! Utilities: CAL (expression calculator), FIND (find and replace text), MASSPROP, MEASUREGEOM.
+//! Utilities: CAL (architect calculator), FIND (find and replace text), MASSPROP, MEASUREGEOM.
 
 use cadcraft_doc::{EntityKind, Handle};
 use cadcraft_geom::Vec2;
@@ -9,10 +9,9 @@ use crate::{Result, Session};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("cal", "QuickCalc", run_cal)
-            .menu(&["Tools", "Inquiry", "Quick"])
-            .alias(&["quickcalc", "qc"])
-            .params("{expr: \"(3+4)*2^2\", vars?: {x: 1}}")
+        CommandSpec::new("cal", "Calculator", run_cal)
+            .alias(&["quickcalc", "qc", "calc"])
+            .params("{expr: \"10' 6\\\" x 20'\"} → {kind, metres, squareMetres, cubicMetres, results}")
             .enabled(always)
             .noundo()
             .transparent(),
@@ -25,182 +24,25 @@ pub fn specs() -> Vec<CommandSpec> {
 
 // ---------------- CAL ----------------
 
-struct Parser<'a> {
-    s: &'a [u8],
-    i: usize,
-    vars: &'a serde_json::Map<String, Value>,
-    depth: usize,
-}
-
-impl Parser<'_> {
-    fn ws(&mut self) {
-        while self.s.get(self.i).is_some_and(|c| c.is_ascii_whitespace()) {
-            self.i += 1;
-        }
-    }
-    fn peek(&mut self) -> Option<u8> {
-        self.ws();
-        self.s.get(self.i).copied()
-    }
-    fn expr(&mut self) -> std::result::Result<f64, String> {
-        self.depth += 1;
-        if self.depth > 200 {
-            return Err("expression too deeply nested".into());
-        }
-        let mut v = self.term()?;
-        while let Some(c) = self.peek() {
-            match c {
-                b'+' => {
-                    self.i += 1;
-                    v += self.term()?;
-                }
-                b'-' => {
-                    self.i += 1;
-                    v -= self.term()?;
-                }
-                _ => break,
-            }
-        }
-        self.depth -= 1;
-        Ok(v)
-    }
-    fn term(&mut self) -> std::result::Result<f64, String> {
-        let mut v = self.unary()?;
-        while let Some(c) = self.peek() {
-            match c {
-                b'*' => {
-                    self.i += 1;
-                    v *= self.unary()?;
-                }
-                b'/' => {
-                    self.i += 1;
-                    let d = self.unary()?;
-                    if d == 0.0 {
-                        return Err("division by zero".into());
-                    }
-                    v /= d;
-                }
-                _ => break,
-            }
-        }
-        Ok(v)
-    }
-    fn power(&mut self) -> std::result::Result<f64, String> {
-        let b = self.atom()?;
-        if self.peek() == Some(b'^') {
-            self.i += 1;
-            let e = self.unary()?;
-            return Ok(b.powf(e));
-        }
-        Ok(b)
-    }
-    fn unary(&mut self) -> std::result::Result<f64, String> {
-        match self.peek() {
-            Some(b'-') => {
-                self.i += 1;
-                Ok(-self.unary()?)
-            }
-            Some(b'+') => {
-                self.i += 1;
-                self.unary()
-            }
-            _ => self.power(),
-        }
-    }
-    fn atom(&mut self) -> std::result::Result<f64, String> {
-        match self.peek() {
-            Some(b'(') => {
-                self.i += 1;
-                let v = self.expr()?;
-                if self.peek() != Some(b')') {
-                    return Err("missing )".into());
-                }
-                self.i += 1;
-                Ok(v)
-            }
-            Some(c) if c.is_ascii_digit() || c == b'.' => {
-                let st = self.i;
-                while self.s.get(self.i).is_some_and(|c| c.is_ascii_digit() || *c == b'.' || *c == b'e' || *c == b'E') {
-                    self.i += 1;
-                }
-                let t = std::str::from_utf8(self.s.get(st..self.i).unwrap_or(&[])).unwrap_or("");
-                t.parse::<f64>().map_err(|_| format!("bad number `{t}`"))
-            }
-            Some(c) if c.is_ascii_alphabetic() => {
-                let st = self.i;
-                while self.s.get(self.i).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
-                    self.i += 1;
-                }
-                let name = std::str::from_utf8(self.s.get(st..self.i).unwrap_or(&[])).unwrap_or("").to_ascii_lowercase();
-                if self.peek() == Some(b'(') {
-                    self.i += 1;
-                    let a = self.expr()?;
-                    let b = if self.peek() == Some(b',') {
-                        self.i += 1;
-                        Some(self.expr()?)
-                    } else {
-                        None
-                    };
-                    if self.peek() != Some(b')') {
-                        return Err("missing )".into());
-                    }
-                    self.i += 1;
-                    return Ok(match (name.as_str(), b) {
-                        ("sin", _) => a.to_radians().sin(),
-                        ("cos", _) => a.to_radians().cos(),
-                        ("tan", _) => a.to_radians().tan(),
-                        ("asin", _) => a.asin().to_degrees(),
-                        ("acos", _) => a.acos().to_degrees(),
-                        ("atan", None) => a.atan().to_degrees(),
-                        ("atan", Some(x)) => a.atan2(x).to_degrees(),
-                        ("sqrt", _) => a.sqrt(),
-                        ("sqr", _) => a * a,
-                        ("abs", _) => a.abs(),
-                        ("ln", _) => a.ln(),
-                        ("log", _) => a.log10(),
-                        ("exp", _) => a.exp(),
-                        ("round", _) => a.round(),
-                        ("trunc", _) => a.trunc(),
-                        ("r2d", _) => a.to_degrees(),
-                        ("d2r", _) => a.to_radians(),
-                        ("min", Some(x)) => a.min(x),
-                        ("max", Some(x)) => a.max(x),
-                        ("pow", Some(x)) => a.powf(x),
-                        _ => return Err(format!("unknown function `{name}`")),
-                    });
-                }
-                match name.as_str() {
-                    "pi" => Ok(std::f64::consts::PI),
-                    "e" => Ok(std::f64::consts::E),
-                    _ => self.vars.get(&name).and_then(Value::as_f64).ok_or_else(|| format!("unknown name `{name}`")),
-                }
-            }
-            _ => Err("expected a number".into()),
-        }
-    }
-}
-
-/// Evaluate an arithmetic expression (degrees for trig, `^` power, functions, pi).
-pub fn eval(expr: &str, vars: &serde_json::Map<String, Value>) -> std::result::Result<f64, String> {
-    if expr.len() > 10_000 {
-        return Err("expression too long".into());
-    }
-    let mut p = Parser { s: expr.as_bytes(), i: 0, vars, depth: 0 };
-    let v = p.expr()?;
-    if p.peek().is_some() {
-        return Err(format!("unexpected `{}`", expr.get(p.i..).unwrap_or("")));
-    }
-    if !v.is_finite() {
-        return Err("result is not a finite number".into());
-    }
-    Ok(v)
-}
-
+/// The architect calculator ([`crate::calc`]): `expr` may use feet and inches, and the answer is a
+/// length, area or volume in metric and imperial. The same engine drives the Calculator widget.
 fn run_cal(_s: &mut Session, p: &Value) -> Result<Value> {
-    let e = str_param(p, "expr").ok_or_else(|| bad("cal", "`expr` is required"))?;
-    let vars = p.get("vars").and_then(Value::as_object).cloned().unwrap_or_default();
-    let v = eval(e, &vars).map_err(|m| bad("cal", m))?;
-    Ok(json!({ "value": v, "message": format!("{v}") }))
+    let e = str_param(p, "expr").ok_or_else(|| bad("cal", "`expr` is required, for example 10' 6\" x 20'"))?;
+    let m = crate::calc::measure(e).map_err(|m| bad("cal", m))?;
+    let r = crate::calc::results_of(&m);
+    let summary = crate::calc::summary_of(e, &m);
+    Ok(json!({
+        "kind": m.kind.name(),
+        "imperial": m.imperial,
+        "metres": m.metres,
+        "squareMetres": m.square_metres,
+        "cubicMetres": m.cubic_metres,
+        "results": {
+            "m": r.metres, "m2": r.square_metres, "m3": r.cubic_metres,
+            "ft": r.feet, "ft2": r.square_feet, "ft3": r.cubic_feet,
+        },
+        "message": summary,
+    }))
 }
 
 // ---------------- FIND ----------------
@@ -349,22 +191,6 @@ fn run_measuregeom(s: &mut Session, p: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn calculator() {
-        let v = serde_json::Map::new();
-        assert_eq!(eval("(3+4)*2^2", &v), Ok(28.0));
-        assert!((eval("sin(30)", &v).unwrap() - 0.5).abs() < 1e-12);
-        assert!((eval("2*pi", &v).unwrap() - std::f64::consts::TAU).abs() < 1e-12);
-        assert_eq!(eval("-2^2", &v), Ok(-4.0));
-        assert!(eval("1/0", &v).is_err());
-        assert!(eval("((((1", &v).is_err());
-        assert!(eval("foo(1)", &v).is_err());
-        assert!(eval(&"(".repeat(5000), &v).is_err());
-        let mut vars = serde_json::Map::new();
-        vars.insert("x".into(), json!(3));
-        assert_eq!(eval("x*x", &vars), Ok(9.0));
-    }
 
     #[test]
     fn find_and_replace() {

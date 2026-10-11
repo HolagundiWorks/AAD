@@ -24,6 +24,10 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.toggle.cmdline", "Command Line", &["Window", "Command Line"], Some("Cmd+9")),
     ("ui.toggle.pinpanels", "Pin Side Panels", &["Window", "Pin Side Panels"], None),
     ("ui.toggle.ucsicon", "UCS Icon", &["View", "UCS Icon", "On"], None),
+    ("ui.toggle.calculator", "Calculator", &["Tools", "Calculator"], None),
+    ("ui.toggle.pomodoro", "Pomodoro Timer", &["Tools", "Pomodoro Timer"], None),
+    ("ui.calculator", "Calculator Keys", &[], None),
+    ("ui.pomodoro", "Pomodoro Control", &[], None),
     ("ui.theme.toggle", "Toggle Light/Dark Theme", &["View", "Toggle Light/Dark Theme"], None),
     ("ui.workspace", "Workspace", &[], None),
     ("ui.workspace.classic", "Classic Workspace", &["Window", "Workspace", "Classic"], None),
@@ -64,6 +68,9 @@ pub fn run_ui_command(app: &mut CadApp, id: &str, params: &Value) -> Option<Resu
 }
 
 fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
+    if let Some(r) = crate::widgets::route(app, id, params) {
+        return Some(r);
+    }
     if let Some(r) = crate::managers::route(app, id, params) {
         return Some(r);
     }

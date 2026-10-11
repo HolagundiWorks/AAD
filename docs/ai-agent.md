@@ -14,10 +14,10 @@ work.
 | Qwen3-1.7B runtime (llama.cpp adapter, chat template, model manifest) | **Planned.** Not built; nothing in this repository loads a model. |
 | Chat UI, result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
-| Schedule of openings, quantity take-off tools | **Planned.** The engine has no such features yet (see [status.md](status.md) and [hcw-kit-port.md](hcw-kit-port.md)). The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
+| Schedule of openings, quantity take-off tools | **Planned.** The engine commands exist (`schedule`, `openings.table`, `takeoff.*`, see [hcw-kit-port.md](hcw-kit-port.md)) but are not yet in the agent registry. The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
 
 Requests such as "Prepare a schedule of openings" and "Run the built-in quantity takeoff" therefore
-cannot be carried out today. The agent must say so rather than answer.
+cannot be carried out by the agent today, although the commands can be run directly. The agent must say so rather than answer.
 
 ## Supported requests
 

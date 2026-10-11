@@ -43,14 +43,11 @@ pub enum Icon {
     Point,
     XLine,
     Ray,
-    Donut,
     RevCloud,
     Hatch,
-    Gradient,
     Boundary,
     Region,
     Wipeout,
-    Table,
     Text,
     MText,
     Move,
@@ -77,8 +74,6 @@ pub enum Icon {
     DimRadius,
     DimDiameter,
     DimAngular,
-    DimArc,
-    DimOrdinate,
     DimBaseline,
     DimContinue,
     QDim,
@@ -112,7 +107,6 @@ pub enum Icon {
     OTrack,
     Lineweight,
     Transparency,
-    Isodraft,
     DynInput,
     QuickProps,
     Gear,
@@ -120,25 +114,13 @@ pub enum Icon {
     Workspace,
     ChevronDown,
     ChevronUp,
-    ChevronLeft,
     ChevronRight,
     Plus,
     Switcher,
     Close,
     Search,
     Menu,
-    Constraint,
-    Coincident,
-    Parallel,
-    Perpendicular,
-    Horizontal,
-    Vertical,
-    Tangent,
-    Concentric,
-    Equal,
-    Fix,
     Measure,
-    Distance,
     Area,
     List,
     PickAdd,
@@ -421,11 +403,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             pen.la(5.0, 19.0, 23.0, 3.0);
             pen.dot(5.0, 19.0);
         }
-        Donut => {
-            pen.c(12.0, 12.0, 8.0, a);
-            pen.c(12.0, 12.0, 4.5, a);
-            pen.fill_c(12.0, 12.0, 1.0, b);
-        }
         RevCloud => {
             for i in 0..6 {
                 let ang = i as f32 * 60.0;
@@ -442,13 +419,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
                 pen.la(3.0, 21.0 - o, (3.0 + o).min(21.0), 21.0 - o - o.min(18.0) + o);
             }
         }
-        Gradient => {
-            for i in 0..9 {
-                let c = Color32::from_rgb(40 + i * 22, 80 + i * 16, 160 + i * 9);
-                pen.fill_rect(3.0 + i as f32 * 2.0, 3.0, 2.0, 18.0, if dim { c.gamma_multiply(0.4) } else { c });
-            }
-            pen.rect(3.0, 3.0, 18.0, 18.0, b);
-        }
         Boundary => {
             pen.rect(4.0, 4.0, 16.0, 16.0, b);
             pen.c(12.0, 12.0, 6.0, b);
@@ -463,15 +433,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             pen.rect(3.0, 3.0, 13.0, 13.0, b);
             pen.fill_rect(8.0, 8.0, 13.0, 13.0, Tokens::get().chrome);
             pen.rect(8.0, 8.0, 13.0, 13.0, a);
-        }
-        Table => {
-            pen.rect(3.0, 4.0, 18.0, 16.0, b);
-            pen.fill_rect(3.0, 4.0, 18.0, 4.0, a.gamma_multiply(0.6));
-            for y in [8.0, 12.0, 16.0] {
-                pen.l(3.0, y, 21.0, y);
-            }
-            pen.l(9.0, 8.0, 9.0, 20.0);
-            pen.l(15.0, 8.0, 15.0, 20.0);
         }
         Text => pen.text(12.0, 12.5, "A", 19.0, b),
         MText => {
@@ -633,16 +594,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             pen.l(4.0, 20.0, 16.0, 6.0);
             pen.arc(4.0, 20.0, 11.0, 0.0, 49.0, a);
         }
-        DimArc => {
-            pen.arc(12.0, 18.0, 8.0, 20.0, 160.0, b);
-            pen.arc(12.0, 18.0, 12.0, 25.0, 155.0, a);
-        }
-        DimOrdinate => {
-            pen.l(4.0, 20.0, 4.0, 4.0);
-            pen.l(4.0, 20.0, 20.0, 20.0);
-            pen.la(10.0, 20.0, 10.0, 8.0);
-            pen.la(16.0, 20.0, 16.0, 11.0);
-        }
         MLeader | AddLeader | RemoveLeader | AlignLeaders => {
             pen.la(3.0, 20.0, 10.0, 9.0);
             pen.la(10.0, 9.0, 14.0, 9.0);
@@ -762,11 +713,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             pen.fill_rect(3.0, 3.0, 12.0, 12.0, b.gamma_multiply(0.7));
             pen.fill_rect(9.0, 9.0, 12.0, 12.0, b.gamma_multiply(0.35));
         }
-        Isodraft => {
-            pen.poly(&[(12.0, 3.0), (20.0, 8.0), (20.0, 17.0), (12.0, 21.0), (4.0, 17.0), (4.0, 8.0)], true, b);
-            pen.poly(&[(4.0, 8.0), (12.0, 12.0), (20.0, 8.0)], false, b);
-            pen.l(12.0, 12.0, 12.0, 21.0);
-        }
         DynInput => {
             pen.rect(3.0, 6.0, 12.0, 7.0, b);
             pen.l(6.0, 9.5, 12.0, 9.5);
@@ -796,7 +742,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
         }
         ChevronDown => pen.poly(&[(6.0, 9.0), (12.0, 15.0), (18.0, 9.0)], false, b),
         ChevronUp => pen.poly(&[(6.0, 15.0), (12.0, 9.0), (18.0, 15.0)], false, b),
-        ChevronLeft => pen.poly(&[(15.0, 6.0), (9.0, 12.0), (15.0, 18.0)], false, b),
         ChevronRight => pen.poly(&[(9.0, 6.0), (15.0, 12.0), (9.0, 18.0)], false, b),
         Plus => {
             pen.l(12.0, 4.0, 12.0, 20.0);
@@ -820,42 +765,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
                 pen.l(4.0, y, 20.0, y);
             }
         }
-        Constraint | Fix => {
-            pen.fill_rect(7.0, 11.0, 10.0, 9.0, Color32::from_rgb(0xe6, 0xb4, 0x3c));
-            pen.arc(12.0, 11.0, 4.0, 0.0, 180.0, Color32::from_rgb(0xe6, 0xb4, 0x3c));
-        }
-        Coincident => {
-            pen.l(3.0, 20.0, 12.0, 12.0);
-            pen.l(12.0, 12.0, 21.0, 18.0);
-            pen.fill_c(12.0, 12.0, 2.5, a);
-        }
-        Parallel => {
-            pen.l(4.0, 18.0, 16.0, 4.0);
-            pen.la(9.0, 20.0, 21.0, 6.0);
-        }
-        Perpendicular => {
-            pen.l(4.0, 20.0, 20.0, 20.0);
-            pen.la(12.0, 20.0, 12.0, 4.0);
-            pen.rect(12.0, 16.0, 4.0, 4.0, b);
-        }
-        Horizontal => {
-            pen.la(3.0, 12.0, 21.0, 12.0);
-            pen.dot(3.0, 12.0);
-            pen.dot(21.0, 12.0);
-        }
-        Vertical => {
-            pen.la(12.0, 3.0, 12.0, 21.0);
-            pen.dot(12.0, 3.0);
-            pen.dot(12.0, 21.0);
-        }
-        Tangent => {
-            pen.c(10.0, 13.0, 6.0, b);
-            pen.la(3.0, 7.0, 21.0, 7.0);
-        }
-        Concentric => {
-            pen.c(12.0, 12.0, 8.0, b);
-            pen.c(12.0, 12.0, 4.0, a);
-        }
         QuickProps => {
             // A small palette window with property rows and a pointer.
             pen.rect(3.0, 4.0, 15.0, 13.0, b);
@@ -866,11 +775,7 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             }
             pen.poly(&[(15.0, 14.0), (15.0, 22.0), (17.0, 20.0), (19.5, 22.5), (20.5, 21.5), (18.0, 19.0), (21.0, 18.5)], true, b);
         }
-        Equal => {
-            pen.l(5.0, 9.0, 19.0, 9.0);
-            pen.la(5.0, 15.0, 19.0, 15.0);
-        }
-        Measure | Distance => {
+        Measure => {
             pen.poly(&[(3.0, 15.0), (21.0, 15.0), (21.0, 20.0), (3.0, 20.0)], true, b);
             for x in [6.0, 9.0, 12.0, 15.0, 18.0] {
                 pen.l(x, 15.0, x, 17.5);

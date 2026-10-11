@@ -4,7 +4,7 @@
 
 Menu-breadth parity: a reference menu item counts as covered when a AAD command is registered under the same menu label. It measures breadth, not depth.
 
-**Menu breadth: 188 / 319 items (59%)** · 262 registered commands.
+**Menu breadth: 188 / 319 items (59%)** · 318 registered commands.
 
 | Menu | Items | Covered | % |
 |---|---|---|---|
@@ -13,11 +13,11 @@ Menu-breadth parity: a reference menu item counts as covered when a AAD command 
 | View | 39 | 25 | 64% |
 | Insert | 11 | 2 | 18% |
 | Format | 26 | 23 | 88% |
-| Tools | 57 | 18 | 32% |
+| Tools | 57 | 17 | 30% |
 | Draw | 45 | 45 | 100% |
 | Dimension | 25 | 19 | 76% |
 | Modify | 52 | 33 | 63% |
-| Window | 21 | 2 | 10% |
+| Window | 21 | 3 | 14% |
 | Help | 8 | 0 | 0% |
 
 ## Not yet covered
@@ -73,6 +73,7 @@ Menu-breadth parity: a reference menu item counts as covered when a AAD command 
 - Tools > Isolate > Isolate Objects
 - Tools > Isolate > Hide Objects
 - Tools > Isolate > End Object Isolation
+- Tools > Inquiry > Quick
 - Tools > Inquiry > Volume
 - Tools > Update Fields
 - Tools > Block Editor
@@ -143,7 +144,6 @@ Menu-breadth parity: a reference menu item counts as covered when a AAD command 
 - Window > Geometry Cleanup
 - Window > Hide Palettes
 - Window > Reset Palettes
-- Window > Start
 - Window > Drawing1.dwg
 - Help > AutoCAD Help
 - Help > Autodesk Assistant

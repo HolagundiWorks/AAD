@@ -35,6 +35,7 @@ pub mod theme;
 pub mod toolbars;
 pub mod ucsicon;
 pub mod units_panel;
+pub mod widgets;
 
 use std::sync::mpsc::Receiver;
 
@@ -60,6 +61,9 @@ pub struct UiState {
     pub show_status_bar: bool,
     pub show_command_line: bool,
     pub show_ucs_icon: bool,
+    /// The Calculator and Pomodoro widgets ([`widgets`]).
+    pub show_calculator: bool,
+    pub show_pomodoro: bool,
     pub show_layer_list: bool,
     /// Keep the system cursor visible over the drawing area (a small crosshair at the centre of the
     /// drawn one) instead of hiding it. Screen magnifiers (Windows Magnifier "follow the mouse
@@ -164,6 +168,8 @@ impl Default for UiState {
             show_status_bar: true,
             show_command_line: true,
             show_ucs_icon: true,
+            show_calculator: false,
+            show_pomodoro: false,
             show_layer_list: false,
             system_cursor: std::env::var("CADCRAFT_SYSTEM_CURSOR").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "false" | "off")),
             properties_all: true,
@@ -196,6 +202,8 @@ pub struct CadApp {
     pub canvas: canvas::CanvasState,
     /// Pin and auto-collapse state of the side panels.
     pub collapse: autocollapse::CollapseState,
+    /// State of the Calculator and Pomodoro widgets.
+    pub widgets: widgets::WidgetState,
     pub cmd: cmdline::CmdLine,
     pub status: Option<(String, f64)>,
     pub integrated_titlebar: bool,
@@ -228,6 +236,7 @@ impl CadApp {
             services,
             canvas: canvas::CanvasState::default(),
             collapse: autocollapse::CollapseState::default(),
+            widgets: widgets::WidgetState::default(),
             cmd: cmdline::CmdLine::default(),
             status: None,
             integrated_titlebar: false,
@@ -518,6 +527,7 @@ impl CadApp {
             autocollapse::run(self, ui.ctx(), dock);
         }
         dialogs::show(self, ui.ctx());
+        widgets::show(self, ui.ctx());
         closing::prompt(self, ui.ctx());
         self.frame_ms = now_ms() - t0;
     }

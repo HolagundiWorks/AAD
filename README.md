@@ -58,6 +58,14 @@ Every DXF or DWG that is opened is flattened to 2D on a working copy, and the or
 recoverable. `PURGE`, `AUDIT` and `RECOVER` keep a drawing healthy. Details, limits and safety
 measures: [docs/maintenance.md](docs/maintenance.md).
 
+## Built-in architecture tools
+
+Walls, doors and windows, grid, columns, lintels, stairs, lifts, levels and section markers,
+quantity take-off with rates and a bill, door and window schedules, electrical layout, and the
+project data they share are built-in commands under the Architecture menu ([docs/hcw-kit-port.md](docs/hcw-kit-port.md)).
+A calculator for feet, inches, lengths, areas and volumes and a Pomodoro timer are floating
+widgets under Tools ([docs/widgets.md](docs/widgets.md)).
+
 ## Local AI assistant
 
 An offline assistant can call a fixed set of validated tools (flatten, audit, purge, recover). The

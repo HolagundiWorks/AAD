@@ -11,12 +11,14 @@
 pub mod annot;
 pub mod assoc;
 pub mod audit;
+pub mod calc;
 pub mod cmd;
 mod finite;
 pub mod flatten;
 pub mod grips;
 mod guard;
 pub mod pointmod;
+pub mod pomodoro;
 pub mod prompt;
 pub mod sample;
 pub mod select;
