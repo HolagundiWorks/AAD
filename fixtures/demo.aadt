@@ -1,8 +1,0 @@
-# Open the sample plan
-OPEN fixtures/sample-floorplan.dxf
-# Draw an extra partition (two faces)
-LINE 2 1 2 7 A-WALL
-LINE 2.2 1 2.2 7 A-WALL
-# Undo the last face, then list what remains
-UNDO
-LIST

@@ -1,49 +1,11 @@
-# Rust build artifacts
+*~
 /target
-**/*.rs.bk
-*.pdb
-
-# Cargo lock is committed for the top-level workspace (binaries); keep it.
-# (No exclusion here — Cargo.lock is intentionally tracked.)
-
-# Editor / OS
+/plan/
+/plans/
+/dist/
+/log/
+/temp/
 .DS_Store
 *.swp
-.idea/
-.vscode/
-
-# Installer build artifacts (scripts + .iss are tracked; outputs are not)
-/installer/Output/
-/installer/stage/
-
-# CLI scratch output
-/tmp-out.csv
-/out.csv
-/out.xlsx
-/out.png
-/*.png
-
-# Native WinUI / CMake build trees (source under native/ is tracked)
-native/**/build*/
-native/**/build-*/
-native/**/packages/
-*.dll
-!logo/**
-
-native/**/AppPackages/
-native/**/*.msix
-native/**/*.appx
-
-# WinUI build output
-native/aad-winui/winui/x64/
-native/aad-winui/winui/AadWinui/x64/
-native/aad-winui/winui/AadWinui/Generated Files/
-native/aad-winui/winui/AadWinui/AadWinui/
-native/aad-winui/winui/aadwinui_shot.png
-
-
-# .NET bridge build outputs
-bridge/**/bin/
-bridge/**/obj/
-bridge/**/publish/
-
+/apps/cadcraft-web/dist/
+/.claude/worktrees/
