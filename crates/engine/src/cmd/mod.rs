@@ -26,6 +26,7 @@ pub(crate) mod modify2;
 mod mtext_opts;
 mod pline_opts;
 mod project;
+mod projfile;
 mod props;
 mod qselect;
 mod schedule;
@@ -38,6 +39,7 @@ mod trimextend;
 mod utility;
 mod view;
 mod walls;
+mod xref;
 
 pub mod curves;
 pub mod helpers;
@@ -190,6 +192,8 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(structure::specs());
         v.extend(symbols::specs());
         v.extend(bridge::specs());
+        v.extend(xref::specs());
+        v.extend(projfile::specs());
         v.extend(layout::specs());
         v.extend(props::specs());
         v.extend(inquiry::specs());

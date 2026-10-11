@@ -161,7 +161,7 @@ fn run_closeall(s: &mut Session, _p: &Value) -> Result<Value> {
 
 pub(crate) fn save_to(s: &mut Session, path: &str) -> Result<usize> {
     let hooks = io().ok_or_else(|| bad("save", "file formats are not available in this build"))?;
-    let bytes = (hooks.write)(s.doc()?, path).map_err(|e| bad("save", e))?;
+    let bytes = (hooks.write)(&super::xref::without_overlays(s.doc()?), path).map_err(|e| bad("save", e))?;
     commit_save(s, path, &bytes, store)
 }
 
@@ -245,7 +245,7 @@ fn run_bytes(s: &mut Session, p: &Value) -> Result<Value> {
     let hooks = io().ok_or_else(|| bad("document.bytes", "file formats are not available in this build"))?;
     let fmt = str_param(p, "format").unwrap_or("dxf");
     let lost = not_saved(s.doc()?);
-    let bytes = (hooks.write)(s.doc()?, &format!("drawing.{fmt}")).map_err(|e| bad("document.bytes", e))?;
+    let bytes = (hooks.write)(&super::xref::without_overlays(s.doc()?), &format!("drawing.{fmt}")).map_err(|e| bad("document.bytes", e))?;
     let mut r = json!({ "data": base64_encode(&bytes), "bytes": bytes.len() });
     if is_drawing_file(&format!("drawing.{fmt}")) {
         report_not_saved(s, &mut r, &lost);

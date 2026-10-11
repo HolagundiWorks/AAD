@@ -26,6 +26,7 @@ marks, isometric drafting).
 | Schedules | `schedule`, `openings.std`, `openings.sync`, `openings.table` (door and window schedule drawn as a table) |
 | Electrical layout | `electrical.blocks`, `electrical.number`, `electrical.layers`, `electrical.connect`, `electrical.schedule`, `electrical.update` (17 symbol codes, boards and circuits; no load or cable sizing) |
 | AQC bridge | `bridge.export` and `bridge.import`: project, floors, beam depths, schedule and measured quantities to and from the AQC estimation program ([hcw-kit-port.md](hcw-kit-port.md)) |
+| Xrefs and floor projects | `xref.attach`, `xref.reload`, `xref.detach`, `xref.bind`, `xref.list`; `project.setup`, `project.open`, `floor.list`, `floor.activate`, `floor.set`: a project of floor and layout drawings joined by relative Xrefs, with per-floor visibility, locking and print flags ([projects.md](projects.md)) |
 | Widgets | Architect calculator (`cal`, `ui.toggle.calculator`) and Pomodoro timer (`ui.toggle.pomodoro`) ([widgets.md](widgets.md)) |
 | Input forms | Dialogs and command-line prompts for the architecture commands ([input-forms.md](input-forms.md)) |
 | Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
@@ -40,6 +41,6 @@ marks, isometric drafting).
 | Qwen3-1.7B runtime, chat UI, retrieval | [ai-agent.md](ai-agent.md) |
 | Remaining hcwCAD-KIT tools | Text and drawing tools (`FIXTXT`, `TXTALIGN`, `INCARRAY`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Agent tools for take-off and schedules | The engine commands exist; the agent registry does not expose them yet ([ai-agent.md](ai-agent.md)) |
-| External references (xref) | No attach, detach, reload or bind commands exist |
+| Xref and floor-project interface | Floor selector in the toolbar, setup wizard dialog, Floor View Manager, opening-block generation and reconciliation, batch print ([projects.md](projects.md)) |
 | Conversion of 3D solids, surfaces and meshes | They are kept as raw data and reported on import, not converted |
 | User coordinate systems, SHX fonts, DWG on the web | Not available |
