@@ -1,0 +1,525 @@
+//! Architectural drafting tools built into CADCraft, re-implemented in Rust from the hcwCAD-KIT
+//! command set (MIT, Holgundi Consulting Works): the HCW and building-permission layer sets,
+//! room labels (ROOM) and the polyline area label (RAREA).
+//!
+//! The room and area tools read the drawing's insertion units (`INSUNITS`; a metric drawing with
+//! no units set is taken as millimetres, an imperial one as inches), measure in square metres or
+//! square feet, and size label text from 125 mm of real height.
+
+use cadcraft_color::Color;
+use cadcraft_doc::{Drawing, EntityKind, HAlign, Handle, Layer, Lineweight, VAlign};
+use cadcraft_geom::{Polyline, Vec2};
+use serde_json::{Value, json};
+
+use super::draw::make_text;
+use super::helpers::{lwpoly, rect_vertices};
+use super::machines::SelectRun;
+use super::*;
+use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step};
+
+const LABEL_LAYER: (&str, i16) = ("ROOM-LABELS", 3);
+const RECT_LAYER: (&str, i16) = ("ROOM-RECT", 8);
+/// Room label text height in millimetres of real size.
+const TEXT_MM: f64 = 125.0;
+
+/// Building-permission layers: name, ACI colour, linetype, lineweight (hundredths of mm).
+const BP_LAYERS: &[(&str, i16, &str, u16)] = &[
+    ("BP-SITE-BOUNDARY", 1, "Continuous", 50),
+    ("BP-SITE-SETBACK", 3, "DASHED2", 25),
+    ("BP-SITE-SURRENDER", 3, "DASHED", 18),
+    ("BP-ROAD-EDGE", 8, "Continuous", 35),
+    ("BP-ROAD-CL", 8, "CENTER2", 18),
+    ("BP-DRIVEWAY", 52, "Continuous", 25),
+    ("BP-COMP-WALL", 9, "Continuous", 18),
+    ("BP-BUILDING-CUT", 7, "Continuous", 50),
+    ("BP-BUILDING-VIEW", 7, "Continuous", 25),
+    ("BP-DOOR", 252, "Continuous", 18),
+    ("BP-WINDOW", 252, "Continuous", 13),
+    ("BP-STAIR", 142, "Continuous", 25),
+    ("BP-LIFT", 141, "Continuous", 18),
+    ("BP-RAMP", 140, "Continuous", 18),
+    ("BP-ROOM", 153, "Continuous", 18),
+    ("BP-BALCONY", 144, "Continuous", 18),
+    ("BP-TERRACE", 96, "Continuous", 18),
+    ("BP-PORCH", 22, "Continuous", 18),
+    ("BP-LOFT", 33, "DASHED", 13),
+    ("BP-MEZZANINE", 33, "Continuous", 18),
+    ("BP-SHAFT", 132, "Continuous", 18),
+    ("BP-OPEN-SPACE", 3, "Continuous", 18),
+    ("BP-PARKING", 151, "Continuous", 18),
+    ("BP-PARKING-AISLE", 151, "DASHED", 13),
+    ("BP-RWH", 133, "Continuous", 18),
+    ("BP-SERVICES", 134, "Continuous", 13),
+    ("BP-FIRE", 1, "DASHED", 25),
+    ("BP-LEVEL", 6, "Continuous", 13),
+    ("BP-PLANTATION", 62, "Continuous", 13),
+    ("BP-GARAGE", 152, "Continuous", 18),
+    ("BP-ACCESSORY", 152, "Continuous", 13),
+    ("BP-PwD", 94, "Continuous", 13),
+    ("BP-FAR", 6, "Continuous", 13),
+    ("BP-SURVEY-SKETCH", 9, "Continuous", 13),
+    ("BP-SECTION", 30, "Continuous", 35),
+    ("BP-ELEVATION", 30, "Continuous", 25),
+    ("BP-STRUC-REF", 3, "Continuous", 13),
+    ("BP-EXISTING", 251, "Continuous", 13),
+    ("BP-DEMOLISH", 251, "DASHED", 13),
+];
+
+/// HCW Layer Standard: name, ACI colour, linetype, lineweight (hundredths of mm), description.
+const HCW_LAYERS: &[(&str, i16, &str, u16, &str)] = &[
+    ("AN-REF", 250, "Continuous", 9, "Construction lines / viewport borders"),
+    ("AN-GRID", 8, "CENTER2", 13, "Grid and centre lines"),
+    ("AN-SYMB", 7, "Continuous", 18, "North point / symbols / logos"),
+    ("AN-TEXT", 7, "Continuous", 18, "All text - general, title block, keynotes"),
+    ("AN-DIMS", 8, "Continuous", 18, "Dimensions and leaders"),
+    ("AN-HATCH", 9, "Continuous", 10, "Hatching and fill patterns"),
+    ("A-WALL", 1, "Continuous", 35, "Walls - new and existing (cut)"),
+    ("A-DEMO", 1, "DASHED2", 25, "Elements to be demolished"),
+    ("A-COL", 1, "Continuous", 35, "Columns (cut)"),
+    ("A-DOOR", 2, "Continuous", 25, "Doors - frame and swing arc"),
+    ("A-WIND", 4, "Continuous", 25, "Windows - frame and sill"),
+    ("A-GLAZ", 4, "HIDDEN", 18, "Glazing / glass line"),
+    ("A-STAIR", 2, "Continuous", 25, "Stairs - treads, stringers, ramps"),
+    ("A-RAIL", 6, "Continuous", 20, "Handrails and balustrades"),
+    ("A-ROOF", 1, "Continuous", 25, "Roof outline and edge"),
+    ("A-FLR", 3, "Continuous", 18, "Floor finish / slab outline"),
+    ("A-CLNG", 3, "Continuous", 18, "Ceiling outline and features"),
+    ("A-DETAIL", 1, "Continuous", 25, "Detail bubbles and reference marks"),
+    ("I-FURN", 3, "Continuous", 20, "Loose furniture"),
+    ("I-JOIN", 5, "Continuous", 20, "Fixed joinery - kitchen, wardrobes, built-ins"),
+    ("I-FINISH", 30, "Continuous", 18, "Finish zones and material areas"),
+    ("I-DECOR", 140, "Continuous", 15, "Decorative and soft furnishing elements"),
+    ("E-CEIL", 6, "Continuous", 18, "Ceiling fittings - lights, fans, AC, sensors"),
+    ("E-POINT", 2, "Continuous", 18, "Wall points - power, data, switches"),
+    ("E-WIRE", 30, "Continuous", 15, "Wiring runs and conduit schematic"),
+    ("P-FIXT", 6, "Continuous", 18, "Plumbing fixtures - basin, WC, shower, bath"),
+    ("P-PIPE", 4, "Continuous", 18, "Pipes - supply, drain and vent"),
+    ("S-BOUND", 1, "PHANTOM2", 35, "Site and property boundary"),
+    ("S-ROAD", 8, "Continuous", 25, "Road edge and carriageway"),
+    ("S-LAND", 3, "Continuous", 18, "Landscaping and planting"),
+    ("S-TREE", 140, "Continuous", 18, "Trees - canopy and trunk"),
+    ("S-LEVEL", 2, "Continuous", 18, "Spot levels and contours"),
+    ("S-DRAIN", 4, "Continuous", 18, "Site drainage and channels"),
+    ("S-FENCE", 8, "Continuous", 20, "Fences and boundary walls"),
+    ("PR-TONE", 9, "Continuous", 10, "Presentation tone - shadow, fill, material"),
+    ("PR-CLOUD", 2, "Continuous", 25, "Revision clouds"),
+];
+
+/// Two-letter room codes and the room type each names.
+const ROOM_TYPES: &[(&str, &str)] = &[
+    ("br", "Bedroom"),
+    ("di", "Dining Room"),
+    ("ki", "Kitchen"),
+    ("li", "Living Room"),
+    ("ba", "Bathroom"),
+    ("at", "Attached Toilet"),
+    ("ct", "Common Toilet"),
+    ("mb", "Master Bedroom"),
+    ("st", "Study Room"),
+    ("sr", "Store Room"),
+    ("pr", "Pooja Room"),
+    ("bc", "Balcony"),
+    ("te", "Terrace"),
+    ("sc", "Staircase"),
+    ("co", "Corridor"),
+    ("en", "Entrance"),
+    ("ut", "Utility"),
+    ("ga", "Garage"),
+    ("gd", "Garden"),
+    ("cy", "Courtyard"),
+    ("lo", "Lobby"),
+    ("of", "Office"),
+    ("gr", "Guest Room"),
+    ("pa", "Pantry"),
+    ("la", "Laundry"),
+    ("wr", "Wardrobe"),
+    ("dr", "Dressing Room"),
+    ("ht", "Home Theater"),
+    ("gy", "Gym"),
+];
+
+pub fn specs() -> Vec<CommandSpec> {
+    vec![
+        CommandSpec::new("hcwlayers", "Architectural Layer Set", run_layers)
+            .menu(&["Format", "Layer Tools", "Architectural Layer Set"])
+            .alias(&["hcwlayer"])
+            .params("{set?: \"hcw\" | \"bp\" | \"both\" (default hcw)} → {created, existing}"),
+        CommandSpec::new("room", "Room Label", run_room)
+            .menu(&["Draw", "Room Label"])
+            .alias(&["hcwroom", "roomc"])
+            .params(
+                "{p1, p2, name (room name or two-letter code), floorPrefix?, textHeight? (drawing units), rectangle?: bool, units?: mm|cm|m|ft|in}",
+            )
+            .interactive(|_| Ok(Box::new(RoomM::default()))),
+        CommandSpec::new("rarea", "Room Area", run_rarea)
+            .menu(&["Draw", "Room Area"])
+            .alias(&["hcwroomarea"])
+            .params("{handles?: closed polylines, textHeight?, units?}")
+            .interactive(|_| Ok(Box::new(SelectRun::single("rarea", "RAREA", "Select a closed polyline")))),
+    ]
+}
+
+// ---------------------------------------------------------------------------------------------
+// Units
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Units {
+    Mm,
+    Cm,
+    M,
+    Ft,
+    In,
+}
+
+impl Units {
+    fn parse(s: &str) -> Option<Units> {
+        Some(match s.trim().to_ascii_lowercase().as_str() {
+            "mm" | "millimeters" | "millimetres" => Units::Mm,
+            "cm" | "centimeters" | "centimetres" => Units::Cm,
+            "m" | "meters" | "metres" => Units::M,
+            "ft" | "feet" => Units::Ft,
+            "in" | "inches" => Units::In,
+            _ => return None,
+        })
+    }
+    /// Metres in one drawing unit.
+    fn metres(self) -> f64 {
+        match self {
+            Units::Mm => 0.001,
+            Units::Cm => 0.01,
+            Units::M => 1.0,
+            Units::Ft => 0.3048,
+            Units::In => 0.0254,
+        }
+    }
+    fn imperial(self) -> bool {
+        matches!(self, Units::Ft | Units::In)
+    }
+}
+
+/// The units of the drawing: `units` if given, else `INSUNITS`, else millimetres (metric drawing)
+/// or inches.
+fn drawing_units(d: &Drawing, cmd: &str, p: &Value) -> Result<Units> {
+    if let Some(u) = str_param(p, "units") {
+        return Units::parse(u).ok_or_else(|| bad(cmd, "`units` must be mm, cm, m, ft or in"));
+    }
+    Ok(match d.header.i64("INSUNITS", 0) {
+        1 => Units::In,
+        2 => Units::Ft,
+        4 => Units::Mm,
+        5 => Units::Cm,
+        6 => Units::M,
+        _ if d.header.i64("MEASUREMENT", 0) == 1 => Units::Mm,
+        _ => Units::In,
+    })
+}
+
+/// Feet and inches of a length in inches, rounded to the inch: `12'-6"`.
+fn feet_inches(inches: f64) -> String {
+    let total = inches.abs().round() as i64;
+    format!("{}'-{}\"", total / 12, total % 12)
+}
+
+fn format_dim(u: Units, w: f64, h: f64) -> String {
+    if u.imperial() {
+        let to_in = u.metres() / 0.0254;
+        format!("{} x {}", feet_inches(w * to_in), feet_inches(h * to_in))
+    } else {
+        format!("{:.2} m x {:.2} m", w * u.metres(), h * u.metres())
+    }
+}
+
+/// An area in drawing units squared as (value, unit label): square metres, or square feet in an
+/// imperial drawing.
+fn area_in(u: Units, area: f64) -> (f64, &'static str) {
+    let sq_m = area * u.metres() * u.metres();
+    if u.imperial() { (sq_m / (0.3048 * 0.3048), "sq ft") } else { (sq_m, "m2") }
+}
+
+fn text_height(u: Units, p: &Value) -> Result<f64> {
+    let h = f64_or(p, "textHeight", TEXT_MM / 1000.0 / u.metres());
+    if h.is_finite() && h > 0.0 { Ok(h) } else { Err(bad("room", "`textHeight` must be positive")) }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Layers
+
+/// Make `name` exist with the given look; a linetype missing from the library falls back to
+/// Continuous. Returns whether the layer was created.
+fn ensure_layer(d: &mut Drawing, name: &str, aci: i16, linetype: &str, lw: u16, description: &str) -> bool {
+    if d.layer(name).is_some() {
+        return false;
+    }
+    if d.linetype(linetype).is_none()
+        && let Some(lt) = cadcraft_doc::library::standard_linetypes_for(d).into_iter().find(|l| l.name.eq_ignore_ascii_case(linetype))
+    {
+        d.linetypes.push(lt);
+    }
+    let mut l = Layer::new(name);
+    l.color = Color::from_aci(aci);
+    l.linetype = d.linetype(linetype).map(|t| t.name.clone()).unwrap_or_else(|| "Continuous".into());
+    l.lineweight = Lineweight::Mm100(lw);
+    l.description = description.into();
+    d.layers.push(l);
+    true
+}
+
+fn run_layers(s: &mut Session, p: &Value) -> Result<Value> {
+    let set = str_param(p, "set").unwrap_or("hcw").to_ascii_lowercase();
+    if !["hcw", "bp", "both"].contains(&set.as_str()) {
+        return Err(bad("hcwlayers", "`set` must be hcw, bp or both"));
+    }
+    let d = s.doc_mut()?;
+    let (mut created, mut existing) = (0, 0);
+    let mut count = |made: bool| if made { created += 1 } else { existing += 1 };
+    if set != "bp" {
+        for (n, c, lt, lw, desc) in HCW_LAYERS {
+            count(ensure_layer(d, n, *c, lt, *lw, desc));
+        }
+    }
+    if set != "hcw" {
+        for (n, c, lt, lw) in BP_LAYERS {
+            count(ensure_layer(d, n, *c, lt, *lw, ""));
+        }
+    }
+    Ok(json!({ "created": created, "existing": existing }))
+}
+
+/// Add `kind` to the current space on `layer`.
+fn add_on(s: &mut Session, layer: &str, kind: EntityKind) -> Result<Handle> {
+    let mut common = s.current_common();
+    common.layer = layer.into();
+    let space = s.space();
+    Ok(s.doc_mut()?.add(&space, common, kind)?)
+}
+
+fn ensure_room_layers(s: &mut Session) -> Result<()> {
+    let d = s.doc_mut()?;
+    ensure_layer(d, LABEL_LAYER.0, LABEL_LAYER.1, "Continuous", 18, "Room labels");
+    ensure_layer(d, RECT_LAYER.0, RECT_LAYER.1, "Continuous", 18, "Room rectangles");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// ROOM
+
+/// The room type a typed name stands for: a two-letter code names its type, anything else is
+/// taken as typed.
+fn room_name(input: &str) -> String {
+    let t = input.trim();
+    ROOM_TYPES.iter().find(|(code, _)| t.eq_ignore_ascii_case(code)).map(|(_, name)| (*name).to_string()).unwrap_or_else(|| t.to_string())
+}
+
+struct RoomLabel {
+    name: String,
+    width: f64,
+    height: f64,
+    handles: Vec<Handle>,
+    area: f64,
+    unit: &'static str,
+}
+
+fn make_room(s: &mut Session, p1: Vec2, p2: Vec2, name: &str, prefix: &str, rectangle: bool, p: &Value) -> Result<RoomLabel> {
+    let u = drawing_units(s.doc()?, "room", p)?;
+    let th = text_height(u, p)?;
+    let (w, h) = ((p2.x - p1.x).abs(), (p2.y - p1.y).abs());
+    if w <= 0.0 || h <= 0.0 || !w.is_finite() || !h.is_finite() {
+        return Err(bad("room", "the two corners must differ in both x and y"));
+    }
+    let name = room_name(name);
+    if name.is_empty() {
+        return Err(bad("room", "`name` is required"));
+    }
+    let full = if prefix.trim().is_empty() { name.clone() } else { format!("{} {}", prefix.trim(), name) };
+    let center = Vec2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
+    let (area, unit) = area_in(u, w * h);
+    ensure_room_layers(s)?;
+    let mut handles = Vec::new();
+    if rectangle {
+        handles.push(add_on(s, RECT_LAYER.0, lwpoly(rect_vertices(p1, p2), true))?);
+    }
+    let centered = (HAlign::Center, VAlign::Middle);
+    let lines = [(full.to_uppercase(), 0.0, th), (format_dim(u, w, h), th * 1.5, th * 0.8), (format!("Area: {area:.2} {unit}"), th * 2.8, th * 0.7)];
+    for (text, down, height) in lines {
+        let kind = make_text(s, Vec2::new(center.x, center.y - down), &text, height, 0.0, centered);
+        handles.push(add_on(s, LABEL_LAYER.0, kind)?);
+    }
+    Ok(RoomLabel { name: full, width: w, height: h, handles, area, unit })
+}
+
+fn run_room(s: &mut Session, p: &Value) -> Result<Value> {
+    let p1 = point_req("room", p, "p1")?;
+    let p2 = point_req("room", p, "p2")?;
+    let name = str_param(p, "name").ok_or_else(|| bad("room", "`name` is required"))?;
+    let r = make_room(s, p1, p2, name, str_param(p, "floorPrefix").unwrap_or(""), bool_or(p, "rectangle", true), p)?;
+    Ok(json!({
+        "name": r.name.to_uppercase(),
+        "width": r.width,
+        "height": r.height,
+        "area": r.area,
+        "areaUnit": r.unit,
+        "handles": r.handles.iter().map(|h| h.hex()).collect::<Vec<_>>(),
+    }))
+}
+
+#[derive(Default)]
+struct RoomM {
+    name: Option<String>,
+    first: Option<Vec2>,
+}
+
+impl Interactive for RoomM {
+    fn name(&self) -> &'static str {
+        "ROOM"
+    }
+    fn prompt(&self, _s: &Session) -> Prompt {
+        match (&self.name, self.first) {
+            (None, _) => Prompt::new("Enter room name or two-letter code (br, ki, li, ba...)", Accept::TEXT),
+            (Some(_), None) => Prompt::new("Select FIRST corner of room", Accept::POINT),
+            (Some(_), Some(a)) => Prompt::new("Select OPPOSITE corner of room", Accept::POINT).base(a),
+        }
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        match (&self.name, self.first, i) {
+            (None, _, Input::Text(t)) if !t.trim().is_empty() => self.name = Some(t),
+            (Some(_), None, Input::Point(p)) => self.first = Some(p),
+            (Some(name), Some(a), Input::Point(b)) => {
+                let r = make_room(s, a, b, name, "", true, &Value::Null)?;
+                s.echo(format!(
+                    "{} | {} | Area: {:.2} {}",
+                    r.name.to_uppercase(),
+                    format_dim(drawing_units(s.doc()?, "room", &Value::Null)?, r.width, r.height),
+                    r.area,
+                    r.unit
+                ));
+                return Ok(Step::Done);
+            }
+            _ => {}
+        }
+        Ok(Step::Continue)
+    }
+    fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
+        self.first.map(|a| vec![lwpoly(rect_vertices(a, c), true)]).unwrap_or_default()
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// RAREA
+
+fn run_rarea(s: &mut Session, p: &Value) -> Result<Value> {
+    let hs = targets(s, p)?;
+    let u = drawing_units(s.doc()?, "rarea", p)?;
+    let th = text_height(u, p)?;
+    let mut labels = Vec::new();
+    for h in hs {
+        let Some(e) = s.doc()?.entity(h).cloned() else { continue };
+        let EntityKind::LwPolyline(pl) = &e.kind else { continue };
+        if !pl.closed {
+            continue;
+        }
+        let poly = Polyline { vertices: pl.vertices.clone(), closed: true };
+        let (area, unit) = area_in(u, poly.area().abs());
+        let b = poly.bounds();
+        let at = Vec2::new((b.min.x + b.max.x) / 2.0, (b.min.y + b.max.y) / 2.0);
+        ensure_room_layers(s)?;
+        let text = format!("{area:.2} {unit}");
+        let kind = make_text(s, at, &text, th * 0.8, 0.0, (HAlign::Center, VAlign::Middle));
+        let label = add_on(s, LABEL_LAYER.0, kind)?;
+        labels.push(json!({ "handle": label.hex(), "area": area, "areaUnit": unit }));
+    }
+    if labels.is_empty() {
+        return Err(bad("rarea", "select one or more closed polylines"));
+    }
+    Ok(json!({ "labels": labels }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feet_and_inches_round_to_the_inch() {
+        assert_eq!(feet_inches(150.0), "12'-6\"");
+        assert_eq!(feet_inches(120.4), "10'-0\"");
+    }
+
+    #[test]
+    fn room_codes_name_their_type() {
+        assert_eq!(room_name("br"), "Bedroom");
+        assert_eq!(room_name("KI"), "Kitchen");
+        assert_eq!(room_name("Servant Room"), "Servant Room");
+    }
+
+    #[test]
+    fn metric_room_label_reads_the_drawing_units() {
+        let mut s = Session::new();
+        s.execute("setvar", &json!({"name": "INSUNITS", "value": 4})).unwrap();
+        let r = s.execute("room", &json!({"p1": [0, 0], "p2": [3400, 2500], "name": "br"})).unwrap();
+        assert_eq!(r["name"], "BEDROOM");
+        assert!((r["area"].as_f64().unwrap() - 8.5).abs() < 1e-9);
+        assert_eq!(r["areaUnit"], "m2");
+        let d = s.doc().unwrap();
+        assert!(d.layer("ROOM-LABELS").is_some() && d.layer("ROOM-RECT").is_some());
+        let texts: Vec<String> =
+            d.model.iter().filter_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None }).collect();
+        assert!(texts.contains(&"BEDROOM".to_string()), "{texts:?}");
+        assert!(texts.contains(&"3.40 m x 2.50 m".to_string()), "{texts:?}");
+        assert!(texts.contains(&"Area: 8.50 m2".to_string()), "{texts:?}");
+    }
+
+    #[test]
+    fn room_in_feet_labels_square_feet_and_prefix() {
+        let mut s = Session::new();
+        s.execute("setvar", &json!({"name": "INSUNITS", "value": 2})).unwrap();
+        s.execute("room", &json!({"p1": [0, 0], "p2": [12.5, 10], "name": "Kitchen", "floorPrefix": "GF", "rectangle": false})).unwrap();
+        let d = s.doc().unwrap();
+        let texts: Vec<String> =
+            d.model.iter().filter_map(|e| if let EntityKind::Text(t) = &e.kind { Some(t.value.clone()) } else { None }).collect();
+        assert!(texts.contains(&"GF KITCHEN".to_string()), "{texts:?}");
+        assert!(texts.contains(&"12'-6\" x 10'-0\"".to_string()), "{texts:?}");
+        assert!(texts.contains(&"Area: 125.00 sq ft".to_string()), "{texts:?}");
+        assert!(!d.model.iter().any(|e| matches!(e.kind, EntityKind::LwPolyline(_))), "no rectangle");
+    }
+
+    #[test]
+    fn room_command_line_asks_name_then_corners() {
+        let mut s = Session::new();
+        s.cmdline("room ki 0,0 4,3").unwrap();
+        assert!(s.running.is_none(), "{}", s.prompt_text());
+        assert!(s.doc().unwrap().model.iter().any(|e| matches!(&e.kind, EntityKind::Text(t) if t.value == "KITCHEN")));
+    }
+
+    #[test]
+    fn hostile_room_params_are_errors() {
+        let mut s = Session::new();
+        for p in [
+            json!({"p1": [0, 0], "p2": [0, 5], "name": "br"}),
+            json!({"p1": [0, 0], "p2": [1, 1]}),
+            json!({"p1": [0, 0], "p2": [1, 1], "name": "br", "textHeight": -1}),
+            json!({"p1": [0, 0], "p2": [1e308, 1e308], "name": "br", "units": "furlongs"}),
+        ] {
+            assert!(s.execute("room", &p).is_err(), "{p}");
+        }
+    }
+
+    #[test]
+    fn rarea_labels_a_closed_polyline() {
+        let mut s = Session::new();
+        s.execute("setvar", &json!({"name": "INSUNITS", "value": 6})).unwrap();
+        let h = s.execute("rectang", &json!({"p1": [0, 0], "p2": [4, 2]})).unwrap();
+        let r = s.execute("rarea", &json!({"handles": [h["handle"].clone()]})).unwrap();
+        assert!((r["labels"][0]["area"].as_f64().unwrap() - 8.0).abs() < 1e-9);
+        assert!(s.execute("rarea", &json!({"handles": []})).is_err());
+    }
+
+    #[test]
+    fn layer_sets_are_created_once() {
+        let mut s = Session::new();
+        let a = s.execute("hcwlayers", &json!({})).unwrap();
+        assert_eq!(a["created"], HCW_LAYERS.len());
+        let b = s.execute("hcwlayers", &json!({"set": "both"})).unwrap();
+        assert_eq!(b["created"], BP_LAYERS.len());
+        assert!(s.doc().unwrap().layer("A-WALL").is_some() && s.doc().unwrap().layer("BP-DOOR").is_some());
+        assert!(s.execute("hcwlayers", &json!({"set": "nope"})).is_err());
+    }
+}

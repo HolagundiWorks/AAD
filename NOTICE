@@ -22,3 +22,8 @@ each under the SIL Open Font License 1.1.
 
 CADCraft is an independent project and is not affiliated with, sponsored by or endorsed by
 Autodesk, Inc. AutoCAD and DWG are trademarks of Autodesk, Inc.
+
+hcwCAD-KIT
+The architectural tools in crates/engine/src/cmd/hcw.rs (layer sets, room types, room label and
+area behaviour) are re-implemented in Rust from hcwCAD-KIT, Copyright (c) Holgundi Consulting
+Works, MIT License (https://github.com/HolagundiWorks/hcwCAD-KIT). No C# source is included.
