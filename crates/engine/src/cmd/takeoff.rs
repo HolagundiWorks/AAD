@@ -64,7 +64,10 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("takeoff.linear", "Linear", run_linear).menu(&["Architecture", "Take-off", "Linear"]).alias(&["mlin"]).params(p),
         CommandSpec::new("takeoff.brick", "Brickwork", run_brick).menu(&["Architecture", "Take-off", "Brickwork"]).alias(&["mbrk"]).params(p),
         CommandSpec::new("takeoff.beams", "Beams and Lintels", run_beams).menu(&["Architecture", "Take-off", "Beams"]).alias(&["mbml"]).params(p),
-        CommandSpec::new("takeoff.columns", "Columns", run_columns).menu(&["Architecture", "Take-off", "Columns"]).alias(&["mcol"]).params(p),
+        CommandSpec::new("takeoff.columns", "Columns", run_columns)
+            .menu(&["Architecture", "Take-off", "Columns"])
+            .alias(&["mcol"])
+            .params("{layer?: default MEASURE-COLUMN, units?, at?, table?, label?}"),
         CommandSpec::new("takeoff.rects", "Rectangles", run_rects).menu(&["Architecture", "Take-off", "Rectangles"]).alias(&["mrec"]).params(p),
         CommandSpec::new("takeoff.paint", "Wall Paint", run_paint)
             .menu(&["Architecture", "Take-off", "Wall Paint"])
@@ -739,7 +742,8 @@ fn rect_size(sh: &Shape) -> Option<(f64, f64)> {
 fn run_columns(s: &mut Session, p: &Value) -> Result<Value> {
     let c = ctx(s, p, "takeoff.columns")?;
     let space = s.space();
-    let all = shapes(s.doc()?, &space, L_COLUMN);
+    let layer = str_param(p, "layer").unwrap_or(L_COLUMN).to_string();
+    let all = shapes(s.doc()?, &space, &layer);
     let mut sizes: Vec<(f64, f64)> = Vec::new();
     let mut counts: Vec<usize> = Vec::new();
     let mut items = Vec::new();

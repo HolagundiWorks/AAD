@@ -30,10 +30,13 @@ mod qselect;
 mod schedule;
 mod settings;
 mod spline_opts;
+mod structure;
+mod symbols;
 mod takeoff;
 mod trimextend;
 mod utility;
 mod view;
+mod walls;
 
 pub mod curves;
 pub mod helpers;
@@ -182,6 +185,9 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(takeoff::specs());
         v.extend(schedule::specs());
         v.extend(electrical::specs());
+        v.extend(walls::specs());
+        v.extend(structure::specs());
+        v.extend(symbols::specs());
         v.extend(layout::specs());
         v.extend(props::specs());
         v.extend(inquiry::specs());
