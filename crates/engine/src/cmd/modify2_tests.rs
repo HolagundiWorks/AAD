@@ -269,34 +269,6 @@ fn align_json_and_command_line() {
 }
 
 #[test]
-fn blend_json_and_command_line() {
-    let mut s = Session::new();
-    let a = h(&s.execute("line", &json!({"points": [[0, 0], [5, 0]]})).unwrap());
-    let b = h(&s.execute("line", &json!({"points": [[10, 3], [15, 3]]})).unwrap());
-    let r = s.execute("blend", &json!({"h1": a, "p1": [4, 0], "h2": b, "p2": [11, 3]})).unwrap();
-    match kind(&s, &h(&r)) {
-        EntityKind::Spline(sp) => {
-            assert_eq!(sp.degree, 3);
-            assert!(near(sp.control[0], 5.0, 0.0) && near(sp.control[3], 10.0, 3.0));
-            assert!(sp.control[1].y.abs() < 1e-9 && sp.control[1].x > 5.0, "tangent to the first line");
-            assert!((sp.control[2].y - 3.0).abs() < 1e-9 && sp.control[2].x < 10.0, "tangent to the second line");
-        }
-        k => panic!("{k:?}"),
-    }
-    let r = s.execute("blend", &json!({"h1": a, "p1": [1, 0], "h2": b, "p2": [14, 3], "continuity": "smooth"})).unwrap();
-    assert!(matches!(kind(&s, &h(&r)), EntityKind::Spline(sp) if sp.degree == 5 && near(sp.control[0], 0.0, 0.0)));
-    let c = h(&s.execute("circle", &json!({"center": [30, 0], "radius": 1})).unwrap());
-    assert!(s.execute("blend", &json!({"h1": a, "p1": [1, 0], "h2": c, "p2": [31, 0]})).is_err());
-
-    let mut s = Session::new();
-    s.execute("line", &json!({"points": [[0, 0], [5, 0]]})).unwrap();
-    s.execute("arc", &json!({"center": [10, 0], "radius": 2, "start": 90, "end": 180})).unwrap();
-    s.cmdline("blend con s 4,0 8,0").unwrap();
-    assert!(s.running.is_none(), "{}", s.prompt_text());
-    assert!(matches!(last(&s), EntityKind::Spline(sp) if sp.degree == 5 && near(*sp.control.last().unwrap(), 8.0, 0.0)));
-}
-
-#[test]
 fn reverse_json_and_command_line() {
     let mut s = Session::new();
     let l = h(&s.execute("line", &json!({"points": [[0, 0], [5, 0]]})).unwrap());
@@ -321,36 +293,7 @@ fn reverse_json_and_command_line() {
     assert!(matches!(last(&s), EntityKind::Line(x) if near(x.a.xy(), 5.0, 0.0)));
 }
 
-// ---------------- NCOPY / CHSPACE / FLATTEN ----------------
-
-fn make_block(s: &mut Session) -> String {
-    let a = h(&s.execute("line", &json!({"points": [[0, 0], [1, 0]]})).unwrap());
-    let c = h(&s.execute("circle", &json!({"center": [3, 0], "radius": 0.5})).unwrap());
-    s.execute("block", &json!({"name": "PART", "base": [0, 0], "handles": [a, c], "keep": "delete"})).unwrap();
-    h(&s.execute("insert", &json!({"name": "PART", "at": [10, 10], "rotation": 90})).unwrap())
-}
-
-#[test]
-fn ncopy_json_and_command_line() {
-    let mut s = Session::new();
-    let ins = make_block(&mut s);
-    let r = s.execute("ncopy", &json!({"handle": ins, "pick": [10, 13]})).unwrap();
-    assert_eq!(r["handles"].as_array().unwrap().len(), 1);
-    assert!(matches!(last(&s), EntityKind::Circle(c) if near(c.center.xy(), 10.0, 13.0)));
-    let r = s.execute("ncopy", &json!({"handle": ins, "delta": [5, 0]})).unwrap();
-    assert_eq!(r["handles"].as_array().unwrap().len(), 2);
-    assert!(matches!(last(&s), EntityKind::Circle(c) if near(c.center.xy(), 15.0, 13.0)));
-    let line = h(&s.execute("line", &json!({"points": [[50, 50], [51, 50]]})).unwrap());
-    assert!(s.execute("ncopy", &json!({"handle": line})).is_err());
-
-    let mut s = Session::new();
-    make_block(&mut s);
-    s.cmdline("ncopy 10,10.5").unwrap();
-    s.cmdline("").unwrap();
-    s.cmdline("0,0 20,0").unwrap();
-    assert!(s.running.is_none(), "{}", s.prompt_text());
-    assert!(matches!(last(&s), EntityKind::Line(l) if near(l.a.xy(), 30.0, 10.0) && near(l.b.xy(), 30.0, 11.0)));
-}
+// ---------------- CHSPACE / FLATTEN ----------------
 
 #[test]
 fn chspace_json_and_command_line() {
@@ -553,7 +496,7 @@ fn trim_and_extend_ellipse_and_spline() {
 
 #[test]
 fn new_modify_commands_survive_garbage_input() {
-    let ids = ["pedit", "splinedit", "lengthen", "align", "blend", "reverse", "ncopy", "chspace", "flatten", "fillet", "trim", "extend"];
+    let ids = ["pedit", "splinedit", "lengthen", "align", "reverse", "chspace", "flatten", "fillet", "trim", "extend"];
     let mut s = Session::new();
     let l = h(&s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap());
     let sp = h(&s.execute("spline", &json!({"control": [[0, 1], [1, 2], [2, 1]]})).unwrap());

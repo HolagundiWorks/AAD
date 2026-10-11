@@ -269,16 +269,6 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             app.ui.dialog = Some("units".into());
             Ok(Value::Null)
         }
-        "parameters" | "par" if params.is_null() => {
-            app.ui.dialog = Some("parameters".into());
-            Ok(Value::Null)
-        }
-        "parametersclose" if params.is_null() => {
-            if app.ui.dialog.as_deref() == Some("parameters") {
-                app.ui.dialog = None;
-            }
-            Ok(Value::Null)
-        }
         "dsettings" | "ds" | "se" if params.is_null() => {
             app.ui.dialog = Some("dsettings".into());
             Ok(Value::Null)

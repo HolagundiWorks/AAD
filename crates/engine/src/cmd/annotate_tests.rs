@@ -63,19 +63,6 @@ fn moving_the_object_carries_the_dimension() {
 }
 
 #[test]
-fn moving_the_object_keeps_the_ordinate_datum() {
-    let mut s = Session::new();
-    let l = line(&mut s, [5.0, 0.0], [5.0, 5.0]);
-    let d = h(&s.execute("dimordinate", &json!({ "feature": [5, 5], "leader": [5, 8] })).unwrap());
-    s.execute("move", &json!({ "handles": [l.hex()], "from": [5, 5], "to": [8, 5] })).unwrap();
-    let dm = dim(&s, d);
-    assert!(near(dm.p13.xy(), Vec2::new(8.0, 5.0)) && near(dm.p14.xy(), Vec2::new(8.0, 8.0)), "{dm:?}");
-    assert!(near(dm.defpt.xy(), Vec2::ZERO), "datum must stay at the origin: {:?}", dm.defpt);
-    let g = cadcraft_render::dimension_in(s.doc().unwrap(), &dm);
-    assert_eq!(g.value, "8.0000");
-}
-
-#[test]
 fn moving_the_line_keeps_a_free_continued_origin() {
     let mut s = Session::new();
     let l = line(&mut s, [0.0, 0.0], [10.0, 0.0]);
@@ -283,23 +270,6 @@ fn dimension_override_text_with_variables() {
 }
 
 #[test]
-fn dimtedit_and_dimspace() {
-    let mut s = Session::new();
-    let a = h(&s.execute("dimlinear", &json!({ "p1": [0, 0], "p2": [10, 0], "at": [5, 1] })).unwrap());
-    let b = h(&s.execute("dimlinear", &json!({ "p1": [0, 0], "p2": [6, 0], "at": [3, 1.3] })).unwrap());
-    s.execute("dimtedit.left", &json!({ "handles": [a.hex()] })).unwrap();
-    let g = cadcraft_render::dimension_in(s.doc().unwrap(), &dim(&s, a));
-    assert!(g.text_pos.x < 5.0);
-    s.execute("dimtedit.angle", &json!({ "handles": [a.hex()], "angle": 30 })).unwrap();
-    let g = cadcraft_render::dimension_in(s.doc().unwrap(), &dim(&s, a));
-    assert!((g.text_angle - 30f64.to_radians()).abs() < 1e-9);
-    s.execute("dimtedit.home", &json!({ "handles": [a.hex()] })).unwrap();
-    assert!(dim(&s, a).overrides.is_empty() && dim(&s, a).text_rotation == 0.0);
-    s.execute("dimspace", &json!({ "base": a.hex(), "handles": [b.hex()], "spacing": 0.5 })).unwrap();
-    assert!((dim(&s, b).defpt.y - 1.5).abs() < 1e-9, "{:?}", dim(&s, b).defpt);
-}
-
-#[test]
 fn text_style_commands() {
     let mut s = Session::new();
     let r = s
@@ -403,7 +373,6 @@ fn hostile_annotation_params_never_panic() {
         ("table", json!({ "at": [0, 0], "cols": 0 })),
         ("style", json!({ "name": "" })),
         ("style.rename", json!({ "from": "Standard", "to": "Y" })),
-        ("dimspace", json!({ "base": "1", "handles": [] })),
         ("dimtedit", json!({ "handles": [], "mode": "angle" })),
     ] {
         let _ = s.execute(id, &p);

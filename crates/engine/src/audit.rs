@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 pub struct Issue {
     /// What is wrong, as a stable identifier (`missingLayer`, `invalidGeometry`, `blockCycle`…).
     pub kind: &'static str,
-    /// Where: `header`, `tables`, `Model`, `layout <name>`, `block <name>`, `groups` or `constraints`.
+    /// Where: `header`, `tables`, `Model`, `layout <name>`, `block <name>`, or `groups`.
     pub location: String,
     /// The object concerned, as a hex handle.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -185,7 +185,6 @@ pub fn repair(d: &mut Drawing) -> Vec<Issue> {
     block_cycles(d, &mut out);
     let all = all_handles(d);
     groups(d, &all, &mut out);
-    constraints(d, &all, &mut out);
     out
 }
 
@@ -622,22 +621,4 @@ fn groups(d: &mut Drawing, all: &HashSet<Handle>, out: &mut Vec<Issue>) {
             ));
         }
     }
-}
-
-/// Constraints refer only to objects that exist.
-fn constraints(d: &mut Drawing, all: &HashSet<Handle>, out: &mut Vec<Issue>) {
-    let mut kept = Vec::with_capacity(d.constraints.len());
-    for c in std::mem::take(&mut d.constraints) {
-        match c.refs.iter().find(|r| !all.contains(&r.handle)) {
-            Some(r) => out.push(issue(
-                "danglingReference",
-                "constraints",
-                Some(r.handle),
-                format!("constraint {} refers to an object that doesn't exist", c.id),
-                "constraint removed",
-            )),
-            None => kept.push(c),
-        }
-    }
-    d.constraints = kept;
 }

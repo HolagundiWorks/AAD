@@ -148,7 +148,6 @@ Tools
         Angle
         Area
         Volume
-        Region/Mass Properties
         List
         ID Point
         Time
@@ -160,38 +159,6 @@ Tools
     Edit Xref in Place
     Open Xref
     Load Application...
-    Parametric
-        Geometric Constraints
-            Coincident
-            Perpendicular
-            Parallel
-            Tangent
-            Horizontal
-            Vertical
-            Collinear
-            Concentric
-            Smooth
-            Symmetric
-            Equal
-            Fix
-        AutoConstrain
-        Constraint Bars
-            Select Objects
-            Show All
-            Hide All
-        Dimensional Constraints
-            Aligned
-            Horizontal
-            Vertical
-            Angular
-            Radius
-            Diameter
-        Dynamic Dimensions
-            Select Objects
-            Show All
-            Hide All
-        Delete Constraints
-        Constraint Settings
     New UCS
         World
         Previous
@@ -266,9 +233,7 @@ Draw
         Multiple Point
         Divide
         Measure
-    Donut
     Hatch...
-    Gradient...
     Boundary...
     Region
     Wipeout
@@ -280,22 +245,17 @@ Draw
         Multiline Text...
         Single Line Text
     Table...
-    Center Line
-    Center Mark
 Dimension
     Dimension
     Quick Dimension
     Linear
     Aligned
-    Arc Length
-    Ordinate
     Radius
     Jogged
     Diameter
     Angular
     Baseline
     Continue
-    Dimension Space
     Dimension Break
     Multileader
     Tolerance...
@@ -358,7 +318,6 @@ Modify
         Path Array
         Polar Array
     Delete Duplicate Objects
-    Copy Nested Objects
     Move
     Rotate
     Scale
@@ -371,7 +330,6 @@ Modify
     Join
     Chamfer
     Fillet
-    Blend
     Align
     Change Space
     Flatten Objects

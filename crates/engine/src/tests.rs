@@ -764,23 +764,6 @@ fn hatch_pick_point_keeps_island_of_separate_lines() {
 }
 
 #[test]
-fn gradient_pick_point_keeps_island_of_separate_lines() {
-    for lines in [true, false] {
-        let mut s = square_hole_fixture(lines);
-        s.execute("gradient", &json!({"points": [[2, 2]]})).unwrap();
-        let e = only_hatch(&s);
-        let EntityKind::Hatch(h) = &e.kind else { panic!("not a hatch") };
-        assert_outer_and_square_island(h);
-        let loops: Vec<Vec<Vec2>> = h.loops.iter().map(|l| l.vertices.iter().map(|v| v.p).collect()).collect();
-        let tris = cadcraft_render::triangulate_evenodd(&loops);
-        let area: f64 = tris.chunks(3).map(|t| cadcraft_geom::shoelace(t).abs()).sum();
-        assert!((area - 375.0).abs() < 1e-6, "filled area {area} (lines: {lines})");
-        let sample = Vec2::new(7.25, 7.75);
-        assert!(!tris.chunks(3).any(|t| cadcraft_geom::point_in_polygon(t, sample)), "hole filled (lines: {lines})");
-    }
-}
-
-#[test]
 fn boundary_pick_point_keeps_island_of_separate_lines() {
     for lines in [true, false] {
         let mut s = square_hole_fixture(lines);

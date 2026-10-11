@@ -35,16 +35,3 @@ fn embedded_text_scales_with_the_pattern() {
     let text = fence.pattern.iter().find(|e| e.text.is_some()).unwrap();
     assert!((text.scale - 2.54).abs() < 1e-9 && (text.length + 2.54).abs() < 1e-9, "{text:?}");
 }
-
-#[test]
-fn centerline_loads_the_metric_center_linetype() {
-    let mut s = Session::empty();
-    s.new_drawing(true);
-    s.execute("line", &json!({ "points": [[0, 0], [100, 0]] })).unwrap();
-    s.execute("line", &json!({ "points": [[0, 20], [100, 20]] })).unwrap();
-    let hs: Vec<String> = s.doc().unwrap().model.iter().map(|e| e.handle.hex()).collect();
-    let (h1, h2) = (&hs[0], &hs[1]);
-    s.execute("centerline", &json!({ "h1": h1, "h2": h2 })).unwrap();
-    let lt = s.doc().unwrap().linetype("CENTER").unwrap().clone();
-    assert!((lt.pattern[0].length - 31.75).abs() < 1e-9, "{lt:?}");
-}

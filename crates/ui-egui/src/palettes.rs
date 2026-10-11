@@ -29,13 +29,12 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
             (Icon::Ellipse, "ellipse", "Ellipse"),
             (Icon::Polygon, "polygon", "Polygon"),
             (Icon::Point, "point.multiple", "Multiple Point"),
-            (Icon::Donut, "donut", "Donut"),
             (Icon::RevCloud, "revcloud", "Revision Cloud"),
             (Icon::Region, "region", "Region"),
             (Icon::Wipeout, "wipeout", "Wipeout"),
         ],
     ),
-    ("Hatch", &[(Icon::Hatch, "hatch", "Hatch"), (Icon::Gradient, "gradient", "Gradient"), (Icon::Boundary, "boundary", "Boundary")], &[]),
+    ("Hatch", &[(Icon::Hatch, "hatch", "Hatch"), (Icon::Boundary, "boundary", "Boundary")], &[]),
     (
         "Block",
         &[
@@ -82,8 +81,6 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
             (Icon::DimRadius, "dimradius", "Radius"),
             (Icon::DimDiameter, "dimdiameter", "Diameter"),
             (Icon::DimAngular, "dimangular", "Angular"),
-            (Icon::DimArc, "dimarc", "Arc Length"),
-            (Icon::DimOrdinate, "dimordinate", "Ordinate"),
             (Icon::DimBaseline, "dimbaseline", "Baseline"),
             (Icon::DimContinue, "dimcontinue", "Continue"),
             (Icon::QDim, "qdim", "Quick Dimension"),
@@ -99,20 +96,6 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
         ],
     ),
     ("Table", &[(Icon::Table, "table", "Table")], &[]),
-    (
-        "Parametric",
-        &[(Icon::Constraint, "autoconstrain", "Auto Constrain")],
-        &[
-            (Icon::Coincident, "gccoincident", "Coincident"),
-            (Icon::Parallel, "gcparallel", "Parallel"),
-            (Icon::Perpendicular, "gcperpendicular", "Perpendicular"),
-            (Icon::Horizontal, "gchorizontal", "Horizontal"),
-            (Icon::Vertical, "gcvertical", "Vertical"),
-            (Icon::Tangent, "gctangent", "Tangent"),
-            (Icon::Concentric, "gcconcentric", "Concentric"),
-            (Icon::Equal, "gcequal", "Equal"),
-        ],
-    ),
 ];
 
 fn command_known(id: &str) -> bool {

@@ -52,20 +52,6 @@ fn dimlinear_vertical_forces_the_orientation() {
 }
 
 #[test]
-fn dimordinate_datum_and_text_options() {
-    let mut s = Session::new();
-    // The leader endpoint alone would make a Y datum; Xdatum forces X, and Text is a text option.
-    s.script("dimordinate 0,0 x t\nA <>\n10,2\n").unwrap();
-    let d = last_dim(&s);
-    assert_eq!(d.kind, DimKind::Ordinate { x_type: true });
-    assert_eq!(d.text, "A <>");
-    s.script("dimordinate 0,0 y a 90 2,10\n").unwrap();
-    let d = last_dim(&s);
-    assert_eq!(d.kind, DimKind::Ordinate { x_type: false });
-    assert!((d.text_rotation - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
-}
-
-#[test]
 fn dimradius_text_options() {
     let mut s = Session::new();
     s.script("circle 0,0 5\ndimradius 5,0 t\nR=<>\na 45 8,8\n").unwrap();
@@ -83,18 +69,6 @@ fn dimangular_quadrant_locks_the_measured_angle() {
     let d = last_dim(&s);
     assert_eq!(value(&s, &d), "90°");
     assert!(near(d.defpt.xy(), Vec2::new(5.0, 5.0).normalized() * 5.0), "{:?}", d.defpt);
-}
-
-#[test]
-fn dimarc_partial_measures_part_of_the_arc() {
-    let mut s = Session::new();
-    s.script("arc c 0,0 -10,0 10,0\n").unwrap();
-    assert!(matches!(last(&s), EntityKind::Arc(_)), "{:?}", last(&s));
-    s.script("dimarc 0,-10 p 10,0 0,-10 5,-12\n").unwrap();
-    let d = last_dim(&s);
-    assert_eq!(d.kind, DimKind::ArcLength);
-    assert!(near(d.p13.xy(), Vec2::new(0.0, -10.0)) && near(d.p14.xy(), Vec2::new(10.0, 0.0)), "{d:?}");
-    assert_eq!(value(&s, &d), "⌒15.7080");
 }
 
 #[test]

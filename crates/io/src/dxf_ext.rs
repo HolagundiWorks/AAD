@@ -1,17 +1,16 @@
 //! DXF data shared by the reader and the writer beyond plain entity geometry:
 //! dimension-variable group codes (DIMSTYLE records and the `ACAD` "DSTYLE" override xdata,
 //! both per the DXF Reference), arrowhead block names, extended-data helpers and the
-//! CADCraft-owned payloads (exact associativity, table flags, hatch gradients, parametric
-//! constraints).
+//! CADCraft-owned payloads (exact associativity, table flags, hatch gradients).
 //!
 //! CADCraft's own data lives under the registered application `CADCRAFT` (xdata) and the
-//! named-object-dictionary entries `CADCRAFT_CONSTRAINTS`, `CADCRAFT_LAYERSTATES` and
+//! named-object-dictionary entries `CADCRAFT_LAYERSTATES` and
 //! `CADCRAFT_PLOTSTYLES` (XRECORDs). Other readers keep or ignore them.
 
 use std::collections::HashMap;
 
 use cadcraft_color::Color;
-use cadcraft_doc::{AssocSnap, Constraint, DimAssoc, DimStyle, Handle, LayerState, Parametric, PlotStyleTable};
+use cadcraft_doc::{AssocSnap, DimAssoc, DimStyle, Handle, LayerState, PlotStyleTable};
 use cadcraft_dxf::Tag;
 use cadcraft_render::Arrowhead;
 use serde::{Deserialize, Serialize};
@@ -19,8 +18,6 @@ use serde_json::Value;
 
 /// Registered application name of CADCraft's extended data.
 pub(crate) const APP: &str = "CADCRAFT";
-/// Named-object-dictionary key of the constraint XRECORD.
-pub(crate) const CONSTRAINTS_KEY: &str = "CADCRAFT_CONSTRAINTS";
 /// Named-object-dictionary key of the saved layer states XRECORD.
 pub(crate) const LAYER_STATES_KEY: &str = "CADCRAFT_LAYERSTATES";
 /// Named-object-dictionary key of the drawing's plot style tables XRECORD.
@@ -35,7 +32,6 @@ pub(crate) const MAX_PLOT_STYLE_NAMES: usize = 100_000;
 /// Caps for hostile input.
 pub(crate) const MAX_XDATA_ITEMS: usize = 4096;
 pub(crate) const MAX_PAYLOAD: usize = 64 << 20;
-pub(crate) const MAX_CONSTRAINTS: usize = 1_000_000;
 pub(crate) const MAX_LAYER_STATES: usize = 100_000;
 
 /// How a dimension variable is stored.
@@ -457,26 +453,6 @@ pub(crate) fn read_assoc(tags: &[Tag]) -> Vec<DimAssoc> {
     out
 }
 
-/// The parametric payload stored in the `CADCRAFT_CONSTRAINTS` XRECORD.
-#[derive(Serialize, Deserialize)]
-struct Payload {
-    version: u32,
-    #[serde(default)]
-    constraints: Vec<Constraint>,
-    #[serde(default)]
-    parametric: Parametric,
-}
-
-/// JSON chunks (≤ 250 characters) for the constraint XRECORD, or `None` when the drawing has
-/// no parametric data.
-pub(crate) fn constraint_chunks(constraints: &[Constraint], parametric: &Parametric) -> Option<Vec<String>> {
-    if constraints.is_empty() && *parametric == Parametric::default() {
-        return None;
-    }
-    let json = serde_json::to_string(&Payload { version: 1, constraints: constraints.to_vec(), parametric: parametric.clone() }).ok()?;
-    Some(json_chunks(&json))
-}
-
 /// JSON text split into XRECORD strings of at most 250 characters. Backslashes are written as
 /// `\u005c` so no chunk contains a DXF `\U+` escape.
 fn json_chunks(json: &str) -> Vec<String> {
@@ -558,18 +534,6 @@ pub(crate) fn parse_plot_styles(text: &str) -> Option<Vec<PlotStyleTable>> {
         return None;
     }
     Some(p.tables.into_iter().map(PlotStyleTable::sanitized).filter(|t| !t.name.is_empty()).collect())
-}
-
-/// Parse the constraint XRECORD text; `None` when it is not a payload we understand.
-pub(crate) fn parse_constraints(text: &str) -> Option<(Vec<Constraint>, Parametric)> {
-    if text.len() > MAX_PAYLOAD {
-        return None;
-    }
-    let p: Payload = serde_json::from_str(text).ok()?;
-    if p.version != 1 || p.constraints.len() > MAX_CONSTRAINTS {
-        return None;
-    }
-    Some((p.constraints, p.parametric))
 }
 
 #[cfg(test)]

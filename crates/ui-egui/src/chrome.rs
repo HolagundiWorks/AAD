@@ -335,7 +335,6 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             (Icon::Snap, s.snapmode, "snap", "Snap Mode (F9)"),
             (Icon::Ortho, s.orthomode, "ortho", "Ortho Mode (F8)"),
             (Icon::Polar, s.polarmode, "polar", "Polar Tracking (F10)"),
-            (Icon::Isodraft, s.isodraft, "isodraft", "Isometric Drafting"),
             (Icon::OTrack, s.otrack, "otrack", "Object Snap Tracking (F11)"),
             (Icon::Osnap, s.osmode & mode::OFF == 0 && s.osmode != 0, "osnap", "Object Snap (F3)"),
             (Icon::Lineweight, s.lwdisplay, "lwdisplay", "Show/Hide Lineweight"),

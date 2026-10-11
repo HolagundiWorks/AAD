@@ -28,7 +28,7 @@ People trust CADCraft with their drawings; a crash loses their work. **This outr
 - **Shared test corpora** live in separate repos (`storytold/<app>-corpus`); never commit large binary fixtures here.
 - **Everything is a command.** User-visible behaviour = a command in `crates/engine/src/cmd/*` (`CommandSpec`: id = AutoCAD's command name in lower case, label, menu path, shortcut, aliases, params doc, `enabled`, JSON `run`, optional `interactive` prompt machine) + tests. UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The command line, menus, toolbar, Tool Sets, scripts, CLI, control channel and MCP all reach the same commands.
 - **Programmatic calls never open dialogs.** `engine.execute` runs the JSON form with defaults; only menu/toolbar invocation starts the interactive prompt sequence.
-- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render`, `constraints` → L3 `io` → L4 `engine` → L5 `ui-egui`, `mcp` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. **The UI crate is swappable.**
+- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `mcp` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. **The UI crate is swappable.**
 - **The UI is thin**: panels read engine state and act through `app.run(id, params)` / `app.start(id)` / `app.cmdline(text)`. Colours come from `theme::Tokens`.
 - **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
 - **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm). Commit after every feature arc that builds, and push to `main`.
@@ -50,3 +50,6 @@ People trust CADCraft with their drawings; a crash loses their work. **This outr
 
 ## Scope: 2D only (this fork)
 This fork is a **2D drafting application**. 3D features are out of scope and have been removed: the `3D Polyline` and `3D Face` entity kinds, the `3dpoly` and `helix` commands, the ViewCube, and the 3D menus (Orbit, Camera, 3D Views, Visual Styles, Render, 3D Modeling, Solid/Surface/Mesh Editing) in the parity catalog. DXF import projects 3D polylines and 3DFACEs onto XY and skips polyface/polygon meshes. Coordinates keep their `z` field for DXF round-trip fidelity; don't add 3D behaviour.
+
+### Command scope (architecture and civil drafting)
+Industry-specific commands were removed: all parametric/geometric/dimensional constraints (and the `constraints` crate), Region/Mass Properties, Ordinate and Arc Length dimensions, Dimension Space, Center Mark/Center Line, Isometric Drafting, Donut, Gradient, Blend and Copy Nested Objects. Don't re-add mechanical-engineering features; keep the general drafting, annotation, layer, block, hatch, table, layout and plot commands.

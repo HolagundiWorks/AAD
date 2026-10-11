@@ -1313,9 +1313,6 @@ pub fn write(d: &Drawing) -> String {
     let table_style_dict = w.h();
     // CADCraft data in XRECORDs of the named object dictionary: (key, handle, text chunks).
     let mut xrecords: Vec<(&str, String, Vec<String>)> = Vec::new();
-    if let Some(chunks) = dxf_ext::constraint_chunks(&d.constraints, &d.parametric) {
-        xrecords.push((dxf_ext::CONSTRAINTS_KEY, w.h(), chunks));
-    }
     if let Some(chunks) = dxf_ext::layer_state_chunks(&d.layer_states) {
         xrecords.push((dxf_ext::LAYER_STATES_KEY, w.h(), chunks));
     }
@@ -1832,7 +1829,7 @@ pub fn write(d: &Drawing) -> String {
         w.group("ACAD_REACTORS", 330, &[&pstyle_dict]);
         w.s(330, pstyle_dict.clone());
     }
-    // Parametric constraints and parameters, saved layer states, plot style tables (CADCraft
+    // Saved layer states, plot style tables (CADCraft
     // data).
     for (_, h, chunks) in &xrecords {
         w.s(0, "XRECORD");

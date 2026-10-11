@@ -56,11 +56,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .enabled(always)
             .noundo()
             .transparent(),
-        CommandSpec::new("isodraft", "Isometric Drafting", |s, p| toggle(s, p, |st| &mut st.isodraft, "Isodraft"))
-            .params("{on?: bool}")
-            .enabled(always)
-            .noundo()
-            .transparent(),
         CommandSpec::new("transparencydisplay", "Show/Hide Transparency", |s, p| toggle(s, p, |st| &mut st.transparency_display, "Transparency"))
             .params("{on?: bool}")
             .enabled(always)

@@ -70,7 +70,6 @@ fn every_marked_ui_literal_has_a_translation() {
         include_str!("../dialogs.rs"),
         include_str!("../layers.rs"),
         include_str!("../palettes.rs"),
-        include_str!("../parametric.rs"),
         include_str!("../quick.rs"),
     ];
     let mut missing = BTreeSet::new();
@@ -256,7 +255,6 @@ fn dialogs_render_in_ukrainian_and_keep_their_source_ids() {
         ("blocks", "Блоки"),
         ("layers", "Диспетчер властивостей шарів"),
         ("qselect", "Швидкий вибір"),
-        ("parameters", "Диспетчер параметрів"),
         ("language", "Мова інтерфейсу"),
     ] {
         let mut app = CadApp::new(Session::new(), Services::default());

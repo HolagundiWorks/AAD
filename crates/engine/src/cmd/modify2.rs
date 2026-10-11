@@ -2,7 +2,7 @@
 //! FLATTEN, plus the fillet/trim/extend extensions used by modify.rs (arcs, polylines,
 //! ellipses and splines).
 
-use cadcraft_doc::{Common, Entity, EntityKind, Handle, LwPolyline, MAX_BLOCK_DEPTH, Space};
+use cadcraft_doc::{Common, Entity, EntityKind, Handle, LwPolyline, Space};
 use cadcraft_geom::{
     Arc, Ellipse, Line, Mat3, PolyVertex, Polyline, Segment, Spline, TAU, Vec2, ccw_sweep, intersect_ext, line_circle, line_line_infinite, norm_angle,
 };
@@ -39,18 +39,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["al"])
             .params("{handles?, s1, d1, s2?, d2?, scale?: bool}")
             .interactive(|_| Ok(Box::new(AlignM::default()))),
-        CommandSpec::new("blend", "Blend", run_blend)
-            .menu(&["Modify", "Blend"])
-            .alias(&["blendcurves"])
-            .params("{h1, p1, h2, p2, continuity?: tangent|smooth}")
-            .interactive(|_| Ok(Box::new(BlendM::default()))),
         CommandSpec::new("reverse", "Reverse", run_reverse)
             .params("{handles?} (lines, polylines, 3D polylines, splines)")
             .interactive(|_| Ok(Box::new(SelOp::new(SelKind::Reverse)))),
-        CommandSpec::new("ncopy", "Copy Nested Objects", run_ncopy)
-            .menu(&["Modify", "Copy Nested Objects"])
-            .params("{handle (block reference), pick?: [x,y] (nearest nested object; default all), delta? | from,to}")
-            .interactive(|_| Ok(Box::new(NcopyM::default()))),
         CommandSpec::new("chspace", "Change Space", run_chspace)
             .menu(&["Modify", "Change Space"])
             .params("{handles?, to?: \"model\" | layout name, viewport?: handle}")
@@ -1229,118 +1220,6 @@ impl Interactive for AlignM {
 // BLEND
 // =====================================================================================
 
-/// Endpoint of a curve nearest `pick` and the outward unit tangent there.
-fn curve_end(k: &EntityKind, pick: Vec2) -> Option<(Vec2, Vec2)> {
-    let c = Chain::of(k)?;
-    if c.closed {
-        return None;
-    }
-    let (a, b) = (c.start()?, c.end()?);
-    if pick.dist(b) <= pick.dist(a) {
-        let t = c.segs.last()?.tangent(1.0);
-        Some((b, t))
-    } else {
-        let t = c.segs.first()?.tangent(0.0);
-        Some((a, -t))
-    }
-}
-
-pub(crate) fn blend_spline(e1: (Vec2, Vec2), e2: (Vec2, Vec2), smooth: bool) -> Option<Spline> {
-    let (p1, t1) = e1;
-    let (p2, t2) = e2;
-    let d = p1.dist(p2);
-    if d < 1e-12 {
-        return None;
-    }
-    let ctrl = if smooth {
-        let k = d / 5.0;
-        vec![p1, p1 + t1 * k, p1 + t1 * (2.0 * k), p2 + t2 * (2.0 * k), p2 + t2 * k, p2]
-    } else {
-        let k = d / 3.0;
-        vec![p1, p1 + t1 * k, p2 + t2 * k, p2]
-    };
-    let deg = ctrl.len() - 1;
-    Some(Spline::from_control(ctrl, deg))
-}
-
-fn blend(s: &mut Session, h1: Handle, p1: Vec2, h2: Handle, p2: Vec2, smooth: bool) -> Result<Handle> {
-    let k1 = curves::entity(s, h1)?.kind;
-    let k2 = curves::entity(s, h2)?.kind;
-    let e1 = curve_end(&k1, p1).ok_or_else(|| other("Select an open line, arc, polyline, ellipse arc or spline."))?;
-    let e2 = curve_end(&k2, p2).ok_or_else(|| other("Select an open line, arc, polyline, ellipse arc or spline."))?;
-    let sp = blend_spline(e1, e2, smooth).ok_or_else(|| other("The ends coincide."))?;
-    s.add_entity(EntityKind::Spline(sp))
-}
-
-fn run_blend(s: &mut Session, p: &Value) -> Result<Value> {
-    let h1 = curves::handle_param(p, "h1").ok_or_else(|| bad("blend", "`h1` is required"))?;
-    let h2 = curves::handle_param(p, "h2").ok_or_else(|| bad("blend", "`h2` is required"))?;
-    let p1 = point_req("blend", p, "p1")?;
-    let p2 = point_req("blend", p, "p2")?;
-    let smooth = str_param(p, "continuity").is_some_and(|c| c.eq_ignore_ascii_case("smooth"));
-    let h = blend(s, h1, p1, h2, p2, smooth)?;
-    Ok(json!({ "handle": h.hex() }))
-}
-
-#[derive(Default)]
-struct BlendM {
-    first: Option<(Handle, Vec2)>,
-    smooth: bool,
-    asking: bool,
-}
-
-impl Interactive for BlendM {
-    fn name(&self) -> &'static str {
-        "BLEND"
-    }
-    fn begin(&mut self, s: &mut Session) -> Result<Step> {
-        s.set_selection(Vec::new());
-        s.echo(format!("Continuity = {}", if self.smooth { "Smooth" } else { "Tangent" }));
-        Ok(Step::Continue)
-    }
-    fn prompt(&self, _s: &Session) -> Prompt {
-        if self.asking {
-            return Prompt::new("Enter continuity", curves::KW).kw(&["Tangent", "Smooth"]).default("Tangent");
-        }
-        match self.first {
-            None => Prompt::new("Select first object or", Accept::POINT).kw(&["CONtinuity"]),
-            Some(_) => Prompt::new("Select second point", Accept::POINT),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        if self.asking {
-            if let Input::Keyword(k) | Input::Text(k) = &i {
-                self.smooth = k.to_ascii_lowercase().starts_with('s');
-            }
-            self.asking = false;
-            return Ok(Step::Continue);
-        }
-        match i {
-            Input::Keyword(_) => {
-                self.asking = true;
-                Ok(Step::Continue)
-            }
-            Input::Point(p) => {
-                let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
-                match self.first {
-                    None => {
-                        let k = curves::entity(s, h)?.kind;
-                        curve_end(&k, p).ok_or_else(|| other("Select an open curve."))?;
-                        self.first = Some((h, p));
-                        Ok(Step::Continue)
-                    }
-                    Some((h1, p1)) => {
-                        blend(s, h1, p1, h, p, self.smooth)?;
-                        Ok(Step::Done)
-                    }
-                }
-            }
-            Input::Enter => Ok(Step::Cancel),
-            _ => Ok(Step::Continue),
-        }
-    }
-}
-
 // =====================================================================================
 // REVERSE / CHSPACE / FLATTEN (select, then act)
 // =====================================================================================
@@ -1604,152 +1483,6 @@ impl Interactive for SelOp {
 // =====================================================================================
 // NCOPY
 // =====================================================================================
-
-/// The leaf objects of a block reference in world coordinates (nested references expanded).
-fn nested_leaves(d: &cadcraft_doc::Drawing, ins: &cadcraft_doc::Insert, m: &Mat3, depth: usize, out: &mut Vec<(Common, EntityKind)>) {
-    if depth >= MAX_BLOCK_DEPTH || out.len() >= MAX_GEN {
-        return;
-    }
-    let Some(b) = d.block(&ins.block) else { return };
-    let mm = m.then_before(ins.transform(b.base.xy()));
-    for e in b.entities.iter() {
-        match &e.kind {
-            EntityKind::Insert(inner) => nested_leaves(d, inner, &mm, depth + 1, out),
-            EntityKind::AttDef(_) => {}
-            k => {
-                let mut k = k.clone();
-                k.transform(&mm);
-                out.push((e.common.clone(), k));
-            }
-        }
-    }
-}
-
-fn leaves_of(s: &Session, h: Handle) -> Result<Vec<(Common, EntityKind)>> {
-    let e = curves::entity(s, h)?;
-    let EntityKind::Insert(ins) = &e.kind else { return Err(other("Select a block reference.")) };
-    let mut out = Vec::new();
-    nested_leaves(s.doc()?, ins, &Mat3::IDENTITY, 0, &mut out);
-    Ok(out)
-}
-
-fn nearest_leaf(leaves: Vec<(Common, EntityKind)>, p: Vec2) -> Option<(Common, EntityKind)> {
-    leaves.into_iter().min_by(|a, b| curves::kind_distance(&a.1, p).total_cmp(&curves::kind_distance(&b.1, p)))
-}
-
-fn place_copies(s: &mut Session, items: &[(Common, EntityKind)], delta: Vec2) -> Result<Vec<Handle>> {
-    let space = s.space();
-    let m = Mat3::translate(delta);
-    let mut out = Vec::new();
-    for (c, k) in items {
-        let mut k = k.clone();
-        k.transform(&m);
-        out.push(push_entity(s, &space, c.clone(), k)?);
-    }
-    Ok(out)
-}
-
-fn run_ncopy(s: &mut Session, p: &Value) -> Result<Value> {
-    let h = targets(s, p)?.first().copied().ok_or_else(|| bad("ncopy", "`handle` (block reference) is required"))?;
-    let leaves = leaves_of(s, h)?;
-    let items: Vec<(Common, EntityKind)> = match point_param(p, "pick") {
-        Some(q) => nearest_leaf(leaves, q).into_iter().collect(),
-        None => leaves,
-    };
-    if items.is_empty() {
-        return Err(other("The block reference has no nested objects."));
-    }
-    let delta = match (point_param(p, "delta"), point_param(p, "from"), point_param(p, "to")) {
-        (Some(d), _, _) => d,
-        (None, Some(a), Some(b)) => b - a,
-        _ => Vec2::ZERO,
-    };
-    let hs = place_copies(s, &items, delta)?;
-    Ok(json!({ "handles": hs.iter().map(|h| h.hex()).collect::<Vec<_>>() }))
-}
-
-#[derive(Default)]
-struct NcopyM {
-    items: Vec<(Common, EntityKind)>,
-    selecting_done: bool,
-    base: Option<Vec2>,
-}
-
-impl Interactive for NcopyM {
-    fn name(&self) -> &'static str {
-        "NCOPY"
-    }
-    fn begin(&mut self, s: &mut Session) -> Result<Step> {
-        s.set_selection(Vec::new());
-        Ok(Step::Continue)
-    }
-    fn prompt(&self, _s: &Session) -> Prompt {
-        match (self.selecting_done, self.base) {
-            (false, _) => Prompt::new("Select nested objects to copy or", Accept::POINT).kw(&["Settings"]),
-            (true, None) => Prompt::new("Specify base point or", Accept::POINT).kw(&["Displacement", "Multiple"]).default("Displacement"),
-            (true, Some(b)) => Prompt::new("Specify second point or <use first point as displacement>", Accept::POINT).base(b),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        if !self.selecting_done {
-            return match i {
-                Input::Point(p) => {
-                    let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
-                    let leaf = nearest_leaf(leaves_of(s, h)?, p).ok_or_else(|| other("Nothing nested there."))?;
-                    s.echo(format!("Nested object: {}", leaf.1.type_name()));
-                    if self.items.len() < MAX_GEN {
-                        self.items.push(leaf);
-                    }
-                    Ok(Step::Continue)
-                }
-                Input::Keyword(_) => {
-                    s.echo("Insert mode: Copy (nested objects are copied as independent objects).");
-                    Ok(Step::Continue)
-                }
-                Input::Enter => {
-                    if self.items.is_empty() {
-                        return Ok(Step::Cancel);
-                    }
-                    self.selecting_done = true;
-                    Ok(Step::Continue)
-                }
-                _ => Ok(Step::Continue),
-            };
-        }
-        match (self.base, i) {
-            (None, Input::Point(p)) => {
-                self.base = Some(p);
-                Ok(Step::Continue)
-            }
-            (None, Input::Enter | Input::Keyword(_)) => {
-                place_copies(s, &self.items, Vec2::ZERO)?;
-                Ok(Step::Done)
-            }
-            (Some(b), Input::Point(p)) => {
-                place_copies(s, &self.items, p - b)?;
-                Ok(Step::Done)
-            }
-            (Some(b), Input::Enter) => {
-                place_copies(s, &self.items, b)?;
-                Ok(Step::Done)
-            }
-            _ => Ok(Step::Continue),
-        }
-    }
-    fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
-        let Some(b) = self.base else { return Vec::new() };
-        let m = Mat3::translate(c - b);
-        self.items
-            .iter()
-            .take(500)
-            .map(|(_, k)| {
-                let mut k = k.clone();
-                k.transform(&m);
-                k
-            })
-            .collect()
-    }
-}
 
 // =====================================================================================
 // FILLET extensions (arcs, circles, polylines)

@@ -6,7 +6,6 @@ mod array;
 mod audit;
 mod blocks;
 pub mod clipboard;
-pub mod constraints;
 mod draw;
 mod draw2;
 mod edit;
@@ -178,7 +177,6 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(settings::specs());
         v.extend(utility::specs());
         v.extend(table::specs());
-        v.extend(constraints::specs());
         v
     })
 }

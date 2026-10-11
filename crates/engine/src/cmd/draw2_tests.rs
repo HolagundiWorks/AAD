@@ -526,36 +526,6 @@ fn spline_cv_json_and_command_line() {
 // ---------------- CENTER MARK / CENTER LINE ----------------
 
 #[test]
-fn centermark_and_centerline() {
-    let mut s = Session::new();
-    let c = h(&s.execute("circle", &json!({"center": [0, 0], "radius": 2})).unwrap());
-    let r = s.execute("centermark", &json!({"handle": c})).unwrap();
-    assert_eq!(r["handles"].as_array().unwrap().len(), 2);
-    let e = (**s.doc().unwrap().model.last().unwrap()).clone();
-    assert_eq!(e.common.linetype, "CENTER");
-    assert!(s.doc().unwrap().linetype("CENTER").is_some());
-    assert!(matches!(e.kind, EntityKind::Line(l) if (l.b.y - 2.12).abs() < 1e-9));
-    let a = s.execute("line", &json!({"points": [[10, 0], [20, 0]]})).unwrap()["handles"][0].as_str().unwrap().to_string();
-    let b = s.execute("line", &json!({"points": [[20, 4], [10, 4]]})).unwrap()["handles"][0].as_str().unwrap().to_string();
-    s.execute("centerline", &json!({"h1": a, "h2": b})).unwrap();
-    assert!(matches!(last(&s), EntityKind::Line(l) if (l.a.y - 2.0).abs() < 1e-9 && (l.a.x - 9.88).abs() < 1e-9));
-    assert!(s.execute("centerline", &json!({"h1": a, "h2": c})).is_err());
-    assert!(s.execute("centermark", &json!({"handle": a})).is_err());
-
-    let mut s = Session::new();
-    s.execute("circle", &json!({"center": [0, 0], "radius": 2})).unwrap();
-    s.execute("arc", &json!({"center": [10, 0], "radius": 1, "start": 0, "end": 90})).unwrap();
-    s.cmdline("centermark 2,0 11,0").unwrap();
-    s.cmdline("").unwrap();
-    assert_eq!(kinds(&s).iter().filter(|k| **k == "Line").count(), 4);
-    s.execute("line", &json!({"points": [[0, 10], [10, 10]]})).unwrap();
-    s.execute("line", &json!({"points": [[0, 12], [10, 12]]})).unwrap();
-    s.cmdline("centerline 5,10 5,12").unwrap();
-    assert!(s.running.is_none());
-    assert!(matches!(last(&s), EntityKind::Line(l) if (l.a.y - 11.0).abs() < 1e-9));
-}
-
-#[test]
 fn new_draw_commands_survive_garbage_input() {
     let ids = [
         "arc.sce",
@@ -583,8 +553,6 @@ fn new_draw_commands_survive_garbage_input() {
         "wipeout",
         "mline",
         "spline.cv",
-        "centermark",
-        "centerline",
         "xline",
         "rectang",
     ];

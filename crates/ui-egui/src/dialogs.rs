@@ -1,6 +1,6 @@
 //! Dialogs: Drafting Settings, Drawing Units, About, command reference, blocks; dispatches the
-//! Layer Properties Manager ([`crate::layers`]), Quick Select ([`crate::quick`]), Parameters
-//! Manager ([`crate::parametric`]) and the style and settings managers ([`crate::managers`]).
+//! Layer Properties Manager ([`crate::layers`]), Quick Select ([`crate::quick`]) and the style and
+//! settings managers ([`crate::managers`]).
 
 use egui::{RichText, vec2};
 use serde_json::json;
@@ -17,7 +17,6 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         "language" => language(app, ctx, &mut open),
         "layers" => crate::layers::dialog(app, ctx, &mut open),
         "qselect" => crate::quick::qselect_dialog(app, ctx, &mut open),
-        "parameters" => crate::parametric::parameters_dialog(app, ctx, &mut open),
         "dsettings" => dsettings(app, ctx, &mut open),
         "units" => units(app, ctx, &mut open),
         "about" => about(ctx, &mut open),

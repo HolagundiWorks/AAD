@@ -71,11 +71,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["spl"])
             .params("{fit: [[x,y],...], closed?, knots?: chord|sqrt|uniform, startTangent?, endTangent? ([dx,dy]), tolerance?} | {control: [...], degree?} | {object: handle|true, handles?} (polyline to spline)")
             .interactive(|_| Ok(Box::new(SplineM::default()))),
-        CommandSpec::new("donut", "Donut", run_donut)
-            .menu(&["Draw", "Donut"])
-            .alias(&["do", "doughnut"])
-            .params("{center, inside, outside}")
-            .interactive(|_| Ok(Box::new(DonutM::default()))),
         CommandSpec::new("text", "Single Line Text", run_text)
             .menu(&["Draw", "Text", "Single Line Text"])
             .alias(&["dt", "dtext"])
@@ -274,26 +269,6 @@ fn run_spline(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("spline", "`fit` or `control` points are required"));
     };
     added(s.add_entity(EntityKind::Spline(sp))?)
-}
-
-fn donut(center: Vec2, inside: f64, outside: f64) -> EntityKind {
-    let r = (inside.abs() + outside.abs()) / 4.0;
-    let w = (outside.abs() - inside.abs()).abs() / 2.0;
-    let mut k = lwpoly(vec![PolyVertex::with_bulge(center - Vec2::X * r, 1.0), PolyVertex::with_bulge(center + Vec2::X * r, 1.0)], true);
-    if let EntityKind::LwPolyline(pl) = &mut k {
-        pl.const_width = w;
-    }
-    k
-}
-
-fn run_donut(s: &mut Session, p: &Value) -> Result<Value> {
-    let c = point_req("donut", p, "center")?;
-    let inside = size_param("donut", p, "inside", true)?.unwrap_or(0.5);
-    let outside = size_param("donut", p, "outside", false)?.unwrap_or(1.0);
-    if inside > outside {
-        return Err(bad("donut", "`inside` must not be larger than `outside`"));
-    }
-    added(s.add_entity(donut(c, inside, outside))?)
 }
 
 /// Justification code → (halign, valign).
@@ -1327,56 +1302,6 @@ impl Interactive for SplineM {
             return Vec::new();
         }
         vec![EntityKind::Spline(Spline::fit_with(&pts, false, opts))]
-    }
-}
-
-#[derive(Default)]
-struct DonutM {
-    inside: Option<f64>,
-    outside: Option<f64>,
-}
-
-impl Interactive for DonutM {
-    fn name(&self) -> &'static str {
-        "DONUT"
-    }
-    fn prompt(&self, s: &Session) -> Prompt {
-        let d = s.doc().ok();
-        let di = d.map(|d| d.header.f64("DONUTID", 0.5)).unwrap_or(0.5);
-        let dout = d.map(|d| d.header.f64("DONUTOD", 1.0)).unwrap_or(1.0);
-        match (self.inside, self.outside) {
-            (None, _) => Prompt::new("Specify inside diameter of donut", Accept::NUMBER).default(format!("{di:.4}")),
-            (Some(_), None) => Prompt::new("Specify outside diameter of donut", Accept::NUMBER).default(format!("{dout:.4}")),
-            _ => Prompt::new("Specify center of donut", Accept::POINT).kw(&[]),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        let hdr = |s: &Session, k: &str, d: f64| s.doc().map(|x| x.header.f64(k, d)).unwrap_or(d);
-        match (self.inside, self.outside, i) {
-            (None, _, Input::Text(t)) => {
-                self.inside = Some(number(&t).ok_or_else(|| crate::EngineError::Other("Requires a distance.".into()))?.abs())
-            }
-            (None, _, Input::Enter) => self.inside = Some(hdr(s, "DONUTID", 0.5)),
-            (Some(_), None, Input::Text(t)) => {
-                self.outside = Some(number(&t).ok_or_else(|| crate::EngineError::Other("Requires a distance.".into()))?.abs())
-            }
-            (Some(_), None, Input::Enter) => self.outside = Some(hdr(s, "DONUTOD", 1.0)),
-            (Some(a), Some(b), Input::Point(p)) => {
-                s.add_entity(donut(p, a, b))?;
-                let d = s.doc_mut()?;
-                d.header.set_f64("DONUTID", a);
-                d.header.set_f64("DONUTOD", b);
-            }
-            (Some(_), Some(_), Input::Enter) => return Ok(Step::Done),
-            _ => {}
-        }
-        Ok(Step::Continue)
-    }
-    fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
-        match (self.inside, self.outside) {
-            (Some(a), Some(b)) => vec![donut(c, a, b)],
-            _ => Vec::new(),
-        }
     }
 }
 

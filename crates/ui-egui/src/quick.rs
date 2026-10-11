@@ -231,7 +231,7 @@ struct QpState {
 fn num_row(ui: &mut egui::Ui, label: &str, id: egui::Id, v: f64, set: &mut Option<(String, Value)>, key: &str) {
     ui.label(RichText::new(crate::i18n::t(label)).color(Tokens::get().text_dim));
     let s = format!("{v:.4}");
-    if let Some(n) = crate::parametric::expr_field(ui, id, &s)
+    if let Some(n) = expr_field(ui, id, &s)
         && let Some(f) = cadcraft_engine::units::parse_distance(&n).or_else(|| n.parse::<f64>().ok()).filter(|f| f.is_finite())
     {
         *set = Some((key.to_string(), json!(f)));
@@ -369,7 +369,7 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
                     }
                     Some(EntityKind::Text(tx)) => {
                         ui.label(RichText::new(crate::tl!("Contents")).color(Tokens::get().text_dim));
-                        if let Some(v) = crate::parametric::expr_field(ui, id("txt"), &tx.value) {
+                        if let Some(v) = expr_field(ui, id("txt"), &tx.value) {
                             set = Some(("text".into(), json!(v)));
                         }
                         ui.end_row();
@@ -378,7 +378,7 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
                     }
                     Some(EntityKind::MText(tx)) => {
                         ui.label(RichText::new(crate::tl!("Contents")).color(Tokens::get().text_dim));
-                        if let Some(v) = crate::parametric::expr_field(ui, id("mtxt"), &tx.contents) {
+                        if let Some(v) = expr_field(ui, id("mtxt"), &tx.contents) {
                             set = Some(("text".into(), json!(v)));
                         }
                         ui.end_row();
@@ -391,7 +391,7 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
                     }
                     Some(EntityKind::Dimension(dm)) => {
                         ui.label(RichText::new(crate::tl!("Text override")).color(Tokens::get().text_dim));
-                        if let Some(v) = crate::parametric::expr_field(ui, id("dt"), &dm.text) {
+                        if let Some(v) = expr_field(ui, id("dt"), &dm.text) {
                             set = Some(("textOverride".into(), json!(v)));
                         }
                         ui.end_row();
@@ -414,6 +414,18 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
     if close {
         let _ = app.run("qpmode", json!({ "on": false }));
     }
+}
+
+/// A text field committing on Enter / focus loss when changed.
+pub(crate) fn expr_field(ui: &mut egui::Ui, id: egui::Id, value: &str) -> Option<String> {
+    let mut buf = ui.data_mut(|d| d.get_temp::<String>(id)).unwrap_or_else(|| value.to_string());
+    let resp = ui.add(egui::TextEdit::singleline(&mut buf).id(id.with("te")).desired_width(150.0));
+    if resp.has_focus() {
+        ui.data_mut(|d| d.insert_temp(id, buf.clone()));
+    } else {
+        ui.data_mut(|d| d.remove::<String>(id));
+    }
+    (resp.lost_focus() && buf.trim() != value && !buf.trim().is_empty()).then(|| buf.trim().to_string())
 }
 
 #[cfg(test)]

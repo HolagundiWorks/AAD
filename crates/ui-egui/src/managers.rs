@@ -1,5 +1,5 @@
 //! Style and settings dialogs opened from the menus: Linetype Manager, Point Style, Table Style,
-//! Multileader Style, Page Setup Manager and Constraint Settings.
+//! Multileader Style and Page Setup Manager.
 //!
 //! Typed or chosen from a menu (no parameters) these commands open their dialog; JSON calls run
 //! the command. The dialogs read the drawing and change it only through the same commands
@@ -9,7 +9,7 @@ use egui::{RichText, Sense, Stroke, vec2};
 use serde_json::{Value, json};
 
 use crate::CadApp;
-use crate::parametric::expr_field;
+use crate::quick::expr_field;
 use crate::theme::Tokens;
 
 /// Open the dialog for a typed or menu-invoked command. `None` if `id` has no dialog here or the
@@ -24,7 +24,6 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
         "tablestyle" | "ts" => "tablestyle",
         "mleaderstyle" | "mls" => "mleaderstyle",
         "pagesetup" => "pagesetup",
-        "constraintsettings" | "csettings" => "csettings",
         _ => return None,
     };
     app.ui.dialog = Some(dialog.into());
@@ -39,7 +38,6 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
         "tablestyle" => table_style(app, ctx, open),
         "mleaderstyle" => mleader_style(app, ctx, open),
         "pagesetup" => page_setup(app, ctx, open),
-        "csettings" => constraint_settings(app, ctx, open),
         _ => {
             *open = false;
             None
@@ -514,71 +512,5 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
         });
     });
     set_temp(ctx, "pagesetup_sel", sel);
-    action
-}
-
-// ---------- Constraint Settings ----------
-
-fn constraint_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
-    let t = Tokens::get();
-    let Ok(d) = app.session.doc() else {
-        no_drawing(ctx, "Constraint Settings", open);
-        return None;
-    };
-    let s = d.parametric.settings.clone();
-    let types = cadcraft_doc::ParametricSettings::default().auto_types;
-    let mut action = None;
-    let set = |k: &str, v: Value| Some(("constraintsettings", json!({ k: v })));
-    egui::Window::new("Constraint Settings").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.heading("Geometric");
-        let mut infer = s.infer;
-        if ui.checkbox(&mut infer, "Infer geometric constraints").changed() {
-            action = set("infer", json!(infer));
-        }
-        let mut bars = s.bars_visible;
-        if ui.checkbox(&mut bars, "Show constraint bars").changed() {
-            action = set("barsVisible", json!(bars));
-        }
-        ui.horizontal(|ui| {
-            ui.label("Constraint bar transparency (%)");
-            if let Some(v) = num_field(ui, "csettings_transp", f64::from(s.bar_transparency)) {
-                action = set("barTransparency", json!(v));
-            }
-        });
-        ui.separator();
-        ui.heading("Dimensional");
-        let mut dims = s.dims_visible;
-        if ui.checkbox(&mut dims, "Show dynamic constraints").changed() {
-            action = set("dimsVisible", json!(dims));
-        }
-        ui.separator();
-        ui.heading("AutoConstrain");
-        ui.label(RichText::new("Constraint types AUTOCONSTRAIN applies").color(t.text_dim));
-        egui::Grid::new("csettings_types").num_columns(3).show(ui, |ui| {
-            for (i, ty) in types.iter().enumerate() {
-                let mut on = s.auto_types.iter().any(|a| a.eq_ignore_ascii_case(ty));
-                if ui.checkbox(&mut on, ty.as_str()).changed() {
-                    let list: Vec<&String> =
-                        types.iter().filter(|x| if *x == ty { on } else { s.auto_types.iter().any(|a| a.eq_ignore_ascii_case(x)) }).collect();
-                    action = set("autoTypes", json!(list));
-                }
-                if i % 3 == 2 {
-                    ui.end_row();
-                }
-            }
-        });
-        egui::Grid::new("csettings_tol").num_columns(2).show(ui, |ui| {
-            ui.label("Distance tolerance");
-            if let Some(v) = num_field(ui, "csettings_dist", s.distance_tolerance) {
-                action = set("distanceTolerance", json!(v));
-            }
-            ui.end_row();
-            ui.label("Angle tolerance (degrees)");
-            if let Some(v) = num_field(ui, "csettings_angle", s.angle_tolerance) {
-                action = set("angleTolerance", json!(v));
-            }
-            ui.end_row();
-        });
-    });
     action
 }

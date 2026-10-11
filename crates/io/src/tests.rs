@@ -554,7 +554,7 @@ fn dxf_roundtrips_page_setup() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Round trips of styles, overrides, associativity, constraints and tables.
+// Round trips of styles, overrides, associativity and tables.
 
 fn dim(kind: DimKind, p13: Vec3, p14: Vec3) -> Dimension {
     Dimension {
@@ -919,86 +919,9 @@ fn dimension_associativity_roundtrips() {
     assert!(assoc_of(&foreign, hr).is_empty(), "radial links are CADCraft-only");
 }
 
-fn parametric_sample(d: &mut Drawing) -> (Vec<Constraint>, Parametric) {
-    let l1 = d.add(&Space::Model, Common::default(), EntityKind::Line(Line { a: Vec3::ZERO, b: Vec3::new(4.0, 0.0, 0.0) })).unwrap();
-    let l2 = d.add(&Space::Model, Common::default(), EntityKind::Line(Line { a: Vec3::new(4.0, 0.0, 0.0), b: Vec3::new(4.0, 3.0, 0.0) })).unwrap();
-    let constraints = vec![
-        Constraint { id: 1, kind: ConstraintKind::Horizontal, refs: vec![GeomRef::whole(l1)], name: String::new(), expr: String::new() },
-        Constraint {
-            id: 2,
-            kind: ConstraintKind::Coincident,
-            refs: vec![GeomRef::new(l1, Sub::End), GeomRef::new(l2, Sub::Start)],
-            name: String::new(),
-            expr: String::new(),
-        },
-        Constraint {
-            id: 3,
-            kind: ConstraintKind::Distance(DistAxis::Vertical),
-            refs: vec![GeomRef::new(l2, Sub::Start), GeomRef::new(l2, Sub::End)],
-            name: "d1".into(),
-            expr: "width/2 + 1".into(),
-        },
-        Constraint {
-            id: 4,
-            kind: ConstraintKind::Angular,
-            refs: vec![GeomRef::whole(l1), GeomRef::whole(l2)],
-            name: "ang1".into(),
-            expr: "90".into(),
-        },
-        Constraint {
-            id: 5,
-            kind: ConstraintKind::Fix,
-            refs: vec![GeomRef::new(l2, Sub::Vertex(7)), GeomRef::new(l2, Sub::Segment(3))],
-            name: String::new(),
-            expr: String::new(),
-        },
-    ];
-    // Long text (chunk boundaries inside strings, spaces at the edges), backslashes that
-    // would look like DXF `\U+` escapes, and non-ASCII text.
-    let long = format!("  {}  \\U+0041 \\\\ \"quoted\" Ünïcødé ✓ {}  ", "word ".repeat(80), "x".repeat(300));
-    let parametric = Parametric {
-        parameters: vec![
-            Parameter { name: "width".into(), expr: "12.5".into(), description: long },
-            Parameter { name: "h".into(), expr: "width*0.4".into(), description: String::new() },
-        ],
-        settings: ParametricSettings {
-            infer: true,
-            distance_tolerance: 0.125,
-            angle_tolerance: 2.5,
-            auto_types: vec!["Parallel".into(), "Tangent".into()],
-            bars_visible: false,
-            bar_exceptions: vec![l1],
-            dims_visible: false,
-            dim_exceptions: vec![l2],
-            bar_transparency: 30,
-        },
-    };
-    d.constraints = constraints.clone();
-    d.parametric = parametric.clone();
-    (constraints, parametric)
-}
-
 #[test]
-fn constraints_and_parameters_roundtrip_exactly() {
+fn layer_states_roundtrip() {
     let mut d = Drawing::new_imperial();
-    let (constraints, parametric) = parametric_sample(&mut d);
-    let text = write_dxf(&d);
-    assert!(text.contains("CADCRAFT_CONSTRAINTS") && text.contains("XRECORD"));
-    assert!(!text.contains("\\U+0041"), "no DXF unicode escape may appear in the payload");
-    let back = read_dxf(text.as_bytes()).unwrap();
-    assert_eq!(back.constraints, constraints);
-    assert_eq!(back.parametric, parametric);
-    let again = roundtrip(&back);
-    assert_eq!(again.constraints, constraints);
-    assert_eq!(again.parametric, parametric);
-    // Drawings without parametric data carry no record.
-    assert!(!write_dxf(&Drawing::new_imperial()).contains("CADCRAFT_CONSTRAINTS"));
-}
-
-#[test]
-fn layer_states_roundtrip_next_to_constraints() {
-    let mut d = Drawing::new_imperial();
-    let (constraints, _) = parametric_sample(&mut d);
     d.layers.push(Layer {
         name: "Wände".into(),
         color: Color::True(cadcraft_color::Rgb(200, 10, 40)),
@@ -1016,7 +939,6 @@ fn layer_states_roundtrip_next_to_constraints() {
     assert!(text.contains("CADCRAFT_LAYERSTATES"));
     let back = read_dxf(text.as_bytes()).unwrap();
     assert_eq!(back.layer_states, d.layer_states);
-    assert_eq!(back.constraints, constraints);
     assert_eq!(roundtrip(&back).layer_states, d.layer_states);
     #[cfg(not(target_arch = "wasm32"))]
     assert_eq!(read(&write(&d, "x.dwg").unwrap(), "x.dwg").unwrap().layer_states, d.layer_states);
@@ -1244,11 +1166,6 @@ fn hostile_extension_data_never_panics() {
             "0\nSECTION\n2\nENTITIES\n0\nLINE\n5\n10\n10\n0\n20\n0\n11\n1\n21\n0\n0\nDIMENSION\n5\n11\n70\n0\n0\nENDSEC\n",
             "0\nSECTION\n2\nOBJECTS\n0\nDIMASSOC\n100\nAcDbDimAssoc\n330\n11\n90\n-1\n1\nAcDbOsnapPointRef\n72\n1\n331\n10\n1\nAcDbOsnapPointRef\n72\n6\n331\n10\n332\n99\n1\n1\n1\n0\nDIMASSOC\n100\nAcDbDimAssoc\n330\n10\n90\n3\n0\nDIMASSOC\n0\nENDSEC\n0\nEOF\n"
         ),
-        // Constraint record: garbage, wrong version, deep nesting, unterminated.
-        obj("0\nDICTIONARY\n5\nC\n3\nCADCRAFT_CONSTRAINTS\n350\nD\n0\nXRECORD\n5\nD\n1\n{\"version\":1,\"constraints\":[{\"id\":1,\"kind\":\"nope\"}]}\n"),
-        obj(&format!("0\nDICTIONARY\n3\nCADCRAFT_CONSTRAINTS\n350\nD\n0\nXRECORD\n5\nD\n1\n{}\n", "[".repeat(5000))),
-        obj("0\nDICTIONARY\n3\nCADCRAFT_CONSTRAINTS\n350\nD\n3\nX\n0\nXRECORD\n5\nD\n1\n{\"version\":99}\n"),
-        obj("0\nDICTIONARY\n3\nCADCRAFT_CONSTRAINTS\n0\nXRECORD\n1\n{\"version\":1,\n"),
         // Table styles with junk numbers; DIMSTYLE with junk and dangling handles.
         obj("0\nDICTIONARY\n3\nS\n350\nE\n0\nTABLESTYLE\n5\nE\n40\n-7\n140\n0\n280\n9\n"),
         "0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nDIMSTYLE\n0\nDIMSTYLE\n2\nX\n271\n99999\n340\nBAD\n342\n0\n343\nFFFF\n176\n70000\n278\n0\n278\n1114112\n77\n-1\n1001\nAcadAnnotative\n1000\nAnnotativeData\n1002\n{\n0\nSTYLE\n2\nS\n70\n-1\n71\n99999\n0\nENDTAB\n0\nENDSEC\n0\nEOF\n".to_string(),
@@ -1294,7 +1211,6 @@ fn extension_sample() -> Drawing {
         DimAssoc { point: "p14".into(), handle: l2, snap: AssocSnap::Intersection { other: l1 } },
     ];
     d.add(&Space::Model, Common::default(), EntityKind::Dimension(al)).unwrap();
-    parametric_sample(&mut d);
     d
 }
 
@@ -1307,14 +1223,13 @@ fn extension_sample_roundtrips_and_can_be_exported() {
     }
     let back = read_dxf(text.as_bytes()).unwrap();
     assert_eq!(back.model.len(), d.model.len());
-    assert_eq!(back.constraints, d.constraints);
     assert_eq!(back.dim_style("Mech"), d.dim_style("Mech"));
     let kinds = |d: &Drawing| d.model.iter().map(|e| e.kind.type_name()).collect::<Vec<_>>();
     assert_eq!(kinds(&back), kinds(&d));
 }
 
 /// DXF → DWG (acadrust) → DXF keeps what the DWG bridge supports: dimension styles with
-/// arrow blocks, override and associativity xdata, the constraint XRECORD, tables and text
+/// arrow blocks, override and associativity xdata, tables and text
 /// style flags. (TABLESTYLE objects do not survive the bridge.)
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
@@ -1322,8 +1237,6 @@ fn dwg_roundtrip_keeps_extension_data() {
     let d = extension_sample();
     let back = read(&write(&d, "x.dwg").unwrap(), "x.dwg").unwrap();
     assert_eq!(back.dim_style("Mech"), d.dim_style("Mech"));
-    assert_eq!(back.constraints, d.constraints);
-    assert_eq!(back.parametric, d.parametric);
     let dims =
         |d: &Drawing| d.model.iter().filter_map(|e| if let EntityKind::Dimension(x) = &e.kind { Some(x.clone()) } else { None }).collect::<Vec<_>>();
     let (a, b) = (dims(&d), dims(&back));

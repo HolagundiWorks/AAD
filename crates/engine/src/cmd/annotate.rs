@@ -38,16 +38,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["dan", "dimang"])
             .params("{vertex, p1, p2, at} | {lines: [hex, hex], at} | {arc: hex, at} (associative)")
             .interactive(|_| Ok(Box::new(AngularM::default()))),
-        CommandSpec::new("dimarc", "Arc Length", run_arclen)
-            .menu(&["Dimension", "Arc Length"])
-            .alias(&["dar"])
-            .params("{handle, at}")
-            .interactive(|_| Ok(Box::new(ArcLenM::default()))),
-        CommandSpec::new("dimordinate", "Ordinate", run_ordinate)
-            .menu(&["Dimension", "Ordinate"])
-            .alias(&["dor", "dimord"])
-            .params("{feature, leader, xtype?: bool}")
-            .interactive(|_| Ok(Box::new(OrdinateM::default()))),
         CommandSpec::new("dimcontinue", "Continue", run_continue)
             .menu(&["Dimension", "Continue"])
             .alias(&["dco", "dimcont"])
@@ -102,9 +92,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["dimted"])
             .params("{handles?, at?: [x,y], mode?: home|angle|left|center|right, angle?}")
             .interactive(|_| Ok(Box::new(tedit::TEditM::default()))),
-        CommandSpec::new("dimspace", "Dimension Space", run_dimspace)
-            .menu(&["Dimension", "Dimension Space"])
-            .params("{base: hex, handles: [hex], spacing?: number (default DIMDLI)}"),
     ]
 }
 
@@ -307,26 +294,6 @@ fn run_angular(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("dimangular", "`p1` and `p2` must differ from `vertex`"));
     }
     let k = dim(s, DimKind::Angular3P, at, a, b, v, Vec2::ZERO, "");
-    Ok(json!({ "handle": add_dim(s, k)?.hex() }))
-}
-
-fn run_arclen(s: &mut Session, p: &Value) -> Result<Value> {
-    let h = targets(s, p)?.first().copied().ok_or_else(|| bad("dimarc", "`handle` of an arc is required"))?;
-    let at = point_req("dimarc", p, "at")?;
-    let a = match s.doc()?.entity(h).map(|e| e.kind.clone()) {
-        Some(EntityKind::Arc(a)) => a,
-        _ => return Err(bad("dimarc", "object is not an arc")),
-    };
-    let ga = cadcraft_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end);
-    let k = dim(s, DimKind::ArcLength, at, ga.start_point(), ga.end_point(), ga.center, Vec2::ZERO, "");
-    Ok(json!({ "handle": add_dim(s, k)?.hex() }))
-}
-
-fn run_ordinate(s: &mut Session, p: &Value) -> Result<Value> {
-    let f = point_req("dimordinate", p, "feature")?;
-    let l = point_req("dimordinate", p, "leader")?;
-    let xtype = p.get("xtype").and_then(Value::as_bool).unwrap_or((l - f).y.abs() > (l - f).x.abs());
-    let k = dim(s, DimKind::Ordinate { x_type: xtype }, Vec2::ZERO, f, l, Vec2::ZERO, Vec2::ZERO, "");
     Ok(json!({ "handle": add_dim(s, k)?.hex() }))
 }
 
@@ -698,54 +665,6 @@ fn run_dimtedit(s: &mut Session, p: &Value) -> Result<Value> {
         })?;
     }
     Ok(json!({ "changed": hs.len() }))
-}
-
-/// DIMSPACE: equal spacing of parallel linear dimensions from a base dimension.
-fn run_dimspace(s: &mut Session, p: &Value) -> Result<Value> {
-    let base = hex_param(p, "base").ok_or_else(|| bad("dimspace", "`base` dimension is required"))?;
-    let hs: Vec<Handle> = dims_of(s, &targets(s, p)?).into_iter().filter(|h| *h != base).collect();
-    let d = s.doc()?;
-    let Some(EntityKind::Dimension(b)) = d.entity(base).map(|e| e.kind.clone()) else { return Err(bad("dimspace", "`base` is not a dimension")) };
-    let st = d.dim_style(&b.style).cloned().unwrap_or_default().with_overrides(&b.overrides);
-    let spacing = p
-        .get("spacing")
-        .and_then(Value::as_f64)
-        .filter(|v| v.is_finite() && *v >= 0.0)
-        .unwrap_or(st.baseline_spacing * st.effective_scale(d.header.f64("DIMSCALE", 1.0)) * 2.0);
-    let dir = match b.kind {
-        DimKind::Linear { rotation } => Vec2::from_angle(rotation),
-        DimKind::Aligned => (b.p14.xy() - b.p13.xy()).normalized(),
-        _ => return Err(bad("dimspace", "base must be a linear or aligned dimension")),
-    };
-    let n = dir.perp();
-    let base_off = (b.defpt.xy() - b.p13.xy()).dot(n);
-    let side = if base_off >= 0.0 { 1.0 } else { -1.0 };
-    // Order the others by their current distance from the base line.
-    let mut others: Vec<(Handle, f64)> = hs
-        .iter()
-        .filter_map(|h| match d.entity(*h).map(|e| &e.kind) {
-            Some(EntityKind::Dimension(o)) if matches!(o.kind, DimKind::Linear { .. } | DimKind::Aligned) => {
-                Some((*h, (o.defpt.xy() - b.defpt.xy()).dot(n) * side))
-            }
-            _ => None,
-        })
-        .collect();
-    others.sort_by(|a, c| a.1.total_cmp(&c.1));
-    let line_pt = b.defpt.xy();
-    let dm = s.doc_mut()?;
-    for (i, (h, _)) in others.iter().enumerate() {
-        let target = line_pt + n * (side * spacing * (i as f64 + 1.0));
-        dm.modify_entity(*h, |e| {
-            if let EntityKind::Dimension(o) = &mut e.kind {
-                let cur = o.defpt.xy();
-                let moved = cur + n * (target - cur).dot(n);
-                o.defpt = v3(moved);
-                o.user_text_pos = false;
-                o.block = None;
-            }
-        })?;
-    }
-    Ok(json!({ "spaced": others.len() }))
 }
 
 /// DIMOVERRIDE at the command line: variable, value (repeat), Enter, then select dimensions.
@@ -1249,164 +1168,6 @@ impl Interactive for AngularM {
         self.geometry()
             .map(|(v, a, b)| vec![self.text.apply(dim(s, DimKind::Angular3P, self.located(v, c), a, b, v, Vec2::ZERO, ""))])
             .unwrap_or_default()
-    }
-}
-
-#[derive(Default)]
-struct ArcLenM {
-    arc: Option<cadcraft_geom::Arc>,
-    text: DimText,
-    /// Partial: the points picked so far on the arc (`None` when not choosing a part).
-    partial: Option<Vec<Vec2>>,
-}
-
-/// The part of `arc` between the points nearest `p` and `q` (in the arc's direction).
-fn arc_part(arc: &cadcraft_geom::Arc, p: Vec2, q: Vec2) -> Option<cadcraft_geom::Arc> {
-    let sweep = arc.sweep();
-    // Offset along the arc from its start, clamped to the nearer end when the point is off the arc.
-    let along = |x: Vec2| {
-        let t = cadcraft_geom::ccw_sweep(arc.start, arc.center.angle_to(x));
-        if t <= sweep {
-            t
-        } else if t - sweep < std::f64::consts::TAU - t {
-            sweep
-        } else {
-            0.0
-        }
-    };
-    let (t1, t2) = (along(p), along(q));
-    let (lo, hi) = (t1.min(t2), t1.max(t2));
-    (hi - lo > 1e-9).then(|| cadcraft_geom::Arc::new(arc.center, arc.radius, arc.start + lo, arc.start + hi))
-}
-
-impl Interactive for ArcLenM {
-    fn name(&self) -> &'static str {
-        "DIMARC"
-    }
-    fn prompt(&self, _s: &Session) -> Prompt {
-        if let Some(p) = self.text.prompt() {
-            return p;
-        }
-        if let Some(picked) = &self.partial {
-            return match picked.first() {
-                None => Prompt::new("Specify first point for arc length dimension", Accept::POINT),
-                Some(&f) => Prompt::new("Specify second point for arc length dimension", Accept::POINT).base(f),
-            };
-        }
-        match self.arc {
-            None => Prompt::new("Select arc or polyline arc segment", Accept::POINT),
-            Some(_) => Prompt::new("Specify arc length dimension location", Accept::POINT).kw(&["Mtext", "Text", "Angle", "Partial"]),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        if self.text.answer(s, &i) {
-            return Ok(Step::Continue);
-        }
-        if let Some(picked) = self.partial.take() {
-            match (i, picked.first().copied(), self.arc) {
-                (Input::Point(p), None, _) => self.partial = Some(vec![p]),
-                (Input::Point(q), Some(p), Some(g)) => match arc_part(&g, p, q) {
-                    Some(part) => self.arc = Some(part),
-                    None => s.echo("The two points must be different."),
-                },
-                (Input::Enter, ..) => {}
-                _ => self.partial = Some(picked),
-            }
-            return Ok(Step::Continue);
-        }
-        match (self.arc, i) {
-            (None, Input::Point(p)) => {
-                if let Some(EntityKind::Arc(a)) = pick_at(s, p).and_then(|h| s.doc().ok()?.entity(h).map(|e| e.kind.clone())) {
-                    self.arc = Some(cadcraft_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end));
-                } else {
-                    s.echo("Select an arc.");
-                }
-                Ok(Step::Continue)
-            }
-            (Some(g), Input::Point(at)) => {
-                add_dim(s, self.text.apply(dim(s, DimKind::ArcLength, at, g.start_point(), g.end_point(), g.center, Vec2::ZERO, "")))?;
-                Ok(Step::Done)
-            }
-            (Some(_), Input::Keyword(k)) => {
-                if k == "Partial" {
-                    self.partial = Some(Vec::new());
-                } else {
-                    self.text.keyword(&k);
-                }
-                Ok(Step::Continue)
-            }
-            (_, Input::Enter) => Ok(Step::Cancel),
-            _ => Ok(Step::Continue),
-        }
-    }
-    fn preview(&self, s: &Session, c: Vec2) -> Vec<EntityKind> {
-        if self.partial.is_some() {
-            return Vec::new();
-        }
-        self.arc
-            .map(|g| vec![self.text.apply(dim(s, DimKind::ArcLength, c, g.start_point(), g.end_point(), g.center, Vec2::ZERO, ""))])
-            .unwrap_or_default()
-    }
-}
-
-#[derive(Default)]
-struct OrdinateM {
-    feature: Option<Vec2>,
-    /// Xdatum / Ydatum: the forced ordinate type (`true` = X datum).
-    xtype: Option<bool>,
-    text: DimText,
-}
-
-impl OrdinateM {
-    fn kind(&self, s: &Session, f: Vec2, l: Vec2) -> EntityKind {
-        let x = self.xtype.unwrap_or((l - f).y.abs() > (l - f).x.abs());
-        self.text.apply(dim(s, DimKind::Ordinate { x_type: x }, Vec2::ZERO, f, l, Vec2::ZERO, Vec2::ZERO, ""))
-    }
-}
-
-impl Interactive for OrdinateM {
-    fn name(&self) -> &'static str {
-        "DIMORDINATE"
-    }
-    fn prompt(&self, _s: &Session) -> Prompt {
-        if let Some(p) = self.text.prompt() {
-            return p;
-        }
-        match (self.feature, self.xtype) {
-            (None, _) => Prompt::new("Specify feature location", Accept::POINT),
-            (Some(f), None) => Prompt::new("Specify leader endpoint", Accept::POINT).kw(&["Xdatum", "Ydatum", "Mtext", "Text", "Angle"]).base(f),
-            (Some(f), Some(_)) => Prompt::new("Specify leader endpoint", Accept::POINT).kw(&["Mtext", "Text", "Angle"]).base(f),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        if self.text.answer(s, &i) {
-            return Ok(Step::Continue);
-        }
-        match (self.feature, i) {
-            (None, Input::Point(p)) => {
-                self.feature = Some(p);
-                Ok(Step::Continue)
-            }
-            (Some(_), Input::Keyword(k)) => {
-                match k.as_str() {
-                    "Xdatum" => self.xtype = Some(true),
-                    "Ydatum" => self.xtype = Some(false),
-                    other => {
-                        self.text.keyword(other);
-                    }
-                }
-                Ok(Step::Continue)
-            }
-            (Some(f), Input::Point(l)) => {
-                add_dim(s, self.kind(s, f, l))?;
-                Ok(Step::Done)
-            }
-            (_, Input::Enter) => Ok(Step::Cancel),
-            _ => Ok(Step::Continue),
-        }
-    }
-    fn preview(&self, s: &Session, c: Vec2) -> Vec<EntityKind> {
-        self.feature.map(|f| vec![self.kind(s, f, c)]).unwrap_or_default()
     }
 }
 
