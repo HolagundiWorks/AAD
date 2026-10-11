@@ -16,13 +16,13 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
       Name="AAD"
-      Manufacturer="Learning Machines LLC"
+      Manufacturer="Human Centric Works"
       Version="$(var.Version)"
-      UpgradeCode="119D7D76-0167-4A9E-8F37-09DA0235F68E"
+      UpgradeCode="3367E365-EB66-4992-9056-C7E2E72E3548"
       Scope="perMachine"
       Compressed="yes"
       Language="1033">
-    <SummaryInformation Description="AAD computer-aided design" Manufacturer="Learning Machines LLC" />
+    <SummaryInformation Description="AAD - Accelerated Architecture Drafting" Manufacturer="Human Centric Works" />
     <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
          (MSI versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
     <MajorUpgrade AllowSameVersionUpgrades="yes"
@@ -31,9 +31,9 @@
 
     <Icon Id="CadcraftIcon.ico" SourceFile="$(var.IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="CadcraftIcon.ico" />
-    <Property Id="ARPURLINFOABOUT" Value="https://getartcraft.com/apps/cadcraft" />
-    <Property Id="ARPURLUPDATEINFO" Value="https://getartcraft.com/apps/cadcraft" />
-    <Property Id="ARPHELPLINK" Value="https://discord.gg/artcraft" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/HolagundiWorks/AADT" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/HolagundiWorks/AADT" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/HolagundiWorks/AADT/issues" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="AAD" />
@@ -48,7 +48,7 @@
     <!-- The previous install's choice (the shortcut component's HKCU key path, so the installing
          user's), so upgrades keep the desktop shortcut without asking again. -->
     <Property Id="PREVIOUSDESKTOPSHORTCUT">
-      <RegistrySearch Id="PreviousDesktopShortcut" Root="HKCU" Key="Software\Learning Machines LLC\AAD"
+      <RegistrySearch Id="PreviousDesktopShortcut" Root="HKCU" Key="Software\Human Centric Works\AAD"
           Name="DesktopShortcut" Type="raw" />
     </Property>
     <!-- Only when DESKTOPSHORTCUT wasn't given; "first" runs it once (in the UI sequence when there
@@ -68,7 +68,7 @@
       <Component Id="CadcraftApp" Guid="2AC18056-48DE-4079-AB79-4FDEF4FBB075">
         <File Id="CadcraftExe" Source="$(var.BinDir)\cadcraft.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="AAD"
-              Description="AAD computer-aided design" WorkingDirectory="INSTALLFOLDER" Advertise="yes"
+              Description="AAD - Accelerated Architecture Drafting" WorkingDirectory="INSTALLFOLDER" Advertise="yes"
               Icon="CadcraftIcon.ico" IconIndex="0" />
         </File>
 
@@ -88,9 +88,9 @@
            Public desktop) must be under HKCU (ICE38, ICE43, ICE57). -->
       <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="76029CD7-EBDB-420F-AC34-FF0E82A99E32"
           Condition="DESKTOPSHORTCUT = &quot;1&quot;">
-        <Shortcut Id="DesktopShortcut" Name="AAD" Description="AAD computer-aided design"
+        <Shortcut Id="DesktopShortcut" Name="AAD" Description="AAD - Accelerated Architecture Drafting"
             Target="[INSTALLFOLDER]cadcraft.exe" WorkingDirectory="INSTALLFOLDER" Icon="CadcraftIcon.ico" IconIndex="0" />
-        <RegistryValue Root="HKCU" Key="Software\Learning Machines LLC\AAD" Name="DesktopShortcut"
+        <RegistryValue Root="HKCU" Key="Software\Human Centric Works\AAD" Name="DesktopShortcut"
             Value="1" Type="string" KeyPath="yes" />
       </Component>
     </ComponentGroup>
