@@ -1,8 +1,7 @@
 # Developer guide and rules for coding agents
 
 AAD (2D drafting fork) is an open-source, pure-Rust 2D computer-aided drafting application for
-architectural and civil work. It runs natively on Windows, macOS, Linux and FreeBSD and on the web
-via WASM. Start with [README.md](README.md), [docs/architecture.md](docs/architecture.md) and
+architectural and civil work. It is a Windows-only program for now: macOS, Linux and the web are later phases. Start with [README.md](README.md), [docs/architecture.md](docs/architecture.md) and
 [docs/status.md](docs/status.md) (what exists and what is only planned).
 
 ## Scope: 2D only
@@ -32,7 +31,7 @@ A crash loses someone's drawing. **This outranks feature work.**
 - **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `mcp`, `agent` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. The UI crate is swappable.
 - **The UI is thin:** panels read engine state and act through `app.run(id, params)`, `app.start(id)` and `app.cmdline(text)`. Colours come from `theme::Tokens`; there are two palettes (dark with a black drawing area, light with a white one) and no other colour customisation.
 - **The AI never calculates or repairs.** The model only proposes calls to allow-listed tools; geometry, repairs and quantities come from deterministic engine commands ([docs/ai-agent.md](docs/ai-agent.md)).
-- **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
+- **Rust only** (no handwritten JS/TS). Keep the code portable: the wasm check (`cargo xtask wasm`) stays in CI so the later phases (macOS, Linux, web) do not start from a broken base. Do not add features that only work elsewhere.
 - **Do not claim a feature works unless it exists and has a test.** Documentation separates implemented from planned ([docs/status.md](docs/status.md)).
 - **Quality gate** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layering, wasm).
 

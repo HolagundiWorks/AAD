@@ -1,8 +1,9 @@
 # AAD - Accelerated Architecture Drafting
 
 AAD is a 2D computer-aided drafting application written in Rust, aimed at architectural and civil
-drafting. It reads and writes DXF and DWG, runs on Windows, macOS, Linux, FreeBSD and in the
-browser (WebAssembly), and can be driven from scripts and agents. This repository is a fork of
+drafting. It reads and writes DXF and DWG and can be driven from scripts and agents. **Windows is
+the only supported platform for now**; macOS, Linux and the web build come in later phases (the
+code stays portable, but only Windows is built, tested and packaged). This repository is a fork of
 [storytold/cadcraft](https://github.com/storytold/cadcraft) with the 3D, parametric-constraint and
 mechanical features removed.
 
@@ -27,7 +28,7 @@ offset 0.25
 zoom e
 ```
 
-The web build: `cd apps/cadcraft-web && trunk serve` (needs [trunk](https://trunkrs.dev)).
+The web build (`apps/cadcraft-web`) is not part of the supported product yet; it is only checked to compile.
 
 ## Tests
 
