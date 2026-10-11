@@ -249,8 +249,6 @@ fn properties_palette_current_property_commands() {
     s.execute("dimstyle.current", &json!({"name": "Big"})).unwrap();
     s.execute("mleaderstyle", &json!({"name": "Callout", "current": false})).unwrap();
     s.execute("mleaderstyle", &json!({"name": "Callout", "current": true})).unwrap();
-    s.execute("tablestyle", &json!({"name": "Schedule", "current": false})).unwrap();
-    s.execute("tablestyle", &json!({"name": "Schedule", "current": true})).unwrap();
     s.execute("style", &json!({"name": "Notes", "current": false})).unwrap();
     s.execute("style.current", &json!({"name": "Notes"})).unwrap();
     let h = &s.doc().unwrap().header;
@@ -259,7 +257,6 @@ fn properties_palette_current_property_commands() {
     assert_eq!(h.f64("THICKNESS", 0.0), 2.5);
     assert_eq!(h.str("DIMSTYLE", ""), "Big");
     assert_eq!(h.str("CMLEADERSTYLE", ""), "Callout");
-    assert_eq!(h.str("CTABLESTYLE", ""), "Schedule");
     assert_eq!(h.str("TEXTSTYLE", ""), "Notes");
 }
 

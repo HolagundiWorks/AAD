@@ -25,7 +25,6 @@ mod props;
 mod qselect;
 mod settings;
 mod spline_opts;
-mod table;
 mod trimextend;
 mod utility;
 mod view;
@@ -176,7 +175,6 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(inquiry::specs());
         v.extend(settings::specs());
         v.extend(utility::specs());
-        v.extend(table::specs());
         v
     })
 }

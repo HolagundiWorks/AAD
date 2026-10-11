@@ -40,10 +40,6 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("dimstyle.current", "Set Current Dimension Style", run_dimstyle_current).params("{name}"),
         CommandSpec::new("dimstyle.override", "Dimension Style Override", dim_override)
             .params("{handles?, <style fields or DIM* variables: values>, clear?: bool} (per-dimension overrides)"),
-        CommandSpec::new("tablestyle", "Table Style...", run_tablestyle)
-            .menu(&["Format", "Table Style..."])
-            .alias(&["ts"])
-            .params("{name, textHeight?, margin?, title?, header?, current?} → styles"),
         CommandSpec::new("mleaderstyle", "Multileader Style...", run_mleaderstyle)
             .menu(&["Format", "Multileader Style..."])
             .alias(&["mls"])
@@ -785,37 +781,6 @@ pub(super) fn dim_override(s: &mut Session, p: &Value) -> Result<Value> {
         })?;
     }
     Ok(json!({ "changed": n, "ignored": rejected }))
-}
-
-fn run_tablestyle(s: &mut Session, p: &Value) -> Result<Value> {
-    let d = s.doc_mut()?;
-    if let Some(name) = str_param(p, "name").map(str::trim).filter(|n| !n.is_empty()) {
-        let idx = match d.table_styles.iter().position(|t| t.name.eq_ignore_ascii_case(name)) {
-            Some(i) => i,
-            None => {
-                d.table_styles.push(cadcraft_doc::TableStyle { name: name.to_string(), ..Default::default() });
-                d.table_styles.len() - 1
-            }
-        };
-        if let Some(st) = d.table_styles.get_mut(idx) {
-            if let Some(h) = p.get("textHeight").and_then(Value::as_f64).filter(|h| h.is_finite() && *h > 0.0) {
-                st.text_height = h;
-            }
-            if let Some(m) = p.get("margin").and_then(Value::as_f64).filter(|h| h.is_finite() && *h >= 0.0) {
-                st.margin = m;
-            }
-            if let Some(b) = p.get("title").and_then(Value::as_bool) {
-                st.title = b;
-            }
-            if let Some(b) = p.get("header").and_then(Value::as_bool) {
-                st.header = b;
-            }
-        }
-        if bool_or(p, "current", true) {
-            d.header.set_str("CTABLESTYLE", name);
-        }
-    }
-    Ok(json!({ "current": d.header.str("CTABLESTYLE", "Standard"), "styles": serde_json::to_value(&d.table_styles).unwrap_or(Value::Null) }))
 }
 
 fn run_mleaderstyle(s: &mut Session, p: &Value) -> Result<Value> {

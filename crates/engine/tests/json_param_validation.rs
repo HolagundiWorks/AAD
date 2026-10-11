@@ -37,8 +37,6 @@ fn invalid_sizes_and_points_are_refused() {
         ("spline", json!({"fit": [[0, 0], [0, 0], [0, 0]]}), "different fit points"),
         ("hatch", json!({"points": [[1, 1]], "scale": 0}), "`scale` must be positive"),
         ("hatch", json!({"points": [[1, 1]], "scale": -1}), "`scale` must be positive"),
-        ("table", json!({"at": [0, 0], "rows": 2, "cols": 2, "rowHeight": -1}), "`rowHeight` must be positive"),
-        ("table", json!({"at": [0, 0], "rows": 2, "cols": 2, "colWidth": 0}), "`colWidth` must be positive"),
         ("dimradius", json!({"center": [3, 3], "point": [3, 3]}), "must differ from `center`"),
         ("dimdiameter", json!({"center": [3, 3], "point": [3, 3]}), "must differ from `center`"),
         ("dimangular", json!({"vertex": [0, 0], "p1": [0, 0], "p2": [5, 0], "at": [1, 1]}), "must differ from `vertex`"),
@@ -65,7 +63,6 @@ fn valid_values_still_work() {
         ("rectang", json!({"p1": [0, 0], "p2": [10, 5], "fillet": 0, "width": 0, "chamfer": [0, 0]})),
         ("pline", json!({"vertices": [{"p": [0, 0], "startWidth": 0, "endWidth": 1}, [1, 0]], "width": 0.5})),
         ("hatch", json!({"points": [[1, 1]], "scale": 2})),
-        ("table", json!({"at": [20, 0], "rows": 2, "cols": 2, "rowHeight": 1, "colWidth": 3})),
         ("dimradius", json!({"center": [3, 3], "point": [5, 3]})),
     ];
     for (cmd, p) in cases {

@@ -299,68 +299,6 @@ fn text_style_commands() {
 }
 
 #[test]
-fn table_create_edit_merge() {
-    let mut s = Session::new();
-    let t = h(&s
-        .execute(
-            "table",
-            &json!({ "at": [0, 10], "rows": 2, "cols": 3, "title": "Parts", "header": ["No", "Name", "Qty"], "cells": [["1", "Bolt", "4"]] }),
-        )
-        .unwrap());
-    let get = |s: &Session| match &s.doc().unwrap().entity(t).unwrap().kind {
-        EntityKind::Table(x) => x.clone(),
-        _ => panic!(),
-    };
-    let tb = get(&s);
-    assert_eq!(tb.row_heights.len(), 4);
-    assert_eq!(tb.col_widths.len(), 3);
-    assert_eq!(tb.cells[0][0].merged, Some((1, 3)));
-    assert_eq!(tb.cells[2][1].text, "Bolt");
-    s.execute("table.set", &json!({ "handle": t.hex(), "row": 3, "col": 1, "text": "Nut" })).unwrap();
-    assert_eq!(get(&s).cells[3][1].text, "Nut");
-    // Writing into a covered title cell writes the title.
-    s.execute("table.set", &json!({ "handle": t.hex(), "row": 0, "col": 2, "text": "Bill of materials" })).unwrap();
-    assert_eq!(get(&s).cells[0][0].text, "Bill of materials");
-    s.execute("table.insertcol", &json!({ "handle": t.hex(), "col": 1 })).unwrap();
-    let tb = get(&s);
-    assert_eq!(tb.col_widths.len(), 4);
-    assert_eq!(tb.cells[0][0].merged, Some((1, 4)), "title merge grows");
-    assert_eq!(tb.cells[2][2].text, "Bolt");
-    s.execute("table.deletecol", &json!({ "handle": t.hex(), "col": 1 })).unwrap();
-    s.execute("table.insertrow", &json!({ "handle": t.hex() })).unwrap();
-    assert_eq!(get(&s).row_heights.len(), 5);
-    s.execute("table.merge", &json!({ "handle": t.hex(), "row": 2, "col": 0, "rows": 2, "cols": 1 })).unwrap();
-    let tb = get(&s);
-    assert_eq!(tb.cells[2][0].merged, Some((2, 1)));
-    assert!(s.execute("table.deleterow", &json!({ "handle": t.hex(), "row": 2 })).is_ok());
-    assert_eq!(get(&s).cells[2][0].merged, None, "a one-row merge is no merge");
-    s.execute("table.unmerge", &json!({ "handle": t.hex(), "row": 0, "col": 1 })).unwrap();
-    assert_eq!(get(&s).cells[0][0].merged, None);
-    assert!(s.execute("table.set", &json!({ "handle": t.hex(), "row": 99, "col": 0, "text": "x" })).is_err());
-    assert!(s.execute("table", &json!({ "at": [0, 0], "rows": 1_000_000, "cols": 3 })).is_err());
-    // It renders: grid lines plus text.
-    let dl = cadcraft_render::build(s.doc().unwrap(), &cadcraft_doc::Space::Model, &cadcraft_render::Options::default());
-    assert!(dl.prims.len() > 10);
-}
-
-#[test]
-fn table_interactive() {
-    let mut s = Session::new();
-    s.cmdline("table").unwrap();
-    s.cmdline("3").unwrap();
-    s.cmdline("2").unwrap();
-    s.cmdline("0,0").unwrap();
-    assert!(s.running.is_none());
-    match &s.doc().unwrap().model.last().unwrap().kind {
-        EntityKind::Table(t) => {
-            assert_eq!(t.col_widths.len(), 3);
-            assert_eq!(t.row_heights.len(), 4, "title + header + 2 data rows");
-        }
-        other => panic!("{other:?}"),
-    }
-}
-
-#[test]
 fn hostile_annotation_params_never_panic() {
     let mut s = Session::new();
     for (id, p) in [
@@ -369,8 +307,6 @@ fn hostile_annotation_params_never_panic() {
         ("dimreassociate", json!({ "handles": [1, 2, 3] })),
         ("dimangular", json!({ "lines": ["1"], "at": [0, 0] })),
         ("dimlinear", json!({ "object": "ffff", "at": [0, 0] })),
-        ("table.merge", json!({ "handle": "1", "row": 0, "col": 0, "rows": 1e9, "cols": -1 })),
-        ("table", json!({ "at": [0, 0], "cols": 0 })),
         ("style", json!({ "name": "" })),
         ("style.rename", json!({ "from": "Standard", "to": "Y" })),
         ("dimtedit", json!({ "handles": [], "mode": "angle" })),

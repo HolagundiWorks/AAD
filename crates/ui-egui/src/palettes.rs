@@ -69,11 +69,7 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
             (Icon::MatchProp, "matchprop", "Match Properties"),
         ],
     ),
-    (
-        "Text",
-        &[(Icon::Text, "text", "Single Line Text"), (Icon::MText, "mtext", "Multiline Text")],
-        &[(Icon::Table, "table", "Table"), (Icon::Search, "find", "Find and Replace")],
-    ),
+    ("Text", &[(Icon::Text, "text", "Single Line Text"), (Icon::MText, "mtext", "Multiline Text")], &[(Icon::Search, "find", "Find and Replace")]),
     (
         "Dimension",
         &[(Icon::DimLinear, "dimlinear", "Linear"), (Icon::DimAligned, "dimaligned", "Aligned")],
@@ -95,7 +91,6 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
             (Icon::AlignLeaders, "mleaderalign", "Align"),
         ],
     ),
-    ("Table", &[(Icon::Table, "table", "Table")], &[]),
 ];
 
 fn command_known(id: &str) -> bool {
@@ -586,7 +581,6 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
         let text_styles: Vec<String> = d.text_styles.iter().map(|l| l.name.clone()).collect();
         let dim_styles: Vec<String> = d.dim_styles.iter().map(|l| l.name.clone()).collect();
         let ml_styles: Vec<String> = d.mleader_styles.iter().map(|l| l.name.clone()).collect();
-        let tb_styles: Vec<String> = d.table_styles.iter().map(|l| l.name.clone()).collect();
         let mut action: Option<(&str, Value)> = None;
         let mut act = |c: &'static str, p: Value| action = Some((c, p));
         prop_row(ui, "Color", |ui| {
@@ -667,11 +661,6 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
         prop_row(ui, "Multileader style", |ui| {
             if let Some(n) = pick_menu(ui, &h.str("CMLEADERSTYLE", "Standard"), ml_styles) {
                 act("mleaderstyle", json!({ "name": n, "current": true }));
-            }
-        });
-        prop_row(ui, "Table style", |ui| {
-            if let Some(n) = pick_menu(ui, &h.str("CTABLESTYLE", "Standard"), tb_styles) {
-                act("tablestyle", json!({ "name": n, "current": true }));
             }
         });
         prop_row(ui, "Annotation scale", |ui| unavailable(ui, "1:1"));

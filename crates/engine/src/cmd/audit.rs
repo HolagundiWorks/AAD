@@ -14,12 +14,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["File", "Drawing Utilities", "Audit"])
             .params("{fix?: bool} → {errors, fixed, issues: [{kind, location, handle?, message, fix}], message}")
             .interactive(|_| Ok(Box::new(Audit))),
-        CommandSpec::new("recover", "Recover...", run_recover)
-            .menu(&["File", "Drawing Utilities", "Recover..."])
-            .params("{path} | {data: base64, name} → {index, errors, fixed, issues, message}")
-            .enabled(always)
-            .noundo()
-            .interactive(|_| Ok(Box::new(Recover))),
     ]
 }
 
@@ -33,37 +27,6 @@ fn run_audit(s: &mut Session, p: &Value) -> Result<Value> {
         s.state_mut()?.doc = Arc::new(copy);
     }
     Ok(crate::audit::Report { issues, fixed: fix }.to_json())
-}
-
-/// Open a drawing file as tolerantly as the readers allow, then fix what AUDIT finds. The
-/// drawing keeps its file name; when anything was fixed it opens with unsaved changes.
-fn run_recover(s: &mut Session, p: &Value) -> Result<Value> {
-    let (bytes, name, path) = match (str_param(p, "path"), str_param(p, "data")) {
-        (Some(path), _) => (read_path("recover", path)?, path.to_string(), Some(path.to_string())),
-        (None, Some(data)) => {
-            let bytes = file::base64_decode(data).ok_or_else(|| bad("recover", "invalid base64"))?;
-            (bytes, str_param(p, "name").unwrap_or("Drawing.dxf").to_string(), None)
-        }
-        (None, None) => return Err(bad("recover", "`path` or `data` (base64) is required")),
-    };
-    let hooks = file::io().ok_or_else(|| bad("recover", "file formats are not available in this build"))?;
-    let d = (hooks.read)(&bytes, &name).map_err(|e| bad("recover", format!("{name} can't be read: {e}")))?;
-    let title = std::path::Path::new(&name).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| name.clone());
-    let i = s.open_drawing(d, &title, path);
-    let st = s.state_mut()?;
-    let report = crate::audit::fix(Arc::make_mut(&mut st.doc));
-    if report.issues.is_empty() {
-        // Nothing to fix: the drawing opens unchanged, like OPEN.
-        st.doc = st.saved.clone();
-    }
-    let mut r = report.to_json();
-    r["index"] = json!(i);
-    Ok(r)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn read_path(cmd: &str, path: &str) -> Result<Vec<u8>> {
-    std::fs::read(path).map_err(|e| bad(cmd, format!("{path}: {e}")))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -107,34 +70,5 @@ impl Interactive for Audit {
         let r = run_audit(s, &json!({ "fix": fix }))?;
         echo_result(s, &r);
         Ok(Step::Done)
-    }
-}
-
-/// RECOVER at the command line (no file dialog): the file name is typed.
-struct Recover;
-
-impl Interactive for Recover {
-    fn name(&self) -> &'static str {
-        "RECOVER"
-    }
-
-    fn prompt(&self, _s: &Session) -> Prompt {
-        Prompt::new("Enter name of drawing file to recover", Accept::TEXT)
-    }
-
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        match i {
-            Input::Cancel | Input::Enter => Ok(Step::Cancel),
-            Input::Text(t) | Input::Keyword(t) => {
-                let path = t.trim().trim_matches('"');
-                if path.is_empty() {
-                    return Ok(Step::Cancel);
-                }
-                let r = run_recover(s, &json!({ "path": path }))?;
-                echo_result(s, &r);
-                Ok(Step::Done)
-            }
-            _ => Ok(Step::Continue),
-        }
     }
 }

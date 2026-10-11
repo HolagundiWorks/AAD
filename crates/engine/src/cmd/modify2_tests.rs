@@ -335,40 +335,6 @@ fn chspace_json_and_command_line() {
     assert!(s.log.iter().any(|l| l.contains("changed from MODEL space to PAPER space")));
 }
 
-#[test]
-fn flatten_json_and_command_line() {
-    let mut s = Session::new();
-    let l = h(&s.execute("line", &json!({"points": [[0, 5], [3, 5]]})).unwrap());
-    s.doc_mut()
-        .unwrap()
-        .modify_entity(Handle::parse_hex(&l).unwrap(), |e| {
-            if let EntityKind::Line(x) = &mut e.kind {
-                x.a.z = 4.0;
-            }
-            e.common.thickness = 2.0;
-        })
-        .unwrap();
-    let r = s.execute("flatten", &json!({"handles": [l]})).unwrap();
-    assert_eq!(r["flattened"], 1);
-    assert!(matches!(kind(&s, &l), EntityKind::Line(x) if x.a.z == 0.0));
-    assert_eq!(s.doc().unwrap().entity(Handle::parse_hex(&l).unwrap()).unwrap().common.thickness, 0.0);
-
-    let mut s = Session::new();
-    let l2 = h(&s.execute("line", &json!({"points": [[0, 0], [4, 0]]})).unwrap());
-    s.doc_mut()
-        .unwrap()
-        .modify_entity(Handle::parse_hex(&l2).unwrap(), |e| {
-            if let EntityKind::Line(x) = &mut e.kind {
-                x.b.z = 6.0;
-            }
-        })
-        .unwrap();
-    s.cmdline("flatten 2,0").unwrap();
-    s.cmdline("").unwrap();
-    assert!(s.running.is_none());
-    assert!(matches!(last(&s), EntityKind::Line(x) if x.b.z == 0.0));
-}
-
 // ---------------- FILLET extensions ----------------
 
 #[test]
@@ -496,7 +462,7 @@ fn trim_and_extend_ellipse_and_spline() {
 
 #[test]
 fn new_modify_commands_survive_garbage_input() {
-    let ids = ["pedit", "splinedit", "lengthen", "align", "reverse", "chspace", "flatten", "fillet", "trim", "extend"];
+    let ids = ["pedit", "splinedit", "lengthen", "align", "reverse", "chspace", "fillet", "trim", "extend"];
     let mut s = Session::new();
     let l = h(&s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap());
     let sp = h(&s.execute("spline", &json!({"control": [[0, 1], [1, 2], [2, 1]]})).unwrap());

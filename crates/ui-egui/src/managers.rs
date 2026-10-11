@@ -1,4 +1,4 @@
-//! Style and settings dialogs opened from the menus: Linetype Manager, Point Style, Table Style,
+//! Style and settings dialogs opened from the menus: Linetype Manager, Point Style,
 //! Multileader Style and Page Setup Manager.
 //!
 //! Typed or chosen from a menu (no parameters) these commands open their dialog; JSON calls run
@@ -21,7 +21,6 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
     let dialog = match id {
         "linetype" | "lt" | "ltype" => "linetype",
         "ddptype" => "ptype",
-        "tablestyle" | "ts" => "tablestyle",
         "mleaderstyle" | "mls" => "mleaderstyle",
         "pagesetup" => "pagesetup",
         _ => return None,
@@ -35,7 +34,6 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
     let action = match name {
         "linetype" => linetype(app, ctx, open),
         "ptype" => point_style(app, ctx, open),
-        "tablestyle" => table_style(app, ctx, open),
         "mleaderstyle" => mleader_style(app, ctx, open),
         "pagesetup" => page_setup(app, ctx, open),
         _ => {
@@ -266,44 +264,17 @@ fn point_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action
     action
 }
 
-// ---------- Table Style and Multileader Style ----------
+// ---------- Multileader Style ----------
 
 /// One editable style property.
 enum Field {
     Num(&'static str, &'static str, f64),
-    Bool(&'static str, &'static str, bool),
     Choice(&'static str, &'static str, String, Vec<String>),
 }
 
 struct Style {
     name: String,
     fields: Vec<Field>,
-}
-
-fn table_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
-    let Ok(d) = app.session.doc() else {
-        no_drawing(ctx, "Table Style", open);
-        return None;
-    };
-    let mut styles: Vec<Style> = d
-        .table_styles
-        .iter()
-        .map(|s| Style {
-            name: s.name.clone(),
-            fields: vec![
-                Field::Num("textHeight", "Text height", s.text_height),
-                Field::Num("margin", "Cell margin", s.margin),
-                Field::Bool("title", "Title row", s.title),
-                Field::Bool("header", "Header row", s.header),
-            ],
-        })
-        .collect();
-    if styles.is_empty() {
-        let s = cadcraft_doc::TableStyle::default();
-        styles.push(Style { name: s.name, fields: Vec::new() });
-    }
-    let current = d.header.str("CTABLESTYLE", "Standard");
-    style_manager(ctx, open, "Table Style", "tablestyle", &current, &styles)
 }
 
 fn mleader_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
@@ -381,11 +352,6 @@ fn style_manager(ctx: &egui::Context, open: &mut bool, title: &str, cmd: &'stati
                         Field::Num(key, label, v) => {
                             ui.label(*label);
                             num_field(ui, (cmd, &style.name, *key), *v).filter(|v| *v >= 0.0).map(|v| (*key, json!(v)))
-                        }
-                        Field::Bool(key, label, v) => {
-                            ui.label("");
-                            let mut b = *v;
-                            ui.checkbox(&mut b, *label).changed().then(|| (*key, json!(b)))
                         }
                         Field::Choice(key, label, v, choices) => {
                             ui.label(*label);
