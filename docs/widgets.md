@@ -1,7 +1,7 @@
 # Widgets: Calculator and Pomodoro timer
 
 Two small widgets, opened from **Tools** (`ui.toggle.calculator`, `ui.toggle.pomodoro`).
-Both are thin: the logic is in the engine (`crates/engine/src/calc.rs`, `pomodoro.rs`), the
+Both are thin: the logic is in the engine (`crates/engine/src/calc.rs`, `pomodoro.rs`);
 the code in `crates/ui-egui/src/widgets.rs` only draws it and sends the same commands the control
 channel and tests use (`ui.calculator`, `ui.pomodoro`). Whether a widget is shown is saved with the
 interface preferences; the calculator's contents and the timer are not.
