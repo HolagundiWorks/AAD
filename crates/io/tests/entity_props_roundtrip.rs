@@ -199,7 +199,6 @@ fn vertex(x: &str, y: &str, z: &str, flags: &str) -> Vec<(i32, &'static str)> {
     vec![(0, "VERTEX"), (8, "0"), (10, leak(x)), (20, leak(y)), (30, leak(z)), (70, leak(flags))]
 }
 
-
 #[test]
 fn polyface_and_polygon_meshes_are_skipped_and_3d_polylines_are_projected() {
     // Polyface: four vertices and a quad face record. It is 3D-only, so nothing is imported.
@@ -238,19 +237,8 @@ fn polyface_and_polygon_meshes_are_skipped_and_3d_polylines_are_projected() {
 
 #[test]
 fn a_3dface_is_projected_to_a_closed_outline() {
-    let recs: Vec<Vec<(i32, &str)>> = vec![vec![
-        (0, "3DFACE"),
-        (8, "0"),
-        (10, "0"),
-        (20, "0"),
-        (30, "5"),
-        (11, "4"),
-        (21, "0"),
-        (31, "5"),
-        (12, "4"),
-        (22, "3"),
-        (32, "6"),
-    ]];
+    let recs: Vec<Vec<(i32, &str)>> =
+        vec![vec![(0, "3DFACE"), (8, "0"), (10, "0"), (20, "0"), (30, "5"), (11, "4"), (21, "0"), (31, "5"), (12, "4"), (22, "3"), (32, "6")]];
     let refs: Vec<&[(i32, &str)]> = recs.iter().map(Vec::as_slice).collect();
     let d = read_dxf(dxf(&refs).as_bytes()).expect("read 3dface");
     let polys: Vec<&LwPolyline> = d.model.iter().filter_map(|e| if let EntityKind::LwPolyline(p) = &e.kind { Some(p) } else { None }).collect();
