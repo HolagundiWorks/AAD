@@ -9,3 +9,4 @@ The canonical recipe is craftrules' [`release/playbook.md`](https://github.com/s
 - **Windows installer:** `packaging/windows/cadcraft.wxs` (WiX v5 + `WixToolset.UI.wixext`). Its wizard has a Shortcuts page: the Start Menu shortcut is always created, the desktop shortcut is opt-in (`DESKTOPSHORTCUT=1` for silent installs, `DESKTOPSHORTCUT=0` drops it on an upgrade; otherwise upgrades keep the previous choice).
 - **File types:** `.dxf` and `.dwg` (macOS document types, Windows "Open with", Linux MIME types).
 - **Local packaging test:** `packaging/macos/package.sh` (ad-hoc signed DMG), `packaging/linux/package.sh`, `packaging/web/package.sh`.
+- **Icons and logo:** the AAD logo is drawn in code (`xtask/src/logo.rs`; vector copy in `assets/app-icon/aad-logo.svg`). `cargo xtask logo` regenerates every icon (PNG sizes, Linux hicolor, `.ico`, `.icns`); the outputs are committed, so builds need no image tools.

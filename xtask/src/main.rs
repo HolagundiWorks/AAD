@@ -6,6 +6,7 @@
 mod assets;
 mod ico;
 mod layers;
+mod logo;
 mod parity;
 mod stats;
 mod version;
@@ -25,8 +26,9 @@ commands:
                   show where test corpora live; --download fetches PngSuite into corpus/pngsuite
   stats [--exact] count tests and lines per crate (--exact: ask the test harness via `-- --list`)
   parity          recompute the AutoCAD menu-breadth checklist in docs/parity-checklist.md
+  logo            draw the AAD logo and regenerate every icon in assets/app-icon
   ico <out.ico> <in.png>...
-                  pack square PNGs (<= 256 px) into a Windows .ico (see packaging/icons.sh)
+                  pack square PNGs (<= 256 px) into a Windows .ico (used by `logo`)
 ";
 
 fn main() -> ExitCode {
@@ -41,6 +43,7 @@ fn main() -> ExitCode {
         Some("stats") => stats::run(&root(), rest.contains(&"--exact")),
         Some("parity") => parity::run(&root()),
         Some("ico") => ico::run(&rest),
+        Some("logo") => logo::run(&root()),
         Some("version") => version::run(&root(), &rest),
         Some("-h" | "--help" | "help") | None => {
             print!("{USAGE}");

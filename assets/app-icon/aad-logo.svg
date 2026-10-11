@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" width="1254" height="1254">
+  <title>AAD - Accelerated Architecture Drafting</title>
+  <defs>
+    <clipPath id="mark"><path d="M740 261H934V1043H725V541L210 1043V783Z"/></clipPath>
+  </defs>
+  <rect width="1254" height="1254" fill="#0066ff"/>
+  <path d="M740 261H934V1043H725V541L210 1043V783Z" fill="#fff"/>
+  <g stroke="#fff" stroke-width="3.2" fill="none">
+    <line x1="0" y1="342" x2="1254" y2="342"/>
+    <line x1="897.5" y1="0" x2="897.5" y2="1254"/>
+  </g>
+  <g clip-path="url(#mark)" stroke="#0066ff" stroke-width="3.2" fill="none">
+    <line x1="0" y1="342" x2="1254" y2="342"/>
+    <line x1="897.5" y1="0" x2="897.5" y2="1254"/>
+    <rect x="872" y="315" width="53" height="54"/>
+  </g>
+</svg>
