@@ -21,7 +21,7 @@ significant lag or important functionality unreliable; P3 minor; P4 optimisation
   plausibility check. The same reader has more allocations sized from file data
   (`dwg_reader.rs` lines 145-154, 1833, 1913, 2014, 2039 and others), so patching one site would
   not close the class.
-- **Fix (`80b7d46`-series commit "isolate the DWG reader"):** DWG files are read by a short-lived
+- **Fix (commit 1520658):** DWG files are read by a short-lived
   copy of the program (`--aad-dwg-worker`, `crates/dwg/src/isolated.rs`). A crash, hang
   (180 s timeout), stack overflow or runaway output in the worker is an ordinary error message in
   the parent. Both applications turn it on at start-up. The dependency stays unmodified.
