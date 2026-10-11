@@ -487,20 +487,7 @@ fn rectang_options_command_line() {
         k => panic!("{k:?}"),
     }
 }
-
-// ---------------- 3DPOLY / MLINE / HELIX / SPLINE CV ----------------
-
-#[test]
-fn poly3d_json_and_command_line() {
-    let mut s = Session::new();
-    s.execute("3dpoly", &json!({"points": [[0, 0, 0], [1, 0, 2], [1, 1, 3]], "closed": true})).unwrap();
-    assert!(matches!(last(&s), EntityKind::Polyline3d(p) if p.points.len() == 3 && p.points[2].z == 3.0 && p.closed));
-    assert!(s.execute("3dpoly", &json!({"points": [[0, 0]]})).is_err());
-    s.cmdline("3dpoly 0,0 1,0 1,1 u 2,2 c").unwrap();
-    assert!(s.running.is_none());
-    assert!(matches!(last(&s), EntityKind::Polyline3d(p) if p.points.len() == 3 && p.closed));
-    assert_eq!(s.state().unwrap().undo.len(), 2);
-}
+// ---------------- MLINE / SPLINE CV ----------------
 
 #[test]
 fn mline_json_and_command_line() {
@@ -521,31 +508,6 @@ fn mline_json_and_command_line() {
     assert!(ys.contains(&0.0) && ys.contains(&3.0), "{ys:?}");
     s.cmdline("mline 0,20 5,20 5,25 c").unwrap();
     assert!(matches!(last(&s), EntityKind::LwPolyline(p) if p.closed));
-}
-
-#[test]
-fn helix_json_and_command_line() {
-    let mut s = Session::new();
-    s.execute("helix", &json!({"center": [0, 0], "baseRadius": 2, "topRadius": 1, "height": 6, "turns": 2})).unwrap();
-    match last(&s) {
-        EntityKind::Polyline3d(p) => {
-            assert!(near(p.points[0].xy(), 2.0, 0.0));
-            let top = p.points.last().unwrap();
-            assert!((top.z - 6.0).abs() < 1e-9 && near(top.xy(), 1.0, 0.0));
-        }
-        k => panic!("{k:?}"),
-    }
-    assert!(s.execute("helix", &json!({"center": [0, 0], "baseRadius": 1, "turns": 1e9})).is_err());
-    s.cmdline("helix 0,0 1 2 t 4 w cw 5").unwrap();
-    assert!(s.running.is_none(), "{}", s.prompt_text());
-    match last(&s) {
-        EntityKind::Polyline3d(p) => {
-            let top = p.points.last().unwrap();
-            assert!((top.z - 5.0).abs() < 1e-9 && near(top.xy(), 2.0, 0.0));
-            assert!(p.points[1].y < 0.0, "clockwise twist");
-        }
-        k => panic!("{k:?}"),
-    }
 }
 
 #[test]
@@ -619,9 +581,7 @@ fn new_draw_commands_survive_garbage_input() {
         "revcloud.polygonal",
         "revcloud.freehand",
         "wipeout",
-        "3dpoly",
         "mline",
-        "helix",
         "spline.cv",
         "centermark",
         "centerline",

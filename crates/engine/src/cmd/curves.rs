@@ -417,15 +417,6 @@ impl Chain {
                 }
             }
             EntityKind::LwPolyline(p) => Chain { segs: Polyline { vertices: p.vertices.clone(), closed: p.closed }.segments(), closed: p.closed },
-            EntityKind::Polyline3d(p) => {
-                let mut pts: Vec<Vec2> = p.points.iter().map(|q| q.xy()).collect();
-                if p.closed
-                    && let Some(f) = pts.first().copied()
-                {
-                    pts.push(f);
-                }
-                tess(pts, p.closed)
-            }
             EntityKind::Ellipse(e) => {
                 let ge = cadcraft_geom::Ellipse { center: e.center.xy(), major: e.major.xy(), ratio: e.ratio, start: e.start, end: e.end };
                 let mut pts = Vec::new();

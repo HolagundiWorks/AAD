@@ -174,11 +174,6 @@ pub struct LwPolyline {
     #[serde(default)]
     pub plinegen: bool,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Polyline3d {
-    pub points: Vec<Vec3>,
-    pub closed: bool,
-}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum HAlign {
@@ -538,12 +533,6 @@ pub struct Solid {
     pub corners: [Vec3; 4],
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Face3d {
-    pub corners: [Vec3; 4],
-    #[serde(default)]
-    pub hidden_edges: u8,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RayLine {
     pub base: Vec3,
     pub dir: Vec3,
@@ -686,7 +675,6 @@ pub enum EntityKind {
     Arc(Arc),
     Ellipse(Ellipse),
     LwPolyline(LwPolyline),
-    Polyline3d(Polyline3d),
     Spline(GSpline),
     Ray(RayLine),
     XLine(RayLine),
@@ -700,7 +688,6 @@ pub enum EntityKind {
     Hatch(Hatch),
     Solid(Solid),
     Trace(Solid),
-    Face3d(Face3d),
     Viewport(Viewport),
     Image(Image),
     Wipeout(Wipeout),
@@ -736,7 +723,6 @@ impl EntityKind {
             EntityKind::Arc(_) => "Arc",
             EntityKind::Ellipse(_) => "Ellipse",
             EntityKind::LwPolyline(_) => "Polyline",
-            EntityKind::Polyline3d(_) => "3D Polyline",
             EntityKind::Spline(_) => "Spline",
             EntityKind::Ray(_) => "Ray",
             EntityKind::XLine(_) => "Xline",
@@ -750,7 +736,6 @@ impl EntityKind {
             EntityKind::Hatch(_) => "Hatch",
             EntityKind::Solid(_) => "2D Solid",
             EntityKind::Trace(_) => "Trace",
-            EntityKind::Face3d(_) => "3D Face",
             EntityKind::Viewport(_) => "Viewport",
             EntityKind::Image(_) => "Raster Image",
             EntityKind::Wipeout(_) => "Wipeout",
@@ -767,7 +752,6 @@ impl EntityKind {
             EntityKind::Arc(_) => "ARC",
             EntityKind::Ellipse(_) => "ELLIPSE",
             EntityKind::LwPolyline(_) => "LWPOLYLINE",
-            EntityKind::Polyline3d(_) => "POLYLINE",
             EntityKind::Spline(_) => "SPLINE",
             EntityKind::Ray(_) => "RAY",
             EntityKind::XLine(_) => "XLINE",
@@ -781,7 +765,6 @@ impl EntityKind {
             EntityKind::Hatch(_) => "HATCH",
             EntityKind::Solid(_) => "SOLID",
             EntityKind::Trace(_) => "TRACE",
-            EntityKind::Face3d(_) => "3DFACE",
             EntityKind::Viewport(_) => "VIEWPORT",
             EntityKind::Image(_) => "IMAGE",
             EntityKind::Wipeout(_) => "WIPEOUT",
@@ -805,27 +788,12 @@ impl EntityKind {
                 let pl = Polyline { vertices: p.vertices.clone(), closed: p.closed };
                 pl.segments().into_iter().map(Prim::Seg).collect()
             }
-            EntityKind::Polyline3d(p) => {
-                let mut v: Vec<Prim> =
-                    p.points.windows(2).filter_map(|w| Some(Prim::Seg(Segment::Line(GLine::new(w.first()?.xy(), w.get(1)?.xy()))))).collect();
-                if p.closed
-                    && let (Some(a), Some(b)) = (p.points.last(), p.points.first())
-                {
-                    v.push(Prim::Seg(Segment::Line(GLine::new(a.xy(), b.xy()))));
-                }
-                v
-            }
             EntityKind::Spline(s) => vec![Prim::Spline(s.clone())],
             EntityKind::Ray(r) => vec![Prim::Infinite { base: r.base.xy(), dir: r.dir.xy().normalized(), ray: true }],
             EntityKind::XLine(r) => vec![Prim::Infinite { base: r.base.xy(), dir: r.dir.xy().normalized(), ray: false }],
             EntityKind::Solid(s) | EntityKind::Trace(s) => {
                 let c = &s.corners;
                 vec![Prim::Fill(vec![c[0].xy(), c[1].xy(), c[3].xy(), c[2].xy()])]
-            }
-            EntityKind::Face3d(f) => {
-                let c = &f.corners;
-                let pts = [c[0].xy(), c[1].xy(), c[2].xy(), c[3].xy(), c[0].xy()];
-                pts.windows(2).filter_map(|w| Some(Prim::Seg(Segment::Line(GLine::new(*w.first()?, *w.get(1)?))))).collect()
             }
             EntityKind::Hatch(h) => {
                 h.loops.iter().flat_map(|l| Polyline { vertices: l.vertices.clone(), closed: true }.segments()).map(Prim::Seg).collect()
@@ -928,7 +896,6 @@ impl EntityKind {
                 }
                 p.const_width *= s;
             }
-            EntityKind::Polyline3d(p) => p.points.iter_mut().for_each(t3),
             EntityKind::Spline(sp) => sp.transform(m),
             EntityKind::Ray(r) | EntityKind::XLine(r) => {
                 t3(&mut r.base);
@@ -1000,7 +967,6 @@ impl EntityKind {
                 h.origin = m.apply(h.origin);
             }
             EntityKind::Solid(so) | EntityKind::Trace(so) => so.corners.iter_mut().for_each(t3),
-            EntityKind::Face3d(f) => f.corners.iter_mut().for_each(t3),
             EntityKind::Viewport(v) => {
                 t3(&mut v.center);
                 v.width *= s;
@@ -1052,7 +1018,6 @@ impl EntityKind {
                 }
                 g
             }
-            EntityKind::Polyline3d(p) => p.points.iter().map(|q| q.xy()).collect(),
             EntityKind::Spline(s) => {
                 if s.fit.is_empty() {
                     s.control.clone()
@@ -1073,7 +1038,6 @@ impl EntityKind {
                 vec![b.center()]
             }
             EntityKind::Solid(s) | EntityKind::Trace(s) => s.corners.iter().map(|c| c.xy()).collect(),
-            EntityKind::Face3d(f) => f.corners.iter().map(|c| c.xy()).collect(),
             EntityKind::Viewport(v) => {
                 let c = v.center.xy();
                 let h = Vec2::new(v.width / 2.0, v.height / 2.0);

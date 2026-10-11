@@ -68,7 +68,7 @@ early (#175), but the throughput problem remains. **DWG ≈ 30% read, ≈ 15% wr
 | Content | Read | Write | Notes |
 |---|---|---|---|
 | LINE, POINT, CIRCLE, ARC, ELLIPSE, LWPOLYLINE (widths, bulges, elevation), SPLINE, RAY, XLINE | yes | yes | round-trip tests |
-| POLYLINE 2D/3D | yes | yes (as LWPOLYLINE / 3D POLYLINE) | polyface and polygon meshes flattened: lossy |
+| POLYLINE 2D/3D | yes | read as LWPOLYLINE (3D polylines projected to XY); written as LWPOLYLINE | 3D polylines flattened; polyface and polygon meshes skipped; 3DFACE read as a closed outline: lossy |
 | TEXT, MTEXT, ATTDEF, INSERT + ATTRIB | yes | yes | ATTDEF prompt kept (#137) |
 | DIMENSION (all 7 kinds) | yes | yes, with anonymous `*D` blocks | `*D` blocks duplicate on re-save (known); DIMASSOC objects written |
 | LEADER | yes | yes | |

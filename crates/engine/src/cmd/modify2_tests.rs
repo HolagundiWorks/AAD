@@ -302,18 +302,16 @@ fn reverse_json_and_command_line() {
     let l = h(&s.execute("line", &json!({"points": [[0, 0], [5, 0]]})).unwrap());
     let p = pline(&mut s, json!([{"p": [0, 5], "bulge": 1}, [2, 5], [4, 6]]), false);
     let sp = h(&s.execute("spline", &json!({"control": [[0, 10], [1, 12], [3, 12], [4, 10]]})).unwrap());
-    let p3 = h(&s.execute("3dpoly", &json!({"points": [[0, 20, 0], [1, 20, 1]]})).unwrap());
     let c = h(&s.execute("circle", &json!({"center": [0, 30], "radius": 1})).unwrap());
     let before = Polyline { vertices: poly(&kind(&s, &p)).vertices, closed: false }.tessellate(1e-3);
-    let r = s.execute("reverse", &json!({"handles": [l, p, sp, p3, c]})).unwrap();
-    assert_eq!(r["reversed"], 4);
+    let r = s.execute("reverse", &json!({"handles": [l, p, sp, c]})).unwrap();
+    assert_eq!(r["reversed"], 3);
     assert!(matches!(kind(&s, &l), EntityKind::Line(x) if near(x.a.xy(), 5.0, 0.0)));
     let after = Polyline { vertices: poly(&kind(&s, &p)).vertices, closed: false }.tessellate(1e-3);
     assert!(after.first().unwrap().near(*before.last().unwrap(), 1e-9));
     let mid_b = before[before.len() / 2];
     assert!(after.iter().any(|q| q.near(mid_b, 1e-2)), "same shape");
     assert!(matches!(kind(&s, &sp), EntityKind::Spline(x) if near(x.eval(x.domain().0), 4.0, 10.0)));
-    assert!(matches!(kind(&s, &p3), EntityKind::Polyline3d(x) if x.points[0].z == 1.0));
 
     let mut s = Session::new();
     s.execute("line", &json!({"points": [[0, 0], [5, 0]]})).unwrap();
@@ -397,7 +395,6 @@ fn chspace_json_and_command_line() {
 #[test]
 fn flatten_json_and_command_line() {
     let mut s = Session::new();
-    let p3 = h(&s.execute("3dpoly", &json!({"points": [[0, 0, 5], [1, 0, 6], [1, 1, 7]]})).unwrap());
     let l = h(&s.execute("line", &json!({"points": [[0, 5], [3, 5]]})).unwrap());
     s.doc_mut()
         .unwrap()
@@ -408,18 +405,25 @@ fn flatten_json_and_command_line() {
             e.common.thickness = 2.0;
         })
         .unwrap();
-    let r = s.execute("flatten", &json!({"handles": [p3, l]})).unwrap();
-    assert_eq!(r["flattened"], 2);
-    assert!(matches!(kind(&s, &p3), EntityKind::LwPolyline(p) if p.vertices.len() == 3));
+    let r = s.execute("flatten", &json!({"handles": [l]})).unwrap();
+    assert_eq!(r["flattened"], 1);
     assert!(matches!(kind(&s, &l), EntityKind::Line(x) if x.a.z == 0.0));
     assert_eq!(s.doc().unwrap().entity(Handle::parse_hex(&l).unwrap()).unwrap().common.thickness, 0.0);
 
     let mut s = Session::new();
-    s.execute("3dpoly", &json!({"points": [[0, 0, 5], [4, 0, 6]]})).unwrap();
+    let l2 = h(&s.execute("line", &json!({"points": [[0, 0], [4, 0]]})).unwrap());
+    s.doc_mut()
+        .unwrap()
+        .modify_entity(Handle::parse_hex(&l2).unwrap(), |e| {
+            if let EntityKind::Line(x) = &mut e.kind {
+                x.b.z = 6.0;
+            }
+        })
+        .unwrap();
     s.cmdline("flatten 2,0").unwrap();
     s.cmdline("").unwrap();
     assert!(s.running.is_none());
-    assert!(matches!(last(&s), EntityKind::LwPolyline(_)));
+    assert!(matches!(last(&s), EntityKind::Line(x) if x.b.z == 0.0));
 }
 
 // ---------------- FILLET extensions ----------------
@@ -622,24 +626,6 @@ fn textedit_json_and_command_line() {
     s.cmdline("").unwrap();
     assert!(s.running.is_none());
     assert!(matches!(kind(&s, &t), EntityKind::Text(x) if x.value == "hello world"));
-}
-
-#[test]
-fn explode_polyline3d_keeps_elevations() {
-    let mut s = Session::new();
-    let p = h(&s.execute("3dpoly", &json!({"points": [[0, 0, 5], [1, 0, 6], [1, 1, 7]]})).unwrap());
-    s.execute("explode", &json!({"handles": [p]})).unwrap();
-    let lines: Vec<(f64, f64)> = s
-        .doc()
-        .unwrap()
-        .model
-        .iter()
-        .filter_map(|e| match &e.kind {
-            EntityKind::Line(l) => Some((l.a.z, l.b.z)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(lines, vec![(5.0, 6.0), (6.0, 7.0)]);
 }
 
 /// Snapshot of every model entity, to prove a command left the drawing untouched.

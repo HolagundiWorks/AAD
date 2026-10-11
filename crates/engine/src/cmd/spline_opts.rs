@@ -141,13 +141,6 @@ pub(super) fn polyline_spline(k: &EntityKind, opts: FitOptions) -> std::result::
             }
             (pl.vertices.iter().map(|v| v.p).collect(), pl.closed)
         }
-        EntityKind::Polyline3d(pl) => {
-            let z0 = pl.points.first().map(|p| p.z).unwrap_or(0.0);
-            if pl.points.iter().any(|p| (p.z - z0).abs() > 1e-9) {
-                return Err("it is not planar");
-            }
-            (pl.points.iter().map(|p| p.xy()).collect(), pl.closed)
-        }
         _ => return Err("it is not a polyline"),
     };
     let mut pts = distinct_points(&pts);

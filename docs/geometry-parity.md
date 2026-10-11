@@ -50,7 +50,6 @@ constraints 10%.
 | Spline: fit points | degree 3 with end tangents, knot parameterisation (chord, square root, uniform), fit tolerance | cubic, chord-length, averaged knots, dense solve; **no end tangents, no knot parameterisation choice, no fit tolerance** (`geom/src/spline.rs:31-88`) |
 | Spline: closed/periodic | periodic | "closed" appends the first point and refits; **not periodic** (`modify2.rs:647`) |
 | Spline editing: knot insertion, split, refine, rebuild, convert to polyline | SPLINEDIT, grips | knot insertion and splitting (`curves.rs:539-622`); refine/rebuild partial |
-| Helix | yes | **no** |
 | 3D polyline | yes | stored and drawn; no 3D operations |
 | Regions, 3D solids, surfaces, meshes (ACIS/B-rep, NURBS surfaces, subdivision) | yes | **no** (M11) |
 

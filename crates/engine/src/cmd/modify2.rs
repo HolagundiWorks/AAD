@@ -35,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{handle, pick?: [x,y] (end), delta? | deltaAngle? (deg) | percent? | total? | totalAngle? (deg) | to?: [x,y]} ({handle} alone measures)")
             .interactive(|_| Ok(Box::new(LengthenM::default()))),
         CommandSpec::new("align", "Align", run_align)
-            .menu(&["Modify", "3D Operations", "Align"])
+            .menu(&["Modify", "Align"])
             .alias(&["al"])
             .params("{handles?, s1, d1, s2?, d2?, scale?: bool}")
             .interactive(|_| Ok(Box::new(AlignM::default()))),
@@ -1349,9 +1349,6 @@ pub(crate) fn reverse_kind(k: &EntityKind) -> Option<EntityKind> {
     Some(match k {
         EntityKind::Line(l) => EntityKind::Line(cadcraft_doc::Line { a: l.b, b: l.a }),
         EntityKind::LwPolyline(p) => EntityKind::LwPolyline(LwPolyline { vertices: curves::reverse_vertices(&p.vertices, p.closed), ..p.clone() }),
-        EntityKind::Polyline3d(p) => {
-            EntityKind::Polyline3d(cadcraft_doc::Polyline3d { points: p.points.iter().rev().copied().collect(), closed: p.closed })
-        }
         EntityKind::Spline(sp) => EntityKind::Spline(curves::reverse_spline(sp)),
         _ => return None,
     })
@@ -1394,9 +1391,6 @@ pub(crate) fn flatten_kind(k: &mut EntityKind) {
             z(&mut e.major);
         }
         EntityKind::LwPolyline(p) => p.elevation = 0.0,
-        EntityKind::Polyline3d(p) => {
-            *k = lwpoly(p.points.iter().map(|q| PolyVertex::new(q.xy())).collect(), p.closed);
-        }
         EntityKind::Ray(r) | EntityKind::XLine(r) => {
             z(&mut r.base);
             r.dir.z = 0.0;
@@ -1432,7 +1426,6 @@ pub(crate) fn flatten_kind(k: &mut EntityKind) {
         }
         EntityKind::Hatch(h) => h.elevation = 0.0,
         EntityKind::Solid(so) | EntityKind::Trace(so) => so.corners.iter_mut().for_each(z),
-        EntityKind::Face3d(f) => f.corners.iter_mut().for_each(z),
         EntityKind::Image(i) => {
             z(&mut i.insert);
             i.u.z = 0.0;

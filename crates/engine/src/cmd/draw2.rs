@@ -1,9 +1,9 @@
 //! Draw menu depth (M1/M2): every ARC and CIRCLE variant, ELLIPSE axis/arc entries, RECTANG
-//! options, DIVIDE/MEASURE, REVCLOUD, WIPEOUT, XLINE options, 3DPOLY, MLINE, HELIX, spline by
+//! options, DIVIDE/MEASURE, REVCLOUD, WIPEOUT, XLINE options, MLINE, spline by
 //! control vertices, CENTERMARK and CENTERLINE. Each has a JSON form and a prompt sequence.
 
-use cadcraft_doc::{EntityKind, Handle, Point, Polyline3d, RayLine, Wipeout};
-use cadcraft_geom::{Arc, Circle, Ellipse, Line, PolyVertex, Polyline, Spline, TAU, Vec2, Vec3, norm_angle, shoelace};
+use cadcraft_doc::{EntityKind, Handle, Point, RayLine, Wipeout};
+use cadcraft_geom::{Arc, Circle, Ellipse, Line, PolyVertex, Polyline, Spline, TAU, Vec2, norm_angle, shoelace};
 use serde_json::{Value, json};
 
 use super::curves::{self, Chain, MAX_GEN, TanObj};
@@ -108,20 +108,11 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Draw", "Wipeout"])
             .params("{points: [[x,y],...]} | {handle (closed polyline), erase?: bool} | {frames: on|off|display}")
             .interactive(|_| Ok(Box::new(WipeoutM::default()))),
-        CommandSpec::new("3dpoly", "3D Polyline", run_3dpoly)
-            .menu(&["Draw", "3D Polyline"])
-            .alias(&["3p"])
-            .params("{points: [[x,y,z?],...], closed?}")
-            .interactive(|_| Ok(Box::new(Poly3dM::default()))),
         CommandSpec::new("mline", "Multiline", run_mline)
             .menu(&["Draw", "Multiline"])
             .alias(&["ml"])
             .params("{points, scale?, justification?: top|zero|bottom, closed?} (two offset polylines)")
             .interactive(|s| Ok(Box::new(MlineM::new(s)))),
-        CommandSpec::new("helix", "Helix", run_helix)
-            .menu(&["Draw", "Helix"])
-            .params("{center, baseRadius, topRadius?, height?, turns?, ccw?} (3D polyline approximation)")
-            .interactive(|_| Ok(Box::new(HelixM::default()))),
         CommandSpec::new("spline.cv", "Control Vertices", run_spline_cv)
             .menu(&["Draw", "Spline", "Control Vertices"])
             .params("{control: [[x,y],...], degree?: 1..10 (default 3), closed?}")
@@ -1809,87 +1800,6 @@ impl Interactive for RectM2 {
 }
 
 // =====================================================================================
-// 3DPOLY
-// =====================================================================================
-
-fn point3_value(v: &Value) -> Option<Vec3> {
-    let a = v.as_array()?;
-    let x = a.first()?.as_f64()?;
-    let y = a.get(1)?.as_f64()?;
-    let z = a.get(2).and_then(Value::as_f64).unwrap_or(0.0);
-    let p = Vec3::new(x, y, z);
-    p.is_finite().then_some(p)
-}
-
-fn run_3dpoly(s: &mut Session, p: &Value) -> Result<Value> {
-    let pts: Vec<Vec3> = p.get("points").and_then(Value::as_array).map(|a| a.iter().filter_map(point3_value).collect()).unwrap_or_default();
-    if pts.len() < 2 || pts.len() > MAX_GEN {
-        return Err(bad("3dpoly", "`points` needs 2 or more [x,y,z] points"));
-    }
-    added(s.add_entity(EntityKind::Polyline3d(Polyline3d { points: pts, closed: bool_or(p, "closed", false) }))?)
-}
-
-#[derive(Default)]
-struct Poly3dM {
-    pts: Vec<Vec2>,
-    handle: Option<Handle>,
-}
-
-impl Poly3dM {
-    fn sync(&mut self, s: &mut Session, closed: bool) -> Result<()> {
-        let k = EntityKind::Polyline3d(Polyline3d { points: self.pts.iter().map(|p| v3(*p)).collect(), closed });
-        match (self.handle, self.pts.len() >= 2) {
-            (Some(h), true) => s.doc_mut()?.modify_entity(h, |e| e.kind = k)?,
-            (None, true) => self.handle = Some(s.add_entity(k)?),
-            (Some(h), false) => {
-                s.doc_mut()?.remove_entity(h);
-                self.handle = None;
-            }
-            (None, false) => {}
-        }
-        Ok(())
-    }
-}
-
-impl Interactive for Poly3dM {
-    fn name(&self) -> &'static str {
-        "3DPOLY"
-    }
-    fn prompt(&self, _s: &Session) -> Prompt {
-        match self.pts.len() {
-            0 => Prompt::new("Specify start point of polyline", Accept::POINT),
-            1 | 2 => Prompt::new("Specify endpoint of line", Accept::POINT).kw(&["Undo"]).base_opt(self.pts.last().copied()),
-            _ => Prompt::new("Specify endpoint of line", Accept::POINT).kw(&["Close", "Undo"]).base_opt(self.pts.last().copied()),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        match i {
-            Input::Point(p) => {
-                if self.pts.last().is_none_or(|l| !l.near(p, 1e-12)) && self.pts.len() < MAX_GEN {
-                    self.pts.push(p);
-                    self.sync(s, false)?;
-                }
-                Ok(Step::Continue)
-            }
-            Input::Keyword(k) if k == "Undo" => {
-                self.pts.pop();
-                self.sync(s, false)?;
-                Ok(Step::Continue)
-            }
-            Input::Keyword(k) if k == "Close" => {
-                self.sync(s, true)?;
-                Ok(Step::Done)
-            }
-            Input::Enter => Ok(Step::Done),
-            _ => Ok(Step::Continue),
-        }
-    }
-    fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
-        self.pts.last().map(|l| vec![line(*l, c)]).unwrap_or_default()
-    }
-}
-
-// =====================================================================================
 // MLINE (two offset polylines)
 // =====================================================================================
 
@@ -2069,194 +1979,6 @@ impl Interactive for MlineM {
         mline_kinds(&pts, false, self.just, self.scale)
     }
 }
-
-// =====================================================================================
-// HELIX (3D polyline approximation)
-// =====================================================================================
-
-pub(crate) fn helix_points(c: Vec2, rb: f64, rt: f64, height: f64, turns: f64, ccw: bool, a0: f64) -> Vec<Vec3> {
-    let turns = turns.clamp(1e-3, 500.0);
-    let n = ((turns * 36.0).ceil() as usize).clamp(8, MAX_GEN);
-    let sign = if ccw { 1.0 } else { -1.0 };
-    (0..=n)
-        .map(|i| {
-            let t = i as f64 / n as f64;
-            let a = a0 + sign * TAU * turns * t;
-            let r = rb + (rt - rb) * t;
-            let p = Vec2::polar(c, r, a);
-            Vec3::new(p.x, p.y, height * t)
-        })
-        .collect()
-}
-
-fn run_helix(s: &mut Session, p: &Value) -> Result<Value> {
-    let c = point_req("helix", p, "center")?;
-    let rb = f64_req("helix", p, "baseRadius")?;
-    let rt = f64_or(p, "topRadius", rb);
-    let turns = f64_or(p, "turns", 3.0);
-    if !(rb > 0.0 && rt >= 0.0 && turns > 0.0 && turns <= 500.0) {
-        return Err(bad("helix", "radii must be positive and turns in (0, 500]"));
-    }
-    let pts = helix_points(c, rb, rt, f64_or(p, "height", 1.0), turns, bool_or(p, "ccw", true), f64_or(p, "startAngle", 0.0).to_radians());
-    added(s.add_entity(EntityKind::Polyline3d(Polyline3d { points: pts, closed: false }))?)
-}
-
-#[derive(Default)]
-struct HelixM {
-    center: Option<Vec2>,
-    rb: Option<f64>,
-    rt: Option<f64>,
-    turns: Option<f64>,
-    cw: bool,
-    diameter: bool,
-    asking: u8, // 0 main, 1 turns, 2 twist, 3 turn height
-    start: Option<f64>,
-}
-
-impl HelixM {
-    fn turns(&self) -> f64 {
-        self.turns.unwrap_or(3.0)
-    }
-    fn create(&self, s: &mut Session, height: f64) -> Result<Step> {
-        let (Some(c), Some(rb)) = (self.center, self.rb) else { return Ok(Step::Cancel) };
-        let rt = self.rt.unwrap_or(rb);
-        let pts = helix_points(c, rb, rt, height, self.turns(), !self.cw, self.start.unwrap_or(0.0));
-        s.add_entity(EntityKind::Polyline3d(Polyline3d { points: pts, closed: false }))?;
-        Ok(Step::Done)
-    }
-}
-
-impl Interactive for HelixM {
-    fn name(&self) -> &'static str {
-        "HELIX"
-    }
-    fn begin(&mut self, s: &mut Session) -> Result<Step> {
-        s.echo(format!("Number of turns = {:.4}     Twist=CCW", self.turns()));
-        Ok(Step::Continue)
-    }
-    fn prompt(&self, _s: &Session) -> Prompt {
-        match self.asking {
-            1 => return Prompt::new("Enter number of turns", Accept::NUMBER).default(format!("{:.4}", self.turns())),
-            2 => return Prompt::new("Enter twist direction of helix", curves::KW).kw(&["CW", "CCW"]).default("CCW"),
-            3 => return Prompt::new("Specify distance between turns", Accept::NUMBER),
-            _ => {}
-        }
-        match (self.center, self.rb, self.rt) {
-            (None, ..) => Prompt::new("Specify center point of base", Accept::POINT),
-            (Some(c), None, _) => {
-                Prompt::new(if self.diameter { "Specify base diameter" } else { "Specify base radius or" }, Accept::POINT_OR_NUMBER)
-                    .kw(if self.diameter { &[] } else { &["Diameter"] })
-                    .default("1.0000")
-                    .base(c)
-            }
-            (Some(c), Some(rb), None) => {
-                Prompt::new(if self.diameter { "Specify top diameter" } else { "Specify top radius or" }, Accept::POINT_OR_NUMBER)
-                    .kw(if self.diameter { &[] } else { &["Diameter"] })
-                    .default(format!("{rb:.4}"))
-                    .base(c)
-            }
-            (Some(c), Some(_), Some(_)) => Prompt::new("Specify helix height or", Accept::POINT_OR_NUMBER)
-                .kw(&["Axis endpoint", "Turns", "turn Height", "tWist"])
-                .default("1.0000")
-                .base(c),
-        }
-    }
-    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
-        match self.asking {
-            1 => {
-                if let Input::Text(t) = &i {
-                    let v = number(t).filter(|v| *v > 0.0 && *v <= 500.0).ok_or_else(|| other("Turns must be in (0, 500]."))?;
-                    self.turns = Some(v);
-                }
-                self.asking = 0;
-                return Ok(Step::Continue);
-            }
-            2 => {
-                if let Input::Keyword(k) | Input::Text(k) = &i {
-                    self.cw = k.eq_ignore_ascii_case("cw");
-                }
-                self.asking = 0;
-                return Ok(Step::Continue);
-            }
-            3 => {
-                self.asking = 0;
-                if let Input::Text(t) = &i {
-                    let v = number(t).ok_or_else(|| other("Requires a distance."))?;
-                    return self.create(s, v * self.turns());
-                }
-                return Ok(Step::Continue);
-            }
-            _ => {}
-        }
-        let num = |i: &Input, base: Option<Vec2>| -> Option<f64> {
-            match i {
-                Input::Point(p) => base.map(|b| b.dist(*p)),
-                Input::Text(t) => number(t),
-                _ => None,
-            }
-        };
-        match (self.center, self.rb, self.rt, &i) {
-            (None, _, _, Input::Point(p)) => {
-                self.center = Some(*p);
-                Ok(Step::Continue)
-            }
-            (Some(_), None | Some(_), _, Input::Keyword(k)) if k == "Diameter" => {
-                self.diameter = true;
-                Ok(Step::Continue)
-            }
-            (Some(c), None, _, _) => {
-                let v = match &i {
-                    Input::Enter => Some(1.0),
-                    _ => num(&i, Some(c)),
-                };
-                let v = v.filter(|v| *v > 0.0).ok_or_else(|| other("Requires a positive distance."))?;
-                if let Input::Point(p) = &i {
-                    self.start = Some(c.angle_to(*p));
-                }
-                self.rb = Some(if self.diameter { v / 2.0 } else { v });
-                self.diameter = false;
-                Ok(Step::Continue)
-            }
-            (Some(c), Some(rb), None, _) => {
-                let v = match &i {
-                    Input::Enter => Some(if self.diameter { rb * 2.0 } else { rb }),
-                    _ => num(&i, Some(c)),
-                };
-                let v = v.filter(|v| *v >= 0.0).ok_or_else(|| other("Requires a distance."))?;
-                self.rt = Some(if self.diameter { v / 2.0 } else { v });
-                Ok(Step::Continue)
-            }
-            (Some(c), Some(_), Some(_), _) => match &i {
-                Input::Keyword(k) => {
-                    self.asking = match k.as_str() {
-                        "Turns" => 1,
-                        "tWist" => 2,
-                        "turn Height" => 3,
-                        _ => 0,
-                    };
-                    Ok(Step::Continue)
-                }
-                Input::Enter => self.create(s, 1.0),
-                _ => {
-                    let h = num(&i, Some(c)).ok_or_else(|| other("Requires a distance."))?;
-                    self.create(s, h)
-                }
-            },
-            _ => Ok(Step::Continue),
-        }
-    }
-    fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
-        match (self.center, self.rb, self.rt) {
-            (Some(ct), None, _) => vec![circle(ct, ct.dist(c))],
-            (Some(ct), Some(rb), None) => {
-                let pts = helix_points(ct, rb, ct.dist(c), 0.0, self.turns(), !self.cw, self.start.unwrap_or(0.0));
-                vec![EntityKind::Polyline3d(Polyline3d { points: pts, closed: false })]
-            }
-            _ => Vec::new(),
-        }
-    }
-}
-
 // =====================================================================================
 // SPLINE by control vertices
 // =====================================================================================

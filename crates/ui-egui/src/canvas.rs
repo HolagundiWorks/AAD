@@ -1,5 +1,5 @@
 //! The drawing area: grid, entities, selection highlighting, grips, rubber bands, object-snap
-//! markers, crosshair cursor, ViewCube, UCS icon and mouse handling.
+//! markers, crosshair cursor, UCS icon and mouse handling.
 
 use cadcraft_color::Rgb;
 use cadcraft_doc::Handle;
@@ -962,13 +962,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     if let (Some(hit), Some(_)) = (app.canvas.snap, app.canvas.cursor) {
         draw_snap_marker(&painter, xf.to_screen(hit.point), &hit);
     }
-    // UCS icon, ViewCube and viewport label.
+    // UCS icon and viewport label.
     if app.ui.show_ucs_icon {
         draw_ucs_icon(&painter, rect);
-        crate::viewcube::ucs_icon(app, ui, rect);
-    }
-    if app.ui.show_viewcube && sheet.is_none() {
-        draw_viewcube(app, ui, rect);
+        crate::ucsicon::ucs_icon(app, ui, rect);
     }
     viewport_label(&painter, rect);
     // Command line overlay.
@@ -1227,18 +1224,6 @@ fn viewport_label(p: &egui::Painter, rect: Rect) {
     let t = Tokens::get();
     let at = pos2(rect.left() + 10.0, rect.top() + 8.0);
     p.text(at, egui::Align2::LEFT_TOP, crate::tl!("+  |  Top  |  2D Wireframe"), crate::theme::small(), t.canvas_ink);
-}
-
-fn draw_viewcube(app: &mut CadApp, ui: &mut egui::Ui, rect: Rect) {
-    let t = Tokens::get();
-    let l = crate::viewcube::Layout::new(rect);
-    let (c, ring) = (l.center, l.ring);
-    let p = ui.painter_at(rect);
-    crate::viewcube::show(app, ui, &l);
-    // WCS pill.
-    let pill = Rect::from_center_size(c + vec2(0.0, ring + 26.0), vec2(56.0, 16.0));
-    p.rect_filled(pill, 8.0, Color32::from_rgb(0x48, 0x50, 0x5c));
-    p.text(pill.center(), egui::Align2::CENTER_CENTER, crate::tl!("WCS ⌄"), crate::theme::small(), t.canvas_ink);
 }
 
 /// The grip of a selected object under the cursor, if any.

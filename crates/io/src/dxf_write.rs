@@ -467,32 +467,6 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 }
             }
         }
-        EntityKind::Polyline3d(p) => {
-            w.s(0, "POLYLINE");
-            common(w, e, owner, paper, "AcDb3dPolyline");
-            w.i(66, 1);
-            w.p(10, Vec3::ZERO);
-            thickness(w, e);
-            w.i(70, 8 | i64::from(p.closed));
-            for q in &p.points {
-                let vh = w.h();
-                w.s(0, "VERTEX");
-                w.s(5, vh);
-                w.s(330, e.handle.hex());
-                w.s(100, "AcDbEntity");
-                w.s(8, &e.common.layer);
-                w.s(100, "AcDbVertex");
-                w.s(100, "AcDb3dPolylineVertex");
-                w.p(10, *q);
-                w.i(70, 32);
-            }
-            let sh = w.h();
-            w.s(0, "SEQEND");
-            w.s(5, sh);
-            w.s(330, e.handle.hex());
-            w.s(100, "AcDbEntity");
-            w.s(8, &e.common.layer);
-        }
         EntityKind::Spline(s) => {
             w.s(0, "SPLINE");
             common(w, e, owner, paper, "AcDbSpline");
@@ -800,15 +774,6 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             w.p(12, s.corners[2]);
             w.p(13, s.corners[3]);
             thickness(w, e);
-        }
-        EntityKind::Face3d(f) => {
-            w.s(0, "3DFACE");
-            common(w, e, owner, paper, "AcDbFace");
-            w.p(10, f.corners[0]);
-            w.p(11, f.corners[1]);
-            w.p(12, f.corners[2]);
-            w.p(13, f.corners[3]);
-            w.i(70, i64::from(f.hidden_edges));
         }
         EntityKind::Hatch(h) => {
             w.s(0, "HATCH");

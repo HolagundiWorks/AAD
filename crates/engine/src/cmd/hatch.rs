@@ -92,7 +92,6 @@ fn island_curve(d: &Drawing, e: &Entity) -> bool {
             | EntityKind::Arc(_)
             | EntityKind::Ellipse(_)
             | EntityKind::LwPolyline(_)
-            | EntityKind::Polyline3d(_)
             | EntityKind::Spline(_)
     ) && closed_loop(d, e).is_none()
 }

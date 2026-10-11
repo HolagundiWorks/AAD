@@ -36,10 +36,10 @@ wgpu or rfd.
 
 - A `Drawing` is header variables, symbol tables, block definitions, model space and paper-space
   layouts. Entities carry a handle, layer, colour, linetype, lineweight, transparency and an
-  `EntityKind`: Line, Point, Circle, Arc, Ellipse, LwPolyline, Polyline3d, Spline, Ray, XLine,
+  `EntityKind`: Line, Point, Circle, Arc, Ellipse, LwPolyline, Spline, Ray, XLine,
   Text, MText, AttDef, Insert (with attributes), Dimension (linear, aligned, angular, diameter,
   radius, ordinate, arc length), Leader, MLeader, Hatch (pattern, solid, gradient), Solid,
-  Trace, Face3d, Viewport, Image, Wipeout, Table and Unknown (raw DXF tags).
+  Trace, Viewport, Image, Wipeout, Table and Unknown (raw DXF tags).
 - There are no 3D solids, surfaces, meshes, regions (ACIS), multilines, tolerance frames or
   underlays in the model yet ([gaps.md](gaps.md)).
 - Entity collections are copy-on-write, so undo is a whole-drawing snapshot that costs little.

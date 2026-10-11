@@ -31,7 +31,7 @@ pub mod parametric;
 pub mod plotstyles;
 pub mod quick;
 pub mod theme;
-pub mod viewcube;
+pub mod ucsicon;
 
 use std::sync::mpsc::Receiver;
 
@@ -57,7 +57,6 @@ pub struct UiState {
     pub show_file_tabs: bool,
     pub show_status_bar: bool,
     pub show_command_line: bool,
-    pub show_viewcube: bool,
     pub show_ucs_icon: bool,
     pub show_layer_list: bool,
     /// Keep the system cursor visible over the drawing area (a small crosshair at the centre of the
@@ -129,7 +128,6 @@ impl Default for UiState {
             show_file_tabs: true,
             show_status_bar: true,
             show_command_line: true,
-            show_viewcube: true,
             show_ucs_icon: true,
             show_layer_list: false,
             system_cursor: std::env::var("CADCRAFT_SYSTEM_CURSOR").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "false" | "off")),

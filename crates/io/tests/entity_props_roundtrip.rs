@@ -47,7 +47,6 @@ fn thickness_roundtrips_on_every_entity_that_has_one() {
         EntityKind::Point(Point { p: p(1.0, 2.0), angle: 0.0 }),
         EntityKind::Text(text),
         EntityKind::LwPolyline(LwPolyline { vertices: square(4.0), closed: true, const_width: 0.0, elevation: 0.0, plinegen: false }),
-        EntityKind::Polyline3d(Polyline3d { points: vec![p(0.0, 0.0), Vec3::new(1.0, 1.0, 1.0)], closed: false }),
         EntityKind::Solid(Solid { corners: [p(0.0, 0.0), p(1.0, 0.0), p(0.0, 1.0), p(1.0, 1.0)] }),
         EntityKind::Trace(Solid { corners: [p(0.0, 0.0), p(1.0, 0.0), p(0.0, 1.0), p(1.0, 1.0)] }),
     ];
@@ -200,60 +199,22 @@ fn vertex(x: &str, y: &str, z: &str, flags: &str) -> Vec<(i32, &'static str)> {
     vec![(0, "VERTEX"), (8, "0"), (10, leak(x)), (20, leak(y)), (30, leak(z)), (70, leak(flags))]
 }
 
-fn face(idx: [&'static str; 4]) -> Vec<(i32, &'static str)> {
-    vec![(0, "VERTEX"), (8, "0"), (10, "0"), (20, "0"), (30, "0"), (70, "128"), (71, idx[0]), (72, idx[1]), (73, idx[2]), (74, idx[3])]
-}
-
-fn faces(d: &Drawing) -> Vec<Face3d> {
-    d.model
-        .iter()
-        .map(|e| match &e.kind {
-            EntityKind::Face3d(f) => f.clone(),
-            k => panic!("expected only 3D faces, got {k:?}"),
-        })
-        .collect()
-}
 
 #[test]
-fn polyface_and_polygon_mesh_polylines_become_faces_not_bogus_vertices() {
-    let p = |x: f64, y: f64, z: f64| Vec3::new(x, y, z);
-    // Polyface: four vertices, a quad, a triangle whose third edge is hidden, and faces with an
-    // out-of-range index or only two vertices (skipped).
+fn polyface_and_polygon_meshes_are_skipped_and_3d_polylines_are_projected() {
+    // Polyface: four vertices and a quad face record. It is 3D-only, so nothing is imported.
     let mut recs: Vec<Vec<(i32, &str)>> =
-        vec![vec![(0, "POLYLINE"), (8, "0"), (66, "1"), (10, "0"), (20, "0"), (30, "0"), (70, "64"), (71, "4"), (72, "4")]];
+        vec![vec![(0, "POLYLINE"), (8, "0"), (66, "1"), (10, "0"), (20, "0"), (30, "0"), (70, "64"), (71, "4"), (72, "1")]];
     for (x, y) in [("0", "0"), ("1", "0"), ("1", "1"), ("0", "1")] {
         recs.push(vertex(x, y, "2", "192"));
     }
-    recs.push(face(["1", "2", "3", "4"]));
-    recs.push(face(["1", "3", "-4", "0"]));
-    recs.push(face(["1", "2", "99", "0"]));
-    recs.push(face(["1", "2", "0", "0"]));
+    recs.push(vec![(0, "VERTEX"), (8, "0"), (10, "0"), (20, "0"), (30, "0"), (70, "128"), (71, "1"), (72, "2"), (73, "3"), (74, "4")]);
     recs.push(vec![(0, "SEQEND"), (8, "0")]);
     let refs: Vec<&[(i32, &str)]> = recs.iter().map(Vec::as_slice).collect();
     let d = read_dxf(dxf(&refs).as_bytes()).expect("read polyface");
-    let fs = faces(&d);
-    assert_eq!(fs.len(), 2, "{fs:?}");
-    assert_eq!(fs[0].corners, [p(0.0, 0.0, 2.0), p(1.0, 0.0, 2.0), p(1.0, 1.0, 2.0), p(0.0, 1.0, 2.0)]);
-    assert_eq!(fs[0].hidden_edges, 0);
-    assert_eq!(fs[1].corners, [p(0.0, 0.0, 2.0), p(1.0, 1.0, 2.0), p(0.0, 1.0, 2.0), p(0.0, 1.0, 2.0)]);
-    assert_eq!(fs[1].hidden_edges, 4 | 8, "the triangle's closing edge is hidden");
-    // The faces survive a save and reopen as 3DFACEs.
-    assert_eq!(faces(&roundtrip(&d)), fs);
+    assert_eq!(d.model.iter().count(), 0);
 
-    // 3×2 polygon mesh: two quads.
-    let mut recs: Vec<Vec<(i32, &str)>> =
-        vec![vec![(0, "POLYLINE"), (8, "0"), (66, "1"), (10, "0"), (20, "0"), (30, "0"), (70, "16"), (71, "3"), (72, "2")]];
-    for (x, y) in [("0", "0"), ("0", "1"), ("1", "0"), ("1", "1"), ("2", "0"), ("2", "1")] {
-        recs.push(vertex(x, y, "0", "64"));
-    }
-    recs.push(vec![(0, "SEQEND"), (8, "0")]);
-    let refs: Vec<&[(i32, &str)]> = recs.iter().map(Vec::as_slice).collect();
-    let d = read_dxf(dxf(&refs).as_bytes()).expect("read mesh");
-    let fs = faces(&d);
-    assert_eq!(fs.len(), 2);
-    assert_eq!(fs[1].corners, [p(1.0, 0.0, 0.0), p(1.0, 1.0, 0.0), p(2.0, 1.0, 0.0), p(2.0, 0.0, 0.0)]);
-
-    // Hostile counts: a mesh claiming more vertices than it has yields nothing, without panicking.
+    // Hostile counts: a mesh claiming more vertices than it has is skipped, without panicking.
     let recs: Vec<Vec<(i32, &str)>> = vec![
         vec![(0, "POLYLINE"), (8, "0"), (66, "1"), (70, "17"), (71, "9223372036854775807"), (72, "-5")],
         vertex("0", "0", "0", "64"),
@@ -262,4 +223,37 @@ fn polyface_and_polygon_mesh_polylines_become_faces_not_bogus_vertices() {
     let refs: Vec<&[(i32, &str)]> = recs.iter().map(Vec::as_slice).collect();
     let d = read_dxf(dxf(&refs).as_bytes()).expect("read hostile mesh");
     assert_eq!(d.model.iter().count(), 0);
+
+    // A 3D polyline (flag 8) becomes a flat polyline.
+    let mut recs: Vec<Vec<(i32, &str)>> = vec![vec![(0, "POLYLINE"), (8, "0"), (66, "1"), (10, "0"), (20, "0"), (30, "0"), (70, "8")]];
+    for (x, y, z) in [("0", "0", "1"), ("2", "0", "2"), ("2", "2", "3")] {
+        recs.push(vertex(x, y, z, "32"));
+    }
+    recs.push(vec![(0, "SEQEND"), (8, "0")]);
+    let refs: Vec<&[(i32, &str)]> = recs.iter().map(Vec::as_slice).collect();
+    let d = read_dxf(dxf(&refs).as_bytes()).expect("read 3d polyline");
+    assert!(d.model.iter().all(|e| matches!(&e.kind, EntityKind::LwPolyline(p) if p.vertices.len() == 3)));
+    assert_eq!(d.model.iter().count(), 1);
+}
+
+#[test]
+fn a_3dface_is_projected_to_a_closed_outline() {
+    let recs: Vec<Vec<(i32, &str)>> = vec![vec![
+        (0, "3DFACE"),
+        (8, "0"),
+        (10, "0"),
+        (20, "0"),
+        (30, "5"),
+        (11, "4"),
+        (21, "0"),
+        (31, "5"),
+        (12, "4"),
+        (22, "3"),
+        (32, "6"),
+    ]];
+    let refs: Vec<&[(i32, &str)]> = recs.iter().map(Vec::as_slice).collect();
+    let d = read_dxf(dxf(&refs).as_bytes()).expect("read 3dface");
+    let polys: Vec<&LwPolyline> = d.model.iter().filter_map(|e| if let EntityKind::LwPolyline(p) = &e.kind { Some(p) } else { None }).collect();
+    assert_eq!(polys.len(), 1);
+    assert!(polys[0].closed && polys[0].vertices.len() == 3, "a triangle repeats its third corner");
 }

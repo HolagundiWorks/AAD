@@ -56,12 +56,6 @@ View
         Right
         Up
         Down
-    Orbit
-        Constrained Orbit
-        Free Orbit
-    Camera
-        Adjust Distance
-        Swivel
     Viewports
         Named Viewports...
         New Viewports...
@@ -72,56 +66,18 @@ View
         Polygonal Viewport
         Object
         Join
-    3D Views
-        Viewpoint
-        Plan View
-            Current UCS
-            World UCS
-            Named UCS
-        Top
-        Bottom
-        Left
-        Right
-        Front
-        Back
-        SW Isometric
-        SE Isometric
-        NE Isometric
-        NW Isometric
     Show Annotative Objects
         Current Scale Only
         All Scales
     Hide
-    Visual Styles
-        2D Wireframe
-        Wireframe
-        Hidden
-        Realistic
-        Conceptual
-        Shaded
-        Shaded with Edges
-        Shades of Gray
-        Sketchy
-        X-Ray
-    Render
-        Light
-            New Point Light
-            New Spotlight
-            New Distant Light
-            Light Glyphs
-        Materials Browser
     UCS Icon
         On
         Origin
         Properties...
-    ViewCube
-        On
-        Settings
     Attribute Display
         Normal
         On
         Off
-    Lights
     Redraw
     Regen
     Regen All
@@ -268,49 +224,8 @@ Tools
             Wipeout
             Select Existing Object
 Draw
-    3D Modeling
-        Polysolid
-        Box
-        Wedge
-        Cone
-        Sphere
-        Cylinder
-        Torus
-        Pyramid
-        Extrude
-        Revolve
-        Sweep
-        Loft
-        Section Plane
-        Surfaces
-            Planar
-            Network
-            Blend
-            Patch
-            Offset
-            Fillet
-        Meshes
-            Primitives
-                Box
-                Wedge
-                Cone
-                Sphere
-                Cylinder
-                Torus
-                Pyramid
-            Smooth Mesh
-            3D Face
-            Meshes, Revolved Surface
-            Meshes, Tabulated Surface
-            Meshes, Ruled Surface
-            Meshes, Edge Surface
-        Setup
-            Drawing
-            View
-            Profile
     Line
     Polyline
-    3D Polyline
     Spline
         Fit Points
         Control Vertices
@@ -351,7 +266,6 @@ Draw
         Multiple Point
         Divide
         Measure
-    Helix
     Donut
     Hatch...
     Gradient...
@@ -458,70 +372,7 @@ Modify
     Chamfer
     Fillet
     Blend
-    3D Operations
-        3D Move
-        3D Rotate
-        Align
-        3D Align
-        3D Mirror
-        3D Array
-        Interference Checking
-        Slice
-        Thicken
-        Convert to Solid
-        Convert to Surface
-        Extract Edges
-        Extract Isolines
-    Solid Editing
-        Union
-        Subtract
-        Intersect
-        Imprint Edges
-        Fillet edges
-        Chamfer edges
-        Color edges
-        Copy edges
-        Extrude faces
-        Move faces
-        Offset faces
-        Delete faces
-        Rotate faces
-        Taper faces
-        Color faces
-        Copy faces
-        Clean
-        Separate
-        Shell
-        Check
-    Surface Editing
-        Trim
-        Untrim
-        Extend
-        Sculpt
-        Convert to NURBS
-        Convert to Mesh
-        NURBS Surface Editing
-            Show CV
-            Hide CV
-            Add CV
-            Remove CV
-            Rebuild
-    Mesh Editing
-        Smooth More
-        Smooth Less
-        Refine Mesh
-        Crease
-        Uncrease
-        Split Face
-        Extrude Face
-        Merge Face
-        Spin Triangle Face
-        Close Hole
-        Collapse Face or Edge
-        Convert to Faceted Solid
-        Convert to Faceted Surface
-        Convert to Smooth Solid
-        Convert to Smooth Surface
+    Align
     Change Space
     Flatten Objects
     Explode
@@ -541,7 +392,6 @@ Window
     Reference Manager
     Traces
     Sheet Set Manager
-    Materials Browser
     Activity Insights
     Geometry Cleanup
     Hide Palettes

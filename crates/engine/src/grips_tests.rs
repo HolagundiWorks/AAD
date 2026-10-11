@@ -146,9 +146,6 @@ fn other_entity_grips() {
     let x = h(&s.execute("xline", &json!({"base": [0, 0], "angle": 0})).unwrap());
     s.grip_edit(x, 1, v(0.0, 3.0), GripMode::Stretch).unwrap();
     assert!(matches!(kind(&s, x), EntityKind::XLine(r) if near(r.dir.xy(), 0.0, 1.0)));
-    let p3 = h(&s.execute("3dpoly", &json!({"points": [[0, 0, 4], [1, 0, 5]]})).unwrap());
-    s.grip_edit(p3, 1, v(2.0, 2.0), GripMode::Stretch).unwrap();
-    assert!(matches!(kind(&s, p3), EntityKind::Polyline3d(p) if near(p.points[1].xy(), 2.0, 2.0) && p.points[1].z == 5.0));
     let w = h(&s.execute("wipeout", &json!({"points": [[0, 0], [2, 0], [2, 2]]})).unwrap());
     s.grip_edit(w, 2, v(3.0, 3.0), GripMode::Stretch).unwrap();
     assert!(matches!(kind(&s, w), EntityKind::Wipeout(p) if near(p.boundary[2], 3.0, 3.0)));

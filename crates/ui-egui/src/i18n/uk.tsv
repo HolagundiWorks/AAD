@@ -19,9 +19,6 @@
 	2D Solid	2D-заливка
 	3 Points	3 точки
 	3 Viewports	3 видові екрани
-	3D Face	3D-грань
-	3D Operations	3D-операції
-	3D Polyline	3D-полілінія
 	4 Viewports	4 видові екрани
 	< Less than	< Менше ніж
 	<> Not Equal	<> Не дорівнює
@@ -255,7 +252,6 @@
 	Enter text	Введіть текст
 	Enter text (use \P for new paragraphs)	Введіть текст (\P починає новий абзац)
 	Enter the number of segments	Введіть кількість сегментів
-	Enter twist direction of helix	Введіть напрямок закручування спіралі
 	Entire drawing	Усе креслення
 	Equal	Рівність
 	Erase	Стерти
@@ -317,7 +313,6 @@
 	Hatch...	Штрихування...
 	Height	Висота
 	Height: {height}	Висота: {height}
-	Helix	Спіраль
 	Help	Довідка
 	Hide All	Приховати всі
 	Hide All Constraint Bars	Приховати всі панелі обмежень
@@ -794,7 +789,6 @@
 	Specify first point on circle: _tan to	Укажіть першу точку на колі: _tan до
 	Specify first source point	Укажіть першу вихідну точку
 	Specify height	Укажіть висоту
-	Specify helix height or	Укажіть висоту спіралі або
 	Specify included angle	Укажіть кут між сторонами
 	Specify insertion base point	Укажіть базову точку вставлення
 	Specify insertion point	Укажіть точку вставлення
@@ -950,7 +944,6 @@
 	Vertical	Вертикальність
 	VerticalDistance	Вертикальна відстань
 	View	Вид
-	ViewCube	Куб виду
 	Viewport	Видовий екран
 	Viewport Layer Freeze	Заморозити шар у видовому екрані
 	Viewport Properties	Властивості видового екрана

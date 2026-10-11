@@ -254,7 +254,6 @@ fn degenerate(d: &Drawing, kind: Kind) -> Vec<Handle> {
         EntityKind::Circle(c) => c.radius == 0.0,
         EntityKind::Arc(a) => a.radius == 0.0,
         EntityKind::LwPolyline(p) => p.vertices.first().is_some_and(|f| p.vertices.iter().all(|v| v.p == f.p)),
-        EntityKind::Polyline3d(p) => p.points.first().is_some_and(|f| p.points.iter().all(|v| v == f)),
         _ => false,
     };
     let empty = |e: &EntityKind| match e {

@@ -174,7 +174,6 @@ pub fn stretch_grip(kind: &EntityKind, index: usize, to: Vec2) -> Option<EntityK
                 }
             }
         }
-        EntityKind::Polyline3d(p) => set_xy(p.points.get_mut(index)?, to),
         EntityKind::Spline(sp) => {
             if sp.fit.is_empty() {
                 *sp.control.get_mut(index)? = to;
@@ -252,7 +251,6 @@ pub fn stretch_grip(kind: &EntityKind, index: usize, to: Vec2) -> Option<EntityK
             }
         }
         EntityKind::Solid(s) | EntityKind::Trace(s) => set_xy(s.corners.get_mut(index)?, to),
-        EntityKind::Face3d(f) => set_xy(f.corners.get_mut(index)?, to),
         EntityKind::Viewport(v) => {
             let opposite = *grips.get((index + 2) % 4)?;
             let w = (to.x - opposite.x).abs();
