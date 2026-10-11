@@ -960,6 +960,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         draw_ucs_icon(&painter, rect);
         crate::ucsicon::ucs_icon(app, ui, rect);
     }
+    if app.ui.show_pomodoro {
+        crate::widgets::pomodoro_overlay(app, ui, rect);
+    }
     viewport_label(&painter, rect);
     // Command line overlay.
     if app.ui.show_command_line {

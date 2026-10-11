@@ -395,6 +395,52 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         egui::Popup::from_toggle_button_response(&units_resp.on_hover_text(crate::tl!("Drawing units, display units, plot scale and annotation")))
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| crate::units_panel::show(app, ui));
+        // Pomodoro and Calculator buttons left of the units control: the timer shows its countdown
+        // even with its window closed; a click opens or closes the window.
+        {
+            let (y0, y1) = (r.center().y - 9.0, r.center().y + 9.0);
+            let (ptext, active, running, fraction) = {
+                let pm = &app.widgets.pomodoro;
+                (pm.label(), pm.active(), pm.running(), pm.fraction())
+            };
+            let pbr = Rect::from_min_max(pos2(units_br.left() - 8.0 - 58.0, y0), pos2(units_br.left() - 8.0, y1));
+            let presp = ui.interact(pbr, ui.id().with("pomodoro_button"), Sense::click());
+            p.rect_filled(pbr, 3.0, if presp.hovered() { t.control_hover } else { t.control });
+            if active {
+                let fill = Rect::from_min_max(pbr.min, pos2(pbr.left() + pbr.width() * fraction as f32, pbr.bottom()));
+                p.rect_filled(fill, 3.0, t.accent.gamma_multiply(if running { 0.55 } else { 0.25 }));
+            }
+            p.text(pbr.center(), egui::Align2::CENTER_CENTER, &ptext, crate::theme::small(), t.text);
+            icons::describe_control(ui, &presp, "Pomodoro timer", Some(app.ui.show_pomodoro), false);
+            if presp.on_hover_text(crate::tl!("Pomodoro timer: click to open or close")).clicked() {
+                let _ = app.run("ui.toggle.pomodoro", json!({}));
+            }
+            let cbr = Rect::from_min_max(pos2(pbr.left() - 6.0 - 40.0, y0), pos2(pbr.left() - 6.0, y1));
+            let cresp = ui.interact(cbr, ui.id().with("calculator_button"), Sense::click());
+            let open = app.ui.show_calculator;
+            p.rect_filled(
+                cbr,
+                3.0,
+                if open {
+                    t.accent
+                } else if cresp.hovered() {
+                    t.control_hover
+                } else {
+                    t.control
+                },
+            );
+            p.text(
+                cbr.center(),
+                egui::Align2::CENTER_CENTER,
+                crate::tl!("Calc"),
+                crate::theme::small(),
+                if open { egui::Color32::WHITE } else { t.text },
+            );
+            icons::describe_control(ui, &cresp, "Calculator", Some(open), false);
+            if cresp.on_hover_text(crate::tl!("Architect calculator: feet, inches, length, area and volume")).clicked() {
+                let _ = app.run("ui.toggle.calculator", json!({}));
+            }
+        }
         // Coordinates.
         let coord = app.canvas.cursor.map(|c| {
             let (lu, lp) = app.session.doc().map(|d| (d.header.i64("LUNITS", 2), d.header.i64("LUPREC", 4))).unwrap_or((2, 4));

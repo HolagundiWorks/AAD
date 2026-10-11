@@ -28,32 +28,32 @@ fn has(h: &Harness<'static, CadApp>, label: &str) -> bool {
 }
 
 #[test]
-fn the_calculator_opens_from_its_command_and_its_buttons_type() {
+fn the_calculator_is_typed_into_and_answers_as_you_type() {
+    use egui::accesskit::Role;
     let mut h = harness();
     assert!(!has(&h, "Length"), "closed until asked for");
     h.state_mut().run("ui.toggle.calculator", json!({})).unwrap();
     h.run_steps(5);
     assert!(has(&h, "Length"));
+    assert!(!has(&h, "Del") && !has(&h, "×"), "no on-screen keypad");
 
-    let r = h.state_mut().run("ui.calculator", json!({"keys": "10' 6\" x 20'="})).unwrap();
-    assert_eq!(r["display"], "210.00 ft²");
-    assert_eq!(r["results"]["m2"], "19.51");
-    assert_eq!(r["kind"], "area");
+    // The cursor is already in the field: type, and the answer follows.
+    let n = h.query_all_by_role(Role::TextInput).count();
+    h.query_all_by_role(Role::TextInput).nth(n - 1).unwrap().type_text("10' 6\" x 20'");
     h.run_steps(3);
-    assert!(has(&h, "Area"), "the kind label follows the result");
-
-    h.get_by_label("C").click();
+    let r = h.state_mut().run("ui.calculator", json!({})).unwrap();
+    assert_eq!(r["kind"], "area");
+    assert_eq!(r["results"]["m2"], "19.51");
+    assert!(has(&h, "Area"), "the kind label follows what is typed");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(h.state_mut().run("ui.calculator", json!({})).unwrap()["display"], "210.00 ft²");
+    h.key_press(egui::Key::Escape);
     h.run_steps(3);
     assert_eq!(h.state_mut().run("ui.calculator", json!({})).unwrap()["display"], "0");
-    h.get_by_label("7").click();
-    h.run_steps(2);
-    h.get_by_label("×").click();
-    h.run_steps(2);
-    h.get_by_label("6").click();
-    h.run_steps(2);
-    assert_eq!(h.state_mut().run("ui.calculator", json!({"action": "equals"})).unwrap()["display"], "42.00 m²");
 
-    // The drawing was never touched.
+    // Typing in the field never reaches the command line, and the drawing is untouched.
+    assert!(h.state().cmd.buffer.is_empty());
     assert_eq!(h.state().session.doc().unwrap().model.iter().count(), 1);
     h.state_mut().run("ui.toggle.calculator", json!({"on": false})).unwrap();
     h.run_steps(3);
@@ -61,29 +61,50 @@ fn the_calculator_opens_from_its_command_and_its_buttons_type() {
 }
 
 #[test]
-fn the_pomodoro_runs_pauses_resets_and_is_set_by_command() {
+fn the_pomodoro_is_a_dial_on_the_canvas_click_to_start_and_drag_to_set() {
     let mut h = harness();
     let r = h.state_mut().run("ui.pomodoro", json!({})).unwrap();
     assert_eq!((r["label"].as_str(), r["running"].as_bool(), r["minutes"].as_u64()), (Some("25:00"), Some(false), Some(25)));
     h.state_mut().run("ui.toggle.pomodoro", json!({})).unwrap();
     h.run_steps(5);
-    h.query_all_by_label("Start").last().unwrap().click();
-    h.run_steps(3);
-    assert_eq!(h.state_mut().run("ui.pomodoro", json!({"action": "status"})).unwrap()["running"], true);
-    assert!(has(&h, "Pause"));
-    h.get_by_label("Pause").click();
-    h.run_steps(3);
+    let canvas = h.state().canvas.rect.unwrap();
+    let centre = egui::pos2(canvas.right() - 16.0 - 52.0, canvas.bottom() - 16.0 - 52.0);
+    for label in ["Start", "Pause", "Reset"] {
+        assert!(h.query_all_by_label(label).all(|n| n.rect().min.x < 900.0), "the dial has no buttons ({label})");
+    }
+
+    // A click starts it, another stops it.
+    let click = |h: &mut Harness<'static, CadApp>| {
+        h.event(egui::Event::PointerMoved(centre));
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton { pos: centre, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() });
+            h.run_steps(1);
+        }
+        h.run_steps(2);
+    };
+    click(&mut h);
+    assert_eq!(h.state_mut().run("ui.pomodoro", json!({})).unwrap()["running"], true);
+    click(&mut h);
     assert_eq!(h.state_mut().run("ui.pomodoro", json!({})).unwrap()["running"], false);
-    h.get_by_label("Reset").click();
+    assert_eq!(h.state().session.doc().unwrap().model.iter().count(), 1, "the click did not reach the drawing");
+
+    // Dragging to 3 o'clock sets 15 minutes.
+    h.drag_at(centre + egui::vec2(0.0, -30.0));
+    h.run_steps(2);
+    h.hover_at(centre + egui::vec2(30.0, 0.0));
+    h.run_steps(2);
+    h.drop_at(centre + egui::vec2(30.0, 0.0));
     h.run_steps(3);
-    assert_eq!(h.state_mut().run("ui.pomodoro", json!({})).unwrap()["label"], "25:00");
+    let r = h.state_mut().run("ui.pomodoro", json!({})).unwrap();
+    assert_eq!((r["label"].as_str(), r["minutes"].as_u64()), (Some("15:00"), Some(15)));
 
     let r = h.state_mut().run("ui.pomodoro", json!({"action": "set", "minutes": 47})).unwrap();
     assert_eq!((r["minutes"].as_u64(), r["label"].as_str()), (Some(45), Some("45:00")));
     assert!(h.state_mut().run("ui.pomodoro", json!({"action": "set"})).is_err());
     assert!(h.state_mut().run("ui.pomodoro", json!({"action": "explode"})).is_err());
 
-    // Closing the window leaves the timer running.
+    // Hiding the dial leaves the timer running.
     h.state_mut().run("ui.pomodoro", json!({"action": "start"})).unwrap();
     h.state_mut().run("ui.toggle.pomodoro", json!({"on": false})).unwrap();
     h.run_steps(3);
