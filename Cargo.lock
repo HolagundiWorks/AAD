@@ -571,6 +571,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 name = "cadcraft"
 version = "0.6.0"
 dependencies = [
+ "cadcraft-dwg",
  "cadcraft-engine",
  "cadcraft-io",
  "cadcraft-ui-egui",
@@ -598,6 +599,7 @@ dependencies = [
 name = "cadcraft-cli"
 version = "0.6.0"
 dependencies = [
+ "cadcraft-dwg",
  "cadcraft-engine",
  "cadcraft-io",
  "cadcraft-mcp",

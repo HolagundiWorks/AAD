@@ -518,6 +518,10 @@ mod mcp_args_tests {
 }
 
 fn main() -> ExitCode {
+    // A DWG is read by a copy of this program started with a flag: do that and exit, before anything
+    // else. Otherwise turn the isolation on for this run.
+    cadcraft_dwg::isolated::run_worker_if_requested();
+    cadcraft_dwg::isolated::enable();
     install_io();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let rest: Vec<String> = args.iter().skip(1).cloned().collect();

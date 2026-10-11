@@ -39,6 +39,7 @@ Generated-in-code assets are original and have no file to list:
 | `packaging/macos/dmg/background.svg` | @XusBadia | original work for this repository (2026-10-08), "CADCraft macOS DMG window background"; derived from the CADCraft app icon (`assets/app-icon/`, referenced via `<image>`, not copied); text is outlined Inter / JetBrains Mono glyph paths (OFL fonts the project already uses); no third-party material modified | MIT OR Apache-2.0 (same as the code: `LICENSE-MIT`, `LICENSE-APACHE`) | Finder window background of the macOS DMG; `packaging/macos/dmg/generate.py` renders it to `background.tiff` (see `packaging/macos/dmg/README.md`) |
 | `packaging/macos/dmg/background.tiff` | @XusBadia | Rendered from `packaging/macos/dmg/background.svg` by `packaging/macos/dmg/generate.py` | MIT OR Apache-2.0 (same as the code: `LICENSE-MIT`, `LICENSE-APACHE`) | 1x + 2x HiDPI TIFF for the macOS DMG window; includes the app icon (see its row) and LittleCMS's built-in sRGB profile ("No copyright, use freely") |
 | `examples/apartment.dxf` | CADCraft contributors | sample drawing made with cadcraft-cli commands | MIT OR Apache-2.0 | Original |
+| `apps/cadcraft-cli/tests/fixtures/dwg/alloc-bomb-ac18-section-size.dwg` | AAD contributors | generated: `examples/apartment.dxf` written to DWG by AAD, then corrupted by the mutation test; no third-party content | MIT OR Apache-2.0 | Regression fixture for BUG-001 (see `apps/cadcraft-cli/tests/fixtures/README.md`) |
 
 ## Interface translations
 

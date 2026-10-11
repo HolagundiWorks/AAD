@@ -176,6 +176,10 @@ fn control_port_from(source: &str, value: Option<String>) -> Option<u16> {
 }
 
 fn main() -> eframe::Result {
+    // A DWG is read by a copy of this program started with a flag (see cadcraft_dwg::isolated): do
+    // that and exit before anything else starts; otherwise isolation is on for this run.
+    cadcraft_dwg::isolated::run_worker_if_requested();
+    cadcraft_dwg::isolated::enable();
     // First, so every start-up record is captured; see `logging`.
     let logger = logging::install();
     // lossy, so a value that is not Unicode is reported like any other bad port instead of ignored

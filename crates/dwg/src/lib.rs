@@ -46,6 +46,9 @@ fn mb(n: u64) -> String {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod isolated;
+
+#[cfg(not(target_arch = "wasm32"))]
 mod native {
     use std::io::{Cursor, Write};
     use std::panic::AssertUnwindSafe;
@@ -54,7 +57,12 @@ mod native {
 
     /// Read DWG bytes and return an ASCII DXF rendition, within [`Limits::DEFAULT`].
     pub fn dwg_to_dxf(bytes: &[u8]) -> Result<Vec<u8>, String> {
-        dwg_to_dxf_with(bytes, Limits::DEFAULT)
+        // In a separate process when the application turned isolation on, so a file that crashes the
+        // reader costs an error message, not the open drawings (see [`crate::isolated`]).
+        match crate::isolated::convert(bytes, Limits::DEFAULT) {
+            Some(r) => r,
+            None => dwg_to_dxf_with(bytes, Limits::DEFAULT),
+        }
     }
 
     /// [`dwg_to_dxf`] with explicit limits. Both are checked before the expensive step they
