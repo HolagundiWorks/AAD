@@ -1084,3 +1084,62 @@
 	Update Opening Schedule	Оновити відомість прорізів
 	Update Schedule	Оновити відомість
 	Wiring Layers	Шари проводки
+	AORMS	AORMS
+	AORMS drawings	Креслення AORMS
+	AORMS projects	Проєкти AORMS
+	AORMS status	Стан AORMS
+	Drawings	Креслення
+	Projects	Проєкти
+	Pull project from AORMS	Отримати проєкт з AORMS
+	Pull project info	Отримати дані проєкту
+	Refresh project info	Оновити дані проєкту
+	Refresh project info from AORMS	Оновити дані проєкту з AORMS
+	Restore AORMS sign-in	Відновити вхід до AORMS
+	Sign in	Увійти
+	Sign in to AORMS	Увійти до AORMS
+	Sign out	Вийти
+	Sign out of AORMS	Вийти з AORMS
+	Apply AORMS project info	Застосувати дані проєкту AORMS
+	AORMS answered in a way AAD doesn't understand.	AORMS відповів у спосіб, який AAD не розуміє.
+	AORMS is not available in the web version of AAD.	AORMS недоступний у вебверсії AAD.
+	AORMS isn't available right now. Try again shortly.	AORMS зараз недоступний. Спробуйте трохи пізніше.
+	AORMS sent more data than AAD accepts.	AORMS надіслав більше даних, ніж приймає AAD.
+	Can't reach AORMS. Check your internet connection and try again.	Не вдається зв’язатися з AORMS. Перевірте інтернет-з’єднання й спробуйте ще раз.
+	Community mode: not signed in to AORMS. Click to sign in.	Режим Community: вхід до AORMS не виконано. Натисніть, щоб увійти.
+	Connect AAD	Підключити AAD
+	Connected to AORMS.	Підключено до AORMS.
+	Connected to {studio} as {email}. Click for projects.	Підключено до {studio} як {email}. Натисніть, щоб відкрити проєкти.
+	Connecting…	Підключення…
+	Email	Електронна пошта
+	Invalid email or password.	Неправильна електронна пошта або пароль.
+	No project matches.	Немає відповідних проєктів.
+	No projects yet.	Проєктів поки немає.
+	Password	Пароль
+	Portal accounts can't use AAD. Sign in with a staff account.	Облікові записи порталу не можуть користуватися AAD. Увійдіть зі службовим обліковим записом.
+	Project info pulled into this drawing: {title}	Дані проєкту отримано в це креслення: {title}
+	Pulling copies the project's title block details and floors into this drawing. Your drawn geometry is never changed.	Отримання копіює в це креслення дані штампа проєкту та поверхи. Накреслена геометрія ніколи не змінюється.
+	Pulling project info…	Отримання даних проєкту…
+	Refresh	Оновити
+	Reload list	Оновити список
+	Search projects	Пошук проєктів
+	Server	Сервер
+	Sign in to AORMS on the web once with this account, then try again.	Один раз увійдіть до AORMS у вебверсії з цим обліковим записом, а потім спробуйте ще раз.
+	Sign in with your AORMS account to pull project information into your drawings. AAD keeps working without it.	Увійдіть за допомогою облікового запису AORMS, щоб отримувати дані проєктів у креслення. AAD працює й без цього.
+	Signed in to AORMS, but AAD isn't connected. Click to connect.	Вхід до AORMS виконано, але AAD не підключено. Натисніть, щоб підключити.
+	Signed out of AORMS.	Вихід з AORMS виконано.
+	Signing in…	Вхід…
+	Talking to AORMS…	Зв’язок з AORMS…
+	That isn't a project id.	Це не ідентифікатор проєкту.
+	The AORMS request stopped unexpectedly. Sign in again.	Запит до AORMS несподівано завершився. Увійдіть ще раз.
+	The address must start with https:// (or http://localhost for development).	Адреса має починатися з https:// (або http://localhost для розробки).
+	The server address must start with https:// (or http://localhost for development).	Адреса сервера має починатися з https:// (або http://localhost для розробки).
+	This AORMS server needs a newer version of AAD.	Цьому серверу AORMS потрібна новіша версія AAD.
+	This account has no studio in AORMS. AAD keeps working without it.	Цей обліковий запис не має студії в AORMS. AAD працює й без цього.
+	This drawing is linked to {project}.	Це креслення пов’язано з проєктом {project}.
+	Too many attempts. Try again in {seconds} seconds.	Забагато спроб. Спробуйте ще раз через {seconds} с.
+	You signed in to AAD on another computer. Connect here to continue.	Ви увійшли в AAD на іншому комп’ютері. Підключіться тут, щоб продовжити.
+	You're signed in to AORMS on this computer, but AAD isn't connected yet.	Ви увійшли до AORMS на цьому комп’ютері, але AAD ще не підключено.
+	Your AORMS sign-in has ended. Sign in again.	Вхід до AORMS завершено. Увійдіть ще раз.
+	Your studio hasn't approved your access yet.	Ваша студія ще не підтвердила ваш доступ.
+	Your studio's AORMS plan doesn't include connected mode. AAD keeps working without it.	План AORMS вашої студії не містить підключеного режиму. AAD працює й без нього.
+	Your studio's AORMS plan has expired. AAD keeps working without it.	План AORMS вашої студії закінчився. AAD працює й без нього.
