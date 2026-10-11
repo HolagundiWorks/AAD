@@ -1,55 +1,54 @@
-# CADCraft — instructions for agents
+# Developer guide and rules for coding agents
 
-CADCraft is a clean-room, open-source, pure-Rust computer-aided design and drafting application targeting Autodesk AutoCAD parity — and superiority (speed, openness, agent control). It runs natively on macOS, Windows, Linux and FreeBSD, and on the web via WASM. Siblings with the same conventions: `../photocraft` (Photoshop-class), `../vectorcraft` (Illustrator), `../filmcraft` (Premiere), `../lightcraft` (Lightroom), `../pdfcraft` (Acrobat), `../effectcraft` (After Effects), `../designcraft` (InDesign).
+CADCraft (2D drafting fork) is an open-source, pure-Rust 2D computer-aided drafting application for
+architectural and civil work. It runs natively on Windows, macOS, Linux and FreeBSD and on the web
+via WASM. Start with [README.md](README.md), [docs/architecture.md](docs/architecture.md) and
+[docs/status.md](docs/status.md) (what exists and what is only planned).
 
-Standards and learnings shared across the crafting apps live in `../../craftrules` (or `storytold/craftrules`). Read its `AGENTS.md` at the start of a session, follow its standards, and contribute reusable learnings back there. Never code: repos don't share code.
-
-## Start every session here
-1. Read `plan/STATUS.md` (current milestone, next task), then the task in `plan/execution-plan.md` and the relevant `plan/architecture.md` section. Behaviour reference: `plan/autocad/*` (`01-observed-ui.md` holds measured observations of the running reference app; `04-menu-tree.txt` the menu tree by name).
-2. Library decisions: `plan/adr/0001-geometry-libraries.md` (what we may depend on, what is rejected for licence reasons).
-3. Follow the autonomous operation protocol (`plan/execution-plan.md` §6). Don't stop to ask unless it lists the decision as the owner's.
-
-`plan/` is gitignored (local only).
+## Scope: 2D only
+3D features, parametric constraints and mechanical-engineering commands are out of scope and have
+been removed (see [docs/status.md](docs/status.md)). DXF import projects 3D polylines and 3D faces onto
+XY, skips meshes, flattens every entity, and reports 3D solids it cannot flatten
+([docs/maintenance.md](docs/maintenance.md)). Points keep a `z` field for DXF round-trip fidelity; do
+not add 3D behaviour or mechanical features. Keep the general drafting, annotation, layer, block,
+hatch, layout and plot commands.
 
 ## Never crash
-People trust CADCraft with their drawings; a crash loses their work. **This outranks feature work.** Standard: [`craftrules/standards/never-crash.md`](https://github.com/storytold/craftrules/blob/main/standards/never-crash.md).
+A crash loses someone's drawing. **This outranks feature work.**
 - **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`; no `unsafe` (`unsafe_code = "forbid"`).
 - **Errors are `Result<T, E>`** through the crate's error type and `?`. An unfinished feature returns an error or reports "not available yet"; it never panics.
-- **Input-derived numbers are hostile** (DXF/DWG files, command-line text, MCP/control params): `get()` not `[i]`, checked arithmetic, no NaN casts, cap input-sized allocations and loop counts.
-- **Bound recursion** (nested/cyclic block references: `MAX_BLOCK_DEPTH`).
-- **Last-resort guard:** `Session::execute` and every step of an interactive command (its factory, `begin`, input, `prompt` and `preview`; `crates/engine/src/guard.rs`) run under `catch_unwind`; an escaped panic restores the drawing and reports an error.
+- **Input-derived numbers are hostile** (DXF/DWG files, command-line text, MCP, control and agent parameters): `get()` not `[i]`, checked arithmetic, no NaN casts, cap input-sized allocations and loop counts.
+- **Bound recursion** (nested or cyclic block references: `MAX_BLOCK_DEPTH`).
+- **Last-resort guard:** `Session::execute` and every step of an interactive command run under `catch_unwind` (`crates/engine/src/guard.rs`); an escaped panic restores the drawing and reports an error.
 - **Prove it:** every crash fix lands with a regression test (see `hostile_params_never_panic`, `hostile_dxf_does_not_panic`).
 - Every production crate root carries `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`.
 
 ## Non-negotiables
-- **Clean-room.** AutoCAD is installed on the dev machine and may be *observed* black-box: run it, use its UI with synthetic drawings, take screenshots (by window id) stored only under `plan/autocad/screenshots/` (never committed). **Never** read, disassemble or copy anything inside the AutoCAD bundle (names/listings only); never copy Autodesk fonts (SHX), hatch patterns (`.pat`), linetypes (`.lin`), templates, CUI/PGP files, icons, artwork or help text; never commit files produced by AutoCAD. File formats come from public specifications (Autodesk's published DXF Reference, the Open Design Alliance's public DWG specification) and our own synthetic tests. Never copy or link GPL/LGPL/AGPL code (LibreDWG, LibreCAD, QCAD, FreeCAD's planegcs, SolveSpace, OpenCASCADE) — don't even read their sources.
-- **Assets — absolutely essential.** CADCraft contains **no Autodesk, Adobe or Avid iconography, images, fonts, patterns or artwork — ever.** Every icon is drawn in code (`crates/ui-egui/src/icons.rs`), every hatch pattern and linetype is our own definition (`crates/doc/src/library.rs`), the drafting font is our own (`crates/fonts/src/stroke.rs`). Any file asset must be original, public domain/CC0, OSI-licensed, or redistributable Creative Commons (or licensed open source by a contributor who made it), and **must have a row in `ATTRIBUTION.md`** with author, source and licence (`cargo xtask assets` enforces it). The only exception is the ArtCraft brand in `docs/brand/` (trademarks, `docs/brand/LICENSE-brand.txt`). Screenshots of Autodesk software are never committed. Breaking this rule is the most serious mistake you can make in this repo.
-- **Fonts live in [`storytold/craft-fonts`](https://github.com/storytold/craft-fonts)**, never in this repo. It is an optional build input (`CRAFT_FONTS_DIR`), never a `Cargo.toml` dependency. Code and tests must work without it.
-- **Shared test corpora** live in separate repos (`storytold/<app>-corpus`); never commit large binary fixtures here.
-- **Everything is a command.** User-visible behaviour = a command in `crates/engine/src/cmd/*` (`CommandSpec`: id = AutoCAD's command name in lower case, label, menu path, shortcut, aliases, params doc, `enabled`, JSON `run`, optional `interactive` prompt machine) + tests. UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The command line, menus, toolbar, Tool Sets, scripts, CLI, control channel and MCP all reach the same commands.
-- **Programmatic calls never open dialogs.** `engine.execute` runs the JSON form with defaults; only menu/toolbar invocation starts the interactive prompt sequence.
-- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `mcp` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. **The UI crate is swappable.**
-- **The UI is thin**: panels read engine state and act through `app.run(id, params)` / `app.start(id)` / `app.cmdline(text)`. Colours come from `theme::Tokens`.
+- **Clean-room.** Never read, disassemble or copy anything from Autodesk software; never copy Autodesk fonts (SHX), hatch patterns (`.pat`), linetypes (`.lin`), templates, CUI/PGP files, icons, artwork or help text; never commit files produced by AutoCAD. File formats come from public specifications (Autodesk's published DXF Reference, the Open Design Alliance's public DWG specification) and our own synthetic tests. Never copy or link GPL/LGPL/AGPL code (LibreDWG, LibreCAD, QCAD, SolveSpace, OpenCASCADE).
+- **Assets.** CADCraft contains no Autodesk, Adobe or Avid iconography, images, fonts, patterns or artwork. Every icon is drawn in code (`crates/ui-egui/src/icons.rs`), every hatch pattern and linetype is our own definition (`crates/doc/src/library.rs`), the drafting font is our own (`crates/fonts/src/stroke.rs`). Any file asset must be original, public domain/CC0, OSI-licensed or redistributable Creative Commons, and must have a row in `ATTRIBUTION.md` (`cargo xtask assets` enforces it).
+- **Fonts** are never committed. They are an optional build input (`CRAFT_FONTS_DIR`); code and tests must work without them.
+- **Everything is a command.** User-visible behaviour is a command in `crates/engine/src/cmd/*` (`CommandSpec`: id, label, menu path, shortcut, aliases, params doc, `enabled`, JSON `run`, optional `interactive` prompt machine) with tests. UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools reach the same commands. New features reuse existing commands where possible.
+- **Programmatic calls never open dialogs.** `engine.execute` runs the JSON form with defaults; only menu or toolbar invocation starts the prompt sequence.
+- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `mcp`, `agent` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. The UI crate is swappable.
+- **The UI is thin:** panels read engine state and act through `app.run(id, params)`, `app.start(id)` and `app.cmdline(text)`. Colours come from `theme::Tokens`; there are two palettes (dark with a black drawing area, light with a white one) and no other colour customisation.
+- **The AI never calculates or repairs.** The model only proposes calls to allow-listed tools; geometry, repairs and quantities come from deterministic engine commands ([docs/ai-agent.md](docs/ai-agent.md)).
 - **Rust only** (no handwritten JS/TS). **Never break wasm** (`cargo xtask wasm`).
-- **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layers, wasm). Commit after every feature arc that builds, and push to `main`.
+- **Do not claim a feature works unless it exists and has a test.** Documentation separates implemented from planned ([docs/status.md](docs/status.md)).
+- **Quality gate** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layering, wasm).
 
-## Running and looking at the app
-- `cargo run --release -p cadcraft -- --sample --control PORT` (sample drawing + control channel). Pick a free port; other crafting apps use control ports too.
+## Running and inspecting the app
+- `cargo run --release -p cadcraft -- --sample --control PORT` starts the app with a sample drawing and the control channel. Pick a free port.
 - Drive it with JSON lines on `127.0.0.1:PORT`:
-  - `{"id":1,"method":"cmdline.input","params":{"text":"circle 0,0 5"}}` — type at the command line exactly like a user (prompts, keywords, `@dx,dy`, `@d<a`, direct distance entry).
-  - `{"id":2,"method":"engine.execute","params":{"command":"line","params":{"points":[[0,0],[10,0]]}}}` — JSON form.
-  - `{"id":3,"method":"ui.screenshot","params":{"path":"/tmp/shot.png"}}` then read the PNG.
-  - Methods: `crates/ui-egui/src/control.rs`; protocol doc: `docs/control-protocol.md`.
-- **For UI work, look at the result** (screenshot, read the PNG) and compare with `plan/autocad/screenshots/`. If no frame is presented (screen locked) use `ui.render` or `cadcraft-cli`.
+  - `{"id":1,"method":"cmdline.input","params":{"text":"circle 0,0 5"}}` types at the command line like a user.
+  - `{"id":2,"method":"engine.execute","params":{"command":"line","params":{"points":[[0,0],[10,0]]}}}` is the JSON form.
+  - `{"id":3,"method":"ui.screenshot","params":{"path":"shot.png"}}` writes a PNG.
+  - Methods: `crates/ui-egui/src/control.rs`; protocol: [docs/control-protocol.md](docs/control-protocol.md).
+- For UI work, look at the result (screenshot). If no frame is presented (screen locked) use `ui.render` or `cadcraft-cli`.
 - Headless: `cadcraft-cli run --sample --script 'LINE 0,0 10,10\n' --export out.png`; `cadcraft-cli info file.dxf`; `cadcraft-cli mcp`.
-- Shell gotcha: `mv`/`cp` may be aliased interactive — use `/bin/mv -f` / `/bin/cp -f`.
-- Parallel agents: separate `CARGO_TARGET_DIR` per agent; edit only the crates you own; delete your target dir when done (disk).
+- Parallel agents: use a separate `CARGO_TARGET_DIR` per agent and edit only the crates you own.
 
-## Roadmap
-`ROADMAP.md` (committed) is the one-page summary: stage, parity numbers, estimates. It follows craftrules' `standards/progress-docs.md`: the assessment is `docs/target-app-parity.md`, the work list `docs/gaps.md` (pick work from its top rows), milestones `docs/roadmap.md`, deep checklists `docs/geometry-parity.md`, `docs/ui-parity.md`, `docs/file-format-parity.md`, `docs/hardware-parity.md`, `docs/localization-parity.md`. When work lands, update the affected rows and the docs' status lines and revision history. `cargo xtask parity` regenerates the menu-breadth checklist in `docs/parity-checklist.md`.
-
-## Scope: 2D only (this fork)
-This fork is a **2D drafting application**. 3D features are out of scope and have been removed: the `3D Polyline` and `3D Face` entity kinds, the `3dpoly` and `helix` commands, the ViewCube, and the 3D menus (Orbit, Camera, 3D Views, Visual Styles, Render, 3D Modeling, Solid/Surface/Mesh Editing) in the parity catalog. DXF import projects 3D polylines and 3DFACEs onto XY and skips polyface/polygon meshes. Coordinates keep their `z` field for DXF round-trip fidelity; don't add 3D behaviour.
-
-### Command scope (architecture and civil drafting)
-Industry-specific commands were removed: all parametric/geometric/dimensional constraints (and the `constraints` crate), Region/Mass Properties, Ordinate and Arc Length dimensions, Dimension Space, Center Mark/Center Line, Isometric Drafting, Donut, Gradient, Blend and Copy Nested Objects. Don't re-add mechanical-engineering features; keep the general drafting, annotation, layer, block, hatch, table, layout and plot commands.
+## Documentation rules
+- English only. Technical documentation only: architecture, APIs, configuration, installation, testing and maintenance. No marketing or promotional text.
+- Update [docs/status.md](docs/status.md) when functionality lands, and describe only what exists.
+- `docs/parity-checklist.md` is generated by `cargo xtask parity`; do not edit it by hand.
+- About window credits: `contributors/contributors.json` (generated, never hand-edit) and `contributors/people.toml` (names people chose); see [docs/contributors.md](docs/contributors.md). When preparing a PR for a contributor, check whether their GitHub username has an entry in `people.toml`; if not, ask once whether they want a credit beyond their username, and add only their own entry if they do.

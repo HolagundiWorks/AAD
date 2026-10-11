@@ -1,8 +1,10 @@
-//! AUDIT finds and fixes database errors (#406, docs/gaps.md F4).
+//! AUDIT finds and fixes database errors; RECOVER opens a damaged drawing with the fixes applied
+//! (#406).
 
 use std::sync::Arc;
 
 use cadcraft_engine::Session;
+use cadcraft_engine::cmd::file::{IoHooks, base64_encode, set_io};
 use cadcraft_engine::doc::{AssocSnap, Block, Circle, Common, DimAssoc, Drawing, Entity, EntityKind, Group, HVal, Handle, Insert, Line, Space, Text};
 use cadcraft_engine::geom::Vec3;
 use serde_json::{Value, json};
@@ -252,4 +254,49 @@ fn a_long_block_cycle_is_broken_without_deep_recursion() {
     let r = s.execute("audit", &json!({"fix": true})).unwrap();
     assert_eq!(kinds(&r).iter().filter(|k| *k == "blockCycle").count(), 1, "one reference closes the loop");
     assert_eq!(s.execute("audit", &json!({})).unwrap()["errors"], 0);
+}
+
+fn read_corrupt(_: &[u8], name: &str) -> Result<Drawing, String> {
+    if name.ends_with(".bad") {
+        return Err("not a drawing".into());
+    }
+    let mut d = Drawing::new_imperial();
+    raw(&mut d, &Space::Model, on("Ghost"), line((0.0, 0.0), (1.0, 0.0)));
+    raw(&mut d, &Space::Model, on("0"), EntityKind::Circle(Circle { center: Vec3::ZERO, radius: -1.0 }));
+    Ok(d)
+}
+
+#[test]
+fn recover_opens_the_file_with_the_fixes_applied() {
+    set_io(IoHooks { read: read_corrupt, write: |_, _| Ok(Vec::new()), plot: None });
+    let mut s = Session::new();
+    let r = s.execute("recover", &json!({"data": base64_encode(b"0\nEOF\n"), "name": "plan.dxf"})).unwrap();
+    assert_eq!(r["errors"], 2, "{r:#}");
+    assert_eq!(r["fixed"], 2);
+    assert_eq!(r["index"], 1);
+    let st = s.state().unwrap();
+    assert_eq!(st.title, "plan.dxf");
+    assert!(st.is_dirty(), "the fixes are unsaved changes");
+    assert!(st.doc.layer("Ghost").is_some());
+    assert_eq!(st.doc.model.len(), 1);
+
+    // By path, typed at the command line.
+    let dir = std::env::temp_dir().join(format!("cadcraft-recover-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("site.dxf");
+    std::fs::write(&path, b"0\nEOF\n").unwrap();
+    s.cmdline("recover").unwrap();
+    assert_eq!(s.prompt_text(), "RECOVER Enter name of drawing file to recover:");
+    s.cmdline(&path.to_string_lossy()).unwrap();
+    assert!(s.running.is_none());
+    let st = s.state().unwrap();
+    assert_eq!((st.title.as_str(), st.path.as_deref()), ("site.dxf", Some(path.to_string_lossy().as_ref())));
+    assert!(s.log.iter().any(|l| l == "Audit: 2 errors found, 2 fixed."), "{:?}", s.log);
+
+    // A file the reader rejects is an error; nothing opens.
+    let docs = s.docs.len();
+    assert!(s.execute("recover", &json!({"data": "", "name": "x.bad"})).is_err());
+    assert!(s.execute("recover", &json!({})).is_err());
+    assert_eq!(s.docs.len(), docs);
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -12,6 +12,7 @@ pub mod assoc;
 pub mod audit;
 pub mod cmd;
 mod finite;
+pub mod flatten;
 pub mod grips;
 mod guard;
 pub mod pointmod;
@@ -482,6 +483,8 @@ pub struct Session {
     pub clipboard: Vec<Entity>,
     pub clipboard_base: Vec2,
     pub pending_window: Option<PendingWindow>,
+    /// What flattening did to the drawing opened last (see [`flatten`]).
+    pub last_flatten: Option<flatten::FlattenReport>,
     pub untitled_counter: u32,
     /// The last dimension created (DIMCONTINUE / DIMBASELINE).
     pub last_dim: Option<Handle>,
@@ -521,6 +524,7 @@ impl Session {
             clipboard: Vec::new(),
             clipboard_base: Vec2::ZERO,
             pending_window: None,
+            last_flatten: None,
             untitled_counter: 0,
             last_dim: None,
             last_used: LastUsed::default(),

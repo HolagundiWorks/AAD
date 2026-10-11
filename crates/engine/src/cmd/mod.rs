@@ -19,7 +19,7 @@ mod layer;
 mod layout;
 mod mleader_content;
 mod modify;
-mod modify2;
+pub(crate) mod modify2;
 mod mtext_opts;
 mod pline_opts;
 mod props;

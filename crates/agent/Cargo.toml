@@ -1,0 +1,14 @@
+[package]
+name = "cadcraft-agent"
+description = "CADCraft agent tool layer: allow-listed, schema-validated tools a local language model can call"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+cadcraft-engine = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

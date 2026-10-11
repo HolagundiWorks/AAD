@@ -85,7 +85,26 @@ fn file_name(path: &str) -> String {
 pub(crate) fn open_bytes(s: &mut Session, bytes: &[u8], name: &str, path: Option<String>) -> Result<usize> {
     let hooks = io().ok_or_else(|| bad("open", "file formats are not available in this build"))?;
     let d = (hooks.read)(bytes, name).map_err(|e| bad("open", e))?;
-    Ok(s.open_drawing(d, &file_name(name), path))
+    import_drawing(s, d, name, path)
+}
+
+/// Open a drawing read from a file, flattening it to 2D first. The flattening is applied to a
+/// working copy; the drawing as read stays the "saved" state and one undo step, so the import
+/// can be reverted and the file on disk is only replaced by an explicit save.
+pub(crate) fn import_drawing(s: &mut Session, mut d: Drawing, name: &str, path: Option<String>) -> Result<usize> {
+    let original = std::sync::Arc::new(d.clone());
+    let report = crate::flatten::flatten_drawing(&mut d);
+    let i = s.open_drawing(d, &file_name(name), path);
+    if report.flattened > 0 {
+        let st = s.state_mut()?;
+        st.saved = original.clone();
+        st.undo.push(crate::Snapshot { label: "Flatten on import".into(), doc: original, selection: Vec::new() });
+    }
+    if report.has_findings() {
+        s.echo(report.message());
+    }
+    s.last_flatten = Some(report);
+    Ok(i)
 }
 
 fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
@@ -96,7 +115,9 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
         {
             let bytes = std::fs::read(path).map_err(|e| bad("open", format!("{path}: {e}")))?;
             let i = open_bytes(s, &bytes, path, Some(path.to_string()))?;
-            return Ok(json!({ "index": i, "entities": s.docs.get(i).map(|d| d.doc.entity_count()) }));
+            return Ok(
+                json!({ "index": i, "entities": s.docs.get(i).map(|d| d.doc.entity_count()), "flatten": s.last_flatten.as_ref().map(|r| r.to_json()) }),
+            );
         }
         #[cfg(target_arch = "wasm32")]
         return Err(bad("open", "paths are not available on the web; pass `data`"));
@@ -105,7 +126,7 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
     let bytes = base64_decode(data).ok_or_else(|| bad("open", "invalid base64"))?;
     let name = str_param(p, "name").unwrap_or("Drawing.dxf");
     let i = open_bytes(s, &bytes, name, None)?;
-    Ok(json!({ "index": i }))
+    Ok(json!({ "index": i, "flatten": s.last_flatten.as_ref().map(|r| r.to_json()) }))
 }
 
 fn run_close(s: &mut Session, p: &Value) -> Result<Value> {
@@ -143,6 +164,12 @@ pub(crate) fn save_to(s: &mut Session, path: &str) -> Result<usize> {
 fn store(path: &str, bytes: &[u8]) -> Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        // Keep the file being replaced as `<path>.bak` the first time it is overwritten, so the
+        // original is never lost to a save (or to a repair that is saved over it).
+        let backup = format!("{path}.bak");
+        if std::path::Path::new(path).is_file() && !std::path::Path::new(&backup).exists() {
+            std::fs::copy(path, &backup).map_err(|e| bad("save", format!("could not back up {path} to {backup}: {e}")))?;
+        }
         let tmp = format!("{path}.cadcraft-tmp");
         std::fs::write(&tmp, bytes).map_err(|e| bad("save", format!("{path}: {e}")))?;
         std::fs::rename(&tmp, path).map_err(|e| bad("save", format!("{path}: {e}")))?;

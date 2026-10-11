@@ -557,6 +557,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cadcraft-agent"
+version = "0.5.0"
+dependencies = [
+ "cadcraft-engine",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cadcraft-cli"
 version = "0.5.0"
 dependencies = [
