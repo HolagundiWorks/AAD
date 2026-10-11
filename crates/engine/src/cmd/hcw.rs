@@ -433,6 +433,10 @@ fn run_rarea(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "labels": labels }))
 }
 
+pub(crate) fn room_types() -> Vec<(&'static str, &'static str)> {
+    ROOM_TYPES.to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

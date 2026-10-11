@@ -15,6 +15,7 @@ pub mod calc;
 pub mod cmd;
 mod finite;
 pub mod flatten;
+pub mod forms;
 pub mod grips;
 mod guard;
 pub mod pointmod;
@@ -28,6 +29,8 @@ pub mod sysvars;
 pub mod units;
 
 use std::sync::Arc;
+
+use crate::cmd::Factory;
 
 use cadcraft_doc::{Common, Drawing, Entity, EntityKind, Handle, Space};
 use cadcraft_geom::{Bounds2, Vec2};
@@ -469,6 +472,8 @@ pub struct Session {
     pub running: Option<Running>,
     pub log: Vec<String>,
     pub last_command: Option<String>,
+    /// The form (and values already given) the next form-driven command starts with.
+    pub(crate) form_preset: Option<(&'static forms::Form, Value)>,
     /// LASTPOINT.
     pub last_point: Vec2,
     /// Point modifiers pending at the current point prompt (`FROM`, `M2P`, `.x`, `<a`…).
@@ -527,6 +532,7 @@ impl Session {
             clipboard: Vec::new(),
             clipboard_base: Vec2::ZERO,
             pending_window: None,
+            form_preset: None,
             last_flatten: None,
             untitled_counter: 0,
             last_dim: None,
@@ -688,6 +694,16 @@ impl Session {
 
     /// Start a command by name or alias as if typed at the command line.
     pub fn start(&mut self, name: &str) -> Result<()> {
+        self.start_inner(name, None)
+    }
+
+    /// Start `id` through its input form with `preset` already answered (a dialog collected it).
+    /// Only the points still missing are asked on the drawing.
+    pub fn start_form(&mut self, id: &str, preset: Value) -> Result<()> {
+        self.start_inner(id, Some(preset))
+    }
+
+    fn start_inner(&mut self, name: &str, force: Option<Value>) -> Result<()> {
         let name = name.trim();
         let (transparent, name) = match name.strip_prefix('\'') {
             Some(n) => (true, n),
@@ -711,7 +727,18 @@ impl Session {
         (spec.enabled)(self).map_err(|m| EngineError::Disabled(spec.id.into(), m))?;
         self.last_command = Some(spec.id.to_string());
         self.echo(format!("Command: {}", spec.id.to_ascii_uppercase()));
-        match spec.interactive {
+        // A form (see `forms`) drives the command when asked to, or when the command has no
+        // prompts of its own and its form needs no table (tables are edited in a dialog).
+        let form = forms::get(spec.id)
+            .filter(|f| force.is_some() || (spec.interactive.is_none() && !f.fields.iter().any(|x| matches!(x.kind, forms::Kind::Table(_)))));
+        let factory: Option<Factory> = match form {
+            Some(f) => {
+                self.form_preset = Some((f, force.unwrap_or(Value::Null)));
+                Some(form_factory)
+            }
+            None => spec.interactive,
+        };
+        match factory {
             Some(factory) => {
                 let machine = guard::Guarded::create(spec.id, factory, self)?;
                 let st = self.state()?;
@@ -1226,3 +1253,9 @@ impl Session {
 
 #[cfg(test)]
 mod tests;
+
+/// The factory for form-driven commands: reads the form [`Session::start_form`] or `start` chose.
+fn form_factory(s: &Session) -> Result<Box<dyn Interactive>> {
+    let (form, preset) = s.form_preset.clone().ok_or_else(|| EngineError::UnknownCommand("form".into()))?;
+    Ok(Box::new(forms::FormRun::new(form, &preset)))
+}

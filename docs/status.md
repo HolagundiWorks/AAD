@@ -27,6 +27,7 @@ marks, isometric drafting).
 | Electrical layout | `electrical.blocks`, `electrical.number`, `electrical.layers`, `electrical.connect`, `electrical.schedule`, `electrical.update` (17 symbol codes, boards and circuits; no load or cable sizing) |
 | AQC bridge | `bridge.export` and `bridge.import`: project, floors, beam depths, schedule and measured quantities to and from the AQC estimation program ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Widgets | Architect calculator (`cal`, `ui.toggle.calculator`) and Pomodoro timer (`ui.toggle.pomodoro`) ([widgets.md](widgets.md)) |
+| Input forms | Dialogs and command-line prompts for the architecture commands ([input-forms.md](input-forms.md)) |
 | Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
 | Units and annotation | Drawing and display units, plot scale and paper, annotation sizing, collision analysis and text layout ([units-annotation.md](units-annotation.md)) |

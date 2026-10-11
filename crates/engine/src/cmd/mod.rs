@@ -295,3 +295,18 @@ pub(crate) fn targets(s: &Session, p: &Value) -> Result<Vec<Handle>> {
 pub(crate) fn ok() -> Result<Value> {
     Ok(Value::Null)
 }
+
+/// `(code, name)` of the room types the ROOM command knows (for the room form).
+pub fn room_types() -> Vec<(&'static str, &'static str)> {
+    hcw::room_types()
+}
+
+/// A saved project value, for form prefill.
+pub(crate) fn project_value(d: &cadcraft_doc::Drawing, key: &str) -> Value {
+    project::get(d, key)
+}
+
+/// The floors, with defaults filled in.
+pub(crate) fn project_floors(d: &cadcraft_doc::Drawing) -> Vec<Value> {
+    project::floors(d)
+}

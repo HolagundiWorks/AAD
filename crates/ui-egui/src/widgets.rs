@@ -20,6 +20,8 @@ pub struct WidgetState {
     pub pomodoro: Pomodoro,
     /// An AQC file read for preview, waiting for Apply or Cancel.
     pub bridge: Option<BridgePending>,
+    /// The open input dialog of a command ([`crate::formdialog`]).
+    pub form: Option<crate::formdialog::State>,
     last_time: Option<f64>,
     carry: f64,
 }
@@ -103,6 +105,7 @@ fn pomodoro_command(app: &mut CadApp, p: &Value) -> Result<Value, String> {
 /// open widgets.
 pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     advance_timer(app, ctx);
+    crate::formdialog::show(app, ctx);
     if app.widgets.bridge.is_some() {
         bridge_window(app, ctx);
     }

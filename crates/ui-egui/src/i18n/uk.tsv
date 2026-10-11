@@ -1129,3 +1129,8 @@
 	This file came from a different drawing; apply anyway	Цей файл з іншого креслення; застосувати попри це
 	Overwrite fields already filled in AAD	Перезаписати поля, вже заповнені в AAD
 	Apply	Застосувати
+	(default)	(типово)
+	Choose...	Виберіть...
+	Add row	Додати рядок
+	Remove last row	Видалити останній рядок
+	After OK, pick the points on the drawing.	Після OK вкажіть точки на кресленні.

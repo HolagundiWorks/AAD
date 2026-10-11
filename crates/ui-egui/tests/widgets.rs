@@ -109,3 +109,40 @@ fn importing_an_aqc_file_previews_then_applies_on_the_button() {
     assert_eq!(h.state_mut().run("project", json!({})).unwrap()["details"]["title"], "Rao House");
     assert!(!has(&h, "Overwrite fields already filled in AAD"), "the window closes");
 }
+
+#[test]
+fn menu_commands_that_need_input_open_their_dialog() {
+    use egui::accesskit::Role;
+    let mut h = harness();
+
+    // Project details: type a title, press OK, and the drawing remembers it.
+    h.state_mut().start("project");
+    h.run_steps(5);
+    assert!(has(&h, "Project title"), "the Project Details dialog is open");
+    let n = h.query_all_by_role(Role::TextInput).count();
+    h.query_all_by_role(Role::TextInput).nth(n - 11).unwrap().click();
+    h.run_steps(2);
+    h.query_all_by_role(Role::TextInput).nth(n - 11).unwrap().type_text("Rao House");
+    h.run_steps(3);
+    h.query_all_by_label("OK").last().unwrap().click();
+    h.run_steps(5);
+    assert!(!has(&h, "Project title"), "the dialog closes after OK");
+    assert_eq!(h.state_mut().run("project", json!({})).unwrap()["details"]["title"], "Rao House");
+
+    // Floors: a table, prefilled from the drawing.
+    h.state_mut().start("floors");
+    h.run_steps(5);
+    assert!(has(&h, "Add row") && has(&h, "Floor to floor (m)"));
+    h.query_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    assert!(!has(&h, "Add row"));
+
+    // Room: the room type is required; OK without it says so and stays open.
+    h.state_mut().start("room");
+    h.run_steps(5);
+    assert!(has(&h, "Room type"));
+    h.query_all_by_label("OK").last().unwrap().click();
+    h.run_steps(3);
+    assert!(has(&h, "Room type"), "still open");
+    assert!(h.query_all_by_label_contains("is required").next().is_some(), "the reason is shown");
+}

@@ -22,6 +22,7 @@ pub mod dialogs;
 pub mod docking;
 
 pub mod dyninput;
+pub mod formdialog;
 pub mod gpu;
 pub mod i18n;
 pub mod icons;
@@ -293,6 +294,9 @@ impl CadApp {
     /// Start a command as if typed (interactive when it has prompts).
     pub fn start(&mut self, name: &str) {
         if menus::run_ui_command(self, name, &Value::Null).is_some() {
+            return;
+        }
+        if formdialog::open(self, name) {
             return;
         }
         if let Err(e) = self.session.start(name) {
