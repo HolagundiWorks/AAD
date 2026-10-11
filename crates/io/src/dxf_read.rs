@@ -1547,6 +1547,9 @@ impl Objects {
                 });
             }
         }
+        if let Some(items) = self.xrecord_text(crate::dxf_ext::PROJECT_KEY).and_then(|t| crate::dxf_ext::parse_project(&t)) {
+            d.project = items;
+        }
         // Saved layer states.
         if let Some(states) = self.xrecord_text(crate::dxf_ext::LAYER_STATES_KEY).and_then(|t| crate::dxf_ext::parse_layer_states(&t)) {
             d.layer_states = states;

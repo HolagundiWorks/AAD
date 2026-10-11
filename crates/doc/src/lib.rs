@@ -63,6 +63,8 @@ pub struct Drawing {
     pub views: Vec<NamedView>,
     pub ucss: Vec<Ucs>,
     pub layer_states: Vec<LayerState>,
+    /// Project data kept with the drawing: floors, schedules, take-off results (key to JSON text).
+    pub project: BTreeMap<String, String>,
     pub groups: Vec<Group>,
     /// Plot style tables kept with the drawing (STYLESMANAGER); they shadow built-in tables of
     /// the same name.
@@ -111,6 +113,7 @@ impl Drawing {
             views: Vec::new(),
             ucss: Vec::new(),
             layer_states: Vec::new(),
+            project: BTreeMap::new(),
             groups: Vec::new(),
             plot_style_tables: Vec::new(),
             handseed: 0x100,

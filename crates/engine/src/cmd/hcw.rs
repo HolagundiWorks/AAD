@@ -246,7 +246,7 @@ fn text_height(u: Units, p: &Value) -> Result<f64> {
 
 /// Make `name` exist with the given look; a linetype missing from the library falls back to
 /// Continuous. Returns whether the layer was created.
-fn ensure_layer(d: &mut Drawing, name: &str, aci: i16, linetype: &str, lw: u16, description: &str) -> bool {
+pub(crate) fn ensure_layer(d: &mut Drawing, name: &str, aci: i16, linetype: &str, lw: u16, description: &str) -> bool {
     if d.layer(name).is_some() {
         return false;
     }
@@ -286,7 +286,7 @@ fn run_layers(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Add `kind` to the current space on `layer`.
-fn add_on(s: &mut Session, layer: &str, kind: EntityKind) -> Result<Handle> {
+pub(crate) fn add_on(s: &mut Session, layer: &str, kind: EntityKind) -> Result<Handle> {
     let mut common = s.current_common();
     common.layer = layer.into();
     let space = s.space();

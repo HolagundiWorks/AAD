@@ -1313,6 +1313,9 @@ pub fn write(d: &Drawing) -> String {
     let table_style_dict = w.h();
     // AAD data in XRECORDs of the named object dictionary: (key, handle, text chunks).
     let mut xrecords: Vec<(&str, String, Vec<String>)> = Vec::new();
+    if let Some(chunks) = dxf_ext::project_chunks(&d.project) {
+        xrecords.push((dxf_ext::PROJECT_KEY, w.h(), chunks));
+    }
     if let Some(chunks) = dxf_ext::layer_state_chunks(&d.layer_states) {
         xrecords.push((dxf_ext::LAYER_STATES_KEY, w.h(), chunks));
     }

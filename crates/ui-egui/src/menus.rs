@@ -608,7 +608,7 @@ fn set_workspace(app: &mut CadApp, mode: crate::WorkspaceMode) -> Value {
                 app.ui.classic_palettes = app.ui.show_palettes;
                 app.ui.show_palettes = false;
             }
-            crate::WorkspaceMode::Classic => app.ui.show_palettes = app.ui.classic_palettes,
+            crate::WorkspaceMode::Classic => app.ui.show_palettes = true,
         }
         app.ui.workspace = mode;
     }

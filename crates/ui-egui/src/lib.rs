@@ -427,6 +427,10 @@ impl CadApp {
         if !self.styled {
             theme::install_fonts(ctx);
             self.styled = true;
+            // Classic always starts with its panels open, whatever a saved layout says.
+            if self.ui.workspace == WorkspaceMode::Classic {
+                self.ui.show_palettes = true;
+            }
         }
         let shown = self.ui.theme.resolve();
         theme::set_active(shown);

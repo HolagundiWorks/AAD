@@ -556,3 +556,31 @@ mod tests {
         assert!(is_standard_arrow("_dot"));
     }
 }
+
+/// Named-object-dictionary key of the project data XRECORD.
+pub(crate) const PROJECT_KEY: &str = "CADCRAFT_PROJECT";
+/// Most project entries read from a file.
+pub(crate) const MAX_PROJECT_ENTRIES: usize = 10_000;
+
+#[derive(Serialize, Deserialize)]
+struct ProjectPayload {
+    version: u32,
+    items: std::collections::BTreeMap<String, String>,
+}
+
+/// JSON chunks for the project data XRECORD, or `None` when there is none.
+pub(crate) fn project_chunks(items: &std::collections::BTreeMap<String, String>) -> Option<Vec<String>> {
+    if items.is_empty() {
+        return None;
+    }
+    let json = serde_json::to_string(&ProjectPayload { version: 1, items: items.clone() }).ok()?;
+    Some(json_chunks(&json))
+}
+
+pub(crate) fn parse_project(text: &str) -> Option<std::collections::BTreeMap<String, String>> {
+    if text.len() > MAX_PAYLOAD {
+        return None;
+    }
+    let p: ProjectPayload = serde_json::from_str(text).ok()?;
+    (p.version == 1 && p.items.len() <= MAX_PROJECT_ENTRIES).then_some(p.items)
+}

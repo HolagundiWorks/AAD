@@ -1686,3 +1686,13 @@ fn mirrored_mtext_extrusion_keeps_its_footprint() {
     let b = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default()).bounds;
     assert!(b.min.x > -0.2 && b.max.x > 0.5 && b.min.y > -0.2 && b.max.y > 0.5, "box right of and above (0,0): {b:?}");
 }
+
+#[test]
+fn project_data_roundtrips_through_dxf() {
+    let mut d = Drawing::new_imperial();
+    d.project.insert("floors".into(), r#"[{"name":"Ground","ceiling":3.0}]"#.into());
+    d.project.insert("takeoff:Bricks".into(), "line one\nline \"two\" ünï ✓ ".repeat(40));
+    let back = roundtrip(&d);
+    assert_eq!(back.project, d.project);
+    assert!(!write_dxf(&Drawing::new_imperial()).contains("CADCRAFT_PROJECT"));
+}
