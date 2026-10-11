@@ -10,7 +10,7 @@ work.
 | Part | State |
 |---|---|
 | Tool registry, strict parsing, schema validation, confirmation policy, loop limits, audit log (`crates/agent`) | **Implemented and tested** (13 unit tests) |
-| Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file` | **Implemented and tested**, each one an existing engine command |
+| Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
 | Qwen3-1.7B runtime (llama.cpp adapter, chat template, model manifest) | **Planned.** Not built; nothing in this repository loads a model. |
 | Chat UI, result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
@@ -108,3 +108,18 @@ multiple calls, oversize), schema validation, that only built tools are offered,
 and planned tools, confirmation before changes and one undo step after, audit with and without
 `fix`, purge, argument rejection, the repeat and call limits, text in a drawing never becoming a
 call, `recover_file` leaving the file untouched, and the audit log.
+
+## Units and layout requests
+
+| Request | Tool | Confirmation |
+|---|---|---|
+| "Set drawing units to millimetres and display dimensions in metres." | `set_drawing_units` `{units: mm, mode: metadata}` then `set_display_units` `{units: m}` | yes |
+| "Rescale the drawing to metres." | `set_drawing_units` `{units: m, mode: scale}` | yes, destructive |
+| "Prepare this drawing for printing at 1:100 on A1." | `set_plot_configuration` then `validate_plot_layout` | yes (configuration) |
+| "Find all text overlapping walls or dimension lines." | `analyze_annotation_collisions` | no |
+| "Preview and correct all annotation conflicts." / "Resolve annotation overlaps without moving the walls." | `preview_layout_changes`, then `apply_layout_changes` | yes; destructive with `includeManual` |
+
+"Automatically adjust all dimension text and arrows" is `set_plot_configuration`. "Arrange the
+opening schedule with consistent spacing" cannot be done: there is no opening schedule feature. The
+model never chooses `mode` for it: the schema requires it, and a request that does not say whether
+to rescale is answered with a question. Details: [units-annotation.md](units-annotation.md).

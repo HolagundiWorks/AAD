@@ -94,6 +94,12 @@ pub(crate) fn open_bytes(s: &mut Session, bytes: &[u8], name: &str, path: Option
 pub(crate) fn import_drawing(s: &mut Session, mut d: Drawing, name: &str, path: Option<String>) -> Result<usize> {
     let original = std::sync::Arc::new(d.clone());
     let report = crate::flatten::flatten_drawing(&mut d);
+    if crate::annot::drawing_unit(&d).is_none() {
+        s.echo(
+            "The drawing's units are not set or not a length unit AAD knows. Choose them in the Units popup (status bar); nothing was assumed."
+                .to_string(),
+        );
+    }
     let i = s.open_drawing(d, &file_name(name), path);
     if report.flattened > 0 {
         let st = s.state_mut()?;

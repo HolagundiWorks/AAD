@@ -110,3 +110,15 @@ fn the_first_overwrite_keeps_the_original_file_as_bak() {
     assert_eq!(std::fs::read(&bak).unwrap(), b"original bytes");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_drawing_without_known_units_is_reported_not_guessed() {
+    install();
+    let mut s = Session::new();
+    s.execute("open", &json!({"data": base64_encode(b"x"), "name": "plan.dxf"})).unwrap();
+    let unknown = cadcraft_engine::annot::drawing_unit(s.doc().unwrap()).is_none();
+    assert_eq!(unknown, s.log.iter().any(|l| l.contains("units are not set")), "{:?}", s.log);
+    // Setting the unit is explicit, and the geometry is untouched either way.
+    s.execute("setvar", &json!({"name": "INSUNITS", "value": 0})).unwrap();
+    assert!(s.execute("display.units", &json!({"units": "m"})).is_err());
+}

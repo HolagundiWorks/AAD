@@ -139,6 +139,157 @@ pub fn registry() -> Vec<ToolDef> {
             summary: |a| format!("Recover {}", a.get("path").and_then(Value::as_str).unwrap_or("a file")),
             run: |s, a| exec(s, "recover", Value::Object(a.clone())),
         },
+        ToolDef {
+            name: "set_drawing_units",
+            description: "Set the drawing unit. mode=metadata changes only the unit setting (geometry is not scaled); mode=scale rescales every model-space object. The mode is required.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "units": { "type": "string", "enum": ["mm", "cm", "m", "in", "ft"] },
+                        "mode": { "type": "string", "enum": ["metadata", "scale"] }
+                    },
+                    "required": ["units", "mode"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |a| if a.get("mode") == Some(&Value::String("scale".into())) { Risk::Destructive } else { Risk::Mutating },
+            summary: |a| {
+                let u = a.get("units").and_then(Value::as_str).unwrap_or("?");
+                if a.get("mode") == Some(&Value::String("scale".into())) {
+                    format!("Change the drawing unit to {u} AND rescale every model-space object")
+                } else {
+                    format!("Change only the drawing unit setting to {u} (geometry is not scaled)")
+                }
+            },
+            run: |s, a| exec(s, "drawing.units", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "set_display_units",
+            description: "Choose the unit dimension text shows measurements in. Geometry is not changed.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "units": { "type": "string", "enum": ["mm", "cm", "m", "in", "ft", "ftin"] } },
+                    "required": ["units"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Mutating,
+            summary: |a| format!("Show dimensions in {}", a.get("units").and_then(Value::as_str).unwrap_or("?")),
+            run: |s, a| exec(s, "display.units", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "set_plot_configuration",
+            description: "Set the plot scale and paper size and size dimension and text annotation from the printed size (default 2.5 mm). Geometry is not changed.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "scale": { "type": "string", "maxLength": 12, "description": "for example 1:100" },
+                        "paper": { "type": "string", "enum": ["A0", "A1", "A2", "A3", "A4"] },
+                        "textMm": { "type": "number", "minimum": 1, "maximum": 20 },
+                        "arrowMm": { "type": "number", "minimum": 1, "maximum": 20 }
+                    },
+                    "required": ["scale", "paper"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Mutating,
+            summary: |a| {
+                format!(
+                    "Set the plot to {} on {} and resize annotation",
+                    a.get("scale").and_then(Value::as_str).unwrap_or("?"),
+                    a.get("paper").and_then(Value::as_str).unwrap_or("?")
+                )
+            },
+            run: |s, a| exec(s, "plot.config", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "validate_plot_layout",
+            description: "Check the drawing against the configured plot: does it fit the sheet, text that prints too small or large, annotation conflicts.",
+            schema: empty_schema,
+            risk: |_| Risk::Read,
+            summary: |_| "Validate the plot layout".into(),
+            run: |s, _| exec(s, "plot.validate", json!({})),
+        },
+        ToolDef {
+            name: "analyze_annotation_collisions",
+            description: "List text that overlaps other text, dimensions, blocks, leaders or drawing geometry. Changes nothing.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "clearance": { "type": "number", "minimum": 0 } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Analyze annotation collisions".into(),
+            run: |s, a| exec(s, "annotation.collisions", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "preview_layout_changes",
+            description: "Calculate the text moves that would resolve annotation conflicts, without applying them. Only text moves; geometry never does.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "clearance": { "type": "number", "minimum": 0 },
+                        "includeManual": { "type": "boolean" }
+                    },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Preview annotation layout changes".into(),
+            run: |s, a| {
+                let mut args = a.clone();
+                args.insert("mode".into(), json!("preview"));
+                exec(s, "annotation.layout", Value::Object(args))
+            },
+        },
+        ToolDef {
+            name: "calculate_annotation_layout",
+            description: "Same as preview_layout_changes: calculate where conflicting text would move, without applying it.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "clearance": { "type": "number", "minimum": 0 }, "includeManual": { "type": "boolean" } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Calculate annotation layout".into(),
+            run: |s, a| {
+                let mut args = a.clone();
+                args.insert("mode".into(), json!("preview"));
+                exec(s, "annotation.layout", Value::Object(args))
+            },
+        },
+        ToolDef {
+            name: "apply_layout_changes",
+            description: "Move conflicting text into clear space. Text placed by hand is skipped unless includeManual is true. One undo step.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "clearance": { "type": "number", "minimum": 0 }, "includeManual": { "type": "boolean" } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |a| if a.get("includeManual") == Some(&Value::Bool(true)) { Risk::Destructive } else { Risk::Mutating },
+            summary: |a| {
+                if a.get("includeManual") == Some(&Value::Bool(true)) {
+                    "Move conflicting text, including text placed by hand".into()
+                } else {
+                    "Move conflicting text (text placed by hand is left alone)".into()
+                }
+            },
+            run: |s, a| {
+                let mut args = a.clone();
+                args.insert("mode".into(), json!("apply"));
+                exec(s, "annotation.layout", Value::Object(args))
+            },
+        },
     ]
 }
 

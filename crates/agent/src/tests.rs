@@ -62,7 +62,24 @@ fn text_that_only_resembles_a_call_is_not_a_call() {
 fn schemas_are_offered_in_function_calling_format_and_only_for_built_tools() {
     let schemas = function_schemas();
     let names: Vec<&str> = schemas.as_array().unwrap().iter().filter_map(|t| t["function"]["name"].as_str()).collect();
-    assert_eq!(names, ["get_drawing_summary", "flatten_drawing", "audit_drawing", "purge_unused", "recover_file"]);
+    assert_eq!(
+        names,
+        [
+            "get_drawing_summary",
+            "flatten_drawing",
+            "audit_drawing",
+            "purge_unused",
+            "recover_file",
+            "set_drawing_units",
+            "set_display_units",
+            "set_plot_configuration",
+            "validate_plot_layout",
+            "analyze_annotation_collisions",
+            "preview_layout_changes",
+            "calculate_annotation_layout",
+            "apply_layout_changes"
+        ]
+    );
     for p in PLANNED {
         assert!(!names.contains(p), "{p} is planned, not offered");
     }
@@ -242,4 +259,45 @@ fn the_audit_log_names_each_call() {
     let statuses: Vec<_> = a.log.iter().map(|e| (e.tool.as_str(), e.status.as_str())).collect();
     assert_eq!(statuses, [("audit_drawing", "done"), ("nope", "rejected: unknown tool `nope`")]);
     assert!(a.log.iter().all(|e| e.request == 1));
+}
+
+#[test]
+fn units_and_layout_tools_need_confirmation_where_they_change_the_drawing() {
+    let mut s = Session::new();
+    s.execute("drawing.units", &json!({"units": "mm", "mode": "metadata"})).unwrap();
+    s.execute("line", &json!({"points": [[0, 0], [5000, 0]]})).unwrap();
+    s.execute("text", &json!({"at": [1000, 20], "text": "TAG", "height": 250})).unwrap();
+    let mut a = Agent::default();
+    a.max_calls = 10;
+    a.begin_request();
+
+    // Scaling the geometry is destructive and always asks; a bad mode never reaches the engine.
+    let scale = call("set_drawing_units", json!({"units": "m", "mode": "scale"}));
+    match a.propose(&mut s, &scale, false) {
+        Outcome::NeedsConfirmation { risk, summary, .. } => {
+            assert_eq!(risk, Risk::Destructive);
+            assert!(summary.contains("rescale"), "{summary}");
+        }
+        o => panic!("{o:?}"),
+    }
+    assert!(matches!(a.propose(&mut s, &call("set_drawing_units", json!({"units": "m"})), true), Outcome::Rejected { .. }), "mode is required");
+    assert_eq!(s.doc().unwrap().header.i64("INSUNITS", 0), 4, "nothing ran");
+
+    // Read-only analysis runs without asking; applying a layout asks first.
+    assert!(matches!(a.propose(&mut s, &call("analyze_annotation_collisions", json!({"clearance": 50})), false), Outcome::Done { .. }));
+    let preview = a.propose(&mut s, &call("preview_layout_changes", json!({"clearance": 50})), false);
+    let Outcome::Done { result, .. } = preview else { panic!("{preview:?}") };
+    assert!(!result["moves"].as_array().unwrap().is_empty());
+    let apply = call("apply_layout_changes", json!({"clearance": 50}));
+    assert!(matches!(a.propose(&mut s, &apply, false), Outcome::NeedsConfirmation { risk: Risk::Mutating, .. }));
+    assert!(matches!(a.propose(&mut s, &apply, true), Outcome::Done { .. }));
+    let manual = call("apply_layout_changes", json!({"includeManual": true}));
+    assert!(matches!(a.propose(&mut s, &manual, false), Outcome::NeedsConfirmation { risk: Risk::Destructive, .. }));
+
+    let plot = call("set_plot_configuration", json!({"scale": "1:100", "paper": "A1"}));
+    assert!(matches!(a.propose(&mut s, &plot, false), Outcome::NeedsConfirmation { .. }));
+    assert!(matches!(a.propose(&mut s, &plot, true), Outcome::Done { .. }));
+    assert!(matches!(a.propose(&mut s, &call("validate_plot_layout", json!({})), false), Outcome::Done { .. }));
+    assert!(matches!(a.propose(&mut s, &call("set_plot_configuration", json!({"scale": "1:100", "paper": "B9"})), true), Outcome::Rejected { .. }));
+    assert!(matches!(a.propose(&mut s, &call("set_display_units", json!({"units": "m"})), true), Outcome::Done { .. }));
 }

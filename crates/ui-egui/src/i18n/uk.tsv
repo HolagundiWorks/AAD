@@ -1016,3 +1016,29 @@
 	Selected reference:	Вибране посилання:
 	Block Text	Текст блока
 	Edit Block Text	Редагувати текст блока
+	Annotation Collisions	Колізії анотацій
+	Annotation Layout	Розміщення анотацій
+	Display Units	Одиниці відображення
+	Drawing Units	Одиниці креслення
+	Lock Annotation Position	Зафіксувати положення анотації
+	Plot Configuration	Налаштування друку
+	Validate Plot Layout	Перевірити розміщення для друку
+	Drawing units, display units, plot scale and annotation	Одиниці креслення, одиниці відображення, масштаб друку та анотації
+	Drawing units	Одиниці креслення
+	How the numbers in the drawing are read. Changing them never rescales silently.	Як читаються числа в кресленні. Зміна ніколи не масштабує без запиту.
+	now	зараз
+	Change unit only	Змінити лише одиницю
+	Geometry is not changed; existing objects are read as the new unit	Геометрія не змінюється; наявні об’єкти читаються як нова одиниця
+	Confirm: rescale all objects	Підтвердити: масштабувати всі об’єкти
+	Change unit and rescale…	Змінити одиницю та масштабувати…
+	This multiplies every model-space coordinate. Undo restores it.	Це множить кожну координату простору моделі. Скасування відновлює.
+	Display units	Одиниці відображення
+	How dimensions show measurements. Geometry is not changed.	Як розміри показують вимірювання. Геометрія не змінюється.
+	Plot scale and paper	Масштаб друку та папір
+	Size annotation	Розмір анотацій
+	Text 2.5 mm, arrows 2.5 mm printed at this scale	Текст 2,5 мм, стрілки 2,5 мм у друці в цьому масштабі
+	Check the sheet	Перевірити аркуш
+	Annotation conflicts	Конфлікти анотацій
+	Find	Знайти
+	Resolve overlaps	Усунути перекриття
+	Moves only text; geometry stays. One undo step.	Переміщує лише текст; геометрія лишається. Один крок скасування.

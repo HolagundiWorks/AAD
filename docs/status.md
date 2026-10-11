@@ -20,7 +20,8 @@ marks, isometric drafting).
 | Architectural tools | `hcwlayers` (HCW and building-permission layer sets), `room` (room labels with area), `rarea` ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
-| AI agent tool layer | Allow-listed, validated tools for flatten, audit, purge, recover, summary ([ai-agent.md](ai-agent.md)) |
+| Units and annotation | Drawing and display units, plot scale and paper, annotation sizing, collision analysis and text layout ([units-annotation.md](units-annotation.md)) |
+| AI agent tool layer | Allow-listed, validated tools for flatten, audit, purge, recover, summary, units, plot configuration and annotation layout ([ai-agent.md](ai-agent.md)) |
 
 ## Planned (not implemented)
 

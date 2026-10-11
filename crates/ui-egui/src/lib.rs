@@ -34,6 +34,7 @@ pub mod quick;
 pub mod theme;
 pub mod toolbars;
 pub mod ucsicon;
+pub mod units_panel;
 
 use std::sync::mpsc::Receiver;
 

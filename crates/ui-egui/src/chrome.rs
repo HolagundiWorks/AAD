@@ -347,7 +347,7 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             (Icon::Gear, false, "ui.dialog.dsettings", "Drafting Settings"),
         ];
         let size = 20.0;
-        let mut rx = r.right() - 8.0 - 60.0 - 128.0 - toggles.len() as f32 * (size + 4.0);
+        let mut rx = r.right() - 8.0 - 60.0 - 128.0 - 200.0 - toggles.len() as f32 * (size + 4.0);
         // Light/dark theme toggle at the far right: it shows the theme it switches to.
         let theme_br = Rect::from_min_max(pos2(r.right() - 8.0 - 52.0, r.center().y - 9.0), pos2(r.right() - 8.0, r.center().y + 9.0));
         let theme_label = if app.ui.theme == crate::theme::ThemePref::Dark { "Light" } else { "Dark" };
@@ -384,6 +384,17 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
                 let _ = app.run(if mode == crate::WorkspaceMode::Pro { "ui.workspace.pro" } else { "ui.workspace.classic" }, json!({}));
             }
         }
+        // Units and plot popup left of the workspace selector.
+        let units_text = crate::units_panel::label(app);
+        let units_w = (units_text.chars().count() as f32 * 6.6 + 16.0).clamp(80.0, 190.0);
+        let units_br = Rect::from_min_max(pos2(ws_br.left() - 8.0 - units_w, r.center().y - 9.0), pos2(ws_br.left() - 8.0, r.center().y + 9.0));
+        let units_resp = ui.interact(units_br, ui.id().with("units_button"), Sense::click());
+        p.rect_filled(units_br, 3.0, if units_resp.hovered() { t.control_hover } else { t.control });
+        p.text(units_br.center(), egui::Align2::CENTER_CENTER, &units_text, crate::theme::small(), t.text);
+        icons::describe_control(ui, &units_resp, "Units and plot", None, false);
+        egui::Popup::from_toggle_button_response(&units_resp.on_hover_text(crate::tl!("Drawing units, display units, plot scale and annotation")))
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui| crate::units_panel::show(app, ui));
         // Coordinates.
         let coord = app.canvas.cursor.map(|c| {
             let (lu, lp) = app.session.doc().map(|d| (d.header.i64("LUNITS", 2), d.header.i64("LUPREC", 4))).unwrap_or((2, 4));
