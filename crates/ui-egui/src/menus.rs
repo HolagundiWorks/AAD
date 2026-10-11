@@ -116,6 +116,12 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             }
             Ok(Value::Null)
         }
+        // Batch Plot (menu or typed): choose what to plot in the window; the command itself runs
+        // from the window's Plot button, never from a bare menu click.
+        "plot.batch" if params.is_null() => {
+            crate::plotwindow::open(app);
+            Ok(Value::Null)
+        }
         // Open Project (menu or typed): pick the project file or its main drawing.
         "project.open" if params.is_null() && app.services.pick_open.is_some() => {
             if let Some(p) = app.services.pick_open.as_ref().and_then(|f| f()) {

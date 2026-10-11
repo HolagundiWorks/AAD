@@ -70,4 +70,4 @@ ground floor's beam layout shown over it while the ground floor plan itself is h
 | Adding or removing a floor after setup | Not built |
 | Opening schedule `Type` field, generated and reused opening blocks, reconciliation report | Not built |
 | Floor-wise electrical schedules and cross-floor coordination | Not built |
-| Batch print and export by floor and category | Not built; they will read the `print` flags |
+| Batch print by floor and category | Implemented and tested (`plot.batch`, [sheets.md](sheets.md)); PDF only |

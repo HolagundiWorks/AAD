@@ -31,6 +31,7 @@ mod props;
 mod qselect;
 mod schedule;
 mod settings;
+mod sheet;
 mod spline_opts;
 mod structure;
 mod symbols;
@@ -194,6 +195,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(bridge::specs());
         v.extend(xref::specs());
         v.extend(projfile::specs());
+        v.extend(sheet::specs());
         v.extend(layout::specs());
         v.extend(props::specs());
         v.extend(inquiry::specs());

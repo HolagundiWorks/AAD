@@ -1156,3 +1156,47 @@
 	Open Project	Відкрити проєкт
 	Reload	Перезавантажити
 	Reload Xrefs	Перезавантажити зовнішні посилання
+	Open a layout tab to design a sheet.	Відкрийте вкладку аркуша, щоб оформити його.
+	Sheet	Аркуш
+	Paper	Папір
+	Landscape	Альбомна
+	No viewports on this sheet.	На цьому аркуші немає видових екранів.
+	Remove this viewport	Видалити цей видовий екран
+	Add viewport	Додати видовий екран
+	Shows	Показує
+	Title block	Штамп
+	This sheet has no title block.	На цьому аркуші немає штампа.
+	Add title block	Додати штамп
+	Saved layouts	Збережені аркуші
+	No saved layouts yet.	Збережених аркушів ще немає.
+	mine	мої
+	this drawing	це креслення
+	Place it on this sheet as its title card	Розмістити на цьому аркуші як його штамп
+	Delete this saved layout	Видалити цей збережений аркуш
+	For me	Для мене
+	Save this sheet as a reusable layout	Зберегти цей аркуш як шаблон
+	Add Viewport	Додати видовий екран
+	Apply Sheet Template	Застосувати шаблон аркуша
+	Batch Plot	Пакетний друк
+	Delete Sheet Template	Видалити шаблон аркуша
+	List Viewports	Список видових екранів
+	Remove Viewport	Видалити видовий екран
+	Save Sheet Template	Зберегти шаблон аркуша
+	Sheet Fields	Поля аркуша
+	Sheet Templates	Шаблони аркушів
+	Sheets	Аркуші
+	Title Block	Штамп
+	Viewport Floors	Поверхи видового екрана
+	file missing	файл відсутній
+	frozen	заморожено
+	not for printing	не для друку
+	hidden	приховано
+	floors and layouts	поверхи й аркуші
+	Select all	Вибрати все
+	Select none	Зняти вибір
+	plan	план
+	This drawing is not part of a project; only its sheets can be plotted.	Це креслення не входить до проєкту; можна друкувати лише його аркуші.
+	Sheets of this drawing	Аркуші цього креслення
+	Also plot hidden, frozen and unmarked items that are ticked	Друкувати також позначені приховані, заморожені та не призначені для друку елементи
+	Folder	Тека
+	Exports in the project folder	Exports у теці проєкту

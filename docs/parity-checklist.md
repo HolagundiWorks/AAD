@@ -4,7 +4,7 @@
 
 Menu-breadth parity: a reference menu item counts as covered when a AAD command is registered under the same menu label. It measures breadth, not depth.
 
-**Menu breadth: 188 / 319 items (59%)** · 330 registered commands.
+**Menu breadth: 188 / 319 items (59%)** · 339 registered commands.
 
 | Menu | Items | Covered | % |
 |---|---|---|---|
