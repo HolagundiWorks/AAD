@@ -1,4 +1,4 @@
-//! Drafting settings and system variables: ORTHO, OSNAP, GRID, SNAP, POLAR, SETVAR/GETVAR.
+//! Drafting settings and system variables: ORTHO, OSNAP, POLAR, SETVAR/GETVAR.
 
 use serde_json::{Value, json};
 
@@ -17,18 +17,6 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("ortho", "Ortho Mode", |s, p| toggle(s, p, |st| &mut st.orthomode, "Ortho"))
             .key("F8")
-            .params("{on?: bool}")
-            .enabled(always)
-            .noundo()
-            .transparent(),
-        CommandSpec::new("grid", "Grid Display", |s, p| toggle(s, p, |st| &mut st.gridmode, "Grid"))
-            .key("F7")
-            .params("{on?: bool}")
-            .enabled(always)
-            .noundo()
-            .transparent(),
-        CommandSpec::new("snap", "Snap Mode", |s, p| toggle(s, p, |st| &mut st.snapmode, "Snap"))
-            .key("F9")
             .params("{on?: bool}")
             .enabled(always)
             .noundo()
@@ -79,7 +67,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("dsettings", "Drafting Settings...", run_dsettings)
             .menu(&["Tools", "Drafting Settings..."])
             .alias(&["ds", "se"])
-            .params("{snapunit?: [x,y], gridunit?: [x,y], polarang? (degrees), gridmajor?}")
+            .params("{polarang? (degrees)}")
             .enabled(always)
             .noundo(),
         CommandSpec::new("setvar", "Set Variable", run_setvar)
@@ -137,17 +125,8 @@ fn run_osnap(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn run_dsettings(s: &mut Session, p: &Value) -> Result<Value> {
-    if let Some(v) = point_param(p, "snapunit").filter(|v| v.x > 0.0 && v.y > 0.0) {
-        s.settings.snapunit = v;
-    }
-    if let Some(v) = point_param(p, "gridunit").filter(|v| v.x > 0.0 && v.y > 0.0) {
-        s.settings.gridunit = v;
-    }
     if let Some(a) = p.get("polarang").and_then(Value::as_f64).filter(|a| *a > 0.0) {
         s.settings.polarang = a.to_radians();
-    }
-    if let Some(m) = p.get("gridmajor").and_then(Value::as_u64) {
-        s.settings.gridmajor = (m as u32).clamp(1, 100);
     }
     s.touch();
     Ok(serde_json::to_value(&s.settings).unwrap_or(Value::Null))

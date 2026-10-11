@@ -473,9 +473,7 @@ pub fn shortcuts(app: &mut CadApp, ctx: &egui::Context) {
         (sc(Modifiers::NONE, Key::F1), "ui.dialog.commands"),
         (sc(Modifiers::NONE, Key::F2), "ui.toggle.history"),
         (sc(Modifiers::NONE, Key::F3), "osnap"),
-        (sc(Modifiers::NONE, Key::F7), "grid"),
         (sc(Modifiers::NONE, Key::F8), "ortho"),
-        (sc(Modifiers::NONE, Key::F9), "snap"),
         (sc(Modifiers::NONE, Key::F10), "polar"),
         (sc(Modifiers::NONE, Key::F11), "otrack"),
         (sc(Modifiers::NONE, Key::F12), "dynmode"),
@@ -495,7 +493,7 @@ pub fn shortcuts(app: &mut CadApp, ctx: &egui::Context) {
     });
     for id in fire {
         // Toggles run transparently (they don't cancel the active command).
-        let transparent = ["osnap", "grid", "ortho", "snap", "polar", "otrack", "dynmode"].contains(&id);
+        let transparent = ["osnap", "ortho", "polar", "otrack", "dynmode"].contains(&id);
         if transparent || id.starts_with("ui.") {
             match app.session.execute(id, &json!({})) {
                 Ok(v) => {

@@ -80,21 +80,3 @@ fn hatches_snap_only_with_osnaphatch() {
     let modes = mode::END | mode::HATCH;
     assert_eq!(snap_at(&s, Vec2::new(10.0, 5.0), modes).map(|h| h.0), Some(Vec2::new(10.0, 5.0)));
 }
-
-#[test]
-fn grid_snap_follows_snapbase_and_snapang() {
-    let mut s = Session::new();
-    assert_eq!(snap::grid_frame(s.doc().unwrap()), (Vec2::ZERO, 0.0));
-    s.cmdline("setvar snapbase 0.5,0.25").unwrap();
-    s.cmdline("setvar snapang 30").unwrap();
-    let (origin, angle) = snap::grid_frame(s.doc().unwrap());
-    assert_eq!(origin, Vec2::new(0.5, 0.25));
-    assert!((angle - 30f64.to_radians()).abs() < 1e-12);
-    // Two units along the turned x axis and one along its y axis, nudged off the grid.
-    let (u, v) = (Vec2::from_angle(angle), Vec2::from_angle(angle).perp());
-    let on = origin + u * 2.0 + v * 1.0;
-    let p = snap::grid_snap(on + Vec2::new(0.1, -0.15), Vec2::new(1.0, 1.0), origin, angle);
-    assert!(p.near(on, 1e-12), "{p:?} vs {on:?}");
-    // Unturned, from SNAPBASE.
-    assert_eq!(snap::grid_snap(Vec2::new(1.4, 1.1), Vec2::new(1.0, 1.0), origin, 0.0), Vec2::new(1.5, 1.25));
-}

@@ -336,8 +336,6 @@ impl CadApp {
             "theme": self.ui.theme.as_str(),
             "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
-            "grid": self.session.settings.gridmode,
-            "gridSnap": self.session.settings.snapmode,
             "workspace": self.ui.workspace.as_str(),
             "pinPanels": self.ui.pin_panels,
             "autoCollapseMs": self.ui.auto_collapse_ms,
@@ -363,12 +361,6 @@ impl CadApp {
             if w == WorkspaceMode::Pro {
                 self.ui.show_palettes = false;
             }
-        }
-        if let Some(g) = v.get("grid").and_then(Value::as_bool) {
-            self.session.settings.gridmode = g;
-        }
-        if let Some(g) = v.get("gridSnap").and_then(Value::as_bool) {
-            self.session.settings.snapmode = g;
         }
         if let Some(t) = v.get("theme").and_then(Value::as_str).and_then(theme::ThemePref::parse) {
             self.ui.theme = t;
@@ -668,16 +660,6 @@ mod tests {
         b.start("ui.theme.toggle");
         frame(&mut b, &ctx, None);
         assert_eq!((b.ui.theme, Tokens::get().canvas), (ThemePref::Dark, egui::Color32::BLACK));
-    }
-
-    #[test]
-    fn grid_preferences_persist() {
-        let mut a = app();
-        assert!(!a.session.settings.gridmode && !a.session.settings.snapmode);
-        a.session.settings.gridmode = true;
-        let mut b = app();
-        b.load_prefs(&a.prefs_json());
-        assert!(b.session.settings.gridmode && !b.session.settings.snapmode);
     }
 
     #[test]

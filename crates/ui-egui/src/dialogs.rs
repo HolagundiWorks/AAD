@@ -33,22 +33,6 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
 fn dsettings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     egui::Window::new(crate::tl!("Drafting Settings")).id(egui::Id::new("Drafting Settings")).open(open).resizable(false).show(ctx, |ui| {
         let s = &mut app.session.settings;
-        ui.heading(crate::tl!("Snap and Grid"));
-        ui.checkbox(&mut s.snapmode, crate::tl!("Snap On (F9)"));
-        ui.horizontal(|ui| {
-            ui.label(crate::tl!("Snap X spacing"));
-            ui.add(egui::DragValue::new(&mut s.snapunit.x).speed(0.05).range(0.0001..=1e6));
-            ui.label(crate::tl!("Y"));
-            ui.add(egui::DragValue::new(&mut s.snapunit.y).speed(0.05).range(0.0001..=1e6));
-        });
-        ui.checkbox(&mut s.gridmode, crate::tl!("Grid On (F7)"));
-        ui.horizontal(|ui| {
-            ui.label(crate::tl!("Grid spacing"));
-            ui.add(egui::DragValue::new(&mut s.gridunit.x).speed(0.05).range(0.0001..=1e6));
-            ui.label(crate::tl!("Major line every"));
-            ui.add(egui::DragValue::new(&mut s.gridmajor).range(1..=100));
-        });
-        ui.separator();
         ui.heading(crate::tl!("Polar Tracking"));
         ui.checkbox(&mut s.polarmode, crate::tl!("Polar Tracking On (F10)"));
         let mut deg = s.polarang.to_degrees();

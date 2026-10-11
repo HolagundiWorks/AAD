@@ -25,17 +25,14 @@ panels were open and Classic restores that. Test: `tests/workspace_modes.rs`.
 ## Bottom status bar
 
 Left: model/layout tabs. Centre: cursor coordinates with the drawing units (`INSUNITS`) and the
-number of selected objects. Right: grid, grid snap, ortho, polar tracking, object snap tracking,
+number of selected objects. Right: ortho, polar tracking, object snap tracking,
 object snap, lineweight and transparency display, dynamic input, quick properties, command line
 toggle, drafting settings, then the `Pro | Classic` selector and the light/dark toggle. Not
 implemented: an annotation or plot scale indicator (the engine has no annotation scale).
 
-## Grid and snap
+## No grid, no grid snap
 
-Grid display and grid snap are off in a new session (`Settings::gridmode`, `snapmode`) and are saved
-in the preferences (`grid`, `gridSnap`). Object snap is independent of both and stays on. Typed
-coordinates are never quantized. Tests: `crates/engine/tests/grid_defaults.rs`,
-`tests::grid_preferences_persist`.
+The drawing grid and grid snap (`GRID`, `SNAP`, `GRIDMODE`, `SNAPMODE`, `SNAPUNIT`, `GRIDUNIT`, `GRIDMAJOR`, F7, F9) were removed: AAD draws on a plain canvas and typed coordinates are never quantized. Object snap, ortho and polar tracking remain. The structural axis grid of a building (`grid.axis`) is a different feature and stays.
 
 ## Property toolbar
 

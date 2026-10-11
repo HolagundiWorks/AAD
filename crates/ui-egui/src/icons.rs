@@ -99,8 +99,6 @@ pub enum Icon {
     Unlock,
     Sun,
     Snowflake,
-    Grid,
-    Snap,
     Ortho,
     Polar,
     Osnap,
@@ -662,20 +660,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             for i in 0..3 {
                 let ang = (i as f32 * 60.0).to_radians();
                 pen.poly(&[(12.0 - 8.0 * ang.cos(), 12.0 - 8.0 * ang.sin()), (12.0 + 8.0 * ang.cos(), 12.0 + 8.0 * ang.sin())], false, c);
-            }
-        }
-        Grid => {
-            for k in 0..4 {
-                let v = 4.0 + k as f32 * 5.33;
-                pen.l(v, 3.0, v, 21.0);
-                pen.l(3.0, v, 21.0, v);
-            }
-        }
-        Snap => {
-            for i in 0..4 {
-                for j in 0..4 {
-                    pen.fill_c(4.0 + i as f32 * 5.33, 4.0 + j as f32 * 5.33, 1.0, b);
-                }
             }
         }
         Ortho => {

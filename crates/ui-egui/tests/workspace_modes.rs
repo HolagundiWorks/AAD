@@ -33,7 +33,6 @@ fn classic_shows_toolbars_and_panels_and_pro_hides_them_without_touching_the_dra
     assert!(has(&h, "Properties"), "Properties panel");
     assert!(has(&h, "Layers"), "Layers panel");
     assert!(has(&h, "Blocks"), "Blocks panel");
-    assert!(!h.state().session.settings.gridmode && !h.state().session.settings.snapmode);
 
     // Select the circle, then switch.
     let circle = h.state().session.doc().unwrap().model.iter().nth(1).unwrap().handle;

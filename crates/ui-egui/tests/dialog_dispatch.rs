@@ -33,9 +33,9 @@ fn drafting_settings_menu_opens_the_dialog() {
     app.cmdline("DS");
     assert_eq!(app.ui.dialog.as_deref(), Some("dsettings"));
     app.ui.dialog = None;
-    app.run("dsettings", json!({ "gridmajor": 10 })).unwrap();
+    app.run("dsettings", json!({ "polarang": 10 })).unwrap();
     assert!(app.ui.dialog.is_none());
-    assert_eq!(app.session.settings.gridmajor, 10);
+    assert!((app.session.settings.polarang - 10f64.to_radians()).abs() < 1e-12);
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn typed_json_form_runs_the_command() {
     app.cmdline("layer {}");
     assert!(app.ui.dialog.is_none());
     assert!(app.session.log[n..].iter().any(|l| l.contains("\"layers\"")), "the layer list is echoed");
-    app.cmdline(r#"dsettings {"gridmajor": 7}"#);
+    app.cmdline(r#"dsettings {"polarang": 7}"#);
     assert!(app.ui.dialog.is_none());
-    assert_eq!(app.session.settings.gridmajor, 7);
+    assert!((app.session.settings.polarang - 7f64.to_radians()).abs() < 1e-12);
 }

@@ -817,23 +817,6 @@ pub fn polar(base: Vec2, p: Vec2, inc: f64, tol: f64) -> Option<(Vec2, f64)> {
     }
 }
 
-/// Grid snap: the nearest point of the grid of `unit` spacing through `origin`, turned by
-/// `angle` (radians) about it.
-pub fn grid_snap(p: Vec2, unit: Vec2, origin: Vec2, angle: f64) -> Vec2 {
-    let angle = if angle.is_finite() { angle } else { 0.0 };
-    let q = (p - origin).rotate(-angle);
-    let sx = if unit.x > 1e-12 { (q.x / unit.x).round() * unit.x } else { q.x };
-    let sy = if unit.y > 1e-12 { (q.y / unit.y).round() * unit.y } else { q.y };
-    let s = origin + Vec2::new(sx, sy).rotate(angle);
-    if s.is_finite() { s } else { p }
-}
-
-/// The snap grid's origin (SNAPBASE) and rotation in radians (SNAPANG, in degrees) of a drawing.
-pub fn grid_frame(d: &Drawing) -> (Vec2, f64) {
-    let base = d.header.point("SNAPBASE").map(|p| p.xy()).filter(|p| p.is_finite()).unwrap_or(Vec2::ZERO);
-    (base, d.header.f64("SNAPANG", 0.0).to_radians())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,7 +872,6 @@ mod tests {
         let (p, a) = polar(Vec2::ZERO, Vec2::new(5.0, 5.1), 45f64.to_radians(), 3f64.to_radians()).unwrap();
         assert!((a - PI / 4.0).abs() < 1e-12);
         assert!((p.x - p.y).abs() < 1e-9);
-        assert_eq!(grid_snap(Vec2::new(0.74, 1.26), Vec2::new(0.5, 0.5), Vec2::ZERO, 0.0), Vec2::new(0.5, 1.5));
     }
 
     #[test]

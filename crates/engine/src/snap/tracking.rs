@@ -630,10 +630,6 @@ impl crate::Session {
             return CursorSnap { point: h.point, snap: Some(h), track: None, wait };
         }
         let mut p = raw;
-        if s.snapmode {
-            let (origin, angle) = super::grid_frame(&doc);
-            p = super::grid_snap(p, s.snapunit, origin, angle);
-        }
         if let Some(t) = self.tracking.track(&doc, &space, p, q.aperture, q.tol, &cfg, q.base) {
             return CursorSnap { point: t.point, snap: None, track: Some(t), wait };
         }
