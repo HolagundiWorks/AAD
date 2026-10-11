@@ -925,8 +925,6 @@ fn parse_entities(recs: &[(String, Vec<Tag>)], d: &mut Drawing, rx: &mut Rx) -> 
         {
             c.plot_style = n;
         }
-        // More entities from this record.
-        let mut extra: Vec<EntityKind> = Vec::new();
         i += 1;
         match kind.as_str() {
             "POLYLINE" => {
@@ -1010,10 +1008,7 @@ fn parse_entities(recs: &[(String, Vec<Tag>)], d: &mut Drawing, rx: &mut Rx) -> 
                 None => d.new_handle(),
             };
             entity_extras(kind, tags, h, &mut k, rx);
-            let more: Vec<_> =
-                extra.into_iter().map(|f| (owner.clone(), paper, Entity { handle: d.new_handle(), common: c.clone(), kind: f })).collect();
             out.push((owner, paper, Entity { handle: h, common: c, kind: k }));
-            out.extend(more);
         }
     }
     // Assign fresh handles to duplicates (hostile files).
