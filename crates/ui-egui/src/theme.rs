@@ -1,11 +1,12 @@
-//! Design tokens. Colours were measured from the reference look (dark slate chrome, near-black
-//! navy model space) and are CADCraft's own values; every widget reads them from here.
+//! Design tokens. Colours were measured from the reference look (dark slate chrome) and are
+//! CADCraft's own values; every widget reads them from here.
 //!
-//! Two palettes: [`Tokens::DARK`] (the original look) and [`Tokens::LIGHT`]. The interface theme
-//! changes the chrome (title and tool bar, menus, palettes, tabs, command line, status bar,
-//! dialogs); the drawing area keeps its model-space colours in both, as drawing colours are not
-//! part of the interface theme. [`Tokens::get`] returns the palette of the theme in use, which
-//! [`CadApp::logic`](crate::CadApp::logic) resolves once per frame from the user's [`ThemePref`].
+//! Two palettes, switched by one toggle: [`Tokens::DARK`] (black drawing area) and
+//! [`Tokens::LIGHT`] (white drawing area). The theme changes the chrome (title and tool bar,
+//! menus, palettes, tabs, command line, status bar, dialogs) and the drawing area's background,
+//! grid and cursor. There is no other colour customisation. [`Tokens::get`] returns the palette
+//! of the theme in use, which [`CadApp::logic`](crate::CadApp::logic) resolves once per frame
+//! from the user's [`ThemePref`].
 
 use std::cell::Cell;
 
@@ -16,23 +17,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThemePref {
-    /// Follow the operating system's light/dark appearance, live.
-    System,
     Light,
     /// The default: CADCraft's original look.
     #[default]
     Dark,
 }
 
-/// The theme `System` uses when the OS (or browser) reports no appearance.
-pub const SYSTEM_FALLBACK: Theme = Theme::Dark;
-
 impl ThemePref {
-    pub const ALL: [ThemePref; 3] = [ThemePref::System, ThemePref::Light, ThemePref::Dark];
+    pub const ALL: [ThemePref; 2] = [ThemePref::Light, ThemePref::Dark];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            ThemePref::System => "system",
             ThemePref::Light => "light",
             ThemePref::Dark => "dark",
         }
@@ -42,12 +37,19 @@ impl ThemePref {
         ThemePref::ALL.into_iter().find(|t| t.as_str().eq_ignore_ascii_case(s.trim()))
     }
 
-    /// The theme to show, given what the OS reports (`ctx.system_theme()`).
-    pub fn resolve(self, system: Option<Theme>) -> Theme {
+    /// The theme to show.
+    pub fn resolve(self) -> Theme {
         match self {
-            ThemePref::System => system.unwrap_or(SYSTEM_FALLBACK),
             ThemePref::Light => Theme::Light,
             ThemePref::Dark => Theme::Dark,
+        }
+    }
+
+    /// The other theme.
+    pub fn toggled(self) -> ThemePref {
+        match self {
+            ThemePref::Light => ThemePref::Dark,
+            ThemePref::Dark => ThemePref::Light,
         }
     }
 }
@@ -129,11 +131,11 @@ impl Tokens {
         control: Color32::from_rgb(0x50, 0x5a, 0x6d),
         control_hover: Color32::from_rgb(0x5c, 0x67, 0x7c),
         border: Color32::from_rgb(0x23, 0x29, 0x30),
-        canvas: Color32::from_rgb(0x22, 0x28, 0x2f),
-        grid_minor: Color32::from_rgb(0x29, 0x30, 0x3a),
-        grid_major: Color32::from_rgb(0x31, 0x39, 0x45),
-        axis_x: Color32::from_rgb(0x56, 0x28, 0x29),
-        axis_y: Color32::from_rgb(0x28, 0x4a, 0x2e),
+        canvas: Color32::from_rgb(0x00, 0x00, 0x00),
+        grid_minor: Color32::from_rgb(0x12, 0x14, 0x18),
+        grid_major: Color32::from_rgb(0x1e, 0x22, 0x28),
+        axis_x: Color32::from_rgb(0x6a, 0x2a, 0x2c),
+        axis_y: Color32::from_rgb(0x2a, 0x58, 0x32),
         text: Color32::from_rgb(0xd7, 0xdb, 0xe0),
         text_dim: Color32::from_rgb(0xa3, 0xaa, 0xb4),
         text_faint: Color32::from_rgb(0x87, 0x8d, 0x96),
@@ -165,8 +167,8 @@ impl Tokens {
         crosshair: Color32::from_rgb(0xe8, 0xe8, 0xe8),
     };
 
-    /// Light grey chrome with dark text. The drawing-area colours (canvas, grid, axes, selection,
-    /// grips, snap markers, selection windows) are the same as [`Tokens::DARK`]'s.
+    /// Light grey chrome with dark text and a white drawing area. The grips and snap
+    /// markers are the same as [`Tokens::DARK`]'s.
     pub const LIGHT: Tokens = Tokens {
         chrome: Color32::from_rgb(0xe4, 0xe7, 0xeb),
         chrome_dark: Color32::from_rgb(0xd5, 0xd9, 0xdf),
@@ -193,6 +195,19 @@ impl Tokens {
         list_bg: Color32::from_rgb(0xfb, 0xfc, 0xfd),
         list_row: Color32::from_rgb(0xe3, 0xe8, 0xef),
         warn: Color32::from_rgb(0x8a, 0x53, 0x00),
+        canvas: Color32::from_rgb(0xff, 0xff, 0xff),
+        grid_minor: Color32::from_rgb(0xee, 0xef, 0xf2),
+        grid_major: Color32::from_rgb(0xdd, 0xdf, 0xe4),
+        axis_x: Color32::from_rgb(0xe0, 0x9a, 0x9a),
+        axis_y: Color32::from_rgb(0x8f, 0xc9, 0x9a),
+        canvas_ink: Color32::from_rgb(0x47, 0x50, 0x5c),
+        crosshair: Color32::from_rgb(0x1d, 0x23, 0x2b),
+        hover: Color32::from_rgb(0x1b, 0x6f, 0xd6),
+        selection: Color32::from_rgb(0x1b, 0x6f, 0xd6),
+        window_fill: Color32::from_rgba_premultiplied(0x10, 0x20, 0x40, 0x30),
+        crossing_fill: Color32::from_rgba_premultiplied(0x10, 0x30, 0x10, 0x30),
+        window_stroke: Color32::from_rgb(0x1b, 0x6f, 0xd6),
+        crossing_stroke: Color32::from_rgb(0x1e, 0x8a, 0x34),
         ..Tokens::DARK
     };
 
@@ -284,15 +299,12 @@ fn visuals(theme: Theme) -> Visuals {
 }
 
 /// Install the styles of both themes and show `theme` (egui's own widgets, popups and menus
-/// follow it; our own painting follows [`Tokens::get`]). `follow_system` is true for the
-/// [`ThemePref::System`] choice, whose `theme` was resolved from the OS report.
-pub fn apply(ctx: &egui::Context, theme: Theme, follow_system: bool) {
+/// follow it; our own painting follows [`Tokens::get`]).
+pub fn apply(ctx: &egui::Context, theme: Theme) {
     set_active(theme);
     ctx.set_visuals_of(Theme::Dark, visuals(Theme::Dark));
     ctx.set_visuals_of(Theme::Light, visuals(Theme::Light));
-    // A System choice keeps egui's own System preference: a concrete Light/Dark would pin the native
-    // window appearance (winit then stops reporting OS changes) and the app would never follow again.
-    ctx.set_theme(if follow_system { egui::ThemePreference::System } else { egui::ThemePreference::from(theme) });
+    ctx.set_theme(egui::ThemePreference::from(theme));
     ctx.all_styles_mut(|s| {
         s.spacing.item_spacing = egui::vec2(6.0, 4.0);
         s.spacing.button_padding = egui::vec2(6.0, 3.0);

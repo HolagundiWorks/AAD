@@ -133,7 +133,7 @@ fn shared_controls_visuals() {
         }
         let mut controls = Harness::builder().with_size(vec2(340.0, 150.0)).with_pixels_per_point(scale).wgpu().build_ui_state(
             |ui, rects: &mut Vec<egui::Rect>| {
-                theme::apply(ui.ctx(), egui::Theme::Dark, false);
+                theme::apply(ui.ctx(), egui::Theme::Dark);
                 rects.clear();
                 for enabled in [true, false] {
                     ui.add_enabled_ui(enabled, |ui| {

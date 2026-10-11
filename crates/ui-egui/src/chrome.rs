@@ -346,7 +346,16 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             (Icon::Gear, false, "ui.dialog.dsettings", "Drafting Settings"),
         ];
         let size = 20.0;
-        let mut rx = r.right() - 8.0 - toggles.len() as f32 * (size + 4.0);
+        let mut rx = r.right() - 8.0 - 60.0 - toggles.len() as f32 * (size + 4.0);
+        // Light/dark theme toggle at the far right: it shows the theme it switches to.
+        let theme_br = Rect::from_min_max(pos2(r.right() - 8.0 - 52.0, r.center().y - 9.0), pos2(r.right() - 8.0, r.center().y + 9.0));
+        let theme_label = if app.ui.theme == crate::theme::ThemePref::Dark { "Light" } else { "Dark" };
+        let theme_resp = ui.interact(theme_br, ui.id().with("theme_toggle"), Sense::click());
+        p.rect_filled(theme_br, 3.0, if theme_resp.hovered() { t.control_hover } else { t.control });
+        p.text(theme_br.center(), egui::Align2::CENTER_CENTER, crate::i18n::t(theme_label), crate::theme::small(), t.text);
+        if theme_resp.on_hover_text(crate::tl!("Switch between the light and dark theme")).clicked() {
+            let _ = app.run("ui.theme.toggle", json!({}));
+        }
         // Coordinates.
         let coord = app.canvas.cursor.map(|c| {
             let (lu, lp) = app.session.doc().map(|d| (d.header.i64("LUNITS", 2), d.header.i64("LUPREC", 4))).unwrap_or((2, 4));

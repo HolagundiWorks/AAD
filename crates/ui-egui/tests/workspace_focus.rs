@@ -55,19 +55,10 @@ fn toolbar_tab_and_shift_tab_skip_title_drag_and_activate_once() {
 fn toolset_tabs_traverse_and_activate_without_drafting_commands() {
     let mut h = harness();
     tab_to(&mut h, "Drafting");
-    h.key_press(Key::Tab);
-    h.run_steps(2);
-    assert!(h.get_by_label("Modeling").is_focused());
     h.key_press(Key::Space);
     h.run_steps(3);
-    assert_eq!(h.state().ui.toolset_tab, "Modeling");
-    assert!(h.state().session.running.is_none());
-    h.key_press_modifiers(Modifiers::SHIFT, Key::Tab);
-    h.run_steps(2);
-    assert!(h.get_by_label("Drafting").is_focused());
-    h.key_press(Key::Enter);
-    h.run_steps(3);
     assert_eq!(h.state().ui.toolset_tab, "Drafting");
+    assert!(h.state().session.running.is_none());
     tab_to(&mut h, "Line");
     h.key_press(Key::Tab);
     h.run_steps(2);

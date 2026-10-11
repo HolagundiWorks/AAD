@@ -48,7 +48,7 @@ fn ukrainian_covers_commands_menus_tools_and_snap_labels() {
         sources.insert(*label);
         sources.extend(path.iter().copied());
     }
-    for groups in [crate::palettes::DRAFTING, crate::palettes::MODELING] {
+    for groups in [crate::palettes::DRAFTING] {
         for (name, large, small) in groups {
             sources.insert(*name);
             sources.extend(large.iter().chain(*small).map(|(_, _, label)| *label));

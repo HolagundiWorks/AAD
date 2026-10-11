@@ -33,8 +33,8 @@ fn config_dir_from(platform: &str, get: impl Fn(&str) -> Option<OsString>) -> Op
 
 fn snapshot(ui: &UiState) -> Result<Value, String> {
     ui.docking.validate()?;
-    if !matches!(ui.toolset_tab.as_str(), "Drafting" | "Modeling") {
-        return Err("toolsetTab must be Drafting or Modeling".into());
+    if ui.toolset_tab != "Drafting" {
+        return Err("toolsetTab must be Drafting".into());
     }
     if ui.collapsed_groups.len() > 64 || ui.collapsed_groups.iter().any(|name| name.len() > 256) {
         return Err("collapsedGroups exceeds the workspace size limit".into());
@@ -208,7 +208,7 @@ mod tests {
         let ui = UiState {
             show_palettes: false,
             show_command_line: false,
-            toolset_tab: "Modeling".into(),
+            toolset_tab: "Drafting".into(),
             collapsed_groups: vec!["Solid".into()],
             history_lines: 5,
             dialog: Some("layers".into()),
@@ -286,7 +286,7 @@ mod tests {
             json!({"layout":false,"hidden":[]}),
             json!({"layout":{"root":null,"floating":[]},"hidden":[["futurePanel",{}]]}),
         ] {
-            let workspace = json!({"showToolbar":false,"showPalettes":false,"toolsetTab":"Modeling", "collapsedGroups":["Draw"], "historyLines":7,"docking":docking});
+            let workspace = json!({"showToolbar":false,"showPalettes":false,"toolsetTab":"Drafting", "collapsedGroups":["Draw"], "historyLines":7,"docking":docking});
             assert!(serde_json::from_value::<UiState>(workspace.clone()).is_err(), "runtime state must stay strict");
             fs::write(&path, serde_json::to_vec(&json!({"version":1,"workspace":workspace})).unwrap()).unwrap();
             let (_, restored, error) = Workspace::at(Some(path.clone()));
@@ -294,7 +294,7 @@ mod tests {
             let restored = restored.unwrap();
             assert!(!restored.show_toolbar);
             assert!(!restored.show_palettes);
-            assert_eq!(restored.toolset_tab, "Modeling");
+            assert_eq!(restored.toolset_tab, "Drafting");
             assert_eq!(restored.collapsed_groups, ["Draw"]);
             assert_eq!(restored.history_lines, 7);
             assert_eq!(serde_json::to_value(restored.docking).unwrap(), serde_json::to_value(UiState::default().docking).unwrap());

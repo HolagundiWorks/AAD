@@ -344,7 +344,6 @@
 	Inspect Constraints	Переглянути обмеження
 	Inspect Drawing	Переглянути креслення
 	Interface Language	Мова інтерфейсу
-	Interface Theme	Тема інтерфейсу
 	Intersect	Перетин
 	Intersection	Перетин
 	Isolate	Ізолювати
@@ -931,7 +930,6 @@
 	Unsaved Layer State	Незбережений стан шарів
 	Up	Угору
 	Update	Оновити
-	Use System Setting	Як у системі
 	User	Користувач
 	User Parameters	Параметри користувача
 	Username	Ім'я користувача
@@ -986,3 +984,6 @@
 	Hide Others	Приховати інші
 	Accessibility	Спеціальні можливості
 	Show System Cursor	Показувати системний курсор
+	Toggle Light/Dark Theme	Перемкнути світлу/темну тему
+	Switch between the light and dark theme	Перемкнути між світлою та темною темою
+	Interface Theme	Тема інтерфейсу

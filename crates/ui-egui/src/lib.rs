@@ -63,7 +63,7 @@ pub struct UiState {
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
     /// when it is hidden. Off by default; `CADCRAFT_SYSTEM_CURSOR=1` turns it on at startup.
     pub system_cursor: bool,
-    /// "Drafting" or "Modeling".
+    /// The Tool Sets tab (only "Drafting").
     pub toolset_tab: String,
     pub collapsed_groups: Vec<String>,
     pub properties_all: bool,
@@ -170,8 +170,6 @@ pub struct CadApp {
     styled: bool,
     /// The theme last installed into egui (`None` until the first frame).
     shown_theme: Option<egui::Theme>,
-    /// Whether the last applied theme was handed to egui as the System preference.
-    shown_follows_system: bool,
     pub frame_ms: f64,
     pub quit_requested: bool,
     /// The app may close although drawings have unsaved changes (they were dealt with, or the
@@ -201,7 +199,6 @@ impl CadApp {
             frame_cap: None,
             styled: false,
             shown_theme: None,
-            shown_follows_system: false,
             frame_ms: 0.0,
             quit_requested: false,
             quit_confirmed: false,
@@ -269,9 +266,9 @@ impl CadApp {
         Some(e)
     }
 
-    /// The theme the interface shows now (the choice resolved against the OS appearance).
+    /// The theme the interface shows now.
     pub fn shown_theme(&self) -> egui::Theme {
-        self.shown_theme.unwrap_or_else(|| self.ui.theme.resolve(None))
+        self.shown_theme.unwrap_or_else(|| self.ui.theme.resolve())
     }
 
     /// Preferences kept across restarts, as JSON for the host's storage ([`PREFS_KEY`]).
@@ -362,15 +359,11 @@ impl CadApp {
             theme::install_fonts(ctx);
             self.styled = true;
         }
-        // Resolved every frame, so a System choice follows the OS appearance live (winit and the
-        // browser report changes as input); the saved choice itself never changes here.
-        let shown = self.ui.theme.resolve(ctx.system_theme());
+        let shown = self.ui.theme.resolve();
         theme::set_active(shown);
-        let follows_system = self.ui.theme == theme::ThemePref::System;
-        if self.shown_theme != Some(shown) || self.shown_follows_system != follows_system {
-            theme::apply(ctx, shown, follows_system);
+        if self.shown_theme != Some(shown) {
+            theme::apply(ctx, shown);
             self.shown_theme = Some(shown);
-            self.shown_follows_system = follows_system;
         }
         self.drain_control(ctx);
         if !self.synthetic.is_empty() {
@@ -547,7 +540,7 @@ mod tests {
         let mut a = app();
         assert_eq!(a.ui.theme, ThemePref::Dark, "default keeps today's look");
         assert!(a.run("ui.theme", json!({ "theme": "Purple" })).is_err());
-        assert_eq!(a.run("ui.theme", json!({ "theme": "light" })).ok(), Some(json!({ "theme": "light", "shown": "light" })));
+        assert_eq!(a.run("ui.theme", json!({ "theme": "light" })).ok(), Some(json!({ "theme": "light" })));
         // Saved and restored by the host.
         let mut b = app();
         b.load_prefs(&a.prefs_json());
@@ -565,41 +558,13 @@ mod tests {
         frame(&mut b, &ctx, Some(egui::Theme::Light));
         assert_eq!(Tokens::get(), Tokens::DARK);
         assert_eq!(ctx.theme(), egui::Theme::Dark);
-        let ui: UiState = serde_json::from_value(json!({ "theme": "system" })).unwrap_or_default();
-        assert_eq!(ui.theme, ThemePref::System);
-    }
-
-    #[test]
-    fn system_theme_follows_the_os_live_and_stays_saved_as_system() {
-        let mut a = app();
-        a.start("ui.theme.system");
-        let ctx = egui::Context::default();
-        frame(&mut a, &ctx, Some(egui::Theme::Light));
-        assert_eq!(Tokens::get(), Tokens::LIGHT);
-        assert_eq!(ctx.theme(), egui::Theme::Light);
-        frame(&mut a, &ctx, Some(egui::Theme::Dark));
-        assert_eq!(Tokens::get(), Tokens::DARK);
-        assert_eq!(ctx.theme(), egui::Theme::Dark);
-        frame(&mut a, &ctx, None);
-        assert_eq!(Tokens::get(), Tokens::of(theme::SYSTEM_FALLBACK), "no OS appearance: the documented fallback");
-        assert_eq!(a.ui.theme, ThemePref::System);
-        assert_eq!(a.prefs_json(), r#"{"interfaceLanguage":"auto","saveFormat":"dxf","theme":"system"}"#);
-    }
-
-    #[test]
-    fn system_theme_keeps_egui_on_the_system_preference() {
-        let mut a = app();
-        a.start("ui.theme.system");
-        let ctx = egui::Context::default();
-        frame(&mut a, &ctx, Some(egui::Theme::Light));
-        // A concrete Light would pin the native window appearance and hide later OS changes.
-        assert_eq!(ctx.options(|o| o.theme_preference), egui::ThemePreference::System);
-        a.start("ui.theme.dark");
-        frame(&mut a, &ctx, Some(egui::Theme::Light));
-        assert_eq!(ctx.options(|o| o.theme_preference), egui::ThemePreference::Dark);
-        a.start("ui.theme.system");
-        frame(&mut a, &ctx, Some(egui::Theme::Light));
-        assert_eq!(ctx.options(|o| o.theme_preference), egui::ThemePreference::System);
+        // One toggle flips between the two themes, and the drawing area follows: black or white.
+        b.start("ui.theme.toggle");
+        frame(&mut b, &ctx, None);
+        assert_eq!((b.ui.theme, Tokens::get().canvas), (ThemePref::Light, egui::Color32::WHITE));
+        b.start("ui.theme.toggle");
+        frame(&mut b, &ctx, None);
+        assert_eq!((b.ui.theme, Tokens::get().canvas), (ThemePref::Dark, egui::Color32::BLACK));
     }
 
     #[test]
