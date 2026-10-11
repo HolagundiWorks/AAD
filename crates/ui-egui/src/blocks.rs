@@ -80,6 +80,8 @@ pub(crate) fn blocks_section(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new(crate::tl!("This drawing defines no blocks.")).color(t.text_dim));
     }
     let mut action: Option<(&'static str, String)> = None;
+    let mut edit: Option<(String, String, String)> = None;
+    let mut attr_edit: Option<(String, String, String)> = None;
     for b in &names {
         let count = refs.get(&b.name).map_or(0, Vec::len);
         let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
@@ -116,6 +118,25 @@ pub(crate) fn blocks_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 }
             });
         });
+        // Text inside the definition; editing it changes every reference.
+        let texts: Vec<(String, String)> = b
+            .entities
+            .iter()
+            .take(50)
+            .filter_map(|e| match &e.kind {
+                EntityKind::Text(t) => Some((e.handle.hex(), t.value.clone())),
+                EntityKind::MText(t) => Some((e.handle.hex(), t.contents.clone())),
+                _ => None,
+            })
+            .collect();
+        if !texts.is_empty() {
+            ui.label(egui::RichText::new(crate::tl!("Text in the definition (changes every reference)")).color(t.text_dim));
+            for (h, value) in &texts {
+                if let Some(new) = crate::palettes::edit_field(ui, egui::Id::new(("block_text", name.as_str(), h)), value.clone()) {
+                    edit = Some((name.clone(), h.clone(), new));
+                }
+            }
+        }
         let tags: Vec<String> = b
             .entities
             .iter()
@@ -129,6 +150,28 @@ pub(crate) fn blocks_section(app: &mut CadApp, ui: &mut egui::Ui) {
             ui.label(egui::RichText::new(crate::tl!("Edit attribute values on a reference with ATTEDIT.")).small().color(t.text_faint));
         }
     }
+    // The selected block reference: its attribute values, editable.
+    let reference = app.session.state().ok().and_then(|st| match st.selection.as_slice() {
+        [h] => st.doc.entity(*h).and_then(|e| match &e.kind {
+            EntityKind::Insert(i) if !i.attribs.is_empty() => {
+                Some((e.handle.hex(), i.block.clone(), i.attribs.iter().map(|a| (a.tag.clone(), a.text.value.clone())).collect::<Vec<_>>()))
+            }
+            _ => None,
+        }),
+        _ => None,
+    });
+    if let Some((h, block, attribs)) = reference {
+        ui.separator();
+        ui.label(egui::RichText::new(format!("{} {block}", crate::tl!("Selected reference:"))).strong());
+        for (tag, value) in &attribs {
+            ui.horizontal(|ui| {
+                ui.label(tag);
+                if let Some(new) = crate::palettes::edit_field(ui, egui::Id::new(("block_attr", h.as_str(), tag.as_str())), value.clone()) {
+                    attr_edit = Some((h.clone(), tag.clone(), new));
+                }
+            });
+        }
+    }
     ui.add_space(8.0);
     ui.label(egui::RichText::new(crate::tl!("External references are not supported.")).small().color(t.text_faint));
     ui.data_mut(|data| match &selected {
@@ -139,6 +182,16 @@ pub(crate) fn blocks_section(app: &mut CadApp, ui: &mut egui::Ui) {
             data.remove::<String>(id);
         }
     });
+    if let Some((block, handle, text)) = edit
+        && let Err(e) = app.run("blocktextedit", json!({ "block": block, "handle": handle, "text": text }))
+    {
+        app.set_status(e);
+    }
+    if let Some((handle, tag, value)) = attr_edit
+        && let Err(e) = app.run("attedit", json!({ "handle": handle, "values": { tag: value } }))
+    {
+        app.set_status(e);
+    }
     match action {
         Some(("insert", name)) => insert(app, &name),
         Some(("select", name)) => {

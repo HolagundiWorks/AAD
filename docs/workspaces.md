@@ -124,7 +124,17 @@ pass after, boundary click selects the boundary, outside selects nothing).
 - Annotation or plot scale indicator.
 - Docked (non-overlay) command line.
 - Per-panel auto-collapse; panel pinning applies to all side panels.
-- Editing text inside block definitions; block reference attribute editing from the Blocks panel.
+- Editing text inside a block definition in place on the drawing (it is edited from the Blocks panel with `blocktextedit`, which changes every reference).
 - Hatch boundary editing and boundary validation messages beyond the existing commands.
-- Colour dropdown limited to inheritance modes and the seven standard colours (use `COLOR` for
-  others).
+- True-colour (RGB) values in the colour dropdown (the `…` button offers the 255 indexed colours; use `COLOR`
+  for RGB).
+
+## Added after the first release of this page
+
+- **Block definition text:** `blocktext {block}` lists the text objects of a definition and
+  `blocktextedit {block, handle, text}` edits one (TEXT, MTEXT, attribute definition). It changes
+  every reference, refuses locked layers and non-text objects, and is one undo step. The Blocks
+  panel shows an edit field for each. Test: `crates/engine/tests/block_text_edit.rs`.
+- **Reference attributes:** selecting one block reference shows its attribute values in the Blocks
+  panel; editing one runs `attedit`.
+- **Colour:** the `…` button beside the colour dropdown opens a grid of the 255 indexed colours.

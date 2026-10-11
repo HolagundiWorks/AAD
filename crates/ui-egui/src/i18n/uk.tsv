@@ -1011,3 +1011,8 @@
 	Edit attribute values on a reference with ATTEDIT.	Значення атрибутів посилання редагуйте командою ATTEDIT.
 	External references are not supported.	Зовнішні посилання не підтримуються.
 	Pin Side Panels	Закріпити бічні панелі
+	All 255 indexed colours	Усі 255 індексованих кольорів
+	Text in the definition (changes every reference)	Текст у визначенні (змінює всі посилання)
+	Selected reference:	Вибране посилання:
+	Block Text	Текст блока
+	Edit Block Text	Редагувати текст блока

@@ -46,6 +46,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{type?: all|blocks|dimstyles|groups|layers|linetypes|mleaderstyles|tablestyles|textstyles|zerolength|emptytext (default all: every named type), names?: \"A*,B\" (default *)} → purged")
             .interactive(|_| Ok(Box::new(purge::PurgeM::default()))),
         CommandSpec::new("blocks.list", "List Blocks", run_list).enabled(has_doc).noundo(),
+        CommandSpec::new("blocktext", "Block Text", run_blocktext).params("{block} → {text: [{handle, kind, text, layer, tag?}]}").noundo(),
+        CommandSpec::new("blocktextedit", "Edit Block Text", run_blocktextedit)
+            .params("{block, handle (an object inside the block), text} → {block, instances} (changes every reference of the block)"),
         CommandSpec::new("battman", "Block Attribute Manager...", run_battman)
             .menu(&["Modify", "Object", "Attribute", "Block Attribute Manager..."])
             .params("{name}")
@@ -759,3 +762,67 @@ impl Interactive for AttdefM {
 }
 
 mod attribs;
+
+// ---------------- text inside block definitions ----------------
+
+/// BLOCKTEXTEDIT: change the text of a TEXT, MTEXT or attribute definition inside a block
+/// definition. Every reference of the block shows the change.
+fn run_blocktextedit(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = str_param(p, "block").ok_or_else(|| bad("blocktextedit", "`block` is required"))?;
+    let h = cadcraft_doc::Handle::parse_hex(str_param(p, "handle").ok_or_else(|| bad("blocktextedit", "`handle` is required"))?)
+        .ok_or_else(|| bad("blocktextedit", "`handle` is not an object handle"))?;
+    let text = str_param(p, "text").ok_or_else(|| bad("blocktextedit", "`text` is required"))?;
+    if text.len() > 1_000_000 {
+        return Err(bad("blocktextedit", "text is too long"));
+    }
+    let d = s.doc_mut()?;
+    let key =
+        d.blocks.keys().find(|k| k.eq_ignore_ascii_case(name)).cloned().ok_or_else(|| bad("blocktextedit", format!("no block named `{name}`")))?;
+    let layers_locked: std::collections::HashSet<String> = d.layers.iter().filter(|l| l.locked).map(|l| l.name.clone()).collect();
+    let b = d.blocks.get_mut(&key).map(std::sync::Arc::make_mut).ok_or_else(|| bad("blocktextedit", "no such block"))?;
+    let mut done = Ok(());
+    let found = b.entities.modify(h, |e| {
+        if layers_locked.contains(&e.common.layer) {
+            done = Err(bad("blocktextedit", "the object is on a locked layer"));
+            return;
+        }
+        match &mut e.kind {
+            EntityKind::Text(t) => t.value = text.to_string(),
+            EntityKind::AttDef(a) => a.text.value = text.to_string(),
+            EntityKind::MText(t) => t.contents = text.replace('\n', r"\P"),
+            _ => done = Err(bad("blocktextedit", "the object is not text, mtext or an attribute definition")),
+        }
+    });
+    if !found {
+        return Err(bad("blocktextedit", "no such object in the block"));
+    }
+    done?;
+    let instances = s
+        .doc()?
+        .model
+        .iter()
+        .chain(s.doc()?.layouts.iter().flat_map(|l| l.entities.iter()))
+        .filter(|e| matches!(&e.kind, EntityKind::Insert(i) if i.block.eq_ignore_ascii_case(&key)))
+        .count();
+    Ok(json!({ "block": key, "instances": instances }))
+}
+
+/// The text objects of a block definition: `{handle, kind, text, layer}` for each.
+fn run_blocktext(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = str_param(p, "block").ok_or_else(|| bad("blocktext", "`block` is required"))?;
+    let b = s.doc()?.block(name).cloned().ok_or_else(|| bad("blocktext", format!("no block named `{name}`")))?;
+    let items: Vec<Value> = b
+        .entities
+        .iter()
+        .take(500)
+        .filter_map(|e| match &e.kind {
+            EntityKind::Text(t) => Some(json!({"handle": e.handle.hex(), "kind": "text", "text": t.value, "layer": e.common.layer})),
+            EntityKind::MText(t) => Some(json!({"handle": e.handle.hex(), "kind": "mtext", "text": t.contents, "layer": e.common.layer})),
+            EntityKind::AttDef(a) => {
+                Some(json!({"handle": e.handle.hex(), "kind": "attdef", "text": a.text.value, "layer": e.common.layer, "tag": a.tag}))
+            }
+            _ => None,
+        })
+        .collect();
+    Ok(json!({ "block": b.name, "text": items }))
+}

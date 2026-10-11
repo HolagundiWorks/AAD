@@ -140,6 +140,31 @@ fn swatch(ui: &mut egui::Ui, name: &str, layer_color: Option<cadcraft_color::Col
     ui.painter().rect_stroke(r, 1.0, egui::Stroke::new(1.0, egui::Color32::from_gray(90)), egui::StrokeKind::Inside);
 }
 
+/// A grid of the 255 indexed colours; returns the one clicked.
+fn aci_grid(ui: &mut egui::Ui) -> Option<u8> {
+    let mut picked = None;
+    ui.spacing_mut().item_spacing = egui::vec2(1.0, 1.0);
+    for row in 0..16u8 {
+        ui.horizontal(|ui| {
+            for col in 0..16u8 {
+                let i = row * 16 + col;
+                if i == 0 {
+                    ui.add_space(14.0);
+                    continue;
+                }
+                let rgb = cadcraft_color::aci_rgb(i);
+                let (r, resp) = ui.allocate_exact_size(egui::vec2(13.0, 13.0), egui::Sense::click());
+                ui.painter().rect_filled(r, 0.0, egui::Color32::from_rgb(rgb.0, rgb.1, rgb.2));
+                if resp.on_hover_text(format!("{i}")).clicked() {
+                    picked = Some(i);
+                    ui.close();
+                }
+            }
+        });
+    }
+    picked
+}
+
 /// A dropdown that returns the picked item.
 fn dropdown(ui: &mut egui::Ui, id: &str, width: f32, shown: &str, items: &[String], colors: bool) -> Option<String> {
     let mut picked = None;
@@ -179,7 +204,13 @@ fn property_controls(app: &mut CadApp, ui: &mut egui::Ui) {
 
     swatch(ui, "", layer_color);
     let layer = dropdown(ui, "Layer", 150.0, &props[0].text(), &layers, false);
-    let color = dropdown(ui, "Colour", 90.0, &props[1].text(), &colors, true);
+    let mut color = dropdown(ui, "Colour", 90.0, &props[1].text(), &colors, true);
+    let more = ui.button("…").on_hover_text(crate::tl!("All 255 indexed colours"));
+    egui::Popup::from_toggle_button_response(&more).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        if let Some(i) = aci_grid(ui) {
+            color = Some(i.to_string());
+        }
+    });
     let linetype = dropdown(ui, "Linetype", 100.0, &props[2].text(), &linetypes, false);
     let weight = dropdown(ui, "Lineweight", 90.0, &props[3].text(), &weights, false);
 
