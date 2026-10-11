@@ -45,7 +45,7 @@ depends on egui, eframe, winit, wgpu or rfd.
 
 Every user-visible action is a `CommandSpec` (`crates/engine/src/cmd/mod.rs`): id (the command name
 in lower case), label, menu path, shortcut, aliases, a JSON `run`, an `enabled` check and an
-optional interactive prompt machine. There are 318 engine commands (135 with interactive prompts;
+optional interactive prompt machine. There are 320 engine commands (135 with interactive prompts;
 `cadcraft-cli commands` lists them) and 46 UI-only commands in `crates/ui-egui/src/menus.rs`. The
 command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools all
 reach the same commands. JSON calls never open dialogs.

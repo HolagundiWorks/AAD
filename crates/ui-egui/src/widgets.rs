@@ -18,6 +18,8 @@ use crate::theme::Tokens;
 pub struct WidgetState {
     pub calc: Calculator,
     pub pomodoro: Pomodoro,
+    /// An AQC file read for preview, waiting for Apply or Cancel.
+    pub bridge: Option<BridgePending>,
     last_time: Option<f64>,
     carry: f64,
 }
@@ -101,6 +103,9 @@ fn pomodoro_command(app: &mut CadApp, p: &Value) -> Result<Value, String> {
 /// open widgets.
 pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     advance_timer(app, ctx);
+    if app.widgets.bridge.is_some() {
+        bridge_window(app, ctx);
+    }
     if app.ui.show_calculator {
         calculator_window(app, ctx);
     }
@@ -353,5 +358,98 @@ fn dial(app: &mut CadApp, ui: &mut Ui, t: &Tokens) {
         let _ = app.run("ui.pomodoro", json!({ "action": "reset" }));
     } else if resp.clicked() {
         let _ = app.run("ui.pomodoro", json!({ "action": "toggle" }));
+    }
+}
+
+// ---------------- AQC import preview ----------------
+
+/// What `bridge.import` would do with a file, shown until the user applies or cancels.
+pub struct BridgePending {
+    path: String,
+    result: Value,
+    overwrite: bool,
+    accept_other: bool,
+}
+
+/// Read an AQC file and show what would change. Nothing is applied here.
+pub fn start_bridge_import(app: &mut CadApp, path: &str) {
+    match app.run("bridge.import", json!({ "path": path })) {
+        Ok(result) => app.widgets.bridge = Some(BridgePending { path: path.to_string(), result, overwrite: false, accept_other: false }),
+        Err(e) => app.set_status(e),
+    }
+}
+
+fn bridge_window(app: &mut CadApp, ctx: &egui::Context) {
+    let t = Tokens::get();
+    let mut open = true;
+    let mut apply = false;
+    let mut rerun = false;
+    {
+        let Some(b) = app.widgets.bridge.as_mut() else { return };
+        egui::Window::new(crate::tl!("Import from AQC"))
+            .id(egui::Id::new("bridge_import"))
+            .open(&mut open)
+            .collapsible(false)
+            .default_width(460.0)
+            .show(ctx, |ui| {
+                ui.label(RichText::new(&b.path).small().color(t.text_dim));
+                ui.label(b.result["summary"].as_str().unwrap_or(""));
+                ui.label(RichText::new(crate::tl!("Geometry is never changed by this import.")).small().color(t.text_dim));
+                if b.result["otherDrawing"].as_bool() == Some(true) {
+                    ui.checkbox(&mut b.accept_other, crate::tl!("This file came from a different drawing; apply anyway"));
+                }
+                if ui.checkbox(&mut b.overwrite, crate::tl!("Overwrite fields already filled in AAD")).changed() {
+                    rerun = true;
+                }
+                ui.separator();
+                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    for it in b.result["items"].as_array().into_iter().flatten() {
+                        let action = it["action"].as_str().unwrap_or("");
+                        let color = if matches!(action, "add" | "update") { t.accent } else { t.text_dim };
+                        let to = it["to"].to_string().trim_matches('"').to_string();
+                        let reason = it["reason"].as_str().filter(|r| !r.is_empty()).map(|r| format!(" ({r})")).unwrap_or_default();
+                        let line = if it["to"].is_null() {
+                            format!("{action}  {} · {}{reason}", it["section"].as_str().unwrap_or(""), it["field"].as_str().unwrap_or(""))
+                        } else {
+                            format!("{action}  {} · {} → {to}{reason}", it["section"].as_str().unwrap_or(""), it["field"].as_str().unwrap_or(""))
+                        };
+                        ui.label(RichText::new(line).color(color));
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let changes =
+                        b.result["items"].as_array().is_some_and(|a| a.iter().any(|i| matches!(i["action"].as_str(), Some("add" | "update"))));
+                    let blocked = b.result["otherDrawing"].as_bool() == Some(true) && !b.accept_other;
+                    if ui.add_enabled(changes && !blocked, egui::Button::new(crate::tl!("Apply"))).clicked() {
+                        apply = true;
+                    }
+                    if ui.button(crate::tl!("Cancel")).clicked() {
+                        // Closed below, like the window's own close button.
+                        ui.data_mut(|d| d.insert_temp(egui::Id::new("bridge_cancel"), true));
+                    }
+                });
+            });
+    }
+    if ctx.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("bridge_cancel"))).unwrap_or(false) {
+        open = false;
+    }
+    if rerun && let Some(b) = app.widgets.bridge.as_ref() {
+        let (path, overwrite) = (b.path.clone(), b.overwrite);
+        if let Ok(r) = app.run("bridge.import", json!({ "path": path, "overwrite": overwrite }))
+            && let Some(b) = app.widgets.bridge.as_mut()
+        {
+            b.result = r;
+        }
+    }
+    if apply && let Some(b) = app.widgets.bridge.take() {
+        match app.run("bridge.import", json!({ "path": b.path, "apply": true, "overwrite": b.overwrite, "acceptOtherDrawing": b.accept_other })) {
+            Ok(r) => app.set_status(r["message"].as_str().unwrap_or("Applied from AQC").to_string()),
+            Err(e) => app.set_status(e),
+        }
+        return;
+    }
+    if !open {
+        app.widgets.bridge = None;
     }
 }

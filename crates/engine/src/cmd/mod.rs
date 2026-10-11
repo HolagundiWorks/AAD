@@ -6,6 +6,7 @@ mod annotate;
 mod array;
 mod audit;
 mod blocks;
+mod bridge;
 pub mod clipboard;
 mod draw;
 mod draw2;
@@ -188,6 +189,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(walls::specs());
         v.extend(structure::specs());
         v.extend(symbols::specs());
+        v.extend(bridge::specs());
         v.extend(layout::specs());
         v.extend(props::specs());
         v.extend(inquiry::specs());

@@ -1122,3 +1122,10 @@
 	Done	Готово
 	Paused	Пауза
 	Ready	Готово до старту
+	AQC Bridge	Міст AQC
+	Export for AQC	Експорт для AQC
+	Import from AQC	Імпорт з AQC
+	Geometry is never changed by this import.	Цей імпорт ніколи не змінює геометрію.
+	This file came from a different drawing; apply anyway	Цей файл з іншого креслення; застосувати попри це
+	Overwrite fields already filled in AAD	Перезаписати поля, вже заповнені в AAD
+	Apply	Застосувати

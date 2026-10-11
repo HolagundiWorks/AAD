@@ -20,6 +20,7 @@ kit's README (`/HolagundiWorks/hcwCAD-KIT`). No C# source is included.
 | Structure | `grid.axis`, `column.place`, `column.schedule`, `lintel.draw`, `stair.plan`, `lift.shaft`, `rail.draw` | The grid is remembered; columns go on its intersections; lintels get a 150 mm bearing each side; stairs report risers, goings and concrete volume |
 | Levels and symbols | `level.mark`, `level.schedule`, `section.marker`, `elevation.marker`, `north.arrow`, `slope.arrow` | Level marks are stored so `level.schedule` lists them in ascending order |
 | Electrical layout | `electrical.blocks`, `electrical.number`, `electrical.layers`, `electrical.connect`, `electrical.schedule`, `electrical.update` | 17 symbol codes (SB, LP, FP, EF, SW1, SW2, CB, P5, P15, AC, WP, GY, FR, OV, WF, TV, INV). A point that reaches two boards is reported, not counted |
+| AQC bridge | `bridge.export`, `bridge.import` | File format `hcw-aqc-bridge` version 1, millimetres. Export writes project details, floors, beam depths, the opening schedule, door and window blocks, and walls, columns, lintels and slabs from the saved take-offs, beside the drawing as `name.aqc.json`. Import reads AQC's project details, floors and beam depths; it previews first, applies only on `apply` (the Apply button in the menu flow), leaves filled fields alone unless `overwrite`, asks for confirmation when the file came from another drawing, and never changes geometry. Not exported: rooms (no room log yet) and wall thickness |
 
 Limits that are stated, not hidden: electrical layout does not size circuits, compute loads or
 measure cable length; `stair.plan` draws a plan only; no section is drawn from the plan.
@@ -29,8 +30,7 @@ measure cable length; `stair.plan` draws a plan only; no section is drawn from t
 1. Text and drawing tools: `FIXTXT`, `TXTALIGN`, `TXTDUP`, `TXTEXPORT`, `DBCOUNT`, `DGRID`, `AUTOLABEL`, `INCARRAY`, `RENUMBERLAYOUTS`, `ROOMTEXTFIT`, `RTAG`, room log and report, polygon area.
 2. Layer tools: `HCWRESET`, `HCWLEGEND`, `BPLTSTART`, permit-layer move, `BPLT` report, `VHLAYERS`, `HCWAUDIT`, `HCWSTYLES`.
 3. Notes and fields, title block.
-4. Bridge file to and from the AQC estimation program.
-5. Wall edit, join, regenerate, hatch and adopt; escalators; column table; auto-dimension; sheet set and fit.
+4. Wall edit, join, regenerate, hatch and adopt; escalators; column table; auto-dimension; sheet set and fit.
 
 ## Not ported
 

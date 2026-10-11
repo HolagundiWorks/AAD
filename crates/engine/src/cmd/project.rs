@@ -63,7 +63,7 @@ fn num(v: &Value, key: &str, default: f64) -> f64 {
 }
 
 fn run_project(s: &mut Session, p: &Value) -> Result<Value> {
-    const KEYS: [&str; 10] = ["title", "owner", "architect", "engineer", "pid", "siteArea", "plotUse", "address", "authority", "date"];
+    const KEYS: [&str; 11] = ["title", "owner", "architect", "engineer", "pid", "siteArea", "plotUse", "address", "authority", "date", "location"];
     let mut cur = match get(s.doc()?, "details") {
         Value::Object(o) => o,
         _ => Map::new(),

@@ -30,3 +30,8 @@ crates/engine/src/calc.rs is a Rust port of the Architect Calculator Android app
 crates/engine/src/pomodoro.rs follows the behaviour of the Pomodoro clock in the AQC desktop
 program (https://github.com/HolagundiWorks/AQC, AGPL-3.0); it was written independently and
 contains no AQC source.
+
+AQC bridge
+crates/engine/src/cmd/bridge.rs reads and writes the hcw-aqc-bridge version 1 JSON format used by
+AQC (https://github.com/HolagundiWorks/AQC). Only the file format is shared; no AQC source is
+included.

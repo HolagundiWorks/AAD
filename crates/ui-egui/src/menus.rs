@@ -116,6 +116,14 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             }
             Ok(Value::Null)
         }
+        // Import from AQC (menu or typed): pick the file, then show what would change. Nothing is
+        // applied until the window's Apply button (which runs `bridge.import` with `apply`).
+        "bridge.import" if params.is_null() && app.services.pick_open.is_some() => {
+            if let Some(p) = app.services.pick_open.as_ref().and_then(|f| f()) {
+                crate::widgets::start_bridge_import(app, &p);
+            }
+            Ok(Value::Null)
+        }
         "ui.saveas" | "saveas" if no_path => {
             let title = app.session.state().map(|s| s.title.clone()).ok();
             let name = app.ui.save_format.suggested_name(title.as_deref());
