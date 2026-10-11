@@ -8,7 +8,7 @@ version = "0.6.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.90"
-repository = "https://github.com/storytold/cadcraft"
+repository = "https://github.com/HolagundiWorks/AADT"
 
 [workspace.dependencies]
 # internal
@@ -24,6 +24,7 @@ cadcraft-engine = { path = "crates/engine" }
 cadcraft-ui-egui = { path = "crates/ui-egui" }
 cadcraft-mcp = { path = "crates/mcp" }
 cadcraft-agent = { path = "crates/agent" }
+cadcraft-llm = { path = "crates/llm" }
 
 # foundation
 thiserror = "2"

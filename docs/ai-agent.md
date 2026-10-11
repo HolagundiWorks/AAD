@@ -11,7 +11,10 @@ work.
 |---|---|
 | Tool registry, strict parsing, schema validation, confirmation policy, loop limits, audit log (`crates/agent`) | **Implemented and tested** (13 unit tests) |
 | Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
-| Qwen3-1.7B runtime (llama.cpp adapter, chat template, model manifest) | **Planned.** Not built; nothing in this repository loads a model. |
+| Qwen3 chat format, model-file discovery and checks, generation settings (`crates/llm`) | **Implemented and tested** (7 tests, no model needed) |
+| Assistant conversation state machine: tool list prompt, strict parse, one retry, confirmation, step and history limits (`agent::Assistant`) | **Implemented and tested** with scripted model replies (8 tests) |
+| llama.cpp runtime (`cadcraft-llm` with feature `llama`) | **Written, not yet built or run.** It needs `libclang.dll` (LLVM), CMake and a C++ toolchain, and a model file; without the feature every call returns "this build does not include the language model runtime". Not exercised against a real model |
+| Desktop wiring (worker thread, Assistant window) and bundling the model in the installer | **Planned** |
 | Chat UI, result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
 | Schedule of openings, quantity take-off tools | **Planned.** The engine commands exist (`schedule`, `openings.table`, `takeoff.*`, see [hcw-kit-port.md](hcw-kit-port.md)) but are not yet in the agent registry. The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
