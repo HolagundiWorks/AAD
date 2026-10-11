@@ -1,4 +1,4 @@
-//! CADCraft agent tool layer.
+//! AAD agent tool layer.
 //!
 //! A small local language model (Qwen3-1.7B through llama.cpp, see `docs/ai-agent.md`) turns a
 //! user's request into a *proposed* tool call. This crate is everything between that proposal and

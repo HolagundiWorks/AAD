@@ -1,4 +1,4 @@
-//! CADCraft file formats: DXF read/write, SVG, PNG and PDF export (plotting).
+//! AAD file formats: DXF read/write, SVG, PNG and PDF export (plotting).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 

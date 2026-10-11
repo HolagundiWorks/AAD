@@ -1,9 +1,9 @@
 //! DXF data shared by the reader and the writer beyond plain entity geometry:
 //! dimension-variable group codes (DIMSTYLE records and the `ACAD` "DSTYLE" override xdata,
 //! both per the DXF Reference), arrowhead block names, extended-data helpers and the
-//! CADCraft-owned payloads (exact associativity, table flags, hatch gradients).
+//! AAD-owned payloads (exact associativity, table flags, hatch gradients).
 //!
-//! CADCraft's own data lives under the registered application `CADCRAFT` (xdata) and the
+//! AAD's own data lives under the registered application `CADCRAFT` (xdata) and the
 //! named-object-dictionary entries `CADCRAFT_LAYERSTATES` and
 //! `CADCRAFT_PLOTSTYLES` (XRECORDs). Other readers keep or ignore them.
 
@@ -16,7 +16,7 @@ use cadcraft_render::Arrowhead;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Registered application name of CADCraft's extended data.
+/// Registered application name of AAD's extended data.
 pub(crate) const APP: &str = "CADCRAFT";
 /// Named-object-dictionary key of the saved layer states XRECORD.
 pub(crate) const LAYER_STATES_KEY: &str = "CADCRAFT_LAYERSTATES";
@@ -315,17 +315,17 @@ pub(crate) fn read_dstyle(tags: &[Tag], styles: &HashMap<String, String>, blocks
 }
 
 /// Xdata marker of the paper-space viewport (id 1) the writer adds to layouts that have none;
-/// CADCraft keeps that viewport implicit, so the reader drops it.
+/// AAD keeps that viewport implicit, so the reader drops it.
 pub(crate) const PAPER_VIEW: &str = "PAPERVIEW";
 
-/// True for a VIEWPORT record carrying the [`PAPER_VIEW`] marker as the first string of its CADCraft
+/// True for a VIEWPORT record carrying the [`PAPER_VIEW`] marker as the first string of its AAD
 /// xdata, where the writer puts it. Later strings are layer names (VPFROZEN, VPCOLORS), so a layer
 /// called PAPERVIEW does not count.
 pub(crate) fn is_paper_view(tags: &[Tag]) -> bool {
     xdata(tags, APP).iter().find(|t| t.code == 1000).is_some_and(|t| t.str().trim().eq_ignore_ascii_case(PAPER_VIEW))
 }
 
-/// Snap kinds in CADCraft's ASSOC xdata.
+/// Snap kinds in AAD's ASSOC xdata.
 fn snap_code(s: &AssocSnap) -> i64 {
     match s {
         AssocSnap::Start => 0,
@@ -338,7 +338,7 @@ fn snap_code(s: &AssocSnap) -> i64 {
     }
 }
 
-/// Exact associativity as CADCraft xdata groups: per link `1000 point`, `1005 object`,
+/// Exact associativity as AAD xdata groups: per link `1000 point`, `1005 object`,
 /// `1070 snap` and the snap's argument (`1040 angle`, `1005 other object`, `1071 vertex`).
 pub(crate) fn assoc_xdata(assoc: &[DimAssoc]) -> Vec<Tag> {
     let mut v = vec![Tag::s(1000, "ASSOC"), Tag::s(1002, "{")];
@@ -359,7 +359,7 @@ pub(crate) fn assoc_xdata(assoc: &[DimAssoc]) -> Vec<Tag> {
     v
 }
 
-/// An arc-length dimension as CADCraft xdata: `1000 ARCLEN`, `1002 {`, the arc centre as an xdata
+/// An arc-length dimension as AAD xdata: `1000 ARCLEN`, `1002 {`, the arc centre as an xdata
 /// point (`1010`/`1020`/`1030`), `1002 }`. The record itself stays a standard aligned dimension
 /// (DXF has no arc-length DIMENSION type), so other programs still read it.
 pub(crate) fn arclen_xdata(center: cadcraft_geom::Vec3) -> Vec<Tag> {
@@ -373,7 +373,7 @@ pub(crate) fn read_arclen(tags: &[Tag]) -> Option<cadcraft_geom::Vec3> {
     Some(cadcraft_geom::Vec3::new(g(1010)?, g(1020)?, g(1030).unwrap_or(0.0)))
 }
 
-/// A viewport's frozen layer names as CADCraft xdata: `1000 VPFROZEN`, `1002 {`, one `1000` per layer, `1002 }`.
+/// A viewport's frozen layer names as AAD xdata: `1000 VPFROZEN`, `1002 {`, one `1000` per layer, `1002 }`.
 pub(crate) fn frozen_xdata(layers: &[String]) -> Vec<Tag> {
     let mut v = vec![Tag::s(1000, "VPFROZEN"), Tag::s(1002, "{")];
     v.extend(layers.iter().map(|l| Tag::s(1000, l.clone())));
@@ -387,7 +387,7 @@ pub(crate) fn read_frozen(tags: &[Tag]) -> Vec<String> {
     list.iter().take(MAX_XDATA_ITEMS).filter(|t| t.code == 1000).map(Tag::str).collect()
 }
 
-/// A viewport's layer colour overrides as CADCraft xdata: `1000 VPCOLORS`, `1002 {`, then per override
+/// A viewport's layer colour overrides as AAD xdata: `1000 VPCOLORS`, `1002 {`, then per override
 /// `1000 layer` and `1000 colour` (the [`Color::name`] text, which keeps true colours), `1002 }`.
 pub(crate) fn layer_colors_xdata(colors: &[(String, Color)]) -> Vec<Tag> {
     let mut v = vec![Tag::s(1000, "VPCOLORS"), Tag::s(1002, "{")];
@@ -408,7 +408,7 @@ pub(crate) fn read_layer_colors(tags: &[Tag]) -> Vec<(String, Color)> {
 
 const POINT_NAMES: [&str; 5] = ["defpt", "p13", "p14", "p15", "p16"];
 
-/// Associativity links from CADCraft xdata; malformed links are skipped.
+/// Associativity links from AAD xdata; malformed links are skipped.
 pub(crate) fn read_assoc(tags: &[Tag]) -> Vec<DimAssoc> {
     let list = xdata_list(xdata(tags, APP), "ASSOC");
     let mut out = Vec::new();

@@ -1,4 +1,4 @@
-//! The CADCraft egui front end.
+//! The AAD egui front end.
 //!
 //! A thin shell over [`cadcraft_engine::Session`]: panels read engine state and act through
 //! commands (`app.run(id, params)`) or the command line (`app.cmdline(text)`). Nothing here owns
@@ -30,6 +30,7 @@ pub mod palettes;
 pub mod plotstyles;
 pub mod quick;
 pub mod theme;
+pub mod toolbars;
 pub mod ucsicon;
 
 use std::sync::mpsc::Receiver;
@@ -50,7 +51,6 @@ pub struct UiState {
     pub docking: docking::Workspace,
 
     pub interface_language: i18n::Preference,
-    pub show_toolsets: bool,
     pub show_palettes: bool,
     pub show_toolbar: bool,
     pub show_file_tabs: bool,
@@ -63,9 +63,6 @@ pub struct UiState {
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
     /// when it is hidden. Off by default; `CADCRAFT_SYSTEM_CURSOR=1` turns it on at startup.
     pub system_cursor: bool,
-    /// The Tool Sets tab (only "Drafting").
-    pub toolset_tab: String,
-    pub collapsed_groups: Vec<String>,
     pub properties_all: bool,
     /// Show an in-window menu bar (platforms without a native menu bar, or on request).
     pub in_window_menu: bool,
@@ -83,7 +80,7 @@ pub struct UiState {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SaveFormat {
-    /// CADCraft's native format, and the default.
+    /// AAD's native format, and the default.
     #[default]
     Dxf,
     Dwg,
@@ -121,8 +118,7 @@ impl Default for UiState {
             docking: docking::Workspace::default(),
 
             interface_language: i18n::Preference::default(),
-            show_toolsets: true,
-            show_palettes: true,
+            show_palettes: false,
             show_toolbar: true,
             show_file_tabs: true,
             show_status_bar: true,
@@ -130,8 +126,6 @@ impl Default for UiState {
             show_ucs_icon: true,
             show_layer_list: false,
             system_cursor: std::env::var("CADCRAFT_SYSTEM_CURSOR").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "false" | "off")),
-            toolset_tab: "Drafting".into(),
-            collapsed_groups: Vec::new(),
             properties_all: true,
             in_window_menu: !cfg!(target_os = "macos"),
             start_tab: false,
@@ -312,11 +306,7 @@ impl CadApp {
     /// Why a `len`-byte file called `name` is too large for [`Self::open_bytes`], if it is.
     pub fn open_size_error(name: &str, len: u64) -> Option<String> {
         (len > Self::MAX_OPEN_BYTES).then(|| {
-            format!(
-                "Open: {name} is {:.1} MB, larger than the {} MB CADCraft opens in the browser",
-                len as f64 / 1048576.0,
-                Self::MAX_OPEN_BYTES >> 20
-            )
+            format!("Open: {name} is {:.1} MB, larger than the {} MB AAD opens in the browser", len as f64 / 1048576.0, Self::MAX_OPEN_BYTES >> 20)
         })
     }
 
@@ -410,9 +400,16 @@ impl CadApp {
         let t0 = now_ms();
         control::begin_frame(ui.ctx());
         let t = theme::Tokens::get();
-        chrome::title_and_toolbar(self, ui);
-        if self.ui.in_window_menu {
+        let classic_order = !self.integrated_titlebar;
+        if classic_order && self.ui.in_window_menu {
             menus::menu_bar(self, ui);
+        }
+        chrome::title_and_toolbar(self, ui);
+        if !classic_order && self.ui.in_window_menu {
+            menus::menu_bar(self, ui);
+        }
+        if self.ui.show_toolbar {
+            toolbars::top_row(self, ui);
         }
         if self.ui.show_status_bar {
             chrome::status_bar(self, ui);
@@ -421,6 +418,10 @@ impl CadApp {
             chrome::file_tabs(self, ui);
         }
         let has_doc = !self.session.docs.is_empty() && !self.ui.start_tab;
+        if has_doc && self.ui.show_toolbar {
+            toolbars::draw_toolbar(self, ui);
+            toolbars::modify_toolbar(self, ui);
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
             if has_doc {
                 docking::show(self, ui);
@@ -570,7 +571,7 @@ mod tests {
     #[test]
     fn default_save_format_persists_and_names_new_drawings() {
         let mut a = app();
-        assert_eq!(a.ui.save_format, SaveFormat::Dxf, "default keeps DXF, CADCraft's native format");
+        assert_eq!(a.ui.save_format, SaveFormat::Dxf, "default keeps DXF, AAD's native format");
         assert!(a.run("ui.saveformat", json!({ "format": "pdf" })).is_err());
         assert_eq!(a.run("ui.saveformat", json!({ "format": "DWG" })).ok(), Some(json!({ "saveFormat": "dwg" })));
         assert_eq!(a.run("ui.saveformat", json!({})).ok(), Some(json!({ "saveFormat": "dwg" })), "no format: report it");

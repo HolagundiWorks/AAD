@@ -1,4 +1,4 @@
-//! CADCraft in the browser.
+//! AAD in the browser.
 //!
 //! Runs the same [`cadcraft_ui_egui::CadApp`] as the desktop app through eframe's web runner
 //! (wgpu: WebGPU where available, WebGL2 otherwise). Build with `trunk build --release` from this
@@ -106,9 +106,7 @@ mod web {
             if let Some(el) = document.get_element_by_id(LOADING_ID) {
                 match result {
                     Ok(()) => el.remove(),
-                    Err(e) => {
-                        el.set_inner_html(&format!("<p>CADCraft failed to start: {e:?}</p><p>A browser with WebGPU or WebGL2 is required.</p>"))
-                    }
+                    Err(e) => el.set_inner_html(&format!("<p>AAD failed to start: {e:?}</p><p>A browser with WebGPU or WebGL2 is required.</p>")),
                 }
             }
         });

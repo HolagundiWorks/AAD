@@ -1,5 +1,5 @@
 //! Design tokens. Colours were measured from the reference look (dark slate chrome) and are
-//! CADCraft's own values; every widget reads them from here.
+//! AAD's own values; every widget reads them from here.
 //!
 //! Two palettes, switched by one toggle: [`Tokens::DARK`] (black drawing area) and
 //! [`Tokens::LIGHT`] (white drawing area). The theme changes the chrome (title and tool bar,
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum ThemePref {
     Light,
-    /// The default: CADCraft's original look.
+    /// The default: AAD's original look.
     #[default]
     Dark,
 }

@@ -1,4 +1,4 @@
-//! CADCraft text layout.
+//! AAD text layout.
 //!
 //! Turns TEXT and MTEXT into stroke polylines with the built-in single-stroke font
 //! ("CADCraft Stroke") or glyph outlines of installed TrueType fonts ([`ttf`]), with a

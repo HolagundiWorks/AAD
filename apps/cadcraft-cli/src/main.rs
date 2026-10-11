@@ -1,4 +1,4 @@
-//! `cadcraft-cli`: headless CADCraft.
+//! `cadcraft-cli`: headless AAD.
 //!
 //! ```text
 //! cadcraft-cli info FILE.dxf                       summary as JSON

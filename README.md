@@ -1,6 +1,6 @@
-# CADCraft (2D drafting fork)
+# AAD - Accelerated Architecture Drafting
 
-A 2D computer-aided drafting application written in Rust, aimed at architectural and civil
+AAD is a 2D computer-aided drafting application written in Rust, aimed at architectural and civil
 drafting. It reads and writes DXF and DWG, runs on Windows, macOS, Linux, FreeBSD and in the
 browser (WebAssembly), and can be driven from scripts and agents. This repository is a fork of
 [storytold/cadcraft](https://github.com/storytold/cadcraft) with the 3D, parametric-constraint and
@@ -66,14 +66,14 @@ tool layer is built and tested; the Qwen3-1.7B model runtime is not integrated y
 
 ## Configuration
 
-- Fonts: CADCraft ships none and uses the TrueType/OpenType fonts installed on the system. SHX fonts
+- Fonts: AAD ships none and uses the TrueType/OpenType fonts installed on the system. SHX fonts
   are not read; text in an SHX style is drawn with the built-in stroke font. `FONTALT` and
   `FONTFALLBACK` (or `CADCRAFT_FONTALT`, `CADCRAFT_FONTFALLBACK`) name a replacement font and the
   fonts tried first for characters a font lacks. `.` clears either.
 - Logs: the desktop app writes to standard error and to `logs/cadcraft.log` in the settings
-  directory (`~/.config/cadcraft/` on Linux and the BSDs, `~/Library/Application Support/CADCraft/`
-  on macOS, `%APPDATA%\CADCraft\` on Windows). `CADCRAFT_CONFIG_DIR` overrides the directory and
-  `RUST_LOG` sets the levels (default `info` for CADCraft's crates, `warn` for the rest). Each launch
+  directory (`~/.config/cadcraft/` on Linux and the BSDs, `~/Library/Application Support/AAD/`
+  on macOS, `%APPDATA%\AAD\` on Windows). `CADCRAFT_CONFIG_DIR` overrides the directory and
+  `RUST_LOG` sets the levels (default `info` for AAD's crates, `warn` for the rest). Each launch
   rotates the previous log; the file stops growing at 16 MiB.
 - Theme: one light/dark toggle (View menu, status bar). Dark has a black drawing area, light a
   white one. There is no other colour customisation.

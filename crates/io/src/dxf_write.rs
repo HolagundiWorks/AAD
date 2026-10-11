@@ -600,7 +600,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 DimKind::Radius => 4,
                 DimKind::Angular3P => 5,
                 DimKind::Ordinate { x_type } => 6 | if x_type { 64 } else { 0 },
-                // Written as aligned, marked by CADCraft xdata (see `dim_xdata`).
+                // Written as aligned, marked by AAD xdata (see `dim_xdata`).
                 DimKind::ArcLength => 1,
             };
             w.i(70, ty | 32 | if dm.user_text_pos { 128 } else { 0 });
@@ -843,7 +843,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             w.f(45, v.view_height);
             // Status flags: 16384 = display locked, 32768 = always set (readers take it as "on").
             w.i(90, 32768 | if v.locked { 16384 } else { 0 });
-            // One CADCraft xdata group holds both lists: readers stop at the first group of an app.
+            // One AAD xdata group holds both lists: readers stop at the first group of an app.
             if !v.frozen_layers.is_empty() || !v.layer_colors.is_empty() {
                 w.s(1001, dxf_ext::APP);
                 if !v.frozen_layers.is_empty() {
@@ -887,7 +887,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 w.p2(14, Vec2::new((q.x - o.x) / sx - 0.5, 0.5 - (q.y - o.y) / sy));
             }
         }
-        // Entity types CADCraft doesn't model aren't written; the save command reports them.
+        // Entity types AAD doesn't model aren't written; the save command reports them.
         EntityKind::Unknown(_) => {}
     }
 }
@@ -1088,7 +1088,7 @@ fn arrow_block_entities(kind: cadcraft_render::Arrowhead) -> Vec<Entity> {
 
 /// Standard DIMASSOC point references of an associative dimension: the extension-line
 /// origins of linear/aligned dimensions and the feature point of ordinate dimensions, linked
-/// to objects that exist. CADCraft's exact links travel in xdata as well.
+/// to objects that exist. AAD's exact links travel in xdata as well.
 fn std_assoc_refs(d: &Drawing, dm: &Dimension) -> (i64, Vec<OsnapRef>) {
     let slots: &[&str] = match dm.kind {
         DimKind::Linear { .. } | DimKind::Aligned => &["p13", "p14"],
@@ -1122,7 +1122,7 @@ fn std_assoc_refs(d: &Drawing, dm: &Dimension) -> (i64, Vec<OsnapRef>) {
 /// Layouts with viewports but without the paper-space viewport (id 1, the sheet itself), keyed
 /// by their first viewport. AutoCAD and DWG take a layout's first viewport as its paper-space
 /// viewport (DWG does not store viewport ids; readers number them in order), so a layout made in
-/// CADCraft, whose paper-space viewport is implicit, gets one written ahead of its viewports.
+/// AAD, whose paper-space viewport is implicit, gets one written ahead of its viewports.
 fn paper_views(d: &Drawing) -> HashMap<Handle, usize> {
     let mut out = HashMap::new();
     'layouts: for (i, l) in d.layouts.iter().enumerate() {
@@ -1143,7 +1143,7 @@ fn paper_views(d: &Drawing) -> HashMap<Handle, usize> {
 }
 
 /// The paper-space viewport (id 1) of the layout whose first viewport is `e`, if it needs one
-/// ([`paper_views`]): the whole sheet, viewed 1:1. Marked with CADCraft xdata so that our reader
+/// ([`paper_views`]): the whole sheet, viewed 1:1. Marked with AAD xdata so that our reader
 /// leaves it implicit again.
 fn paper_view(w: &mut W, d: &Drawing, e: &Entity, owner: &str, cx: &Ctx) {
     let Some(l) = cx.paper_views.get(&e.handle).and_then(|i| d.layouts.get(*i)) else { return };
@@ -1311,7 +1311,7 @@ pub fn write(d: &Drawing) -> String {
     let group_dict = w.h();
     let layout_dict = w.h();
     let table_style_dict = w.h();
-    // CADCraft data in XRECORDs of the named object dictionary: (key, handle, text chunks).
+    // AAD data in XRECORDs of the named object dictionary: (key, handle, text chunks).
     let mut xrecords: Vec<(&str, String, Vec<String>)> = Vec::new();
     if let Some(chunks) = dxf_ext::layer_state_chunks(&d.layer_states) {
         xrecords.push((dxf_ext::LAYER_STATES_KEY, w.h(), chunks));
@@ -1513,7 +1513,7 @@ pub fn write(d: &Drawing) -> String {
         w.f(50, s.oblique.to_degrees());
         w.i(71, if s.backwards { 2 } else { 0 } | if s.upside_down { 4 } else { 0 });
         w.f(42, 0.2);
-        // The built-in font goes out as `txt`, which every reader has; CADCraft's own name
+        // The built-in font goes out as `txt`, which every reader has; AAD's own name
         // travels in `CADCRAFT` xdata (`1000 FONT`, name) so the style reopens with it.
         let file = if s.font == cadcraft_fonts_name() { "txt" } else { s.font.as_str() };
         w.s(3, file);
@@ -1551,7 +1551,7 @@ pub fn write(d: &Drawing) -> String {
             *t = Tag::s(340, h.unwrap_or_else(|| fallback_style.clone()));
         }
     }
-    // VIEW: named views (DXF Reference, VIEW). A view's layer state is CADCraft xdata.
+    // VIEW: named views (DXF Reference, VIEW). A view's layer state is AAD xdata.
     let th = table_head(&mut w, "VIEW", d.views.len());
     for v in &d.views {
         record_head(&mut w, "VIEW", &th, "AcDbViewTableRecord");
@@ -1829,7 +1829,7 @@ pub fn write(d: &Drawing) -> String {
         w.group("ACAD_REACTORS", 330, &[&pstyle_dict]);
         w.s(330, pstyle_dict.clone());
     }
-    // Saved layer states, plot style tables (CADCraft
+    // Saved layer states, plot style tables (AAD
     // data).
     for (_, h, chunks) in &xrecords {
         w.s(0, "XRECORD");
@@ -1963,7 +1963,7 @@ pub fn write(d: &Drawing) -> String {
         w.p(17, Vec3::new(0.0, 1.0, 0.0));
         w.i(76, 0);
         w.s(330, brh);
-        // The saved paper-space view (centre, height) as CADCraft xdata.
+        // The saved paper-space view (centre, height) as AAD xdata.
         if let Some((c, height)) = view.filter(|(c, v)| c.x.is_finite() && c.y.is_finite() && v.is_finite()) {
             w.s(1001, dxf_ext::APP);
             w.s(1000, "PSVIEW");

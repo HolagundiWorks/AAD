@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use crate::CadApp;
 
 /// The top-level menus, in order.
-pub const MENUS: &[&str] = &["File", "Edit", "View", "Insert", "Format", "Tools", "Draw", "Dimension", "Modify", "Window", "Help"];
+pub const MENUS: &[&str] = &["File", "Edit", "View", "Insert", "Format", "Tools", "Draw", "Dimension", "Modify", "Architecture", "Window", "Help"];
 
 /// UI-only commands: (id, label, menu path, shortcut).
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
@@ -15,7 +15,6 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.open", "Open...", &[], Some("Cmd+O")),
     ("ui.saveas", "Save As...", &[], None),
     ("ui.sample", "Open Sample Drawing", &["Help", "Open Sample Drawing"], None),
-    ("ui.toggle.toolsets", "Tool Sets", &["Window", "Tool Sets"], Some("Cmd+3")),
     ("ui.panel.properties", "Properties Inspector", &["Window", "Properties Inspector"], Some("Cmd+1")),
     ("ui.panel.layers", "Layers Palette", &["Window", "Layers Palette"], None),
     ("ui.toggle.systemcursor", "Show System Cursor", &["View", "Accessibility", "Show System Cursor"], None),
@@ -40,14 +39,14 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.dialog.qselect", "Quick Select...", &[], None),
     ("ui.dialog.parameters", "Parameters Manager", &["Window", "Parameters Manager"], None),
     ("ui.dialog.dsettings", "Drafting Settings...", &[], None),
-    ("ui.dialog.about", "About CADCraft", &["Help", "About CADCraft"], None),
-    ("ui.dialog.commands", "Command Reference", &["Help", "CADCraft Help"], Some("F1")),
+    ("ui.dialog.about", "About AAD", &["Help", "About AAD"], None),
+    ("ui.dialog.commands", "Command Reference", &["Help", "AAD Help"], Some("F1")),
     ("ui.toggle.history", "Command History", &["Window", "Command History"], Some("F2")),
     ("ui.cmdline.lines", "Command Line History Lines", &[], None),
     ("ui.dialog.language", "Interface Language", &["Edit", "Interface Language"], None),
     ("ui.language", "Language", &[], None),
     ("ui.noop", "", &[], None),
-    ("ui.quit", "Quit CADCraft", &[], Some("Cmd+Q")),
+    ("ui.quit", "Quit AAD", &[], Some("Cmd+Q")),
 ];
 
 pub fn is_ui_command(id: &str) -> bool {
@@ -136,13 +135,6 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             app.ui.start_tab = false;
             Ok(Value::Null)
         }
-        "ui.toggle.toolsets" => {
-            if params.get("on").and_then(Value::as_bool) == Some(true) {
-                return Some(crate::docking::command(app, false, &json!({"operation":"open", "panel":"toolSets"})));
-            }
-            toggle(&mut app.ui.show_toolsets, params);
-            Ok(Value::Null)
-        }
         "ui.toggle.palettes" => {
             toggle(&mut app.ui.show_palettes, params);
             Ok(Value::Null)
@@ -203,7 +195,6 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         },
         "ui.hidepalettes" => {
             app.ui.show_palettes = false;
-            app.ui.show_toolsets = false;
             Ok(Value::Null)
         }
         "ui.resetpalettes" => {
@@ -432,7 +423,6 @@ pub fn shortcuts(app: &mut CadApp, ctx: &egui::Context) {
         (sc(cmd_shift, Key::V), "pasteblock"),
         (sc(cmd, Key::V), "pasteclip"),
         (sc(cmd, Key::Num1), "ui.panel.properties"),
-        (sc(cmd, Key::Num3), "ui.toggle.toolsets"),
         (sc(cmd, Key::Num9), "ui.toggle.cmdline"),
         (sc(Modifiers::NONE, Key::F1), "ui.dialog.commands"),
         (sc(Modifiers::NONE, Key::F2), "ui.toggle.history"),

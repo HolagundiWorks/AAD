@@ -220,12 +220,9 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
 fn about(ctx: &egui::Context, open: &mut bool) {
     let t = Tokens::get();
     let tab_id = egui::Id::new("about_tab");
-    egui::Window::new(crate::tl!("About CADCraft"))
-        .id(egui::Id::new("About CADCraft"))
-        .open(open)
-        .default_size(vec2(640.0, 420.0))
-        .collapsible(false)
-        .show(ctx, |ui| {
+    egui::Window::new(crate::tl!("About AAD")).id(egui::Id::new("About AAD")).open(open).default_size(vec2(640.0, 420.0)).collapsible(false).show(
+        ctx,
+        |ui| {
             let mut tab = ui.data_mut(|d| d.get_temp::<u8>(tab_id)).unwrap_or(0);
             ui.horizontal(|ui| {
                 for (i, l) in ["About", "Contributors", "Models"].iter().enumerate() {
@@ -240,18 +237,16 @@ fn about(ctx: &egui::Context, open: &mut bool) {
                 1 => crate::credits::contributors_ui(ui),
                 2 => crate::credits::models_ui(ui),
                 _ => {
-                    ui.heading(crate::tl!("CADCraft"));
+                    ui.heading("AAD");
+                    ui.label("Accelerated Architecture Drafting");
                     ui.label(crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
-                    ui.label(crate::tl!("Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust."));
                     ui.add_space(6.0);
-                    ui.label(RichText::new(crate::tl!("One of the Crafting Apps by the ArtCraft team and community.")).color(t.text_dim));
-                    ui.hyperlink_to("getartcraft.com/apps/cadcraft", "https://getartcraft.com/apps/cadcraft");
-                    ui.hyperlink_to(crate::tl!("Join us on Discord"), "https://discord.gg/artcraft");
-                    ui.add_space(6.0);
+                    ui.label(crate::tl!("2D architectural drafting. Open source, written in Rust."));
                     ui.label(RichText::new(crate::tl!("MIT OR Apache-2.0. Not affiliated with Autodesk, Inc.")).small().color(t.text_faint));
                 }
             }
-        });
+        },
+    );
 }
 
 fn commands(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {

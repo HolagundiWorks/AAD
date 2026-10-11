@@ -1,4 +1,4 @@
-//! Architectural drafting tools built into CADCraft, re-implemented in Rust from the hcwCAD-KIT
+//! Architectural drafting tools built into AAD, re-implemented in Rust from the hcwCAD-KIT
 //! command set (MIT, Holgundi Consulting Works): the HCW and building-permission layer sets,
 //! room labels (ROOM) and the polyline area label (RAREA).
 //!
@@ -141,18 +141,18 @@ const ROOM_TYPES: &[(&str, &str)] = &[
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("hcwlayers", "Architectural Layer Set", run_layers)
-            .menu(&["Format", "Layer Tools", "Architectural Layer Set"])
+            .menu(&["Architecture", "Layer Set"])
             .alias(&["hcwlayer"])
             .params("{set?: \"hcw\" | \"bp\" | \"both\" (default hcw)} → {created, existing}"),
         CommandSpec::new("room", "Room Label", run_room)
-            .menu(&["Draw", "Room Label"])
+            .menu(&["Architecture", "Rooms and Areas", "Room Label"])
             .alias(&["hcwroom", "roomc"])
             .params(
                 "{p1, p2, name (room name or two-letter code), floorPrefix?, textHeight? (drawing units), rectangle?: bool, units?: mm|cm|m|ft|in}",
             )
             .interactive(|_| Ok(Box::new(RoomM::default()))),
         CommandSpec::new("rarea", "Room Area", run_rarea)
-            .menu(&["Draw", "Room Area"])
+            .menu(&["Architecture", "Rooms and Areas", "Room Area"])
             .alias(&["hcwroomarea"])
             .params("{handles?: closed polylines, textHeight?, units?}")
             .interactive(|_| Ok(Box::new(SelectRun::single("rarea", "RAREA", "Select a closed polyline")))),

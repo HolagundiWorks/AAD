@@ -98,7 +98,7 @@ fn every_marked_ui_literal_has_a_translation() {
                     .unwrap();
                 let key: String = serde_json::from_str(&rest[..end]).unwrap();
                 // Coordinate axes, glyph buttons and product names are not translated.
-                if !["X", "Y", "B", "CADCraft"].contains(&key.as_str()) && !catalog.contains_key(&("", key.as_str())) {
+                if !["X", "Y", "B", "AAD"].contains(&key.as_str()) && !catalog.contains_key(&("", key.as_str())) {
                     missing.insert(key);
                 }
             }
@@ -214,6 +214,7 @@ fn render(app: &mut CadApp, ctx: &egui::Context) -> String {
 fn live_switch_translates_the_shell_without_mutating_drawing_or_automation() {
     let mut app = CadApp::new(Session::new(), Services::default());
     app.ui.in_window_menu = true;
+    app.ui.show_palettes = true;
     app.session.state_mut().unwrap().title = "Open".into();
     let ctx = egui::Context::default();
     app.logic(&ctx);
@@ -241,7 +242,7 @@ fn live_switch_translates_the_shell_without_mutating_drawing_or_automation() {
     app.run("ui.resetpalettes", json!({})).unwrap();
     assert_eq!(app.language(), "uk");
     app.run("ui.language", json!({"lang":"en"})).unwrap();
-    assert!(render(&mut app, &ctx).contains("Properties"));
+    assert!(render(&mut app, &ctx).contains("Modify"));
     // The menu tree used by the control channel keeps its original labels and IDs.
     assert_eq!(crate::menus::tree(&app).first().unwrap().0, "File");
 }
@@ -250,7 +251,7 @@ fn live_switch_translates_the_shell_without_mutating_drawing_or_automation() {
 fn dialogs_render_in_ukrainian_and_keep_their_source_ids() {
     for (dialog, heading) in [
         ("dsettings", "Налаштування креслення"),
-        ("about", "Про CADCraft"),
+        ("about", "Про AAD"),
         ("commands", "Довідник команд"),
         ("blocks", "Блоки"),
         ("layers", "Диспетчер властивостей шарів"),

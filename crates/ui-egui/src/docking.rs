@@ -10,17 +10,15 @@ use serde_json::{Value, json};
 #[serde(rename_all = "camelCase")]
 pub enum Panel {
     Canvas,
-    ToolSets,
     Layers,
     Properties,
 }
 
 impl Panel {
-    pub const ALL: &[Self] = &[Self::Canvas, Self::ToolSets, Self::Layers, Self::Properties];
+    pub const ALL: &[Self] = &[Self::Canvas, Self::Layers, Self::Properties];
     pub fn id(self) -> &'static str {
         match self {
             Self::Canvas => "canvas",
-            Self::ToolSets => "toolSets",
             Self::Layers => "layers",
             Self::Properties => "properties",
         }
@@ -28,7 +26,6 @@ impl Panel {
     fn label(self) -> &'static str {
         match self {
             Self::Canvas => "Drawing",
-            Self::ToolSets => "Tool Sets",
             Self::Layers => "Layers",
             Self::Properties => "Properties",
         }
@@ -36,7 +33,6 @@ impl Panel {
     fn default_side(self) -> Zone {
         match self {
             Self::Canvas => Zone::Right,
-            Self::ToolSets => Zone::Left,
             Self::Layers => Zone::Right,
             Self::Properties => Zone::Right,
         }
@@ -72,19 +68,14 @@ impl Default for Workspace {
             layout: Layout {
                 root: Some(split(
                     SplitAxis::Horizontal,
-                    SplitSize::FixedFirst(220.0),
-                    tabs(Panel::ToolSets),
-                    split(
-                        SplitAxis::Horizontal,
-                        SplitSize::FixedSecond(300.0),
-                        tabs(Panel::Canvas),
-                        Node::Stack {
-                            entries: vec![
-                                craft_ui::docking::StackEntry { panel: Panel::Layers, open: true, height: Some(280.0) },
-                                craft_ui::docking::StackEntry { panel: Panel::Properties, open: true, height: None },
-                            ],
-                        },
-                    ),
+                    SplitSize::FixedSecond(300.0),
+                    tabs(Panel::Canvas),
+                    Node::Stack {
+                        entries: vec![
+                            craft_ui::docking::StackEntry { panel: Panel::Layers, open: true, height: Some(280.0) },
+                            craft_ui::docking::StackEntry { panel: Panel::Properties, open: true, height: None },
+                        ],
+                    },
                 )),
                 floating: Vec::new(),
             },
@@ -274,7 +265,6 @@ impl Workspace {
 }
 
 fn sync(workspace: &mut Workspace, app: &crate::CadApp) -> Result<(), String> {
-    workspace.set_visible(Panel::ToolSets, app.ui.show_toolsets)?;
     if !app.ui.show_palettes {
         workspace.set_visible(Panel::Layers, false)?;
         workspace.set_visible(Panel::Properties, false)?;
@@ -287,7 +277,6 @@ fn sync(workspace: &mut Workspace, app: &crate::CadApp) -> Result<(), String> {
 }
 
 fn publish_visibility(app: &mut crate::CadApp, workspace: &Workspace) {
-    app.ui.show_toolsets = workspace.layout.contains(&Panel::ToolSets);
     app.ui.show_palettes = workspace.layout.contains(&Panel::Layers) || workspace.layout.contains(&Panel::Properties);
 }
 
@@ -337,7 +326,6 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
                 ui.painter().rect_filled(ui.max_rect(), 0.0, t.canvas);
                 crate::canvas::show(app, ui);
             }
-            Panel::ToolSets => crate::palettes::toolsets(app, ui),
             Panel::Layers => {
                 egui::ScrollArea::vertical()
                     .id_salt("dock-layers")
@@ -377,7 +365,6 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
 fn panel_limits(panel: &Panel) -> PanelLimits {
     let (min, max_width) = match panel {
         Panel::Canvas => (egui::vec2(300.0, 180.0), 1_000_000.0),
-        Panel::ToolSets => (egui::vec2(220.0, 150.0), 480.0),
         Panel::Layers | Panel::Properties => (egui::vec2(220.0, 100.0), 720.0),
     };
     PanelLimits { min, max: egui::vec2(max_width, 1_000_000.0) }

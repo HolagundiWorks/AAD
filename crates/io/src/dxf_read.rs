@@ -139,7 +139,7 @@ fn text_from(t: &T) -> Text {
 }
 
 /// TEXT / ATTRIB / ATTDEF with extrusion (0,0,-1): the points are OCS and the text runs from its
-/// insertion point towards -x in the WCS, with mirrored glyphs. CADCraft draws text readable
+/// insertion point towards -x in the WCS, with mirrored glyphs. AAD draws text readable
 /// (MIRRTEXT = 0), so it keeps the mirrored footprint: the direction turns to -rotation and
 /// left/right justification swap ends (start ↔ end point).
 fn mirror_text(t: &mut Text, align: Option<Vec3>, insert: Vec3) {
@@ -463,7 +463,7 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
     Some((c, k))
 }
 
-/// An ACAD_TABLE entity: sizes, cell texts and merges (DXF Reference), plus CADCraft's
+/// An ACAD_TABLE entity: sizes, cell texts and merges (DXF Reference), plus AAD's
 /// title/header flags, text height and style name from xdata when present.
 fn acad_table(tags: &[Tag]) -> Table {
     const MAX_CELLS: usize = 1_000_000;
@@ -746,7 +746,7 @@ fn default_gradient() -> Gradient {
 }
 
 /// A hatch's gradient fill: the native groups when present (another program may have edited
-/// them), otherwise CADCraft's `GRADIENT` xdata (kept by R2000 files and DWG conversions).
+/// them), otherwise AAD's `GRADIENT` xdata (kept by R2000 files and DWG conversions).
 fn gradient(tags: &[Tag]) -> Option<Gradient> {
     if tags.iter().any(|x| x.code == 450) { native_gradient(tags) } else { xdata_gradient(tags) }
 }
@@ -1068,7 +1068,7 @@ fn annotative(tags: &[Tag]) -> bool {
     list.iter().filter(|t| t.code == 1070).nth(1).is_some_and(|t| t.i64() != 0)
 }
 
-/// A text style's font: CADCraft's own font name from `CADCRAFT` xdata (`1000 FONT`, name)
+/// A text style's font: AAD's own font name from `CADCRAFT` xdata (`1000 FONT`, name)
 /// while the font file is still the `txt` written for other readers, otherwise the file.
 fn style_font(tags: &[Tag], file: String) -> String {
     let x = crate::dxf_ext::xdata(tags, crate::dxf_ext::APP);
@@ -1505,7 +1505,7 @@ impl Objects {
         }
     }
 
-    /// The text of the CADCraft XRECORD stored under `key` in a dictionary (its 1/3 strings).
+    /// The text of the AAD XRECORD stored under `key` in a dictionary (its 1/3 strings).
     fn xrecord_text(&self, key: &str) -> Option<String> {
         let h = self.names.iter().find(|(_, n)| n.as_str() == key).map(|(h, _)| h)?;
         let tags = self.xrecords.get(h)?;
@@ -1597,7 +1597,7 @@ impl Objects {
                 None => d.groups.push(g),
             }
         }
-        // Standard associativity, for dimensions without CADCraft's exact links.
+        // Standard associativity, for dimensions without AAD's exact links.
         for tags in &self.dimassocs {
             dimassoc(d, tags);
         }
@@ -1643,7 +1643,7 @@ fn dimassoc(d: &mut Drawing, tags: &[Tag]) {
     }
 }
 
-/// A CADCraft snap from a DIMASSOC object snap type and point.
+/// A AAD snap from a DIMASSOC object snap type and point.
 fn infer_snap(d: &Drawing, osnap: i64, main: Handle, other: Option<Handle>, at: Vec2) -> Option<AssocSnap> {
     let e = d.entity(main)?;
     Some(match osnap {
@@ -1733,7 +1733,7 @@ fn page_setup(t: &T) -> PageSetup {
     p
 }
 
-/// A layout's saved paper-space view (centre, height) from CADCraft xdata.
+/// A layout's saved paper-space view (centre, height) from AAD xdata.
 fn layout_view(tags: &[Tag]) -> Option<(Vec2, f64)> {
     let list = crate::dxf_ext::xdata_list(crate::dxf_ext::xdata(tags, crate::dxf_ext::APP), "PSVIEW");
     let g = |c: i32| list.iter().find(|t| t.code == c).map(Tag::f64).filter(|v| v.is_finite());

@@ -68,8 +68,8 @@ pub fn title_and_toolbar(app: &mut CadApp, ui: &mut egui::Ui) {
         let r = ui.max_rect();
         if title_h > 0.0 {
             let title = match app.session.state() {
-                Ok(st) if !app.ui.start_tab => format!("CADCraft      {}{}", st.title, if st.title.contains('.') { "" } else { ".dwg" }),
-                _ => format!("CADCraft      {}", crate::tl!("Start")),
+                Ok(st) if !app.ui.start_tab => format!("AAD      {}{}", st.title, if st.title.contains('.') { "" } else { ".dwg" }),
+                _ => format!("AAD      {}", crate::tl!("Start")),
             };
             // Centred on the traffic lights' centre line (the row's middle): with the system font
             // the capitals' middle is the text box's middle, so no optical nudge.
@@ -280,7 +280,7 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             x += 22.0;
         }
-        x = x.max(r.left() + if app.ui.show_toolsets { 232.0 } else { 60.0 });
+        x = x.max(r.left() + 60.0);
         // Layout tabs.
         let mut tabs: Vec<String> = vec!["Model".into()];
         let cur = app.session.state().map(|s| match &s.space {
@@ -436,11 +436,11 @@ pub fn start_page(app: &mut CadApp, ui: &mut egui::Ui) {
     let left = Rect::from_min_size(r.min, vec2(300.0, r.height()));
     p.rect_filled(left, 0.0, t.chrome_dark);
     p.rect_filled(Rect::from_min_max(pos2(left.right(), r.top()), r.max), 0.0, t.chrome);
-    p.text(pos2(left.left() + 34.0, left.top() + 70.0), egui::Align2::LEFT_CENTER, crate::tl!("CADCraft"), egui::FontId::proportional(28.0), t.text);
+    p.text(pos2(left.left() + 34.0, left.top() + 70.0), egui::Align2::LEFT_CENTER, "AAD", egui::FontId::proportional(28.0), t.text);
     p.text(
         pos2(left.left() + 34.0, left.top() + 98.0),
         egui::Align2::LEFT_CENTER,
-        crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION")),
+        format!("Accelerated Architecture Drafting - {}", crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION"))),
         crate::theme::small(),
         t.text_faint,
     );

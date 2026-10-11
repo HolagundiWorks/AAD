@@ -6,7 +6,7 @@ Each tool is a normal command: JSON form, prompt form, menu entry, tests. Behavi
 the kit's README (`/HolagundiWorks/hcwCAD-KIT`).
 
 ## Done
-| Kit command | CADCraft command | Notes |
+| Kit command | AAD command | Notes |
 |---|---|---|
 | Layer sets (HCW standard, BPLT) | `hcwlayers` `{set: hcw\|bp\|both}` | Creates missing layers only; unknown linetypes fall back to Continuous |
 | `ROOM`, `ROOMC` | `room` (aliases `hcwroom`, `roomc`) | Two corners, 29 room codes, rectangle + name / size / area text, units from `INSUNITS` |

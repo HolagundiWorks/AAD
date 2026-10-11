@@ -1,7 +1,7 @@
 //! Flattening of imported drawings.
 //!
 //! A drawing read from a DXF or DWG file may carry 3D data: elevations, thickness, entities with
-//! z coordinates. CADCraft is a 2D drafting engine, so [`flatten_drawing`] projects every entity
+//! z coordinates. AAD is a 2D drafting engine, so [`flatten_drawing`] projects every entity
 //! of model space, layouts and block definitions onto the XY plane (the same operation the
 //! FLATTEN command applies to a selection) and reports what it could not flatten.
 //!
@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use crate::cmd::modify2::flatten_kind;
 
-/// Object types that are 3D by nature. They are kept as read (CADCraft doesn't model them, and
+/// Object types that are 3D by nature. They are kept as read (AAD doesn't model them, and
 /// writes them back unchanged only where the file format allows) but cannot be flattened.
 const SOLID_TYPES: &[&str] = &[
     "3DSOLID",
@@ -43,7 +43,7 @@ pub struct FlattenReport {
     pub flattened: usize,
     /// 3D-only objects left as read, by DXF type.
     pub unsupported_3d: BTreeMap<String, usize>,
-    /// Other object types CADCraft doesn't model, left as read, by DXF type.
+    /// Other object types AAD doesn't model, left as read, by DXF type.
     pub unmodelled: BTreeMap<String, usize>,
     /// Entities drawn on a plane that isn't parallel to the XY plane (their extrusion direction
     /// is not ±Z). Their coordinates are still zeroed; the plane itself is not projected.
@@ -64,7 +64,7 @@ impl FlattenReport {
             lines.push(format!("Could not flatten (3D objects, kept as read): {}.", list(&self.unsupported_3d)));
         }
         if !self.unmodelled.is_empty() {
-            lines.push(format!("Not modelled by CADCraft (kept as read): {}.", list(&self.unmodelled)));
+            lines.push(format!("Not modelled by AAD (kept as read): {}.", list(&self.unmodelled)));
         }
         if self.tilted_planes > 0 {
             lines.push(format!("{} object(s) lie on a plane that is not parallel to XY; their z values were zeroed.", self.tilted_planes));

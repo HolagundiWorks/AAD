@@ -375,7 +375,7 @@ fn assemble(media: Vec2, content: &[u8], compress: bool, title: &str) -> Vec<u8>
     stream.extend_from_slice(&data);
     stream.extend_from_slice(b"\nendstream");
     obj(&mut out, &stream);
-    obj(&mut out, format!("<< /Producer (CADCraft) /Creator (CADCraft) /Title {} >>", pdf_string(title)).as_bytes());
+    obj(&mut out, format!("<< /Producer (AAD) /Creator (AAD) /Title {} >>", pdf_string(title)).as_bytes());
     let xref = out.len();
     let mut x = format!("xref\n0 {}\n0000000000 65535 f \n", offsets.len() + 1);
     for o in &offsets {

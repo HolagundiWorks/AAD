@@ -637,7 +637,7 @@ fn viewport_layer_colors_roundtrip() {
     let colors = vec![("Walls".to_string(), Color::Index(5)), ("A B".to_string(), Color::True(cadcraft_color::Rgb(255, 128, 0)))];
     d.add(&paper, Common::default(), vp(2, Vec::new(), colors.clone())).unwrap();
     d.add(&paper, Common::default(), vp(3, Vec::new(), Vec::new())).unwrap();
-    // Frozen layers and colour overrides share one CADCraft xdata group.
+    // Frozen layers and colour overrides share one AAD xdata group.
     d.add(&paper, Common::default(), vp(4, vec!["Walls".into()], colors.clone())).unwrap();
     let back = roundtrip(&d);
     let found: Vec<(u32, Vec<String>, Vec<(String, Color)>)> = back
@@ -837,12 +837,12 @@ fn oversized_dwg_and_dxf_are_rejected_early() {
 
     let limits = cadcraft_dwg::Limits { max_dwg_bytes: 100_000, ..cadcraft_dwg::Limits::DEFAULT };
     let e = cadcraft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
-    assert!(e.starts_with("DWG: the file is 0.") && e.ends_with("MB, larger than the 0.1 MB CADCraft opens"), "{e}");
+    assert!(e.starts_with("DWG: the file is 0.") && e.ends_with("MB, larger than the 0.1 MB AAD opens"), "{e}");
 
     // Lines that aren't even group codes: the size is reported before anything is parsed.
     let text = "not a group code\nx\n".repeat(60);
     let e = cadcraft_dxf::parse_with_limit(text.as_bytes(), 50).unwrap_err();
-    assert_eq!(e.to_string(), "drawing too large: 60 DXF group codes, more than the 50 CADCraft reads");
+    assert_eq!(e.to_string(), "drawing too large: 60 DXF group codes, more than the 50 AAD reads");
 }
 
 #[test]
@@ -895,7 +895,7 @@ fn dimension_associativity_roundtrips() {
     assert_eq!(back.model.len(), d.model.len());
     assert!(back.layouts.iter().all(|l| l.entities.is_empty()));
 
-    // Without CADCraft's xdata (a file from another writer), the standard DIMASSOC objects
+    // Without AAD's xdata (a file from another writer), the standard DIMASSOC objects
     // still give the extension-line links.
     let tags = cadcraft_dxf::parse(text.as_bytes()).unwrap();
     let mut stripped = Vec::new();
@@ -916,7 +916,7 @@ fn dimension_associativity_roundtrips() {
     assert_eq!(fa.len(), 2);
     assert_eq!(fa[1], ali.assoc[1]);
     assert!(matches!(fa[0].snap, AssocSnap::OnCircle { angle } if angle.abs() < 1e-9));
-    assert!(assoc_of(&foreign, hr).is_empty(), "radial links are CADCraft-only");
+    assert!(assoc_of(&foreign, hr).is_empty(), "radial links are AAD-only");
 }
 
 #[test]
@@ -1447,7 +1447,7 @@ fn gradient_hatch_roundtrips_through_dxf() {
     assert_eq!(roundtrip(&back).model.iter().map(|e| &e.kind).collect::<Vec<_>>(), back.model.iter().map(|e| &e.kind).collect::<Vec<_>>());
 }
 
-/// R2000 readers and DWG conversions drop the native groups; CADCraft's xdata copy restores the
+/// R2000 readers and DWG conversions drop the native groups; AAD's xdata copy restores the
 /// gradient. When native groups are present (another program may have edited them) they win.
 #[test]
 fn gradient_falls_back_to_xdata_and_native_groups_win() {

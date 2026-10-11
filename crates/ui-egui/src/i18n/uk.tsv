@@ -1,6 +1,6 @@
-# CADCraft Ukrainian interface catalog — original translations by @dmatviichuk.
+# AAD Ukrainian interface catalog — original translations by @dmatviichuk.
 # License: MIT OR Apache-2.0 (the repository LICENSE-MIT and LICENSE-APACHE).
-# Written from CADCraft's English strings; no proprietary translations were copied.
+# Written from AAD's English strings; no proprietary translations were copied.
 # UTF-8: context<TAB>English source<TAB>Ukrainian translation.
 # Empty context = ordinary label; @plural = one|few|many forms with {n}.
 # Keep command IDs, keywords, technology/product names and user data unchanged.
@@ -25,7 +25,7 @@
 	= Equals	= Дорівнює
 	> Greater than	> Більше ніж
 	About	Про програму
-	About CADCraft	Про CADCraft
+	About AAD	Про AAD
 	Absolute	Абсолютні
 	Add Leader	Додати виноску
 	Align	Вирівняти
@@ -80,7 +80,7 @@
 	ByBlock	За блоком
 	ByColor	За кольором
 	ByLayer	За шаром
-	CADCraft Help	Довідка CADCraft
+	AAD Help	Довідка AAD
 	Cancel	Скасувати
 	Cartesian (x, y)	Декартові (x, y)
 	Center	Центр
@@ -579,7 +579,7 @@
 	Quick Select Properties	Властивості швидкого вибору
 	Quick Select...	Швидкий вибір...
 	QuickCalc	Калькулятор
-	Quit CADCraft	Вийти з CADCraft
+	Quit AAD	Вийти з AAD
 	Radius	Радіус
 	Raster Image	Растрове зображення
 	Ray	Промінь
@@ -980,7 +980,7 @@
 @plural	{n} contributor	{n} учасник|{n} учасники|{n} учасників
 	Drawing as bytes	Креслення як байти
 	Services	Служби
-	Hide CADCraft	Приховати CADCraft
+	Hide AAD	Приховати AAD
 	Hide Others	Приховати інші
 	Accessibility	Спеціальні можливості
 	Show System Cursor	Показувати системний курсор
@@ -990,3 +990,7 @@
 	Architectural Layer Set	Набір архітектурних шарів
 	Room Area	Площа приміщення
 	Room Label	Мітка приміщення
+	2D architectural drafting. Open source, written in Rust.	2D-проєктування в архітектурі. Відкритий код, написано на Rust.
+	Architecture	Архітектура
+	Layer Set	Набір шарів
+	Rooms and Areas	Приміщення та площі

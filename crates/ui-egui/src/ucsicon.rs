@@ -4,7 +4,7 @@
 //! it instead of the canvas underneath (a click on the icon must never also pick or start a
 //! selection window in the drawing). What it does goes through commands: `ui.toggle.ucsicon`.
 //!
-//! CADCraft's model view is a 2D plan view of the World Coordinate System: there is no view
+//! AAD's model view is a 2D plan view of the World Coordinate System: there is no view
 //! twist and no user coordinate system yet, so the menu lists the only coordinate system there is.
 
 use egui::{CursorIcon, Rect, Sense, Stroke, pos2, vec2};
@@ -43,7 +43,7 @@ pub fn ucs_icon(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
 fn ucs_menu(app: &mut CadApp, popup: egui::Popup<'_>) {
     let mut hide = false;
     popup.show(|ui| {
-        ui.radio(true, "World (WCS)").on_hover_text("CADCraft draws in the World Coordinate System; user coordinate systems aren't available yet.");
+        ui.radio(true, "World (WCS)").on_hover_text("AAD draws in the World Coordinate System; user coordinate systems aren't available yet.");
         ui.separator();
         if ui.button("Hide UCS Icon").clicked() {
             hide = true;

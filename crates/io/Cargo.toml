@@ -1,6 +1,6 @@
 [package]
 name = "cadcraft-io"
-description = "CADCraft file formats: DXF read/write mapping, SVG, PNG and PDF export"
+description = "AAD file formats: DXF read/write mapping, SVG, PNG and PDF export"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

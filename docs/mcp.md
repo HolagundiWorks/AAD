@@ -1,6 +1,6 @@
-# CADCraft and AI agents (MCP)
+# AAD and AI agents (MCP)
 
-CADCraft speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio.
+AAD speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio.
 
 ## Start it
 

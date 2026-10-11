@@ -44,7 +44,7 @@ assets and works on the web without system fonts.
 The implementation follows the display-time catalog pattern used by
 [VectorCraft #205](https://github.com/storytold/vectorcraft/pull/205),
 [PdfCraft #106](https://github.com/storytold/pdfcraft/pull/106), and
-[FilmCraft #238](https://github.com/storytold/filmcraft/pull/238). Its code is local to CADCraft.
+[FilmCraft #238](https://github.com/storytold/filmcraft/pull/238). Its code is local to AAD.
 
 - `crates/ui-egui/src/i18n/uk.tsv` is UTF-8 with three tab-separated columns:
   `context`, `English source`, and `translation`. Ordinary labels have an empty context.
@@ -63,4 +63,4 @@ The implementation follows the display-time catalog pattern used by
   English/Ukrainian/English egui render. `cargo xtask ci` runs the workspace quality gates.
 
 Translations are original work under `MIT OR Apache-2.0`, written from the meaning of
-CADCraft's English strings. Do not copy proprietary localization resources.
+AAD's English strings. Do not copy proprietary localization resources.

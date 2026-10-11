@@ -1,4 +1,4 @@
-//! The CADCraft drawing database.
+//! The AAD drawing database.
 //!
 //! A [`Drawing`] holds the header variables, symbol tables (layers, linetypes, styles), block
 //! definitions, model space and paper-space layouts. Entity collections are copy-on-write

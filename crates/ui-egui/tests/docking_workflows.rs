@@ -17,6 +17,7 @@ fn harness(state: Option<UiState>, width: f32, scale: f32) -> Harness<'static, C
         app.ui = state;
     }
     app.ui.in_window_menu = false;
+    app.ui.show_palettes = true;
     app.integrated_titlebar = true;
     let mut harness = Harness::builder().with_size(vec2(width, 760.0)).with_pixels_per_point(scale).build_ui_state(
         |ui, app: &mut CadApp| {
@@ -45,11 +46,6 @@ fn drag(harness: &mut Harness<'_, CadApp>, from: egui::Pos2, to: egui::Pos2) {
 #[test]
 fn real_panel_drag_float_close_reopen_and_full_workspace_reload() {
     let mut harness = harness(None, 1280.0, 1.0);
-    let source = harness.get_by_role_and_label(egui::accesskit::Role::Tab, "Layers").rect().center();
-    let target = harness.get_by_role_and_label(egui::accesskit::Role::Tab, "Tool Sets").rect().center();
-    drag(&mut harness, source, target);
-    let location = harness.state().ui.docking.layout.location(&Panel::Layers).unwrap();
-    assert_eq!(location.anchor, Some(Panel::ToolSets));
     harness.get_by_role_and_label(egui::accesskit::Role::Tab, "Layers").click_button(PointerButton::Secondary);
     harness.run_steps(3);
     harness.get_by_label("Float panel").click();
@@ -69,10 +65,6 @@ fn real_panel_drag_float_close_reopen_and_full_workspace_reload() {
     let expected = serde_json::to_value(&harness.state().ui.docking).unwrap();
     let mut reloaded = self::harness(Some(serde_json::from_str(&saved).unwrap()), 1280.0, 1.0);
     assert_eq!(serde_json::to_value(&reloaded.state().ui.docking).unwrap(), expected);
-    reloaded.state_mut().run("ui.dock", json!({"operation":"move", "panel":"layers", "target":"toolSets", "zone":"center"})).unwrap();
-    reloaded.run_steps(4);
-    reloaded.get_by_role_and_label(egui::accesskit::Role::Tab, "Tool Sets").click();
-    reloaded.run_steps(3);
     reloaded.get_by_label("Line").click();
     reloaded.run_steps(3);
     assert_eq!(reloaded.state().session.running.as_ref().map(|command| command.id.as_str()), Some("line"));
@@ -112,7 +104,7 @@ fn docking_renders_default_float_and_redocked_at_normal_and_narrow_sizes() {
                 harness.run_steps(5);
                 harness.state().ui.docking.validate().unwrap();
                 let content = harness.state().ui.docking.layout.panels();
-                assert_eq!(content.len(), 4);
+                assert_eq!(content.len(), 3);
                 assert!(content.contains(&&Panel::Canvas));
                 if let Ok(directory) = std::env::var("CRAFT_UI_DOCKING_DIR") {
                     std::fs::create_dir_all(&directory).unwrap();
@@ -130,7 +122,7 @@ fn automation_reaches_split_stack_resize_and_tab_reorder_through_the_same_handle
     h.state_mut()
         .run(
             "ui.dock",
-            json!({"action":serde_json::to_value(Action::<Panel>::ResizeSplit { path: vec![], size: SplitSize::FixedFirst(280.0) }).unwrap()}),
+            json!({"action":serde_json::to_value(Action::<Panel>::ResizeSplit { path: vec![], size: SplitSize::FixedSecond(340.0) }).unwrap()}),
         )
         .unwrap();
     h.state_mut().run("ui.dock", json!({"operation":"setStackOpen","panel":"layers","open":false})).unwrap();
@@ -140,7 +132,6 @@ fn automation_reaches_split_stack_resize_and_tab_reorder_through_the_same_handle
     h.run_steps(4);
     let panels = h.state().ui.docking.layout.panels();
     assert!(panels.iter().position(|p| **p == Panel::Properties).unwrap() < panels.iter().position(|p| **p == Panel::Layers).unwrap());
-    assert_eq!(h.state().ui.docking.layout.location(&Panel::ToolSets).unwrap().size, Some(SplitSize::FixedFirst(280.0)));
 }
 
 #[test]
@@ -249,17 +240,9 @@ fn properties_typed_in_rendered_command_line_reopens_and_selects_actual_workspac
     h.state_mut().run("ui.dock", json!({"operation":"close","panel":"properties"})).unwrap();
     h.run_steps(3);
     let drawing = h.state().session.doc().unwrap().clone();
-    let tools = h.state().ui.docking.layout.location(&Panel::ToolSets).unwrap();
     type_command(&mut h, "PROPERTIES");
     assert!(h.state().ui.docking.layout.contains(&Panel::Properties));
     assert!(h.state().ui.docking.layout.contains(&Panel::Layers));
-    let restored_tools = h.state().ui.docking.layout.location(&Panel::ToolSets).unwrap();
-    assert_eq!(restored_tools.anchor, tools.anchor);
-    assert_eq!(restored_tools.placement, tools.placement);
-    assert_eq!(restored_tools.size, tools.size);
-    assert_eq!(restored_tools.floating, tools.floating);
-    assert_eq!(restored_tools.stack, tools.stack);
-    assert!(restored_tools.sibling.contains(&Panel::Properties));
 
     h.state_mut().run("ui.dock", json!({"operation":"float","panel":"layers","rect":[400,250,300,350]})).unwrap();
     h.state_mut().run("ui.dock", json!({"operation":"move","panel":"properties","target":"layers","zone":"center"})).unwrap();
@@ -289,12 +272,12 @@ fn canvas_reset_during_splitter_drag_discards_old_resize_and_ends_gesture() {
     use craft_ui::docking::Action;
     use craft_ui::layout::SplitSize;
     let mut h = harness(None, 1280.0, 1.0);
-    // Give the old root divider a size different from Reset's 220px ToolSets pane.
+    // Give the old root divider a size different from Reset's 300px right pane.
     h.state_mut()
         .run(
             "ui.dock",
             json!({"action":Action::<Panel>::ResizeSplit {
-                path: Vec::new(), size: SplitSize::FixedFirst(280.0),
+                path: Vec::new(), size: SplitSize::FixedSecond(340.0),
             }}),
         )
         .unwrap();

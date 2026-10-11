@@ -1,4 +1,4 @@
-//! Saving a drawing with entities of types CADCraft doesn't model (read from another program's
+//! Saving a drawing with entities of types AAD doesn't model (read from another program's
 //! file) says which ones the DXF/DWG file doesn't keep, instead of dropping them silently.
 
 use cadcraft_engine::Session;
@@ -28,7 +28,7 @@ fn save_lists_the_entities_the_file_does_not_keep() {
     let r = s.execute("saveas", &json!({ "path": path.to_string_lossy() })).unwrap();
     let _ = std::fs::remove_file(&path);
     assert_eq!(r["notSaved"], json!({ "3DSOLID": 1, "MLINE": 2, "REGION": 1 }));
-    let msg = "Not saved (CADCraft can't write these object types yet): 1 3DSOLID, 2 MLINE, 1 REGION";
+    let msg = "Not saved (AAD can't write these object types yet): 1 3DSOLID, 2 MLINE, 1 REGION";
     assert!(s.log.iter().any(|l| l == msg), "{:?}", s.log);
 
     // Exporting an image isn't a save of the drawing: no report.

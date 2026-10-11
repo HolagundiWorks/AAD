@@ -25,26 +25,19 @@ fn config_dir_from(platform: &str, get: impl Fn(&str) -> Option<OsString>) -> Op
     }
     let nonempty = |key| get(key).filter(|value| !value.is_empty()).map(PathBuf::from);
     match platform {
-        "macos" => nonempty("HOME").map(|home| home.join("Library/Application Support/CADCraft")),
-        "windows" => nonempty("APPDATA").map(|root| root.join("CADCraft")),
+        "macos" => nonempty("HOME").map(|home| home.join("Library/Application Support/AAD")),
+        "windows" => nonempty("APPDATA").map(|root| root.join("AAD")),
         _ => nonempty("XDG_CONFIG_HOME").map(|root| root.join("cadcraft")).or_else(|| nonempty("HOME").map(|home| home.join(".config/cadcraft"))),
     }
 }
 
 fn snapshot(ui: &UiState) -> Result<Value, String> {
     ui.docking.validate()?;
-    if ui.toolset_tab != "Drafting" {
-        return Err("toolsetTab must be Drafting".into());
-    }
-    if ui.collapsed_groups.len() > 64 || ui.collapsed_groups.iter().any(|name| name.len() > 256) {
-        return Err("collapsedGroups exceeds the workspace size limit".into());
-    }
     if ui.history_lines > 12 {
         return Err("historyLines must be between 0 and 12".into());
     }
     Ok(json!({
         "docking": ui.docking,
-        "showToolsets": ui.show_toolsets,
         "showPalettes": ui.show_palettes,
         "showToolbar": ui.show_toolbar,
         "showFileTabs": ui.show_file_tabs,
@@ -52,8 +45,6 @@ fn snapshot(ui: &UiState) -> Result<Value, String> {
         "showCommandLine": ui.show_command_line,
         "showUcsIcon": ui.show_ucs_icon,
         "showLayerList": ui.show_layer_list,
-        "toolsetTab": ui.toolset_tab,
-        "collapsedGroups": ui.collapsed_groups,
         "propertiesAll": ui.properties_all,
         "inWindowMenu": ui.in_window_menu,
         "historyLines": ui.history_lines,
@@ -206,10 +197,8 @@ mod tests {
         let (mut first, restored, error) = Workspace::at(Some(path.clone()));
         assert!(restored.is_none() && error.is_none());
         let ui = UiState {
-            show_palettes: false,
+            show_palettes: true,
             show_command_line: false,
-            toolset_tab: "Drafting".into(),
-            collapsed_groups: vec!["Solid".into()],
             history_lines: 5,
             dialog: Some("layers".into()),
             start_tab: true,
@@ -241,17 +230,17 @@ mod tests {
         let (mut store, _, _) = Workspace::at(Some(path.clone()));
         let mut ui = UiState::default();
         let mut app = cadcraft_ui_egui::CadApp::new(cadcraft_engine::Session::default(), Default::default());
+        app.ui.show_palettes = true;
         app.run("ui.dock", json!({"operation":"float", "panel":"layers", "rect":[120,90,340,410]})).unwrap();
         ui.docking = app.ui.docking;
-        ui.docking.set_visible(Panel::ToolSets, false).unwrap();
-        ui.show_toolsets = false;
+        ui.docking.set_visible(Panel::Properties, false).unwrap();
         store.save_if_changed(&ui).unwrap();
         let (_, reloaded, error) = Workspace::at(Some(path));
         assert!(error.is_none());
         let mut reloaded = reloaded.unwrap();
         assert_eq!(serde_json::to_value(&reloaded.docking).unwrap(), serde_json::to_value(&ui.docking).unwrap());
-        reloaded.docking.set_visible(Panel::ToolSets, true).unwrap();
-        assert!(reloaded.docking.layout.contains(&Panel::ToolSets));
+        reloaded.docking.set_visible(Panel::Properties, true).unwrap();
+        assert!(reloaded.docking.layout.contains(&Panel::Properties));
         assert_eq!(reloaded.docking.layout.floating[0].rect, [120.0, 90.0, 340.0, 410.0]);
         fs::remove_dir_all(directory).unwrap();
     }
@@ -264,14 +253,14 @@ mod tests {
             b"{invalid".to_vec(),
             vec![b' '; MAX_BYTES as usize + 1],
             br#"{"version":2,"workspace":{}}"#.to_vec(),
-            br#"{"version":1,"workspace":{"toolsetTab":"unknown"}}"#.to_vec(),
+            br#"{"version":1,"workspace":{"historyLines":99}}"#.to_vec(),
             br#"{"version":1,"workspace":{"historyLines":18446744073709551615}}"#.to_vec(),
         ] {
             fs::write(&path, &bytes).unwrap();
             let (mut store, ui, error) = Workspace::at(Some(path.clone()));
             assert!(ui.is_none());
             assert!(error.as_deref().is_some_and(|error| error.contains("left unchanged")));
-            store.save_if_changed(&UiState { show_palettes: false, ..Default::default() }).unwrap();
+            store.save_if_changed(&UiState { show_palettes: true, ..Default::default() }).unwrap();
             assert_eq!(fs::read(&path).unwrap(), bytes);
         }
         fs::remove_dir_all(directory).unwrap();
@@ -286,7 +275,7 @@ mod tests {
             json!({"layout":false,"hidden":[]}),
             json!({"layout":{"root":null,"floating":[]},"hidden":[["futurePanel",{}]]}),
         ] {
-            let workspace = json!({"showToolbar":false,"showPalettes":false,"toolsetTab":"Drafting", "collapsedGroups":["Draw"], "historyLines":7,"docking":docking});
+            let workspace = json!({"showToolbar":false,"showPalettes":false,"historyLines":7,"docking":docking});
             assert!(serde_json::from_value::<UiState>(workspace.clone()).is_err(), "runtime state must stay strict");
             fs::write(&path, serde_json::to_vec(&json!({"version":1,"workspace":workspace})).unwrap()).unwrap();
             let (_, restored, error) = Workspace::at(Some(path.clone()));
@@ -294,8 +283,6 @@ mod tests {
             let restored = restored.unwrap();
             assert!(!restored.show_toolbar);
             assert!(!restored.show_palettes);
-            assert_eq!(restored.toolset_tab, "Drafting");
-            assert_eq!(restored.collapsed_groups, ["Draw"]);
             assert_eq!(restored.history_lines, 7);
             assert_eq!(serde_json::to_value(restored.docking).unwrap(), serde_json::to_value(UiState::default().docking).unwrap());
         }
@@ -307,10 +294,10 @@ mod tests {
         let directory = temp_dir();
         let path = directory.join("workspace.json");
         let (mut store, _, _) = Workspace::at(Some(path.clone()));
-        let mut ui = UiState { show_palettes: false, ..Default::default() };
+        let mut ui = UiState { show_palettes: true, ..Default::default() };
         store.save_if_changed(&ui).unwrap();
         let good = fs::read(&path).unwrap();
-        ui.collapsed_groups = vec!["x".repeat(257)];
+        ui.history_lines = 99;
         assert!(store.save_if_changed(&ui).is_err());
         assert_eq!(fs::read(&path).unwrap(), good);
         fs::remove_dir_all(directory).unwrap();
@@ -323,13 +310,13 @@ mod tests {
         let (mut store, _, _) = Workspace::at(Some(path.clone()));
         // Simulate a destination becoming unavailable after startup.
         fs::create_dir(&path).unwrap();
-        let ui = UiState { show_palettes: false, ..Default::default() };
+        let ui = UiState { show_palettes: true, ..Default::default() };
         let first_error = store.save_if_changed(&ui).unwrap_err();
         fs::remove_dir(&path).unwrap();
         assert_eq!(store.save_if_changed(&ui).unwrap_err(), first_error);
         assert!(!path.exists(), "ordinary frames must not retry disk writes");
         store.save_on_exit(&ui).unwrap();
-        assert!(!read(&path).unwrap().unwrap().show_palettes);
+        assert!(read(&path).unwrap().unwrap().show_palettes);
         fs::remove_dir_all(directory).unwrap();
     }
 }

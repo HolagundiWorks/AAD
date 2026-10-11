@@ -16,7 +16,7 @@ depends on egui, eframe, winit, wgpu or rfd.
 | L1 | `doc` | The drawing database: header, symbol tables, blocks, model space, layouts; copy-on-write `EntityStore`; hatch pattern and linetype library (`library.rs`) |
 | L2 | `fonts` | Single-stroke drafting font, TrueType/OpenType outlines through `skrifa`, text and MTEXT layout, font fallback |
 | L2 | `render` | Display lists (linetypes, hatches, text, blocks, dimension geometry, paper-space clipping); CPU rasteriser for PNG, plot preview and tests |
-| L3 | `io` | DXF to document mapping (`dxf_read.rs`, `dxf_write.rs`, CADCraft extension data in `dxf_ext.rs`), PDF plotting, SVG and PNG export |
+| L3 | `io` | DXF to document mapping (`dxf_read.rs`, `dxf_write.rs`, AAD extension data in `dxf_ext.rs`), PDF plotting, SVG and PNG export |
 | L3 | `dwg` | DWG through a DXF bridge: the `acadrust` crate (MPL-2.0, unmodified) converts DWG and DXF bytes; native builds only |
 | L4 | `engine` | `Session`, the command registry (`cmd/*`), command-line parser and prompt machines, object snaps, selection, grips, associativity, system variables, units, undo, audit (`audit.rs`), flatten on import (`flatten.rs`) |
 | L5 | `ui-egui` | The egui front end: GPU canvas, menus, command line, palettes, dialogs, icons drawn in code, light/dark theme, interface string catalog |
@@ -69,9 +69,9 @@ black in the dark theme and white in the light theme; colour 7 is drawn white or
 
 DXF is the native path: `dxf` parses tags, `io::dxf_read` maps them to the document, and
 `io::dxf_write` writes an R2000 (AC1015) DXF. DWG is converted to DXF in memory by `acadrust` and
-read through the same path; saving DWG writes DXF and converts it back. CADCraft-only data
+read through the same path; saving DWG writes DXF and converts it back. AAD-only data
 (associativity details, layer states, plot style tables, table flags, hatch gradients) travels in
-extension data under the application name `CADCRAFT`. Object types CADCraft does not model are kept
+extension data under the application name `CADCRAFT`. Object types AAD does not model are kept
 as raw data when read and are not written back; saving reports them.
 
 ## Automation

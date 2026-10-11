@@ -2,7 +2,7 @@
 
 > **Generated:** 2026-10-11 by `cargo xtask parity`. Do not edit by hand.
 
-Menu-breadth parity: a reference menu item counts as covered when a CADCraft command is registered under the same menu label. It measures breadth, not depth.
+Menu-breadth parity: a reference menu item counts as covered when a AAD command is registered under the same menu label. It measures breadth, not depth.
 
 **Menu breadth: 188 / 319 items (59%)** · 262 registered commands.
 
