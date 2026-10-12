@@ -13,9 +13,14 @@ work.
 | Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
 | Qwen3 chat format, model-file discovery and checks, generation settings (`crates/llm`) | **Implemented and tested** (7 tests, no model needed) |
 | Assistant conversation state machine: tool list prompt, strict parse, one retry, confirmation, step and history limits (`agent::Assistant`) | **Implemented and tested** with scripted model replies (8 tests) |
-| llama.cpp runtime (`cadcraft-llm` with feature `llama`) | **Builds** (verified 2026-10-12 with LLVM 23.1.3 installed through `winget install LLVM.LLVM`, CMake and the MSVC toolchain; `LIBCLANG_PATH=C:Program Fileslvmbin`): tests and `clippy -d warnings` pass with the feature. **no model has been loaded or run yet.** |
-| Desktop wiring (worker thread, Assistant window) and bundling the model in the installer | **Planned** |
-| Chat UI, result tables, entity highlighting | **Planned** |
+| llama.cpp runtime (`cadcraft-llm` with feature `llama`) | **Builds and runs** (2026-10-12, LLVM 23.1.3 from `winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`, CMake, MSVC). Tests and `clippy -D warnings` pass with the feature. The model loads in about 1 s (memory-mapped) and generates about 17 tokens per second on this machine's CPU (no GPU backend) |
+| Model on this machine | `Qwen3-1.7B-Q4_K_M.gguf`, 1 107 409 472 bytes, from `unsloth/Qwen3-1.7B-GGUF`, SHA-256 `b139949c...a181897` (equals the hash Hugging Face publishes), in `%APPDATA%\AAD\models`. Not in the repository |
+| Background worker (`cadcraft_llm::worker`): loads on the first request, one request at a time, Stop, panic contained | **Implemented**; a unit test covers the no-model path |
+| `driver` (`cadcraft_agent::driver`): runs the Assistant against a model for hosts that can wait | **Implemented** |
+| `cadcraft-cli ask [--file f \| --sample] [--yes] [--save out.dxf] "request"` (build with `--features assistant`) | **Implemented, run with the real model** (below) |
+| Desktop Assistant window (Tools > Assistant; `cadcraft --features assistant`): conversation, thinking indicator, Allow and Decline, Stop, New chat; model on the worker thread, tools through the engine on the UI thread | **Implemented, run with the real model** (below); window behaviour covered by `crates/ui-egui/tests/assistant_window.rs` with a fake backend |
+| Bundling the model in the installer, and building the installer with the `assistant` feature | **Not done** |
+| Result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
 | Schedule of openings, quantity take-off tools | **Planned.** The engine commands exist (`schedule`, `openings.table`, `takeoff.*`, see [hcw-kit-port.md](hcw-kit-port.md)) but are not yet in the agent registry. The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
 
@@ -126,3 +131,21 @@ call, `recover_file` leaving the file untouched, and the audit log.
 opening schedule with consistent spacing" cannot be done: there is no opening schedule feature. The
 model never chooses `mode` for it: the schema requires it, and a request that does not say whether
 to rescale is answered with a question. Details: [units-annotation.md](units-annotation.md).
+
+## What was run with the real model (2026-10-12, one machine, CPU, Qwen3-1.7B Q4_K_M)
+
+Observed, not benchmarked: one run each, so these are examples, not rates.
+
+| Request | What the model did | Result |
+|---|---|---|
+| "What is in this drawing?" | called `get_drawing_summary` | the tool ran; the summary text was mostly right but added things that were not in the tool result ("a complex polyline structure", "the drawing is clean and has no errors") and counted a circle twice. About 30 s |
+| "Audit and repair this drawing." | proposed `audit_drawing` with repair | asked for confirmation; answered **no**; nothing ran, the model reported it had been declined |
+| "Purge unused definitions." with `--yes` | proposed `purge_unused` | confirmation shown, allowed; 17 linetypes were removed through the engine; the model's summary listed them. About 24 s |
+| "Prepare a schedule of openings." | no tool call | refused as unsupported, nothing ran. About 8 s |
+| "Audit this drawing." (desktop window) | proposed `audit_drawing` **with repair** | a read-only request got a changing proposal; the confirmation step is what stopped it. Whether the model does this consistently was not measured |
+
+Conclusions that hold: tool selection and refusal behaved sensibly on these five requests; the
+confirmation gate and the "model never changes the drawing itself" rule work. Conclusions that do
+not hold yet: reliability across many requests (not measured), and the summaries cannot be trusted
+for details, so the application should show tool results (tables) rather than rely on the model's
+retelling of them (planned).

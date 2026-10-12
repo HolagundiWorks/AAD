@@ -14,6 +14,7 @@
 
 mod agent;
 mod assistant;
+pub mod driver;
 mod parse;
 mod registry;
 mod schema;

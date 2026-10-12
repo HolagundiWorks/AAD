@@ -108,7 +108,7 @@ pub fn run(app: &mut CadApp, ctx: &egui::Context, dock: Rect) {
     // The strips that bring the panels back, drawn on the sides of the drawing area.
     if !app.ui.show_palettes && app.collapse.auto_collapsed {
         let t = crate::theme::Tokens::get();
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("aad_collapse_strips")));
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("aad_collapse_strips")));
         for side in [dock.left(), dock.right() - EDGE_STRIP] {
             let r = Rect::from_min_size(egui::pos2(side, dock.top()), egui::vec2(EDGE_STRIP, dock.height()));
             painter.rect_filled(r, 0.0, t.chrome.gamma_multiply(0.85));

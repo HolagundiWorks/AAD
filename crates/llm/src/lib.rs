@@ -17,6 +17,7 @@ pub mod files;
 #[cfg(feature = "llama")]
 mod llama;
 pub mod prompt;
+pub mod worker;
 
 pub use engine::{Completion, LlmError, LoadOptions, Model, Params, Stop, available};
 pub use files::{FileProblem, MODEL_ENV, MODEL_FILE, find_model};

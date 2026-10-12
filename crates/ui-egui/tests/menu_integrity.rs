@@ -36,7 +36,11 @@ fn fingerprint(a: &CadApp) -> String {
         a.session.running.is_some(),
         doc.0 * 1_000_000 + doc.1 as usize,
         a.session.log.len(),
-        a.widgets.form.is_some() as u8 + 2 * a.status.is_some() as u8 + 4 * a.cmd.expanded as u8 + 8 * a.closing.is_some() as u8,
+        a.widgets.form.is_some() as u8
+            + 2 * a.status.is_some() as u8
+            + 4 * a.cmd.expanded as u8
+            + 8 * a.closing.is_some() as u8
+            + 16 * a.assistant.open as u8,
         a.session.running.as_ref().map(|r| r.id.clone()),
         a.session.settings.pickadd
     )

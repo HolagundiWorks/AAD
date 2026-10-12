@@ -43,7 +43,7 @@ marks, isometric drafting).
 | Item | Notes |
 |---|---|
 | macOS, Linux and web builds | Later phases. Only Windows is built, tested and packaged now |
-| Qwen3-1.7B runtime, chat UI, retrieval | [ai-agent.md](ai-agent.md) |
+| Bundling the model in the installer; result tables and highlighting; retrieval | [ai-agent.md](ai-agent.md) |
 | Remaining hcwCAD-KIT tools | Text and drawing tools (`FIXTXT`, `TXTALIGN`, `INCARRAY`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Agent tools for take-off and schedules | The engine commands exist; the agent registry does not expose them yet ([ai-agent.md](ai-agent.md)) |
 | Xref and floor-project interface | Floor selector in the toolbar, setup wizard dialog, Floor View Manager, opening-block generation and reconciliation ([projects.md](projects.md)) |

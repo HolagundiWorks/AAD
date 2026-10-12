@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod aorms_ui;
+pub mod assistant;
 pub mod autocollapse;
 pub mod blocks;
 pub mod canvas;
@@ -206,6 +207,8 @@ impl Default for UiState {
 pub struct Services {
     pub pick_open: Option<Box<dyn Fn() -> Option<String>>>,
     pub pick_save: Option<Box<dyn Fn(&str) -> Option<String>>>,
+    /// The local assistant ([`assistant`]); `None` in builds without a language model (the web build).
+    pub assistant: Option<Box<dyn assistant::Backend>>,
 }
 
 pub struct CadApp {
@@ -218,6 +221,8 @@ pub struct CadApp {
     pub collapse: autocollapse::CollapseState,
     /// The context bar and the drawing space editor ([`contextbar`], [`spaceeditor`]).
     pub ctx_bar: contextbar::State,
+    /// The Assistant window ([`assistant`]).
+    pub assistant: assistant::Ui,
     /// State of the Calculator and Pomodoro widgets.
     pub widgets: widgets::WidgetState,
     pub cmd: cmdline::CmdLine,
@@ -255,6 +260,7 @@ impl CadApp {
             canvas: canvas::CanvasState::default(),
             collapse: autocollapse::CollapseState::default(),
             ctx_bar: contextbar::State::default(),
+            assistant: assistant::Ui::default(),
             widgets: widgets::WidgetState::default(),
             cmd: cmdline::CmdLine::default(),
             status: None,
@@ -469,6 +475,7 @@ impl CadApp {
         }
         self.drain_control(ctx);
         aorms_ui::poll(self, ctx);
+        assistant::poll(self, ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
         }
@@ -553,6 +560,7 @@ impl CadApp {
         }
         dialogs::show(self, ui.ctx());
         widgets::show(self, ui.ctx());
+        assistant::show(self, ui.ctx());
         closing::prompt(self, ui.ctx());
         self.frame_ms = now_ms() - t0;
     }

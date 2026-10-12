@@ -1334,3 +1334,16 @@
 	Your studio hasn't approved your access yet.	Ваша студія ще не підтвердила ваш доступ.
 	Your studio's AORMS plan doesn't include connected mode. AAD keeps working without it.	План AORMS вашої студії не містить підключеного режиму. AAD працює й без нього.
 	Your studio's AORMS plan has expired. AAD keeps working without it.	План AORMS вашої студії закінчився. AAD працює й без нього.
+	Assistant	Помічник
+	The assistant is not included in this build.	Помічника не включено до цієї збірки.
+	Ask about this drawing. It can summarise it, audit it, purge unused definitions, flatten it or recover a file. It changes nothing without your yes.	Запитайте про це креслення. Помічник може підсумувати його, перевірити, очистити невикористані визначення, розплющити або відновити файл. Без вашої згоди він нічого не змінює.
+	You:	Ви:
+	Loading the model…	Завантаження моделі…
+	Thinking…	Думаю…
+	Allow this?	Дозволити?
+	Allow	Дозволити
+	Decline	Відхилити
+	Ask about the drawing…	Запитайте про креслення…
+	Send	Надіслати
+	Stop	Зупинити
+	New chat	Нова розмова

@@ -23,6 +23,7 @@ the application; the headless UI tests render without a window.
 cargo build --workspace                 # debug (covered by `cargo xtask ci`; not run on its own)
 cargo build --workspace --release       # verified (3.7 minutes from a clean `target/`)
 cargo build --release -p cadcraft       # just the desktop app, verified
+LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p cadcraft --features assistant   # with the language model runtime, verified (about 2.5 minutes)
 ```
 
 Outputs are in `target/debug` and `target/release` (`cadcraft.exe`, `cadcraft-cli.exe`).

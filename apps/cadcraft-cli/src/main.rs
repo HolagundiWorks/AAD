@@ -18,6 +18,8 @@ use cadcraft_engine::geom::{Bounds2, Vec2};
 use cadcraft_engine::{Session, View};
 use serde_json::{Value, json};
 
+mod ask;
+
 const USAGE: &str = "usage:
   cadcraft-cli info FILE.dxf
   cadcraft-cli convert IN.dxf OUT.(dxf|dwg|svg|png|pdf) [FRAMING]
@@ -542,6 +544,7 @@ fn main() -> ExitCode {
             println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
         }),
         Some("mcp") => mcp(&rest),
+        Some("ask") => ask::run(&rest),
         Some("--version" | "-V") => {
             println!("cadcraft-cli {}", env!("CARGO_PKG_VERSION"));
             Ok(())

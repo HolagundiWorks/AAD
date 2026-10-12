@@ -16,10 +16,18 @@ cadcraft-engine = { workspace = true, features = ["aorms-keyring"] }
 cadcraft-dwg = { workspace = true }
 cadcraft-ui-egui = { workspace = true }
 cadcraft-io = { workspace = true }
+cadcraft-agent = { workspace = true }
+cadcraft-llm = { workspace = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "links", "persistence"] }
 egui = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
+
+[features]
+# The local language model runtime (llama.cpp; needs CMake, a C++ toolchain and LLVM libclang).
+# Without it the Assistant window says the build has no model. Build with
+# `cargo build -p cadcraft --features assistant`.
+assistant = ["cadcraft-llm/llama"]
 
 [build-dependencies]
 winresource = "0.1"

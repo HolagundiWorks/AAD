@@ -14,6 +14,7 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod assistant;
 mod control_server;
 #[cfg(any(target_os = "windows", test))]
 mod graphics;
@@ -110,6 +111,7 @@ fn services() -> Services {
                 .save_file()
                 .map(|p| p.to_string_lossy().to_string())
         })),
+        assistant: Some(Box::new(assistant::Desktop::new())),
     }
 }
 
