@@ -39,6 +39,7 @@ fn snapshot(ui: &UiState) -> Result<Value, String> {
     Ok(json!({
         "docking": ui.docking,
         "modeSlots": ui.mode_slots,
+        "topBar": ui.top_bar,
         "showPalettes": ui.show_palettes,
         "showToolbar": ui.show_toolbar,
         "showFileTabs": ui.show_file_tabs,
@@ -82,6 +83,7 @@ fn read(path: &Path) -> Result<Option<UiState>, String> {
     }
     // Old or hand-edited files cannot reopen a dialog or replace the active drawing view.
     ui.dialog = None;
+    ui.top_bar = cadcraft_ui_egui::topbar::sanitize(&ui.top_bar);
     ui.start_tab = false;
     snapshot(&ui).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(Some(ui))
@@ -266,6 +268,25 @@ mod tests {
         again.run("ui.workspace.classic", json!({})).unwrap();
         assert_eq!(again.ui.docking.layout.floating.len(), 1, "Classic's floating Blocks panel came back after the restart");
         assert!(again.ui.pin_panels, "Classic is pinned unless the user changed it");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_top_bar_tools_survive_a_restart_and_unknown_tools_in_the_file_are_dropped() {
+        let directory = temp_dir();
+        let path = directory.join("workspace.json");
+        let (mut store, _, _) = Workspace::at(Some(path.clone()));
+        let ui = UiState { top_bar: vec!["line".into(), "-".into(), "circle".into()], ..UiState::default() };
+        store.save_if_changed(&ui).unwrap();
+        let (_, reloaded, error) = Workspace::at(Some(path.clone()));
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(reloaded.unwrap().top_bar, ["line", "-", "circle"]);
+        // A file from another build or edited by hand names a tool that does not exist.
+        let text = fs::read_to_string(&path).unwrap().replace("\"circle\"", "\"no-such-tool\"");
+        fs::write(&path, text).unwrap();
+        let (_, again, error) = Workspace::at(Some(path));
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(again.unwrap().top_bar, ["line"], "the unknown tool and the separator left dangling are dropped");
         fs::remove_dir_all(directory).unwrap();
     }
     #[test]

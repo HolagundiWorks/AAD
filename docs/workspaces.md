@@ -151,3 +151,18 @@ bar, toolbars, status bar, file tabs, command line, UCS icon, command history le
 arrangement and the pin state. It works when those are switched off: the shortcut and the typed
 command do not need the menu. It keeps the theme, the default save format, the workspace mode and
 the **other** mode's saved arrangement. Tests: `tests/workspace_modes.rs`.
+
+## The top bar: two lines
+
+- **First line (Classic only):** tools you choose. It starts with the architecture tools; right-click
+  it, or use View > Customize Top Bar, to tick tools from the catalog (every drawing, block,
+  modify, dimension and leader tool, plus the architecture tools), move them left or right, add
+  separators, and Reset. `ui.topbar.set {items: [command ids, "-" for a separator]}` and
+  `ui.topbar.get` do the same for scripts. Each workspace mode keeps its own list, the list is saved in
+  the workspace file (`topBar`), unknown tools in a saved list are dropped, and `resetui` restores the
+  default. The old property row (layer, colour, linetype and lineweight dropdowns) was removed:
+  those settings are in the Properties panel.
+- **Second line (both modes):** the layer, floor and drawing space selectors ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)).
+- The tiled-viewport commands `vports`, `vports.1` to `vports.4` and their View > Viewports menu
+  entries were removed. Layout viewports (`mview`, `viewport.*`) are unchanged.
+Tests: `crates/ui-egui/tests/top_bar.rs`.

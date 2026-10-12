@@ -16,6 +16,7 @@ pub mod canvas;
 pub mod chrome;
 pub mod clipboard;
 pub mod closing;
+pub mod cmdinput;
 pub mod cmdline;
 pub mod context_menu;
 pub mod contextbar;
@@ -39,6 +40,7 @@ pub mod quick;
 pub mod spaceeditor;
 pub mod theme;
 pub mod toolbars;
+pub mod topbar;
 pub mod ucsicon;
 pub mod units_panel;
 pub mod widgets;
@@ -101,6 +103,8 @@ pub struct UiState {
     /// the rest of the saved workspace. Switching modes swaps the live layout with this slot, so one
     /// mode never overwrites the other's arrangement.
     pub mode_slots: std::collections::BTreeMap<String, Value>,
+    /// The tools on the first line of the top bar ([`topbar`]): command ids, `-` for a separator.
+    pub top_bar: Vec<String>,
 }
 
 /// The workspace. Pro hides the persistent toolbars and side palettes for a full-screen drafting
@@ -196,6 +200,7 @@ impl Default for UiState {
             pin_panels: true,
             auto_collapse_ms: 1500,
             mode_slots: std::collections::BTreeMap::new(),
+            top_bar: topbar::default_items(),
         }
     }
 }
@@ -522,18 +527,20 @@ impl CadApp {
         if !classic_order && self.ui.in_window_menu {
             menus::menu_bar(self, ui);
         }
+        let has_doc = !self.session.docs.is_empty() && !self.ui.start_tab;
+        // The top bar: its first line (tools you choose, Classic only), then its second line (layer,
+        // floor, drawing space), above the file tabs.
         if self.toolbars_shown() {
-            toolbars::top_row(self, ui);
+            topbar::show(self, ui);
+        }
+        if has_doc {
+            contextbar::show(self, ui);
         }
         if self.ui.show_status_bar {
             chrome::status_bar(self, ui);
         }
-        let has_doc = !self.session.docs.is_empty() && !self.ui.start_tab;
         if self.ui.show_file_tabs {
             chrome::file_tabs(self, ui);
-        }
-        if has_doc {
-            contextbar::show(self, ui);
         }
 
         if has_doc && self.toolbars_shown() {

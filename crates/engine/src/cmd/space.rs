@@ -571,6 +571,14 @@ fn run_recover(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({"changed": n, "message": format!("{n} layers shown, thawed and unlocked")}))
 }
 
+/// The active drawing space and whether the layers differ from it, for read-only context
+/// (`cmd::context`): `None` when no space is active.
+pub(crate) fn active_summary(d: &Drawing) -> Option<Value> {
+    let st = load(d);
+    let sp = st.active.as_ref().and_then(|a| st.spaces.iter().find(|sp| &sp.id == a))?;
+    Some(json!({"name": sp.name, "floor": sp.floor, "layersInSpace": sp.layers.len(), "layersDifferFromSpace": !differences(d, sp).is_empty()}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

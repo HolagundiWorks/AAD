@@ -33,26 +33,6 @@ pub fn specs() -> Vec<CommandSpec> {
             .alias(&["mv"])
             .params("{p1?, p2? (default: printable area), count?: 1-4, arrangement?: vertical|horizontal|left|right|above|below, layout?}")
             .interactive(|_| Ok(Box::new(MviewM::new(1, true)))),
-        CommandSpec::new("vports", "New Viewports...", run_mview)
-            .menu(&["View", "Viewports", "New Viewports..."])
-            .params("{count?: 1-4, arrangement?, p1?, p2?, layout?}")
-            .interactive(|_| Ok(Box::new(MviewM::new(1, true)))),
-        CommandSpec::new("vports.1", "1 Viewport", |s, p| run_mview_n(s, p, 1))
-            .menu(&["View", "Viewports", "1 Viewport"])
-            .params("{p1?, p2?, layout?}")
-            .interactive(|_| Ok(Box::new(MviewM::new(1, false)))),
-        CommandSpec::new("vports.2", "2 Viewports", |s, p| run_mview_n(s, p, 2))
-            .menu(&["View", "Viewports", "2 Viewports"])
-            .params("{p1?, p2?, arrangement?: vertical|horizontal, layout?}")
-            .interactive(|_| Ok(Box::new(MviewM::new(2, false)))),
-        CommandSpec::new("vports.3", "3 Viewports", |s, p| run_mview_n(s, p, 3))
-            .menu(&["View", "Viewports", "3 Viewports"])
-            .params("{p1?, p2?, arrangement?: right|left|above|below|vertical|horizontal, layout?}")
-            .interactive(|_| Ok(Box::new(MviewM::new(3, false)))),
-        CommandSpec::new("vports.4", "4 Viewports", |s, p| run_mview_n(s, p, 4))
-            .menu(&["View", "Viewports", "4 Viewports"])
-            .params("{p1?, p2?, layout?}")
-            .interactive(|_| Ok(Box::new(MviewM::new(4, false)))),
         CommandSpec::new("viewport.set", "Viewport Properties", run_viewport_set).params(
             "{handle? (default: selected viewports), scale?: paper units per model unit | \"1:50\", viewHeight?, center?: [x,y], locked?, freeze?: [layer], thaw?: [layer], colors?: {layer: color | null}}",
         ),
@@ -472,10 +452,6 @@ fn run_mview(s: &mut Session, p: &Value) -> Result<Value> {
         Some(v) => v.as_u64().and_then(|n| usize::try_from(n).ok()).ok_or_else(|| bad("mview", "count must be 1, 2, 3 or 4"))?,
     };
     mview(s, p, count, "mview")
-}
-
-fn run_mview_n(s: &mut Session, p: &Value, n: usize) -> Result<Value> {
-    mview(s, p, n, "vports")
 }
 
 /// MVIEW / VPORTS prompts: first corner (or Fit, or a viewport count), opposite corner.
@@ -922,7 +898,7 @@ mod tests {
         assert!(s.execute("mview", &json!({"p1": [0, 0], "p2": [1, 1]})).is_err(), "not in model space");
         s.execute("mview", &json!({"layout": "Layout2", "count": 4})).unwrap();
         assert_eq!(viewports(&s, "Layout2").len(), 4);
-        s.execute("vports.3", &json!({"layout": "Layout2", "p1": [0, 0], "p2": [9, 6]})).unwrap();
+        s.execute("mview", &json!({"layout": "Layout2", "count": 3, "p1": [0, 0], "p2": [9, 6]})).unwrap();
         let v = viewports(&s, "Layout2");
         assert_eq!(v.len(), 7);
         let total: f64 = v[4..].iter().map(|(_, v)| v.width * v.height).sum();
@@ -945,10 +921,6 @@ mod tests {
         // One undo step per MVIEW.
         s.undo().unwrap();
         assert_eq!(viewports(&s, "Layout1").len(), 1);
-        // In model space the interactive command ends at once.
-        s.execute("layout.set", &json!({"name": "Model"})).unwrap();
-        s.cmdline("vports.4").unwrap();
-        assert!(s.running.is_none());
     }
 
     #[test]

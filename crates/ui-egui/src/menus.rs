@@ -36,6 +36,9 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.workspace.pro", "Pro Workspace", &["Window", "Workspace", "Pro"], None),
     ("ui.workspace.reset", "Reset Workspace", &["Window", "Workspace", "Reset This Workspace"], None),
     ("resetui", "Reset Toolbars and Menus", &["View", "Reset Toolbars and Menus"], Some("Cmd+Shift+F11")),
+    ("ui.dialog.customizetop", "Customize Top Bar...", &["View", "Customize Top Bar..."], None),
+    ("ui.topbar.set", "Set Top Bar Tools", &[], None),
+    ("ui.topbar.get", "Top Bar Tools", &[], None),
     ("ui.workspace.toggle", "Toggle Pro/Classic Workspace", &["Window", "Toggle Pro/Classic Workspace"], Some("Ctrl+F11")),
     ("ui.theme.light", "Light", &[], None),
     ("ui.theme.dark", "Dark", &[], None),
@@ -270,6 +273,8 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             }
             Ok(json!({ "lines": app.ui.history_lines }))
         }
+        "ui.topbar.set" => crate::topbar::command(app, params, true),
+        "ui.topbar.get" => crate::topbar::command(app, params, false),
         "ui.toggle.assistant" => {
             crate::assistant::toggle(app);
             Ok(json!({ "open": app.assistant.open }))
@@ -280,6 +285,7 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         | "ui.dialog.about"
         | "ui.dialog.commands"
         | "ui.dialog.qselect"
+        | "ui.dialog.customizetop"
         | "ui.dialog.parameters" => {
             app.ui.dialog = Some(id.trim_start_matches("ui.dialog.").to_string());
             Ok(Value::Null)
@@ -637,11 +643,12 @@ fn set_workspace(app: &mut CadApp, mode: crate::WorkspaceMode) -> Value {
         // Leaving a mode saves its arrangement and pin state; entering one restores its own (or the
         // defaults of that mode). The two never share or overwrite each other's.
         let old = app.ui.workspace;
-        let slot = json!({"docking": app.ui.docking, "pin": app.ui.pin_panels, "toolbar": app.ui.show_toolbar});
+        let slot = json!({"docking": app.ui.docking, "pin": app.ui.pin_panels, "toolbar": app.ui.show_toolbar, "topBar": app.ui.top_bar});
         app.ui.mode_slots.insert(old.as_str().to_string(), slot);
-        let (docking, pin, toolbar) = restore_slot(app, mode);
+        let (docking, pin, toolbar, top_bar) = restore_slot(app, mode);
         app.ui.docking = docking;
         app.ui.show_toolbar = toolbar;
+        app.ui.top_bar = top_bar;
         app.ui.pin_panels = pin;
         match mode {
             crate::WorkspaceMode::Pro => {
@@ -661,14 +668,20 @@ fn mode_defaults(mode: crate::WorkspaceMode) -> (crate::docking::Workspace, bool
 }
 
 /// The saved slot of `mode`, or its defaults when there is none or it no longer reads.
-fn restore_slot(app: &mut CadApp, mode: crate::WorkspaceMode) -> (crate::docking::Workspace, bool, bool) {
+fn restore_slot(app: &mut CadApp, mode: crate::WorkspaceMode) -> (crate::docking::Workspace, bool, bool, Vec<String>) {
     let (default_docking, default_pin) = mode_defaults(mode);
-    let Some(slot) = app.ui.mode_slots.remove(mode.as_str()) else { return (default_docking, default_pin, true) };
+    let Some(slot) = app.ui.mode_slots.remove(mode.as_str()) else { return (default_docking, default_pin, true, crate::topbar::default_items()) };
     let docking =
         slot.get("docking").and_then(|d| serde_json::from_value::<crate::docking::Workspace>(d.clone()).ok()).filter(|d| d.validate().is_ok());
     let pin = slot.get("pin").and_then(Value::as_bool).unwrap_or(default_pin);
     let toolbar = slot.get("toolbar").and_then(Value::as_bool).unwrap_or(true);
-    (docking.unwrap_or(default_docking), pin, toolbar)
+    let top_bar = slot
+        .get("topBar")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<_>>())
+        .map(|v| crate::topbar::sanitize(&v))
+        .unwrap_or_else(crate::topbar::default_items);
+    (docking.unwrap_or(default_docking), pin, toolbar, top_bar)
 }
 
 /// `ui.workspace.reset` and `resetui` (typed at the command line, or View > Reset Toolbars and Menus):
@@ -681,6 +694,7 @@ fn reset_workspace(app: &mut CadApp) -> Value {
     app.ui.pin_panels = pin;
     app.ui.show_palettes = mode == crate::WorkspaceMode::Classic;
     app.ui.show_toolbar = true;
+    app.ui.top_bar = crate::topbar::default_items();
     app.ui.show_command_line = true;
     app.ui.show_status_bar = true;
     app.ui.show_file_tabs = true;
