@@ -437,11 +437,8 @@ impl Interactive for DistM {
                     pts.push(p);
                     s.echo(format!("Distance = {}", fmt_d(s, path_len(pts))));
                 }
-                Input::Keyword(k) if k == "Undo" => {
-                    if pts.len() > 1 {
-                        pts.pop();
-                    }
-                }
+                // Drop the last point but always keep the first.
+                Input::Keyword(k) if k == "Undo" => pts.truncate(pts.len().saturating_sub(1).max(1)),
                 Input::Keyword(k) if k == "Length" => self.length = true,
                 Input::Keyword(k) if k == "Total" => return self.total(s),
                 Input::Keyword(k) => s.echo(format!("{k}: not available yet")),

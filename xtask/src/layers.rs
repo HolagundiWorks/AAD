@@ -169,10 +169,9 @@ pub fn check(crates: &[Crate]) -> Vec<Violation> {
                 match classify(&d.name) {
                     // Unregistered deps are reported on their own entry.
                     None => {}
+                    // A dev-only testkit dep is fine and must not fall through to the layer check below.
                     Some(Class::Testkit) => {
-                        if d.kind != DepKind::Dev {
-                            out.push(Violation::TestkitAsNormalDep { krate: c.name.clone() });
-                        }
+                        out.extend((d.kind != DepKind::Dev).then(|| Violation::TestkitAsNormalDep { krate: c.name.clone() }));
                     }
                     Some(dc) => {
                         let to = dc.layer().unwrap_or(u8::MAX);
