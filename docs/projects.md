@@ -64,7 +64,7 @@ ground floor's beam layout shown over it while the ground floor plan itself is h
 | Show, freeze, lock, print flags per floor and per layout; overlays | Implemented and tested |
 | Moving and reopening a project keeps references and flags | Implemented and tested |
 | Floor selector in the top toolbar, active floor shown in the interface | Not built |
-| Project Setup Wizard (dialog, three steps, review) | Not built; `project.setup` is the command it will call |
+| Project Setup Wizard (dialog, steps, review) | Not built; the typed manifest, planner and company profiles under it are built (`project.plan`, [PROJECT_WIZARD.md](PROJECT_WIZARD.md)) |
 | Floor View Manager panel | Not built |
 | Preventing edits of an inactive floor opened directly | Not built (the manifest records `locked`; opening the file still allows editing) |
 | Adding or removing a floor after setup | Not built |

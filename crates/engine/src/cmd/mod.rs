@@ -29,6 +29,7 @@ mod mtext_opts;
 mod pline_opts;
 pub(crate) mod project;
 mod projfile;
+mod projwizard;
 mod props;
 mod qselect;
 mod schedule;
@@ -200,6 +201,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(bridge::specs());
         v.extend(xref::specs());
         v.extend(projfile::specs());
+        v.extend(projwizard::specs());
         v.extend(sheet::specs());
         v.extend(layout::specs());
         v.extend(props::specs());

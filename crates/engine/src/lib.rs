@@ -20,6 +20,7 @@ pub mod grips;
 mod guard;
 pub mod pointmod;
 pub mod pomodoro;
+pub mod projectplan;
 pub mod prompt;
 mod protect;
 pub mod sample;

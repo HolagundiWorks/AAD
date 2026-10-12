@@ -37,6 +37,7 @@ marks, isometric drafting).
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
 | Units and annotation | Drawing and display units, plot scale and paper, annotation sizing, collision analysis and text layout ([units-annotation.md](units-annotation.md)) |
 | AI agent tool layer | Allow-listed, validated tools for flatten, audit, purge, recover, summary, units, plot configuration and annotation layout ([ai-agent.md](ai-agent.md)) |
+| Project wizard groundwork | Typed versioned project manifest, stable ids, floor elevation derivation, naming patterns, drawing-set and Xref planning with cycle and path checks, read-only preflight, company profiles with logo asset; commands `project.plan`, `company.validate`. The wizard UI, file generation, templates, opening-schedule reconciliation and nameplates are not built ([PROJECT_WIZARD.md](PROJECT_WIZARD.md)) |
 
 ## Planned (not implemented)
 
