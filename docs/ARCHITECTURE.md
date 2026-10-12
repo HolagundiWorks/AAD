@@ -5,7 +5,7 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 
 ## Workspace
 
-12 library crates, 3 apps and `xtask`. `cargo xtask layers` enforces the layering: nothing below L5
+13 library crates, 3 apps and `xtask`. `cargo xtask layers` enforces the layering: nothing below L5
 depends on egui, eframe, winit, wgpu or rfd.
 
 | Layer | Crate | What it does |
@@ -17,7 +17,8 @@ depends on egui, eframe, winit, wgpu or rfd.
 | L2 | `fonts` | Single-stroke drafting font, TrueType/OpenType outlines through `skrifa`, text and MTEXT layout, font fallback |
 | L2 | `render` | Display lists (linetypes, hatches, text, blocks, dimension geometry, paper-space clipping); CPU rasteriser for PNG, plot preview and tests |
 | L3 | `io` | DXF to document mapping (`dxf_read.rs`, `dxf_write.rs`, AAD extension data in `dxf_ext.rs`), PDF plotting, SVG and PNG export |
-| L3 | `dwg` | DWG through a DXF bridge: the `acadrust` crate (MPL-2.0, unmodified) converts DWG and DXF bytes; native builds only |
+| L3 | `dwg` | DWG through a DXF bridge: the `acadrust` crate (MPL-2.0, unmodified) converts DWG and DXF bytes; native builds only. The apps run the conversion in a worker process (`isolated.rs`) so a damaged file cannot abort the program |
+| standalone | `llm` | Offline language-model runtime facade (Qwen3 prompt format, model file check). The llama.cpp backend is behind the off-by-default `llama` feature and is not wired into the apps yet ([ai-agent.md](ai-agent.md)) |
 | L4 | `engine` | `Session`, the command registry (`cmd/*`), command-line parser and prompt machines, object snaps, selection, grips, associativity, system variables, units, undo, audit (`audit.rs`), flatten on import (`flatten.rs`) |
 | L5 | `ui-egui` | The egui front end: GPU canvas, menus, command line, palettes, dialogs, icons drawn in code, light/dark theme, interface string catalog |
 | L5 | `mcp` | MCP server (JSON-RPC 2.0 over stdio) on a headless session or bridged to a running app |
@@ -45,7 +46,7 @@ depends on egui, eframe, winit, wgpu or rfd.
 
 Every user-visible action is a `CommandSpec` (`crates/engine/src/cmd/mod.rs`): id (the command name
 in lower case), label, menu path, shortcut, aliases, a JSON `run`, an `enabled` check and an
-optional interactive prompt machine. There are 320 engine commands (135 with interactive prompts;
+optional interactive prompt machine. There are 339 engine commands (135 with interactive prompts;
 `cadcraft-cli commands` lists them) and 46 UI-only commands in `crates/ui-egui/src/menus.rs`. The
 command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools all
 reach the same commands. JSON calls never open dialogs.
@@ -88,3 +89,31 @@ Production crates deny `unwrap`, `expect` and `panic!` and forbid `unsafe`. `Ses
 interactive input run under `catch_unwind`, restoring the drawing if a panic escapes. Input-sized
 allocations are capped (DXF tag counts, DWG size limits, hatch segment and island limits,
 `MAX_BLOCK_DEPTH`). The quality gate is `cargo xtask ci`.
+
+## Undo and redo
+
+`Session::execute` keeps the drawing as an `Arc<Drawing>` before each undoable command and pushes a
+`Snapshot` (label, previous drawing, previous selection) when the command changed it. Because the
+entity store is copy-on-write in chunks of up to 1 024 entities, a snapshot shares every chunk the
+command did not touch. History is capped at 2 000 steps per document. Commands marked `noundo`
+(for example save) do not add a step. After a command, edits that would leave NaN or infinite
+coordinates are refused and the drawing is restored (`finite.rs`).
+
+## Threading
+
+The UI, the engine and rendering run on the thread that draws the window. Threads that exist:
+
+- `spatial::warm` builds the picking index in the background when the display list is rebuilt
+  (`aad-spatial-warm`, one at a time; not on wasm).
+- The DWG worker process and its feeder and reader threads (`dwg/src/isolated.rs`).
+- The control-channel server (one thread per connection, `apps/cadcraft/src/control_server.rs`),
+  which hands requests to the UI thread over a channel.
+
+File open, save and plot run on the UI thread; there is no progress state yet
+([UI_BUG_BACKLOG.md](UI_BUG_BACKLOG.md), UI-003).
+
+## External dependencies
+
+Rendering and windowing: `egui`/`eframe` 0.36, `egui-wgpu`, `wgpu`. Geometry and spatial queries:
+`rstar`. Fonts: `skrifa`. DWG: `acadrust`. Local model (optional): `llama-cpp-2`. Tests and
+benchmarks: `egui_kittest`, `proptest`, `criterion`. The full list is in `Cargo.lock`.

@@ -19,7 +19,7 @@ hardware is stated, and no such statement exists yet.
 - Commands: `cargo bench -p cadcraft-geom --bench geometry`, `-p cadcraft-engine --bench selection`,
   `--bench drawing_operations`, `-p cadcraft-render --bench render`, `-p cadcraft-io --bench dxf`,
   each followed by `-- --warm-up-time 1 --measurement-time 3`. Raw output:
-  `target/quality/bench-run2.txt` and `bench-run2-ops.txt` (not committed).
+  `target/quality/bench-run2.txt` and `bench-run2-ops.txt`; these raw files were deleted by the 2026-10-12 cleanup (the tables here are the record; rerun the commands to regenerate).
 
 ## Geometry (`cadcraft-geom`)
 

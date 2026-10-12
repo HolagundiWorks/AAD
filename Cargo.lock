@@ -646,7 +646,6 @@ name = "cadcraft-agent"
 version = "0.6.0"
 dependencies = [
  "cadcraft-engine",
- "serde",
  "serde_json",
 ]
 
@@ -658,7 +657,6 @@ dependencies = [
  "cadcraft-engine",
  "cadcraft-io",
  "cadcraft-mcp",
- "cadcraft-render",
  "serde_json",
 ]
 
@@ -758,7 +756,6 @@ name = "cadcraft-mcp"
 version = "0.6.0"
 dependencies = [
  "cadcraft-engine",
- "cadcraft-io",
  "cadcraft-render",
  "log",
  "serde_json",

@@ -1,4 +1,4 @@
-//! Dependency layering rules (plan/architecture.md §3).
+//! Dependency layering rules (docs/ARCHITECTURE.md).
 //!
 //! The rule engine works on a small, metadata-independent model so it can be
 //! unit-tested; `from_metadata` builds that model from `cargo metadata`.
@@ -125,7 +125,7 @@ impl std::fmt::Display for Violation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Violation::Unregistered { krate } => {
-                write!(f, "{krate}: unknown workspace crate; register it in xtask/src/layers.rs TABLE (see plan/architecture.md §3)")
+                write!(f, "{krate}: unknown workspace crate; register it in xtask/src/layers.rs TABLE (see docs/ARCHITECTURE.md)")
             }
             Violation::Upward { krate, dep, from, to, kind } => {
                 write!(f, "{krate} (L{from}) -> {dep} (L{to}) [{kind:?}]: may only depend on strictly lower layers")

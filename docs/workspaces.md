@@ -97,7 +97,7 @@ area started it: a double-click on text did nothing. `canvas::edit_selected_text
 (`tests/text_double_click.rs`).
 
 Imported DWG text reaches the same entity kinds as DXF text (the DWG is converted to DXF in memory,
-see [architecture.md](architecture.md)). No representative architectural DWG is available in this
+see [ARCHITECTURE.md](ARCHITECTURE.md)). No representative architectural DWG is available in this
 repository, so editing of real imported DWG files has not been verified beyond that mapping.
 Limits: text inside a block definition is not edited in place (there is no block editor or
 in-place reference edit); text exploded to geometry, proxy objects and unmodelled types (kept as

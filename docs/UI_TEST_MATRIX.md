@@ -23,7 +23,7 @@ development, not repeatable; **Open** = not done; **N/A** = the feature does not
 | Text editing and validation, focus | Partly | `text_double_click`, `workspace_focus` |
 | Disabled actions refuse cleanly | Open | |
 | Undo / redo | Automated | `drawing_workflow` (draw then undo then redo gives the identical drawing) |
-| Drawing data not corrupted | Automated | save and reopen test; engine properties in `docs/TESTING_STRATEGY.md` |
+| Drawing data not corrupted | Automated | save and reopen test; engine properties in `docs/TESTING.md` |
 
 ## B. Canvas workflow
 

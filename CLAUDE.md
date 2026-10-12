@@ -1,7 +1,7 @@
 # Developer guide and rules for coding agents
 
 AAD (2D drafting fork) is an open-source, pure-Rust 2D computer-aided drafting application for
-architectural and civil work. It is a Windows-only program for now: macOS, Linux and the web are later phases. Start with [README.md](README.md), [docs/architecture.md](docs/architecture.md) and
+architectural and civil work. It is a Windows-only program for now: macOS, Linux and the web are later phases. Start with [README.md](README.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/status.md](docs/status.md) (what exists and what is only planned).
 
 ## Scope: 2D only

@@ -14,7 +14,7 @@
 //! into a permanent regression test.
 //!
 //! This is not coverage-guided fuzzing: it explores around known-good files, which is where real
-//! files go wrong. See docs/TESTING_STRATEGY.md for the `cargo-fuzz` plan.
+//! files go wrong. See docs/TESTING.md for the `cargo-fuzz` plan.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;

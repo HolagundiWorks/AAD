@@ -1,7 +1,7 @@
 # Bug backlog
 
 Defects found by the quality programme, with evidence. A defect is **confirmed** only when it was
-reproduced; everything else is in the *suspected* table of [QUALITY_AUDIT.md](QUALITY_AUDIT.md).
+reproduced; everything else is in the *hypotheses* list in [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 Severity: P0 data corruption, severe crash or unsafe behaviour; P1 core drafting broken; P2
 significant lag or important functionality unreliable; P3 minor; P4 optimisation or debt.
 
@@ -47,7 +47,7 @@ significant lag or important functionality unreliable; P3 minor; P4 optimisation
 
 ## Open
 
-None confirmed. See the suspected defects and the backlog in [QUALITY_AUDIT.md](QUALITY_AUDIT.md).
+None confirmed that is still unfixed. Hypotheses and limits: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ## PERF-001 (P3): editing existing objects cost about 40 ms at 100 000 entities - FIXED
 

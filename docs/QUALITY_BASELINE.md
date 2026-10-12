@@ -51,10 +51,10 @@ disabled or weakened to get that result.
 - **DWG:** reading goes through a third-party library; its behaviour on real-world DWG files from
   other programs is only as tested as the fixtures we have (see BUG-001 in
   [BUG_BACKLOG.md](BUG_BACKLOG.md)).
-- **Performance** is in [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
+- **Performance** is in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## What the baseline run did not contain (before this programme)
 
 No property-based tests, no fuzzing or mutation testing, no benchmarks, and no GitHub workflow that
 ran the tests on a pull request (only the release workflow and a packaging lint existed). The
-programme added them; see [TESTING_STRATEGY.md](TESTING_STRATEGY.md).
+programme added them; see [TESTING.md](TESTING.md).

@@ -10,9 +10,23 @@ mechanical features removed.
 What is built and what is planned is listed in [docs/status.md](docs/status.md). Nothing in the
 documentation describes a feature as available unless it exists and has tests.
 
-## Build and run
+## Status
 
-Requires Rust 1.90 or later for the core crates; the desktop and web UI builds need Rust 1.95 or later.
+Version 0.6.0. Windows x64 is the only platform that is built, tested and packaged. Working today:
+2D drafting and modifying, DXF and DWG, layouts and plotting, the architecture tools, a command line
+and automation interfaces. Not available: 3D, parametric constraints, UCS, SHX fonts, and the local
+language model in the apps (the runtime crate exists, see [docs/ai-agent.md](docs/ai-agent.md)).
+The full list of what exists and what is planned is in [docs/status.md](docs/status.md); known
+problems are in [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md).
+
+## Prerequisites
+
+Rust stable with the MSVC target (1.95 or later for the desktop and UI crates; the other crates
+declare 1.90) and the Visual Studio Build Tools. A GPU with a wgpu-compatible driver runs the
+application. Nothing else is needed to build and test. Installing the toolchain, packaging and
+troubleshooting: [docs/BUILD_AND_DEVELOPMENT.md](docs/BUILD_AND_DEVELOPMENT.md).
+
+## Build and run
 
 ```sh
 cargo run --release -p cadcraft -- --sample    # desktop app with a sample drawing
@@ -36,7 +50,7 @@ The web build (`apps/cadcraft-web`) is not part of the supported product yet; it
 cargo xtask ci        # fmt, clippy -D warnings, tests, asset list, layering, wasm check
 ```
 
-`cargo xtask --help` lists the other tasks (`layers`, `assets`, `wasm`, `parity`, `version`, `stats`).
+`cargo xtask --help` lists the other tasks (`layers`, `assets`, `wasm`, `parity`, `version`, `logo`, `stats`).
 
 ## Command-line tool, MCP and control channel
 
@@ -70,7 +84,7 @@ widgets under Tools ([docs/widgets.md](docs/widgets.md)).
 ## Local AI assistant
 
 An offline assistant can call a fixed set of validated tools (flatten, audit, purge, recover). The
-tool layer is built and tested; the Qwen3-1.7B model runtime is not integrated yet. See
+tool layer and the runtime crate (`cadcraft-llm`, llama.cpp behind an off-by-default feature) are built and tested; the assistant is not wired into the apps and no model is bundled. See
 [docs/ai-agent.md](docs/ai-agent.md).
 
 ## Configuration
@@ -92,19 +106,31 @@ tool layer is built and tested; the Qwen3-1.7B model runtime is not integrated y
 
 | File | Contents |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | Crates, layering, data model, commands, rendering, files |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Crates, layering, data model, commands, undo, threading, rendering, files |
+| [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | Directory and module map, entry points, generated folders |
+| [docs/BUILD_AND_DEVELOPMENT.md](docs/BUILD_AND_DEVELOPMENT.md) | Toolchain, build, run, test, packaging, troubleshooting |
+| [docs/CAD_ENGINE.md](docs/CAD_ENGINE.md) | Entities, geometry, units, snapping, selection, hatch, file interoperability, limits |
+| [docs/UI_UX.md](docs/UI_UX.md) | Screens, menus, mouse and keyboard, dialogs, window sizes, UI test coverage |
+| [docs/TESTING.md](docs/TESTING.md) | Test layers, property and mutation tests, regression procedure, CI |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, measurements, bottlenecks, optimisation history |
+| [docs/RELEASE_AND_PACKAGING.md](docs/RELEASE_AND_PACKAGING.md) | Release build, installer, validation, artifact retention |
+| [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Confirmed issues, hypotheses, limits |
+| [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), [docs/CLEANUP_REPORT.md](docs/CLEANUP_REPORT.md) | Repository inventory and the cleanup that followed |
 | [docs/units-annotation.md](docs/units-annotation.md) | Drawing and display units, plot scale, annotation sizing and layout |
 | [docs/workspaces.md](docs/workspaces.md) | Pro and Classic workspaces, panels, property toolbar, text editing, hatch selection |
-| [docs/maintenance.md](docs/maintenance.md) | Flatten on import, `PURGE`, `AUDIT`, `RECOVER`, backups |
+| [docs/maintenance.md](docs/maintenance.md) | Flatten on import, `PURGE`, `AUDIT`, `RECOVER`, backups, DWG worker |
 | [docs/ai-agent.md](docs/ai-agent.md) | Local AI agent: tools, validation, confirmation, loop limits |
 | [docs/status.md](docs/status.md) | Implemented and planned functionality |
 | [docs/hcw-kit-port.md](docs/hcw-kit-port.md) | Architectural tools ported from hcwCAD-KIT |
+| [docs/projects.md](docs/projects.md), [docs/sheets.md](docs/sheets.md), [docs/widgets.md](docs/widgets.md), [docs/input-forms.md](docs/input-forms.md) | Floor projects and Xrefs, layouts and plotting, calculator and Pomodoro, input forms |
 | [docs/control-protocol.md](docs/control-protocol.md) | JSON control channel |
 | [docs/mcp.md](docs/mcp.md) | MCP server |
 | [docs/plot-styles.md](docs/plot-styles.md) | Plot styles and plotting |
 | [docs/localization.md](docs/localization.md) | Interface languages |
 | [docs/contributors.md](docs/contributors.md) | Contributor credits in the About window |
-| [docs/releasing.md](docs/releasing.md) | Versioning and release builds |
+| [docs/releasing.md](docs/releasing.md) | Versioning, release workflow, signing |
+| [docs/QUALITY_BASELINE.md](docs/QUALITY_BASELINE.md), [docs/BUG_BACKLOG.md](docs/BUG_BACKLOG.md), [docs/UI_BASELINE.md](docs/UI_BASELINE.md), [docs/UI_BUG_BACKLOG.md](docs/UI_BUG_BACKLOG.md) | Quality programme records |
+| [docs/UI_TESTING_STRATEGY.md](docs/UI_TESTING_STRATEGY.md), [docs/UI_INVENTORY.md](docs/UI_INVENTORY.md), [docs/UI_TEST_MATRIX.md](docs/UI_TEST_MATRIX.md) | UI test tooling, control inventory, coverage |
 | [docs/parity-checklist.md](docs/parity-checklist.md) | Generated menu-name comparison (`cargo xtask parity`) |
 | [CLAUDE.md](CLAUDE.md) | Rules for developers and coding agents |
 

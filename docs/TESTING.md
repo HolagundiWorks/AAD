@@ -9,7 +9,7 @@ supported platform for now.
 cargo xtask ci                                   # the gate: fmt, clippy -D warnings, all tests,
                                                  # asset attribution, layering, wasm compile
 powershell -File tools/quality/baseline.ps1      # the same commands with timings, as a report
-cargo bench -p cadcraft-geom --bench geometry    # benchmarks (see PERFORMANCE_BASELINE.md)
+cargo bench -p cadcraft-geom --bench geometry    # benchmarks (see PERFORMANCE.md)
 ```
 
 `cargo xtask ci` is what the pull-request workflow (`.github/workflows/cad-ci.yml`) runs, so a green
