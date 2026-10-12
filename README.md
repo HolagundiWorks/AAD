@@ -29,8 +29,8 @@ troubleshooting: [docs/BUILD_AND_DEVELOPMENT.md](docs/BUILD_AND_DEVELOPMENT.md).
 ## Build and run
 
 ```sh
-cargo run --release -p cadcraft -- --sample    # desktop app with a sample drawing
-cargo run --release -p cadcraft -- file.dxf    # open a file
+cargo run --release -p aad -- --sample    # desktop app with a sample drawing
+cargo run --release -p aad -- file.dxf    # open a file
 ```
 
 Type commands at the command line, for example:
@@ -42,7 +42,7 @@ offset 0.25
 zoom e
 ```
 
-The web build (`apps/cadcraft-web`) is not part of the supported product yet; it is only checked to compile.
+The web build (`apps/aad-web`) is not part of the supported product yet; it is only checked to compile.
 
 ## Tests
 
@@ -55,11 +55,11 @@ cargo xtask ci        # fmt, clippy -D warnings, tests, asset list, layering, wa
 ## Command-line tool, MCP and control channel
 
 ```sh
-cadcraft-cli info drawing.dxf
-cadcraft-cli convert drawing.dxf drawing.svg
-cadcraft-cli run --sample --script 'CIRCLE 22,3 1\n' --save out.dxf --export out.png
-cadcraft-cli mcp                               # MCP server on stdio, headless
-cadcraft-cli mcp --connect 127.0.0.1:7979      # ...or bridged to a running app (start it with --control 7979)
+aad-cli info drawing.dxf
+aad-cli convert drawing.dxf drawing.svg
+aad-cli run --sample --script 'CIRCLE 22,3 1\n' --save out.dxf --export out.png
+aad-cli mcp                               # MCP server on stdio, headless
+aad-cli mcp --connect 127.0.0.1:7979      # ...or bridged to a running app (start it with --control 7979)
 ```
 
 Image exports (PNG 2400x1600, SVG, PDF) fit the model-space extents; `--window x0,y0,x1,y1`
@@ -83,18 +83,18 @@ widgets under Tools ([docs/widgets.md](docs/widgets.md)).
 
 ## Local AI assistant
 
-An offline assistant can call a fixed set of validated tools (summary, flatten, audit, purge, recover, units, plot configuration). It runs a local Qwen3-1.7B model through llama.cpp and is **not part of the default build**: build with `--features assistant` (`cargo build --release -p cadcraft --features assistant`; needs CMake, a C++ toolchain and LLVM) and put the model file in `%APPDATA%AADmodels`. Type a request in the command bar (a leading `/`, a `/reference` such as `/layers`, or a plain sentence; see [docs/COMMAND_BAR.md](docs/COMMAND_BAR.md)), or use `cadcraft-cli ask "request"`. A tool that changes the drawing asks first. The model file is not bundled with the installer yet. See
+An offline assistant can call a fixed set of validated tools (summary, flatten, audit, purge, recover, units, plot configuration). It runs a local Qwen3-1.7B model through llama.cpp and is **not part of the default build**: build with `--features assistant` (`cargo build --release -p aad --features assistant`; needs CMake, a C++ toolchain and LLVM) and put the model file in `%APPDATA%AADmodels`. Type a request in the command bar (a leading `/`, a `/reference` such as `/layers`, or a plain sentence; see [docs/COMMAND_BAR.md](docs/COMMAND_BAR.md)), or use `aad-cli ask "request"`. A tool that changes the drawing asks first. The model file is not bundled with the installer yet. See
 [docs/ai-agent.md](docs/ai-agent.md), including what was observed with the real model.
 
 ## Configuration
 
 - Fonts: AAD ships none and uses the TrueType/OpenType fonts installed on the system. SHX fonts
   are not read; text in an SHX style is drawn with the built-in stroke font. `FONTALT` and
-  `FONTFALLBACK` (or `CADCRAFT_FONTALT`, `CADCRAFT_FONTFALLBACK`) name a replacement font and the
+  `FONTFALLBACK` (or `AAD_FONTALT`, `AAD_FONTFALLBACK`) name a replacement font and the
   fonts tried first for characters a font lacks. `.` clears either.
-- Logs: the desktop app writes to standard error and to `logs/cadcraft.log` in the settings
-  directory (`~/.config/cadcraft/` on Linux and the BSDs, `~/Library/Application Support/AAD/`
-  on macOS, `%APPDATA%\AAD\` on Windows). `CADCRAFT_CONFIG_DIR` overrides the directory and
+- Logs: the desktop app writes to standard error and to `logs/aad.log` in the settings
+  directory (`~/.config/aad/` on Linux and the BSDs, `~/Library/Application Support/AAD/`
+  on macOS, `%APPDATA%\AAD\` on Windows). `AAD_CONFIG_DIR` overrides the directory and
   `RUST_LOG` sets the levels (default `info` for AAD's crates, `warn` for the rest). Each launch
   rotates the previous log; the file stops growing at 16 MiB.
 - Theme: one light/dark toggle (View menu, status bar). Dark has a black drawing area, light a
@@ -114,10 +114,9 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Benchmarks, measurements, bottlenecks, optimisation history |
 | [docs/RELEASE_AND_PACKAGING.md](docs/RELEASE_AND_PACKAGING.md) | Release build, installer, validation, artifact retention |
 | [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Confirmed issues, hypotheses, limits |
-| [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), [docs/CLEANUP_REPORT.md](docs/CLEANUP_REPORT.md) | Repository inventory and the cleanup that followed |
 | [docs/ACTIVE_DRAWING_SPACE.md](docs/ACTIVE_DRAWING_SPACE.md) | Drawing spaces, layer protection, context bar, Classic and Pro workspaces: design, commands, acceptance status |
 | [docs/units-annotation.md](docs/units-annotation.md) | Drawing and display units, plot scale, annotation sizing and layout |
-| [docs/workspaces.md](docs/workspaces.md) | Pro and Classic workspaces, panels, property toolbar, text editing, hatch selection |
+| [docs/workspaces.md](docs/workspaces.md) | Pro and Classic workspaces, panels, text editing, hatch selection |
 | [docs/maintenance.md](docs/maintenance.md) | Flatten on import, `PURGE`, `AUDIT`, `RECOVER`, backups, DWG worker |
 | [docs/ai-agent.md](docs/ai-agent.md) | Local AI agent: tools, validation, confirmation, loop limits |
 | [docs/status.md](docs/status.md) | Implemented and planned functionality |

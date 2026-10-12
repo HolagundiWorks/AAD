@@ -1,8 +1,8 @@
 //! A multileader's spline leader and block content are written as LEADER (path type spline,
 //! group 72) and INSERT (#408); MULTILEADER objects themselves are not written.
 
-use cadcraft_doc::{Block, Common, Drawing, Entity, EntityKind, Handle, Insert, Line, MLeader, Space};
-use cadcraft_geom::Vec3;
+use aad_doc::{Block, Common, Drawing, Entity, EntityKind, Handle, Insert, Line, MLeader, Space};
+use aad_geom::Vec3;
 
 #[test]
 fn spline_leader_and_block_content_are_written() {
@@ -31,8 +31,8 @@ fn spline_leader_and_block_content_are_written() {
         }),
     };
     d.add(&Space::Model, Common::default(), EntityKind::MLeader(m)).unwrap();
-    let bytes = cadcraft_io::write(&d, "a.dxf").unwrap();
-    let back = cadcraft_io::read(&bytes, "a.dxf").unwrap();
+    let bytes = aad_io::write(&d, "a.dxf").unwrap();
+    let back = aad_io::read(&bytes, "a.dxf").unwrap();
     assert!(back.model.iter().any(|e| matches!(&e.kind, EntityKind::Leader(l) if l.spline && l.vertices.len() == 3)));
     assert!(back.model.iter().any(|e| matches!(&e.kind, EntityKind::Insert(i) if i.block == "TAG" && i.insert == Vec3::new(11.0, 0.0, 0.0))));
 }

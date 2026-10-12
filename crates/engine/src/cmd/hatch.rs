@@ -1,8 +1,8 @@
 //! HATCH, GRADIENT, BOUNDARY, REGION: boundaries from pick points or selected closed objects.
 
-use cadcraft_color::Color;
-use cadcraft_doc::{Drawing, Entity, EntityKind, Gradient, Handle, Hatch, HatchLoop, Space, entity_bounds};
-use cadcraft_geom::{Bounds2, PolyVertex, Polyline, Vec2, point_in_polygon};
+use aad_color::Color;
+use aad_doc::{Drawing, Entity, EntityKind, Gradient, Handle, Hatch, HatchLoop, Space, entity_bounds};
+use aad_geom::{Bounds2, PolyVertex, Polyline, Vec2, point_in_polygon};
 use serde_json::{Value, json};
 
 use super::helpers::lwpoly;
@@ -65,7 +65,7 @@ fn closed_loop(d: &Drawing, e: &Entity) -> Option<Vec<PolyVertex>> {
             Some(p.vertices.clone())
         }
         EntityKind::Ellipse(el) => {
-            let ge = cadcraft_geom::Ellipse { center: el.center.xy(), major: el.major.xy(), ratio: el.ratio, start: el.start, end: el.end };
+            let ge = aad_geom::Ellipse { center: el.center.xy(), major: el.major.xy(), ratio: el.ratio, start: el.start, end: el.end };
             if !ge.is_full() {
                 return None;
             }
@@ -96,7 +96,7 @@ pub(crate) fn loops_at(s: &Session, p: Vec2) -> Result<Vec<HatchLoop>> {
     let ext = d.extents(&space);
     let tol = ((ext.width() + ext.height()) * 1e-9).max(1e-9);
     let (polys, owners) = outlines(d, &space, None);
-    let found = cadcraft_geom::region::boundary_at(&polys, p, tol).ok_or_else(|| EngineError::Other("Valid hatch boundary not found.".into()))?;
+    let found = aad_geom::region::boundary_at(&polys, p, tol).ok_or_else(|| EngineError::Other("Valid hatch boundary not found.".into()))?;
     let outer = found.outer;
     let ob = Bounds2::from_points(outer.iter().copied());
     let mut loops = vec![HatchLoop { vertices: outer.iter().map(|q| PolyVertex::new(*q)).collect(), outer: true }];
@@ -113,7 +113,7 @@ pub(crate) fn loops_at(s: &Session, p: Vec2) -> Result<Vec<HatchLoop>> {
             if let Some(vs) = closed_loop(d, e) {
                 let pts = Polyline { vertices: vs.clone(), closed: true }.tessellate(tol.max(eb.width() * 1e-3));
                 let inside = pts.iter().all(|q| point_in_polygon(&outer, *q) || outer.iter().any(|o| o.near(*q, tol * 10.0)));
-                let same_as_outer = (cadcraft_geom::shoelace(&pts).abs() - cadcraft_geom::shoelace(&outer).abs()).abs() < tol.max(1e-6) * 1000.0;
+                let same_as_outer = (aad_geom::shoelace(&pts).abs() - aad_geom::shoelace(&outer).abs()).abs() < tol.max(1e-6) * 1000.0;
                 if inside && !same_as_outer && !point_in_polygon(&pts, p) {
                     loops.push(HatchLoop { vertices: vs, outer: false });
                 }
@@ -319,13 +319,13 @@ impl HatchM {
         match a {
             HatchAsk::Pattern => {
                 let up = t.trim().to_ascii_uppercase();
-                if cadcraft_doc::library::pattern(&up).is_some() {
+                if aad_doc::library::pattern(&up).is_some() {
                     self.settings.pattern = up.clone();
                     s.doc_mut()?.header.set_str("HPNAME", &up);
                 } else {
                     s.echo(format!(
                         "Unknown pattern {up}. Available: {}",
-                        cadcraft_doc::library::standard_patterns().iter().map(|p| p.name).collect::<Vec<_>>().join(", ")
+                        aad_doc::library::standard_patterns().iter().map(|p| p.name).collect::<Vec<_>>().join(", ")
                     ));
                 }
             }

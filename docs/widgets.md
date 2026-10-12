@@ -60,5 +60,5 @@ returns `label`, `running`, `left` (seconds) and `minutes`.
 
 ## Tests
 
-`cargo test -p cadcraft-engine --lib calc pomodoro`, `cargo test -p cadcraft-engine --test calculator`
-and `cargo test -p cadcraft-ui-egui --test widgets`.
+`cargo test -p aad-engine --lib calc pomodoro`, `cargo test -p aad-engine --test calculator`
+and `cargo test -p aad-ui-egui --test widgets`.

@@ -51,8 +51,8 @@ pub mod curves;
 pub mod helpers;
 pub mod machines;
 
-use cadcraft_doc::Handle;
-use cadcraft_geom::Vec2;
+use aad_doc::Handle;
+use aad_geom::Vec2;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -317,11 +317,11 @@ pub fn room_types() -> Vec<(&'static str, &'static str)> {
 }
 
 /// A saved project value, for form prefill.
-pub(crate) fn project_value(d: &cadcraft_doc::Drawing, key: &str) -> Value {
+pub(crate) fn project_value(d: &aad_doc::Drawing, key: &str) -> Value {
     project::get(d, key)
 }
 
 /// The floors, with defaults filled in.
-pub(crate) fn project_floors(d: &cadcraft_doc::Drawing) -> Vec<Value> {
+pub(crate) fn project_floors(d: &aad_doc::Drawing) -> Vec<Value> {
     project::floors(d)
 }

@@ -1,10 +1,10 @@
 //! HATCH pattern definition lines (groups 78, 53, 43–46, 79, 49) of a pattern the library
 //! doesn't define survive a DXF read and save (issue #290).
 
-use cadcraft_doc::library::PatternLine;
-use cadcraft_doc::*;
-use cadcraft_geom::{PolyVertex, Vec2};
-use cadcraft_io::{read_dxf, write_dxf};
+use aad_doc::library::PatternLine;
+use aad_doc::*;
+use aad_geom::{PolyVertex, Vec2};
+use aad_io::{read_dxf, write_dxf};
 
 fn square() -> HatchLoop {
     let v = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)].into_iter().map(|(x, y)| PolyVertex::new(Vec2::new(x, y))).collect();
@@ -126,5 +126,5 @@ fn hostile_pattern_definitions_are_capped() {
     // Drawing the capped definition stays bounded.
     let mut d = Drawing::new_imperial();
     d.add(&Space::Model, Common::default(), EntityKind::Hatch(h)).expect("add");
-    let _ = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default());
+    let _ = aad_render::build(&d, &Space::Model, &aad_render::Options::default());
 }

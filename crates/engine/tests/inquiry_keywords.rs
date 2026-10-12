@@ -1,6 +1,6 @@
 //! AREA's Object / Add area / Subtract area and DIST's Multiple points, typed as at the command line.
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 
 fn run(lines: &[&str]) -> (Session, Vec<String>) {
     let mut s = Session::new();

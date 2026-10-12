@@ -12,7 +12,7 @@
 //! would change; with `apply` it updates the project data. A project field already filled in is
 //! left alone unless `overwrite` is set.
 
-use cadcraft_doc::EntityKind;
+use aad_doc::EntityKind;
 use serde_json::{Map, Value, json};
 
 use super::project;
@@ -103,13 +103,13 @@ fn iso_from_unix(secs: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
-fn stored_id(d: &cadcraft_doc::Drawing) -> Option<String> {
+fn stored_id(d: &aad_doc::Drawing) -> Option<String> {
     project::get(d, STORE).get("drawingId").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 // ---------------- export ----------------
 
-fn saved(d: &cadcraft_doc::Drawing, name: &str) -> Option<Value> {
+fn saved(d: &aad_doc::Drawing, name: &str) -> Option<Value> {
     let v = project::get(d, &format!("takeoff:{name}"));
     if v.is_null() { None } else { Some(v) }
 }

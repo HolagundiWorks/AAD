@@ -1,7 +1,7 @@
 //! Sheets: the title block and its fields, saved sheet templates, and viewports.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::{Value, json};
 
 fn session() -> Session {
@@ -35,7 +35,7 @@ fn a_title_block_starts_from_the_project_and_its_fields_can_be_edited() {
     assert!(ents.iter().any(|(l, k)| l == "A-ANNO-BORD" && matches!(k, EntityKind::LwPolyline(_))), "the border");
 
     // The panel sits at the lower right of the printable area, at its real size in millimetres.
-    let sheet = cadcraft_engine::render::sheet(s.doc().unwrap(), "Layout1").unwrap();
+    let sheet = aad_engine::render::sheet(s.doc().unwrap(), "Layout1").unwrap();
     let ins = ents.iter().find_map(|(_, k)| if let EntityKind::Insert(i) = k { Some(i.clone()) } else { None }).unwrap();
     assert!((ins.insert.x - sheet.printable.max.x).abs() < 1e-9 && (ins.insert.y - sheet.printable.min.y).abs() < 1e-9);
     assert!((ins.scale.x - 1.0 / sheet.unit_mm).abs() < 1e-9);
@@ -70,7 +70,7 @@ fn viewports_are_listed_added_scaled_and_removed() {
     let l = s.execute("viewport.list", &json!({})).unwrap();
     let v = &l["viewports"][0];
     assert_eq!((v["handle"].as_str(), v["scaleText"].as_str()), (Some(h.as_str()), Some("1:100")));
-    let sheet = cadcraft_engine::render::sheet(s.doc().unwrap(), "Layout1").unwrap();
+    let sheet = aad_engine::render::sheet(s.doc().unwrap(), "Layout1").unwrap();
     let rect: Vec<f64> = v["rect"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
     assert!((rect[1] - (sheet.printable.min.y + 56.0 / sheet.unit_mm)).abs() < 1e-6, "above the title block: {rect:?}");
     assert_eq!(s.execute("sheet.fields", &json!({})).unwrap()["fields"]["SCALE"], "1:100", "the title block shows the new viewport's scale");

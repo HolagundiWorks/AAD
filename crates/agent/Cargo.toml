@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-agent"
+name = "aad-agent"
 description = "AAD agent tool layer: allow-listed, schema-validated tools a local language model can call"
 version.workspace = true
 edition.workspace = true
@@ -9,6 +9,6 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-cadcraft-engine = { workspace = true }
-cadcraft-llm = { workspace = true }
+aad-engine = { workspace = true }
+aad-llm = { workspace = true }
 serde_json = { workspace = true }

@@ -7,7 +7,7 @@
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use cadcraft_engine::cmd::clipboard;
+use aad_engine::cmd::clipboard;
 
 use crate::CadApp;
 

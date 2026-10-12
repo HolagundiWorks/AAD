@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-render"
+name = "aad-render"
 description = "AAD rendering: display lists (linetypes, hatches, text, blocks, dimensions) and a CPU rasteriser"
 version.workspace = true
 edition.workspace = true
@@ -9,10 +9,10 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-cadcraft-geom = { workspace = true }
-cadcraft-color = { workspace = true }
-cadcraft-doc = { workspace = true }
-cadcraft-fonts = { workspace = true }
+aad-geom = { workspace = true }
+aad-color = { workspace = true }
+aad-doc = { workspace = true }
+aad-fonts = { workspace = true }
 tiny-skia = { workspace = true }
 rayon = { workspace = true }
 

@@ -1,9 +1,9 @@
 //! DXF save → reopen keeps table and object-section data: complex linetype elements,
 //! multileader styles, layout page setups, named views, UCSs and groups.
 
-use cadcraft_doc::geom::{Vec2, Vec3};
-use cadcraft_doc::{Common, DashElement, Drawing, EntityKind, Group, Line, Linetype, MLeaderStyle, NamedView, Space, TextStyle, Ucs, library};
-use cadcraft_io::{read_dxf, write_dxf};
+use aad_doc::geom::{Vec2, Vec3};
+use aad_doc::{Common, DashElement, Drawing, EntityKind, Group, Line, Linetype, MLeaderStyle, NamedView, Space, TextStyle, Ucs, library};
+use aad_io::{read_dxf, write_dxf};
 
 fn round_trip(d: &Drawing) -> Drawing {
     read_dxf(write_dxf(d).as_bytes()).expect("reopen")

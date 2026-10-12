@@ -1,12 +1,12 @@
 //! The input dialog for commands that take settings: project details, floors, rooms, walls,
 //! stairs and the rest of the architecture commands. It is drawn from the engine's form
-//! declaration (`cadcraft_engine::forms`), so it knows nothing about any one command. OK validates
+//! declaration (`aad_engine::forms`), so it knows nothing about any one command. OK validates
 //! the settings, then either runs the command (nothing to pick) or starts it with the settings
 //! answered so only the points are picked on the drawing.
 
 use std::collections::BTreeMap;
 
-use cadcraft_engine::forms::{self, Field, Form, Kind};
+use aad_engine::forms::{self, Field, Form, Kind};
 use egui::{RichText, vec2};
 use serde_json::{Value, json};
 

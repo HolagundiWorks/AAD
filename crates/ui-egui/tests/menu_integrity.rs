@@ -6,9 +6,9 @@
 //! Observed effects are compared before and after `CadApp::start(id)` on a fresh application with
 //! a small drawing and a selection, so selection-dependent commands are enabled.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::menus::{self, Entry};
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_ui_egui::menus::{self, Entry};
+use aad_ui_egui::{CadApp, Services};
 use serde_json::json;
 
 fn app() -> CadApp {
@@ -51,7 +51,7 @@ fn every_menu_entry_resolves_and_reacts() {
     }
     assert!(all.len() > 200, "the menu tree is unexpectedly small: {}", all.len());
 
-    let known: std::collections::HashSet<&str> = cadcraft_engine::command_specs().iter().map(|c| c.id).collect();
+    let known: std::collections::HashSet<&str> = aad_engine::command_specs().iter().map(|c| c.id).collect();
     let mut unresolved = Vec::new();
     let mut silent = Vec::new();
     let mut checked = 0;

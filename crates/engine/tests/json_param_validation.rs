@@ -2,8 +2,8 @@
 //! degenerate or invalid object (a negative radius made positive, a zero hatch scale, a
 //! zero-length line …) instead of adding it (#343).
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::{Value, json};
 
 fn count(s: &Session) -> usize {

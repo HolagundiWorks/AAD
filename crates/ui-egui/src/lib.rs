@@ -1,6 +1,6 @@
 //! The AAD egui front end.
 //!
-//! A thin shell over [`cadcraft_engine::Session`]: panels read engine state and act through
+//! A thin shell over [`aad_engine::Session`]: panels read engine state and act through
 //! commands (`app.run(id, params)`) or the command line (`app.cmdline(text)`). Nothing here owns
 //! drawing data. The layout follows the familiar CAD desktop: title and tool bar, file tabs,
 //! Tool Sets on the left, the drawing area with its command line, Layers and Properties on the
@@ -47,14 +47,16 @@ pub mod widgets;
 
 use std::sync::mpsc::Receiver;
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub use control::{ControlRequest, ControlResponse, PendingReply};
 
 /// The host storage key for [`CadApp::prefs_json`].
-pub const PREFS_KEY: &str = "cadcraft.prefs";
+pub const PREFS_KEY: &str = "aad.prefs";
+/// The key older builds stored the preferences under (before the rename to AAD): read when the new one is empty.
+pub const LEGACY_PREFS_KEY: &str = "cadcraft.prefs";
 
 /// Persisted UI state (serde, so automation can read and set it).
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -75,7 +77,7 @@ pub struct UiState {
     /// Keep the system cursor visible over the drawing area (a small crosshair at the centre of the
     /// drawn one) instead of hiding it. Screen magnifiers (Windows Magnifier "follow the mouse
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
-    /// when it is hidden. Off by default; `CADCRAFT_SYSTEM_CURSOR=1` turns it on at startup.
+    /// when it is hidden. Off by default; `AAD_SYSTEM_CURSOR=1` turns it on at startup.
     pub system_cursor: bool,
     pub properties_all: bool,
     /// Show an in-window menu bar (platforms without a native menu bar, or on request).
@@ -105,7 +107,7 @@ pub struct UiState {
     pub mode_slots: std::collections::BTreeMap<String, Value>,
     /// The tools on the first line of the top bar ([`topbar`]): command ids, `-` for a separator.
     pub top_bar: Vec<String>,
-    /// The typography preset ([`cadcraft_fonts::registry`]): the interface fonts follow it.
+    /// The typography preset ([`aad_fonts::registry`]): the interface fonts follow it.
     pub font_preset: String,
 }
 
@@ -189,7 +191,7 @@ impl Default for UiState {
             show_calculator: false,
             show_pomodoro: false,
             show_layer_list: false,
-            system_cursor: std::env::var("CADCRAFT_SYSTEM_CURSOR").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "false" | "off")),
+            system_cursor: std::env::var("AAD_SYSTEM_CURSOR").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "false" | "off")),
             properties_all: true,
             in_window_menu: !cfg!(target_os = "macos"),
             start_tab: false,
@@ -203,7 +205,7 @@ impl Default for UiState {
             auto_collapse_ms: 1500,
             mode_slots: std::collections::BTreeMap::new(),
             top_bar: topbar::default_items(),
-            font_preset: cadcraft_fonts::registry::DEFAULT_PRESET.into(),
+            font_preset: aad_fonts::registry::DEFAULT_PRESET.into(),
         }
     }
 }
@@ -441,7 +443,7 @@ impl CadApp {
         if let Some(e) = Self::open_size_error(name, bytes.len() as u64) {
             return self.open_failed(e);
         }
-        let data = cadcraft_engine::cmd::file::base64_encode(bytes);
+        let data = aad_engine::cmd::file::base64_encode(bytes);
         let r = self.run("open", json!({ "data": data, "name": name }));
         self.opened(r);
     }

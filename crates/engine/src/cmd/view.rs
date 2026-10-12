@@ -1,7 +1,7 @@
 //! View menu: ZOOM, PAN, REGEN, REDRAW, layout switching.
 
-use cadcraft_doc::{Space, entity_bounds};
-use cadcraft_geom::{Bounds2, Vec2};
+use aad_doc::{Space, entity_bounds};
+use aad_geom::{Bounds2, Vec2};
 use serde_json::{Value, json};
 
 use super::machines::{SelectRun, number};
@@ -385,7 +385,7 @@ impl Interactive for ZoomM {
             _ => Ok(Step::Continue),
         }
     }
-    fn preview(&self, _s: &Session, c: Vec2) -> Vec<cadcraft_doc::EntityKind> {
+    fn preview(&self, _s: &Session, c: Vec2) -> Vec<aad_doc::EntityKind> {
         self.first.map(|a| vec![super::helpers::lwpoly(super::helpers::rect_vertices(a, c), true)]).unwrap_or_default()
     }
 }

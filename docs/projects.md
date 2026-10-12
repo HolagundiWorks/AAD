@@ -3,7 +3,7 @@
 A project is a folder of drawings joined by external references (Xrefs). Every drawing is an
 ordinary DXF that opens anywhere; paths are relative, so the folder can be moved or backed up as a
 whole. The commands are in `crates/engine/src/cmd/xref.rs` and `projfile.rs`; the tests run on real
-files (`apps/cadcraft-cli/tests/xref.rs`, `project_floors.rs`).
+files (`apps/aad-cli/tests/xref.rs`, `project_floors.rs`).
 
 ## Xrefs
 

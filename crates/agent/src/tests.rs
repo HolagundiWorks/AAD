@@ -1,6 +1,6 @@
-use cadcraft_engine::Session;
-use cadcraft_engine::cmd::file::{IoHooks, set_io};
-use cadcraft_engine::doc::{Drawing, EntityKind, Handle};
+use aad_engine::Session;
+use aad_engine::cmd::file::{IoHooks, set_io};
+use aad_engine::doc::{Drawing, EntityKind, Handle};
 use serde_json::{Value, json};
 
 use super::*;
@@ -230,7 +230,7 @@ fn read(_: &[u8], name: &str) -> Result<Drawing, String> {
 #[test]
 fn recover_opens_a_copy_and_leaves_the_file_alone() {
     set_io(IoHooks { read, write: |_, _| Ok(Vec::new()), plot: None });
-    let dir = std::env::temp_dir().join(format!("cadcraft-agent-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("aad-agent-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("damaged.dxf");
     std::fs::write(&path, b"damaged").unwrap();

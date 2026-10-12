@@ -1,8 +1,8 @@
 //! The context bar (current layer, current floor, active drawing space) in both workspaces, driven
 //! by clicks. What is asserted is the engine's state afterwards, not that something was drawn.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services, WorkspaceMode};
+use aad_engine::Session;
+use aad_ui_egui::{CadApp, Services, WorkspaceMode};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;

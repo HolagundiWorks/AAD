@@ -8,7 +8,7 @@
 //! * `annotation.collisions` / `annotation.layout` / `annotation.lock`: find and resolve text
 //!   conflicts; only text moves, as one undo step.
 
-use cadcraft_doc::{Group, Handle};
+use aad_doc::{Group, Handle};
 use serde_json::{Value, json};
 
 use super::*;
@@ -148,7 +148,7 @@ fn run_plot_validate(s: &mut Session, p: &Value) -> Result<Value> {
     let (min_t, max_t) = (f64_or(p, "minTextMm", 1.8), f64_or(p, "maxTextMm", 12.0));
     let k = scale.du_per_paper_mm(drawn);
     let d = s.doc()?;
-    let ext = d.extents(&cadcraft_doc::Space::Model);
+    let ext = d.extents(&aad_doc::Space::Model);
     let (ew, eh) = if ext.is_empty() { (0.0, 0.0) } else { (ext.width() / k, ext.height() / k) };
     let (pw, ph) = paper.printable(margin);
     let mut warnings = Vec::new();
@@ -165,8 +165,8 @@ fn run_plot_validate(s: &mut Session, p: &Value) -> Result<Value> {
     let mut large = Vec::new();
     for e in d.model.iter() {
         let h = match &e.kind {
-            cadcraft_doc::EntityKind::Text(t) => t.height,
-            cadcraft_doc::EntityKind::MText(t) => t.height,
+            aad_doc::EntityKind::Text(t) => t.height,
+            aad_doc::EntityKind::MText(t) => t.height,
             _ => continue,
         };
         let mm = h / k;
@@ -182,7 +182,7 @@ fn run_plot_validate(s: &mut Session, p: &Value) -> Result<Value> {
     if !large.is_empty() {
         warnings.push(format!("{} text object(s) print larger than {max_t} mm", large.len()));
     }
-    let conflicts = annot::conflicts(d, &cadcraft_doc::Space::Model, 0.0).len();
+    let conflicts = annot::conflicts(d, &aad_doc::Space::Model, 0.0).len();
     if conflicts > 0 {
         warnings.push(format!("{conflicts} annotation conflict(s): run `annotation.collisions`"));
     }
@@ -196,7 +196,7 @@ fn run_plot_validate(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// The default clearance: half a printed millimetre when a plot scale is set, else none.
 fn default_clearance(s: &Session) -> f64 {
-    match (configured(s), annot::drawing_unit(s.doc().ok().unwrap_or(&cadcraft_doc::Drawing::new_imperial()))) {
+    match (configured(s), annot::drawing_unit(s.doc().ok().unwrap_or(&aad_doc::Drawing::new_imperial()))) {
         (Some((scale, _)), Some(u)) => 0.5 * scale.du_per_paper_mm(u),
         _ => 0.0,
     }

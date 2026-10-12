@@ -20,9 +20,9 @@ pub mod raster;
 pub mod units;
 mod wide;
 
-use cadcraft_color::{Color, Rgb};
-use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, Lineweight, Prim, Space};
-use cadcraft_geom::{Bounds2, Mat3, Polyline, Vec2};
+use aad_color::{Color, Rgb};
+use aad_doc::{Drawing, Entity, EntityKind, Handle, Lineweight, Prim, Space};
+use aad_geom::{Bounds2, Mat3, Polyline, Vec2};
 
 pub use dim::{ArrowGeom, Arrowhead, DimGeometry, DimText, LineRole, arrowhead, dimension_geometry, dimension_geometry_with, format_linear_value};
 pub use fill::triangulate_evenodd;
@@ -79,7 +79,7 @@ pub struct DisplayList {
 impl DPrim {
     /// The colour to draw with on `background`.
     pub fn display_rgb(&self, background: Rgb) -> Rgb {
-        cadcraft_color::display_rgb(self.color, self.aci7, background)
+        aad_color::display_rgb(self.color, self.aci7, background)
     }
 }
 
@@ -144,7 +144,7 @@ pub struct Options {
     pub view_height: f64,
     /// Plot style table to draw with. When `None`, [`build`] of a layout whose page setup has
     /// "Display plot styles" on uses the layout's table; [`build_plot`] uses none.
-    pub plot_style_table: Option<std::sync::Arc<cadcraft_doc::PlotStyleTable>>,
+    pub plot_style_table: Option<std::sync::Arc<aad_doc::PlotStyleTable>>,
 }
 
 impl Default for Options {
@@ -239,7 +239,7 @@ impl Builder<'_> {
         self.list.prims.push(DPrim { handle: ctx.top, color: color.rgb, aci7: color.aci7, lw: 0.0, kind: Kind::Tris, start, len: tris.len() as u32 });
     }
     /// Shaped text: strokes as polylines; TrueType glyphs filled (TEXTFILL) or outlined.
-    fn shaped(&mut self, ctx: &Ctx, color: Ink, lw: f32, sh: &cadcraft_fonts::Shaped) {
+    fn shaped(&mut self, ctx: &Ctx, color: Ink, lw: f32, sh: &aad_fonts::Shaped) {
         for s in &sh.strokes {
             self.polyline(ctx, color, lw, s);
         }
@@ -317,7 +317,7 @@ fn build_space(d: &Drawing, space: &Space, opts: &Options, plotting: bool) -> Di
         Space::Paper(n) if !plotting => d
             .layout(n)
             .filter(|l| l.page.show_plot_styles)
-            .and_then(|l| cadcraft_doc::plot_style_table(d, &l.page.plot_style_table))
+            .and_then(|l| aad_doc::plot_style_table(d, &l.page.plot_style_table))
             .map(std::sync::Arc::new),
         _ => None,
     });
@@ -527,7 +527,7 @@ const MAX_VIEWPORTS: usize = 256;
 
 /// A paper-space viewport: its border (as an ordinary entity) and model space seen through it.
 /// Viewport id 1 is the paper-space view itself and is not drawn.
-fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &cadcraft_doc::Viewport) {
+fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &aad_doc::Viewport) {
     if vp.id == 1 || !e.common.visible {
         return;
     }
@@ -561,7 +561,7 @@ fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &cadcraft_doc::Viewpor
     let lt_factor = if d.header.i64("PSLTSCALE", 1) != 0 { 1.0 / s } else { 1.0 };
     for me in d.model.iter() {
         if !matches!(me.kind, EntityKind::Ray(_) | EntityKind::XLine(_) | EntityKind::Viewport(_)) {
-            let eb = cadcraft_doc::entity_bounds(d, me, 0);
+            let eb = aad_doc::entity_bounds(d, me, 0);
             if !eb.is_empty() && !eb.intersects(&win) {
                 continue;
             }
@@ -647,12 +647,12 @@ pub fn build_entities<'a, I: IntoIterator<Item = &'a Entity>>(d: &Drawing, ents:
     b.list
 }
 
-fn resolve(ctx: &Ctx, e: &Entity, plotting: bool) -> (Ink, f32, Option<cadcraft_doc::Linetype>, f64, bool) {
+fn resolve(ctx: &Ctx, e: &Entity, plotting: bool) -> (Ink, f32, Option<aad_doc::Linetype>, f64, bool) {
     resolve_common(ctx, &e.common, plotting)
 }
 
 /// [`resolve`] for an object's properties `c`.
-fn resolve_common(ctx: &Ctx, c: &cadcraft_doc::Common, plotting: bool) -> (Ink, f32, Option<cadcraft_doc::Linetype>, f64, bool) {
+fn resolve_common(ctx: &Ctx, c: &aad_doc::Common, plotting: bool) -> (Ink, f32, Option<aad_doc::Linetype>, f64, bool) {
     let d = ctx.d;
     // Layer "0" inside a block takes the insert's layer.
     let layer_name = if c.layer == "0" { ctx.block_layer.as_deref().unwrap_or("0") } else { c.layer.as_str() };
@@ -752,7 +752,7 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
         EntityKind::Insert(ins) => insert(b, ctx, e, ins, rgb),
         EntityKind::Dimension(dm) => {
             if let Some(blk) = dm.block.as_ref().and_then(|n| ctx.d.block(n))
-                && ctx.depth < cadcraft_doc::MAX_BLOCK_DEPTH
+                && ctx.depth < aad_doc::MAX_BLOCK_DEPTH
             {
                 let sub = Ctx { block_pstyle: b.named, ..sub_ctx(ctx, e, Mat3::IDENTITY) };
                 for be in blk.entities.iter() {
@@ -925,16 +925,16 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
 }
 
 /// The text style of an entity (Standard defaults when missing).
-fn text_style(d: &Drawing, name: &str) -> cadcraft_doc::TextStyle {
+fn text_style(d: &Drawing, name: &str) -> aad_doc::TextStyle {
     d.text_style(name).cloned().unwrap_or_default()
 }
 
 /// Shape a TEXT / ATTRIB / ATTDEF with its style's font and generation flags.
-pub fn place_text_entity(d: &Drawing, t: &cadcraft_doc::Text, value: &str) -> (cadcraft_fonts::Shaped, Bounds2) {
+pub fn place_text_entity(d: &Drawing, t: &aad_doc::Text, value: &str) -> (aad_fonts::Shaped, Bounds2) {
     let ts = text_style(d, &t.style);
-    let font = cadcraft_fonts::TextFont::resolve(&ts.font);
+    let font = aad_fonts::TextFont::resolve(&ts.font);
     let (h, v) = align(t.halign, t.valign);
-    let p = cadcraft_fonts::TextParams {
+    let p = aad_fonts::TextParams {
         insert: t.insert.xy(),
         align_pt: t.align_pt.map(|p| p.xy()),
         height: t.height,
@@ -946,39 +946,39 @@ pub fn place_text_entity(d: &Drawing, t: &cadcraft_doc::Text, value: &str) -> (c
         backwards: ts.backwards,
         upside_down: ts.upside_down,
     };
-    cadcraft_fonts::place(&font, value, &p)
+    aad_fonts::place(&font, value, &p)
 }
 
 /// Lay out an MTEXT with its style's font.
-pub fn layout_mtext_entity(d: &Drawing, t: &cadcraft_doc::MText) -> cadcraft_fonts::MTextLayout {
+pub fn layout_mtext_entity(d: &Drawing, t: &aad_doc::MText) -> aad_fonts::MTextLayout {
     let ts = text_style(d, &t.style);
-    let params = cadcraft_fonts::MTextParams {
+    let params = aad_fonts::MTextParams {
         insert: t.insert.xy(),
         height: t.height,
         width: t.width,
         attach: t.attach,
         rotation: t.rotation,
         line_spacing: t.line_spacing,
-        font: cadcraft_fonts::TextFont::resolve(&ts.font),
+        font: aad_fonts::TextFont::resolve(&ts.font),
         width_factor: ts.width_factor,
         oblique: ts.oblique,
     };
-    cadcraft_fonts::layout_mtext_with(&t.contents, &params)
+    aad_fonts::layout_mtext_with(&t.contents, &params)
 }
 
-fn mtext_color(c: Option<cadcraft_fonts::MTextColor>, rgb: Ink) -> Ink {
+fn mtext_color(c: Option<aad_fonts::MTextColor>, rgb: Ink) -> Ink {
     match c {
-        Some(cadcraft_fonts::MTextColor::Aci(i)) => {
+        Some(aad_fonts::MTextColor::Aci(i)) => {
             u8::try_from(i).ok().filter(|i| *i > 0).map(|i| ink(Color::Index(i), Color::Index(7), Color::Index(7))).unwrap_or(rgb)
         }
-        Some(cadcraft_fonts::MTextColor::Rgb(v)) => {
+        Some(aad_fonts::MTextColor::Rgb(v)) => {
             Ink { rgb: Rgb(((v >> 16) & 0xFF) as u8, ((v >> 8) & 0xFF) as u8, (v & 0xFF) as u8), aci7: false, aci: 0 }
         }
         None => rgb,
     }
 }
 
-fn mtext(b: &mut Builder, ctx: &Ctx, t: &cadcraft_doc::MText, rgb: Ink, lw: f32) {
+fn mtext(b: &mut Builder, ctx: &Ctx, t: &aad_doc::MText, rgb: Ink, lw: f32) {
     let l = layout_mtext_entity(ctx.d, t);
     for p in &l.pieces {
         b.shaped(ctx, mtext_color(p.color, rgb), lw, &p.shaped);
@@ -986,19 +986,19 @@ fn mtext(b: &mut Builder, ctx: &Ctx, t: &cadcraft_doc::MText, rgb: Ink, lw: f32)
 }
 
 /// The font settings of a dimension style's text style.
-pub fn dim_text(d: &Drawing, st: &cadcraft_doc::DimStyle) -> DimText {
+pub fn dim_text(d: &Drawing, st: &aad_doc::DimStyle) -> DimText {
     let ts = text_style(d, &st.text_style);
-    DimText { font: cadcraft_fonts::TextFont::resolve(&ts.font), fixed_height: ts.height, width_factor: ts.width_factor, oblique: ts.oblique }
+    DimText { font: aad_fonts::TextFont::resolve(&ts.font), fixed_height: ts.height, width_factor: ts.width_factor, oblique: ts.oblique }
 }
 
 /// Geometry of a dimension in a drawing: its style, overrides and text font.
-pub fn dimension_in(d: &Drawing, dm: &cadcraft_doc::Dimension) -> DimGeometry {
+pub fn dimension_in(d: &Drawing, dm: &aad_doc::Dimension) -> DimGeometry {
     let style = d.dim_style(&dm.style).cloned().unwrap_or_default();
     let st = style.with_overrides(&dm.overrides);
     dim::dimension_geometry_with(dm, &style, d.header.f64("DIMSCALE", 1.0), &dim_text(d, &st))
 }
 
-fn dimension(b: &mut Builder, ctx: &Ctx, e: &Entity, dm: &cadcraft_doc::Dimension, lw: f32) {
+fn dimension(b: &mut Builder, ctx: &Ctx, e: &Entity, dm: &aad_doc::Dimension, lw: f32) {
     let d = ctx.d;
     let style = d.dim_style(&dm.style).cloned().unwrap_or_default().with_overrides(&dm.overrides);
     let g = dimension_in(d, dm);
@@ -1020,13 +1020,13 @@ fn dimension(b: &mut Builder, ctx: &Ctx, e: &Entity, dm: &cadcraft_doc::Dimensio
         b.tris(ctx, dim_rgb, t);
     }
     if b.opts.text {
-        let sh = cadcraft_fonts::Shaped { strokes: g.text.clone(), glyphs: g.text_glyphs.clone(), width: 0.0 };
+        let sh = aad_fonts::Shaped { strokes: g.text.clone(), glyphs: g.text_glyphs.clone(), width: 0.0 };
         b.shaped(ctx, txt_rgb, lw, &sh);
     }
 }
 
 /// Covered cells of a table (inside another cell's merge, not its anchor).
-pub fn table_covered(t: &cadcraft_doc::Table) -> Vec<Vec<bool>> {
+pub fn table_covered(t: &aad_doc::Table) -> Vec<Vec<bool>> {
     let rows = t.row_heights.len().min(10_000);
     let cols = t.col_widths.len().min(10_000);
     let mut cov = vec![vec![false; cols]; rows];
@@ -1048,7 +1048,7 @@ pub fn table_covered(t: &cadcraft_doc::Table) -> Vec<Vec<bool>> {
     cov
 }
 
-fn table(b: &mut Builder, ctx: &Ctx, t: &cadcraft_doc::Table, rgb: Ink, lw: f32) {
+fn table(b: &mut Builder, ctx: &Ctx, t: &aad_doc::Table, rgb: Ink, lw: f32) {
     let o = t.insert.xy();
     let rows = t.row_heights.len().min(10_000);
     let cols = t.col_widths.len().min(10_000);
@@ -1067,7 +1067,7 @@ fn table(b: &mut Builder, ctx: &Ctx, t: &cadcraft_doc::Table, rgb: Ink, lw: f32)
     let cov = table_covered(t);
     let style = ctx.d.table_styles.iter().find(|s| s.name.eq_ignore_ascii_case(&t.style)).cloned().unwrap_or_default();
     let ts = text_style(ctx.d, "Standard");
-    let font = cadcraft_fonts::TextFont::resolve(&ts.font);
+    let font = aad_fonts::TextFont::resolve(&ts.font);
     let x_at = |c: usize| xs.get(c).copied().unwrap_or(0.0);
     let y_at = |r: usize| ys.get(r).copied().unwrap_or(0.0);
     for r in 0..rows {
@@ -1094,37 +1094,37 @@ fn table(b: &mut Builder, ctx: &Ctx, t: &cadcraft_doc::Table, rgb: Ink, lw: f32)
             let h = if title { t.text_height * 1.4 } else { t.text_height };
             // Titles and headers are centred; data sits middle-left inside the cell margin.
             let params = if title || header {
-                cadcraft_fonts::TextParams::centered(p((x0 + x1) / 2.0, (y0 + y1) / 2.0), h, 0.0)
+                aad_fonts::TextParams::centered(p((x0 + x1) / 2.0, (y0 + y1) / 2.0), h, 0.0)
             } else {
                 let at = p(x0 + style.margin.max(0.0), (y0 + y1) / 2.0);
-                cadcraft_fonts::TextParams {
+                aad_fonts::TextParams {
                     align_pt: Some(at),
-                    h: cadcraft_fonts::Align::Left,
-                    v: cadcraft_fonts::VAlign::Middle,
-                    ..cadcraft_fonts::TextParams::new(at, h)
+                    h: aad_fonts::Align::Left,
+                    v: aad_fonts::VAlign::Middle,
+                    ..aad_fonts::TextParams::new(at, h)
                 }
             };
-            let (sh, _) = cadcraft_fonts::place(&font, &cell.text, &params);
+            let (sh, _) = aad_fonts::place(&font, &cell.text, &params);
             b.shaped(ctx, rgb, lw, &sh);
         }
     }
 }
 
-fn align(h: cadcraft_doc::HAlign, v: cadcraft_doc::VAlign) -> (cadcraft_fonts::Align, cadcraft_fonts::VAlign) {
-    use cadcraft_fonts::{Align as A, VAlign as V};
+fn align(h: aad_doc::HAlign, v: aad_doc::VAlign) -> (aad_fonts::Align, aad_fonts::VAlign) {
+    use aad_fonts::{Align as A, VAlign as V};
     let ha = match h {
-        cadcraft_doc::HAlign::Left => A::Left,
-        cadcraft_doc::HAlign::Center => A::Center,
-        cadcraft_doc::HAlign::Right => A::Right,
-        cadcraft_doc::HAlign::Aligned => A::Aligned,
-        cadcraft_doc::HAlign::Middle => A::Middle,
-        cadcraft_doc::HAlign::Fit => A::Fit,
+        aad_doc::HAlign::Left => A::Left,
+        aad_doc::HAlign::Center => A::Center,
+        aad_doc::HAlign::Right => A::Right,
+        aad_doc::HAlign::Aligned => A::Aligned,
+        aad_doc::HAlign::Middle => A::Middle,
+        aad_doc::HAlign::Fit => A::Fit,
     };
     let va = match v {
-        cadcraft_doc::VAlign::Baseline => V::Baseline,
-        cadcraft_doc::VAlign::Bottom => V::Bottom,
-        cadcraft_doc::VAlign::Middle => V::Middle,
-        cadcraft_doc::VAlign::Top => V::Top,
+        aad_doc::VAlign::Baseline => V::Baseline,
+        aad_doc::VAlign::Bottom => V::Bottom,
+        aad_doc::VAlign::Middle => V::Middle,
+        aad_doc::VAlign::Top => V::Top,
     };
     (ha, va)
 }
@@ -1162,8 +1162,8 @@ fn sub_ctx<'a>(ctx: &Ctx<'a>, e: &Entity, m: Mat3) -> Ctx<'a> {
     }
 }
 
-fn insert(b: &mut Builder, ctx: &Ctx, e: &Entity, ins: &cadcraft_doc::Insert, rgb: Ink) {
-    if ctx.depth >= cadcraft_doc::MAX_BLOCK_DEPTH {
+fn insert(b: &mut Builder, ctx: &Ctx, e: &Entity, ins: &aad_doc::Insert, rgb: Ink) {
+    if ctx.depth >= aad_doc::MAX_BLOCK_DEPTH {
         return;
     }
     if let Some(blk) = ctx.d.block(&ins.block) {
@@ -1218,8 +1218,8 @@ fn insert(b: &mut Builder, ctx: &Ctx, e: &Entity, ins: &cadcraft_doc::Insert, rg
 }
 
 /// Properties that follow the block reference's (an attribute without a definition).
-fn by_block() -> cadcraft_doc::Common {
-    cadcraft_doc::Common { color: Color::ByBlock, linetype: "ByBlock".into(), lineweight: Lineweight::ByBlock, ..cadcraft_doc::Common::default() }
+fn by_block() -> aad_doc::Common {
+    aad_doc::Common { color: Color::ByBlock, linetype: "ByBlock".into(), lineweight: Lineweight::ByBlock, ..aad_doc::Common::default() }
 }
 
 /// The attribute definition with tag `tag` (any case).
@@ -1229,9 +1229,9 @@ fn attdef_tag(e: &Entity, tag: &str) -> bool {
 
 /// The overall scale of a leader drawn with dimension style `st`: its DIMSCALE, else the
 /// drawing's.
-fn leader_scale(d: &Drawing, st: Option<&cadcraft_doc::DimStyle>) -> f64 {
+fn leader_scale(d: &Drawing, st: Option<&aad_doc::DimStyle>) -> f64 {
     let dimscale = d.header.f64("DIMSCALE", 1.0);
-    st.map(|s| s.effective_scale(dimscale)).unwrap_or_else(|| cadcraft_doc::DimStyle::default().effective_scale(dimscale))
+    st.map(|s| s.effective_scale(dimscale)).unwrap_or_else(|| aad_doc::DimStyle::default().effective_scale(dimscale))
 }
 
 #[cfg(test)]

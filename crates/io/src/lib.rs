@@ -9,8 +9,8 @@ mod dxf_write;
 pub mod pdf;
 pub mod svg;
 
-use cadcraft_doc::{Drawing, Space};
-use cadcraft_geom::Bounds2;
+use aad_doc::{Drawing, Space};
+use aad_geom::Bounds2;
 
 pub use pdf::{PdfOptions, pdf, plot};
 
@@ -30,8 +30,8 @@ fn ext(name: &str) -> String {
 
 /// Read a drawing; the format comes from the content (DXF ASCII/binary) or the name.
 pub fn read(bytes: &[u8], name: &str) -> Result<Drawing> {
-    if cadcraft_dwg::is_dwg(bytes) {
-        let dxf = cadcraft_dwg::dwg_to_dxf(bytes).map_err(IoError::Format)?;
+    if aad_dwg::is_dwg(bytes) {
+        let dxf = aad_dwg::dwg_to_dxf(bytes).map_err(IoError::Format)?;
         return dxf_read::read(&dxf).map_err(|e| IoError::Format(format!("{e} (in the DXF converted from this DWG)")));
     }
     match ext(name).as_str() {
@@ -59,7 +59,7 @@ pub fn write_framed(d: &Drawing, name: &str, window: Option<Bounds2>) -> Result<
     }
     match ext(name).as_str() {
         "dxf" | "" => Ok(dxf_write::write(d).into_bytes()),
-        "dwg" => cadcraft_dwg::dxf_to_dwg(dxf_write::write(d).as_bytes()).map_err(IoError::Format),
+        "dwg" => aad_dwg::dxf_to_dwg(dxf_write::write(d).as_bytes()).map_err(IoError::Format),
         "svg" => Ok(svg::export_window(d, &Space::Model, window).into_bytes()),
         "png" => png_framed(d, &Space::Model, 2400, 1600, window),
         "pdf" => pdf::pdf(d, &Space::Model, &PdfOptions { compress: true, window, ..PdfOptions::default() }),
@@ -103,17 +103,16 @@ pub fn png(d: &Drawing, space: &Space, width: u32, height: u32) -> Result<Vec<u8
 /// Render a space to PNG showing `window` (centred, fitted without margin), or fitted to its
 /// extents (5% margin) when `window` is `None`.
 pub fn png_framed(d: &Drawing, space: &Space, width: u32, height: u32, window: Option<Bounds2>) -> Result<Vec<u8>> {
-    let list = cadcraft_render::build(d, space, &cadcraft_render::Options::default());
+    let list = aad_render::build(d, space, &aad_render::Options::default());
     let view = png_view(&list.bounds, width, height, window);
-    cadcraft_render::raster::render_png(&list, &view, &cadcraft_render::raster::RasterOptions::default())
-        .ok_or_else(|| IoError::Format("render failed".into()))
+    aad_render::raster::render_png(&list, &view, &aad_render::raster::RasterOptions::default()).ok_or_else(|| IoError::Format("render failed".into()))
 }
 
 /// The raster view a PNG export uses.
-pub fn png_view(extents: &Bounds2, width: u32, height: u32, window: Option<Bounds2>) -> cadcraft_render::raster::View {
+pub fn png_view(extents: &Bounds2, width: u32, height: u32, window: Option<Bounds2>) -> aad_render::raster::View {
     match window {
-        Some(w) => cadcraft_render::raster::View::fit(&w, width, height, 0.0),
-        None => cadcraft_render::raster::View::fit(extents, width, height, 0.05),
+        Some(w) => aad_render::raster::View::fit(&w, width, height, 0.0),
+        None => aad_render::raster::View::fit(extents, width, height, 0.05),
     }
 }
 

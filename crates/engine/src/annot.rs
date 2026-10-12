@@ -10,8 +10,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, Space, entity_bounds};
-use cadcraft_geom::{Bounds2, Vec2};
+use aad_doc::{Drawing, Entity, EntityKind, Handle, Space, entity_bounds};
+use aad_geom::{Bounds2, Vec2};
 
 use crate::select::select_window;
 

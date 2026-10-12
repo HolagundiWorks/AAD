@@ -1,6 +1,6 @@
 //! Clipping against axis-aligned rectangles (viewport contents, plot sheets).
 
-use cadcraft_geom::{Bounds2, Vec2};
+use aad_geom::{Bounds2, Vec2};
 
 /// Clip the segment `a`→`b` to `r` (Liang–Barsky). Returns the parameter range kept.
 fn clip_params(a: Vec2, d: Vec2, r: &Bounds2, mut t0: f64, mut t1: f64) -> Option<(f64, f64)> {

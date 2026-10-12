@@ -3,7 +3,7 @@
 //! Typing anywhere goes here (keyboard focus stays on the drawing). The rules for what Space, Enter,
 //! Tab, Escape and the arrows do are in [`keyboard`] and [`crate::cmdinput`].
 
-use cadcraft_engine::Input;
+use aad_engine::Input;
 use egui::{Color32, Key, Pos2, Rect, Sense, Stroke, pos2, vec2};
 
 use crate::CadApp;
@@ -13,7 +13,7 @@ use crate::theme::Tokens;
 pub struct CmdLine {
     pub buffer: String,
     /// The selection as of the last frame, to notice when it changes.
-    seen_selection: Vec<cadcraft_doc::Handle>,
+    seen_selection: Vec<aad_doc::Handle>,
     /// Something was typed at the command line since the selection was made.
     typed_since_selection: bool,
     pub history: Vec<String>,
@@ -107,9 +107,8 @@ fn unavailable_refs(app: &mut CadApp) -> Vec<(String, String)> {
         return v.clone();
     }
     let mut out = Vec::new();
-    for p in cadcraft_engine::cmd::context::PROVIDERS {
-        if let Err(cadcraft_engine::cmd::context::RefError::Unavailable { reason, .. }) = cadcraft_engine::cmd::context::resolve(&app.session, p.name)
-        {
+    for p in aad_engine::cmd::context::PROVIDERS {
+        if let Err(aad_engine::cmd::context::RefError::Unavailable { reason, .. }) = aad_engine::cmd::context::resolve(&app.session, p.name) {
             out.push((p.name.to_string(), reason));
         }
     }
@@ -144,7 +143,7 @@ fn accept_entry(app: &mut CadApp, e: &crate::cmdinput::Entry) {
 
 impl CmdLine {
     /// Track the selection: a new selection starts with nothing typed since.
-    pub fn watch_selection(&mut self, sel: &[cadcraft_doc::Handle]) {
+    pub fn watch_selection(&mut self, sel: &[aad_doc::Handle]) {
         if self.seen_selection != sel {
             self.seen_selection = sel.to_vec();
             self.typed_since_selection = false;
@@ -210,7 +209,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                         }
                     } else {
                         let base = app.canvas.hot_grip.map(|g| g.base).unwrap_or_default();
-                        match cadcraft_engine::prompt::parse_point_with(&typed, base, &app.session.angle_settings()) {
+                        match aad_engine::prompt::parse_point_with(&typed, base, &app.session.angle_settings()) {
                             Some(p) => crate::canvas::apply_hot_grip(app, p),
                             None => app.session.echo("Requires a point (x,y, @dx,dy or @d<a)."),
                         }
@@ -769,7 +768,7 @@ fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cadcraft_engine::Session;
+    use aad_engine::Session;
     use egui::{Event, PointerButton};
 
     #[test]
@@ -859,7 +858,7 @@ mod tests {
 #[cfg(test)]
 mod delete_key_tests {
     use super::*;
-    use cadcraft_doc::Handle;
+    use aad_doc::Handle;
 
     const PRESS: KeyPress = KeyPress { repeat: false, plain: true };
 

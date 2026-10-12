@@ -1,8 +1,8 @@
 //! Panning and zooming inside an MSPACE viewport changes what the viewport shows, so the drawing
 //! must be redrawn at once (the canvas rebuilds its display list when the revision moves).
 
-use cadcraft_engine::geom::Vec2;
-use cadcraft_engine::{Session, View};
+use aad_engine::geom::Vec2;
+use aad_engine::{Session, View};
 use serde_json::json;
 
 fn viewport_session() -> Session {

@@ -1,7 +1,7 @@
 //! Live walk-through of the AORMS commands against a real server (not run in CI):
-//!   AORMS_URL=http://localhost:3128 AORMS_EMAIL=… AORMS_PASSWORD=… cargo run -p cadcraft-engine --example aorms_smoke
+//!   AORMS_URL=http://localhost:3128 AORMS_EMAIL=… AORMS_PASSWORD=… cargo run -p aad-engine --example aorms_smoke
 //! Signs in as app `aad`, lists projects, pulls the first bound project's details and floors into a scratch drawing, signs out.
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde_json::{Value, json};
 
 fn main() {

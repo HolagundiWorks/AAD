@@ -9,8 +9,8 @@
 
 use std::sync::Arc;
 
-use cadcraft_doc::{Block, Common, Drawing, Entity, EntityKind, Handle, Insert};
-use cadcraft_geom::{Line, Vec2, Vec3};
+use aad_doc::{Block, Common, Drawing, Entity, EntityKind, Handle, Insert};
+use aad_geom::{Line, Vec2, Vec3};
 use serde_json::{Value, json};
 
 use super::hcw::{add_on, ensure_layer};
@@ -286,7 +286,7 @@ fn opening(s: &mut Session, p: &Value, cmd: &str, door: bool) -> Result<Value> {
         if door {
             // Leaf perpendicular to the wall at the hinge side, and its swing.
             push(d, &mut b, DOOR, line(Vec2::new(-hw, ht), Vec2::new(-hw, ht + width)));
-            let arc = cadcraft_doc::Arc { center: Vec3::new(-hw, ht, 0.0), radius: width, start: 0.0, end: std::f64::consts::FRAC_PI_2 };
+            let arc = aad_doc::Arc { center: Vec3::new(-hw, ht, 0.0), radius: width, start: 0.0, end: std::f64::consts::FRAC_PI_2 };
             push(d, &mut b, DOOR, EntityKind::Arc(arc));
         } else if glass {
             for v in [-ht, -ht / 3.0, ht / 3.0, ht] {

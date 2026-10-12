@@ -14,8 +14,8 @@
 //! and pure functions over the drawing, so scripts and tests drive it without the UI
 //! ([`crate::Session::snap_cursor`]).
 
-use cadcraft_doc::{Drawing, Prim, Space};
-use cadcraft_geom::{Line, PI, Segment, TAU, Vec2, angle_in_sweep, intersect_ext, norm_angle};
+use aad_doc::{Drawing, Prim, Space};
+use aad_geom::{Line, PI, Segment, TAU, Vec2, angle_in_sweep, intersect_ext, norm_angle};
 use serde::Serialize;
 
 use super::{SnapHit, mode};
@@ -77,7 +77,7 @@ impl PathShape {
     /// Whether `p` (a point of the path's line or circle) is on the path.
     fn contains(&self, p: Vec2) -> bool {
         match *self {
-            PathShape::Ray { origin, dir } => (p - origin).dot(dir) >= -cadcraft_geom::EPS,
+            PathShape::Ray { origin, dir } => (p - origin).dot(dir) >= -aad_geom::EPS,
             PathShape::Line { .. } => true,
             PathShape::Circle { center, gap, .. } => gap.is_none_or(|(s, e)| !angle_in_sweep(center.angle_to(p), s, e)),
         }
@@ -87,14 +87,14 @@ impl PathShape {
     fn segment(&self) -> Segment {
         match *self {
             PathShape::Ray { origin, dir } | PathShape::Line { origin, dir } => Segment::Line(Line::new(origin, origin + dir)),
-            PathShape::Circle { center, radius, .. } => Segment::Arc { arc: cadcraft_geom::Arc::new(center, radius, 0.0, PI), ccw: true },
+            PathShape::Circle { center, radius, .. } => Segment::Arc { arc: aad_geom::Arc::new(center, radius, 0.0, PI), ccw: true },
         }
     }
 
     fn is_finite(&self) -> bool {
         match *self {
             PathShape::Ray { origin, dir } | PathShape::Line { origin, dir } => origin.is_finite() && dir.is_finite() && dir != Vec2::ZERO,
-            PathShape::Circle { center, radius, .. } => center.is_finite() && radius.is_finite() && radius > cadcraft_geom::EPS,
+            PathShape::Circle { center, radius, .. } => center.is_finite() && radius.is_finite() && radius > aad_geom::EPS,
         }
     }
 }
@@ -438,7 +438,7 @@ impl Tracker {
         };
         for (i, (a, _, _)) in near.iter().enumerate() {
             for (b, _, _) in near.iter().skip(i + 1) {
-                if a.from.dist(b.from) <= cadcraft_geom::EPS {
+                if a.from.dist(b.from) <= aad_geom::EPS {
                     continue;
                 }
                 for x in intersect_ext(&a.shape.segment(), &b.shape.segment(), true) {
@@ -515,7 +515,7 @@ pub fn candidate(
     let hit = hit.filter(|h| h.deferred.is_none() && h.mode != mode::NEA && h.point.is_finite());
     let ext_end = if cfg.running(mode::EXT) { extension_near(&prims, hit.map_or(cursor, |h| h.point), aperture) } else { None };
     if let Some((at, ext)) = ext_end
-        && hit.is_none_or(|h| h.point.dist(at) <= cadcraft_geom::EPS * (1.0 + at.len()))
+        && hit.is_none_or(|h| h.point.dist(at) <= aad_geom::EPS * (1.0 + at.len()))
     {
         return Some(Acquired::Point { at, name: hit.map_or("Endpoint", |h| h.name), ext: Some(ext) });
     }

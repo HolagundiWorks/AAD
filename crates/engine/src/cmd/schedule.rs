@@ -10,8 +10,8 @@
 //! ties each measured opening label to a schedule entry; wall paint then deducts the entry's
 //! length times height instead of the measured length times the wall height.
 
-use cadcraft_doc::{EntityKind, Space};
-use cadcraft_geom::Vec2;
+use aad_doc::{EntityKind, Space};
+use aad_geom::Vec2;
 use serde_json::{Map, Value, json};
 
 use super::*;
@@ -46,7 +46,7 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-fn schedule(d: &cadcraft_doc::Drawing) -> Map<String, Value> {
+fn schedule(d: &aad_doc::Drawing) -> Map<String, Value> {
     match project::get(d, "schedule") {
         Value::Object(o) => o,
         _ => Map::new(),
@@ -194,7 +194,7 @@ fn run_std(s: &mut Session, _p: &Value) -> Result<Value> {
 }
 
 /// Block references of each name in the model and layouts.
-fn block_counts(d: &cadcraft_doc::Drawing) -> std::collections::BTreeMap<String, u64> {
+fn block_counts(d: &aad_doc::Drawing) -> std::collections::BTreeMap<String, u64> {
     let mut out = std::collections::BTreeMap::new();
     for e in std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).flat_map(|s| s.iter()) {
         if let EntityKind::Insert(i) = &e.kind {

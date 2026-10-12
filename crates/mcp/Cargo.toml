@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-mcp"
+name = "aad-mcp"
 description = "AAD MCP server: JSON-RPC 2.0 over stdio, driving a running app or a headless session"
 version.workspace = true
 edition.workspace = true
@@ -9,7 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-cadcraft-engine = { workspace = true }
-cadcraft-render = { workspace = true }
+aad-engine = { workspace = true }
+aad-render = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

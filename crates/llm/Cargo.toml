@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-llm"
+name = "aad-llm"
 description = "AAD local language model runtime: Qwen3 through llama.cpp, loaded from a GGUF file"
 version.workspace = true
 edition.workspace = true
@@ -11,7 +11,7 @@ workspace = true
 [features]
 # The llama.cpp backend. Off by default: building it needs CMake, a C++ toolchain and libclang
 # (bindgen), so a plain `cargo build --workspace` works without them. The installer build and
-# anyone who wants the assistant turn it on: `cargo build -p cadcraft-llm --features llama`.
+# anyone who wants the assistant turn it on: `cargo build -p aad-llm --features llama`.
 default = []
 llama = ["dep:llama-cpp-2"]
 

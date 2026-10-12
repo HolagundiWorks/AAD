@@ -3,10 +3,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cadcraft_aorms::{AormsError, Client, MemorySessionStore, MemorySharedStore, Method, Request, Response, Transport};
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::aorms_ui::{self, ChipTone, Kind, Tone};
-use cadcraft_ui_egui::{CadApp, Services, dialogs};
+use aad_aorms::{AormsError, Client, MemorySessionStore, MemorySharedStore, Method, Request, Response, Transport};
+use aad_engine::Session;
+use aad_ui_egui::aorms_ui::{self, ChipTone, Kind, Tone};
+use aad_ui_egui::{CadApp, Services, dialogs};
 use serde_json::json;
 
 const CFG: &str = r#"{"contract":"2026-10-aqc-1","supabaseUrl":"https://hub.example","supabaseAnonKey":"k"}"#;
@@ -251,7 +251,7 @@ fn menu_and_typed_commands_open_the_dialog_but_json_calls_run_the_command() {
 #[test]
 fn the_aorms_menu_exists_and_lists_the_commands() {
     let app = CadApp::new(Session::new(), Services::default());
-    let tree = cadcraft_ui_egui::menus::tree(&app);
+    let tree = aad_ui_egui::menus::tree(&app);
     let (_, entries) = tree.iter().find(|(m, _)| m == "AORMS").expect("an AORMS menu");
     assert!(!entries.is_empty());
 }

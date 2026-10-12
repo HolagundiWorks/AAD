@@ -7,8 +7,8 @@
 //! its items type the point modifiers and snap overrides (`_from`, `_endp`, `_non`…) at the
 //! current point prompt, exactly as if typed on the command line.
 
-use cadcraft_engine::find_command;
-use cadcraft_engine::snap::mode;
+use aad_engine::find_command;
+use aad_engine::snap::mode;
 
 use crate::CadApp;
 use crate::menus::{Entry, activate, entry_ui};
@@ -71,7 +71,7 @@ const OSNAP_SETTINGS: &str = "dsettings";
 /// snap modes, None and Osnap Settings. An item's id is the text it types; the modifiers are
 /// only available at a point prompt.
 pub fn snap_entries(app: &CadApp) -> Vec<Vec<Entry>> {
-    let on = app.session.current_prompt().is_some_and(|p| cadcraft_engine::pointmod::accepts(&p));
+    let on = app.session.current_prompt().is_some_and(|p| aad_engine::pointmod::accepts(&p));
     let typed = |label: &str, id: &str| Entry::Item { label: label.into(), id: id.into(), shortcut: None, enabled: on };
     let name = |m: u32| mode::ALL.iter().find(|(b, _)| *b == m).map_or("", |(_, n)| *n);
     let mut groups = vec![vec![

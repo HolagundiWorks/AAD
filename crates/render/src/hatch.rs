@@ -3,10 +3,10 @@
 //! family swept across the boundary, even-odd clipped, then dashed).
 
 use super::{Builder, Ctx, Ink, fill, ink};
-use cadcraft_color::{Color, Rgb};
-use cadcraft_doc::library::pattern;
-use cadcraft_doc::{Entity, Gradient, Hatch};
-use cadcraft_geom::{Bounds2, Polyline, Vec2, point_in_polygon};
+use aad_color::{Color, Rgb};
+use aad_doc::library::pattern;
+use aad_doc::{Entity, Gradient, Hatch};
+use aad_geom::{Bounds2, Polyline, Vec2, point_in_polygon};
 
 /// Draw a hatch entity: `rgb` is its resolved colour, `tol` the chord tolerance.
 pub(super) fn draw(b: &mut Builder, ctx: &Ctx, e: &Entity, h: &Hatch, rgb: Ink, lw: f32, tol: f64) {

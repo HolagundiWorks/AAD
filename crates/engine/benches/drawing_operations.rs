@@ -3,17 +3,17 @@
 //! selection of 1 000, and undo. Each measured command is undone outside the timing so every
 //! iteration starts from the same drawing.
 //!
-//! Run: `cargo bench -p cadcraft-engine --bench drawing_operations`.
+//! Run: `cargo bench -p aad-engine --bench drawing_operations`.
 
 #[path = "../../../tools/quality/synthetic.rs"]
 mod synthetic;
 
 use std::time::{Duration, Instant};
 
-use cadcraft_doc::Space;
-use cadcraft_engine::Session;
-use cadcraft_engine::geom::{Bounds2, Vec2};
-use cadcraft_engine::select;
+use aad_doc::Space;
+use aad_engine::Session;
+use aad_engine::geom::{Bounds2, Vec2};
+use aad_engine::select;
 use criterion::{Criterion, criterion_group, criterion_main};
 use serde_json::{Value, json};
 

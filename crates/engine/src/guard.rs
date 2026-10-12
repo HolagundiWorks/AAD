@@ -10,8 +10,8 @@ use std::any::Any;
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use cadcraft_doc::EntityKind;
-use cadcraft_geom::Vec2;
+use aad_doc::EntityKind;
+use aad_geom::Vec2;
 
 use crate::cmd::Factory;
 use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
@@ -78,7 +78,7 @@ mod tests {
     use crate::Running;
 
     fn dot(p: Vec2) -> EntityKind {
-        EntityKind::Point(cadcraft_doc::Point { p: p.to3(0.0), angle: 0.0 })
+        EntityKind::Point(aad_doc::Point { p: p.to3(0.0), angle: 0.0 })
     }
 
     /// Panics in the step named by `at` ("factory", "begin", "prompt", "preview" or "input").

@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-geom"
+name = "aad-geom"
 description = "AAD geometry: f64 vectors, curves, arcs, splines, intersections, offsets, snaps"
 version.workspace = true
 edition.workspace = true

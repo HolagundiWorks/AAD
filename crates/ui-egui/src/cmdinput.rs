@@ -5,7 +5,7 @@
 //! Native commands are never defined here: [`command_known`] asks the engine's registry (and the
 //! UI's own command list), so aliases, new commands and the existing prompts behave as before.
 
-use cadcraft_engine::cmd::context::PROVIDERS;
+use aad_engine::cmd::context::PROVIDERS;
 
 /// What the text in the bar is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,7 +27,7 @@ pub fn command_known(word: &str) -> bool {
     if l.is_empty() {
         return false;
     }
-    crate::menus::is_ui_command(&l) || cadcraft_engine::find_command(&cadcraft_engine::cmd::resolve_alias(&l)).is_some()
+    crate::menus::is_ui_command(&l) || aad_engine::find_command(&aad_engine::cmd::resolve_alias(&l)).is_some()
 }
 
 /// A whole word of the form `/letters` (trailing punctuation allowed): a reference, not a path.
@@ -109,7 +109,7 @@ pub fn command_entries(prefix: &str) -> Vec<Entry> {
         return Vec::new();
     }
     let p = prefix.to_ascii_lowercase();
-    let mut v: Vec<(String, &'static str)> = cadcraft_engine::command_specs()
+    let mut v: Vec<(String, &'static str)> = aad_engine::command_specs()
         .iter()
         .filter(|c| !c.id.contains('.') && (c.id.starts_with(&p) || c.aliases.iter().any(|a| *a == p)))
         .map(|c| (c.id.to_ascii_uppercase(), c.label))

@@ -12,7 +12,7 @@ commands marked **untested** are taken from the scripts and not run in this audi
 | Visual Studio Build Tools (MSVC linker) | any recent | Installed with the Rust MSVC toolchain |
 | `wasm32-unknown-unknown` target | for `cargo xtask wasm` | `rustup target add wasm32-unknown-unknown` |
 | WiX v5 and `WixToolset.UI.wixext` 5.0.2, Windows SDK (`rc.exe`, `signtool.exe`) | installer only | see [RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md) |
-| CMake, a C++ toolchain, LLVM `libclang.dll` (`winget install LLVM.LLVM`, then set `LIBCLANG_PATH` to its `bin` folder) | only for the optional `llama` feature of `cadcraft-llm` | **verified**: `cargo build -p cadcraft-llm --features llama` builds in about 2.5 minutes |
+| CMake, a C++ toolchain, LLVM `libclang.dll` (`winget install LLVM.LLVM`, then set `LIBCLANG_PATH` to its `bin` folder) | only for the optional `llama` feature of `aad-llm` | **verified**: `cargo build -p aad-llm --features llama` builds in about 2.5 minutes |
 
 No fonts, models or other downloads are needed to build or test. A GPU adapter is needed to run
 the application; the headless UI tests render without a window.
@@ -22,19 +22,19 @@ the application; the headless UI tests render without a window.
 ```text
 cargo build --workspace                 # debug (covered by `cargo xtask ci`; not run on its own)
 cargo build --workspace --release       # verified (3.7 minutes from a clean `target/`)
-cargo build --release -p cadcraft       # just the desktop app, verified
-LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p cadcraft --features assistant   # with the language model runtime, verified (about 2.5 minutes)
+cargo build --release -p aad       # just the desktop app, verified
+LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p aad --features assistant   # with the language model runtime, verified (about 2.5 minutes)
 ```
 
-Outputs are in `target/debug` and `target/release` (`cadcraft.exe`, `cadcraft-cli.exe`).
+Outputs are in `target/debug` and `target/release` (`aad.exe`, `aad-cli.exe`).
 
 ## Run
 
 ```text
-cargo run --release -p cadcraft -- --sample            # verified: desktop app with a sample drawing
-cargo run --release -p cadcraft -- file.dxf            # open a file
-cargo run --release -p cadcraft -- --control 47123     # verified: with the JSON control channel
-cargo run --release -p cadcraft-cli -- info examples/apartment.dxf
+cargo run --release -p aad -- --sample            # verified: desktop app with a sample drawing
+cargo run --release -p aad -- file.dxf            # open a file
+cargo run --release -p aad -- --control 47123     # verified: with the JSON control channel
+cargo run --release -p aad-cli -- info examples/apartment.dxf
 ```
 
 The control channel is described in [control-protocol.md](control-protocol.md).
@@ -46,7 +46,7 @@ cargo xtask ci                                           # verified: fmt, clippy
 cargo fmt --all -- --check                               # verified
 cargo clippy --workspace --all-targets -- -D warnings    # verified
 cargo test --workspace --all-targets                     # verified
-cargo test -p cadcraft-ui-egui                           # verified: the UI tests
+cargo test -p aad-ui-egui                           # verified: the UI tests
 ```
 
 `cargo xtask --help` lists the other tasks. Details, long-running property and mutation tests and

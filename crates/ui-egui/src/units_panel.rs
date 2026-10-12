@@ -27,8 +27,8 @@ fn say(app: &mut CadApp, r: Result<Value, String>) {
 /// The status-bar label: drawing unit, display unit and plot scale.
 pub fn label(app: &CadApp) -> String {
     let Ok(d) = app.session.doc() else { return "Units".into() };
-    let drawn = cadcraft_engine::annot::drawing_unit(d).map_or("units?", |u| u.name());
-    let shown = cadcraft_engine::annot::display_unit(d).map_or(drawn, |u| u.name());
+    let drawn = aad_engine::annot::drawing_unit(d).map_or("units?", |u| u.name());
+    let shown = aad_engine::annot::display_unit(d).map_or(drawn, |u| u.name());
     let scale = d.header.f64("AADPLOTSCALE", 0.0);
     if scale > 0.0 { format!("{drawn} → {shown}  1:{scale}") } else { format!("{drawn} → {shown}") }
 }
@@ -40,8 +40,8 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         ui.label(crate::tl!("No drawing open"));
         return;
     };
-    let drawn = cadcraft_engine::annot::drawing_unit(d).map_or("not set", |u| u.name()).to_string();
-    let shown = cadcraft_engine::annot::display_unit(d).map_or("not set", |u| u.name()).to_string();
+    let drawn = aad_engine::annot::drawing_unit(d).map_or("not set", |u| u.name()).to_string();
+    let shown = aad_engine::annot::display_unit(d).map_or("not set", |u| u.name()).to_string();
     let scale = d.header.f64("AADPLOTSCALE", 100.0);
     ui.set_min_width(300.0);
 
@@ -162,7 +162,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cadcraft_engine::Session;
+    use aad_engine::Session;
 
     #[test]
     fn label_follows_the_drawing_display_and_plot_settings() {
@@ -173,6 +173,6 @@ mod tests {
         app.run("plot.config", json!({"scale": "1:100", "paper": "A1"})).unwrap();
         assert_eq!(label(&app), "mm → m  1:100");
         // Changing only the display unit does not touch the drawing's own unit.
-        assert_eq!(cadcraft_engine::annot::drawing_unit(app.session.doc().unwrap()), Some(cadcraft_engine::annot::Unit::Mm));
+        assert_eq!(aad_engine::annot::drawing_unit(app.session.doc().unwrap()), Some(aad_engine::annot::Unit::Mm));
     }
 }

@@ -2,7 +2,7 @@
 //! HCWPROJECT, HCWFLOORS, HCWBEAMS and HCWLEVELS). Stored in `Drawing::project` as JSON text and
 //! written to DXF/DWG with the drawing, so schedules and take-off read what is entered once.
 
-use cadcraft_doc::Drawing;
+use aad_doc::Drawing;
 use serde_json::{Map, Value, json};
 
 use super::*;

@@ -169,7 +169,7 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             r
         }
         "ui.sample" => {
-            let d = cadcraft_engine::sample::default_sample();
+            let d = aad_engine::sample::default_sample();
             app.session.open_drawing(d, "Bracket", None);
             app.canvas.zoom_pending = true;
             app.ui.start_tab = false;
@@ -395,7 +395,7 @@ pub fn tree(app: &CadApp) -> Vec<(String, Vec<Entry>)> {
             }
         }
     };
-    for c in cadcraft_engine::command_specs() {
+    for c in aad_engine::command_specs() {
         if !c.menu.is_empty() {
             add(c.menu, c.label, c.id, c.shortcut, (c.enabled)(&app.session).is_ok());
         }
@@ -540,13 +540,13 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use cadcraft_engine::Session;
-    use cadcraft_engine::cmd::file::{IoHooks, io, set_io};
+    use aad_engine::Session;
+    use aad_engine::cmd::file::{IoHooks, io, set_io};
     use serde_json::{Value, json};
 
     use crate::{CadApp, Services};
 
-    fn fake_plot(_: &cadcraft_doc::Drawing, _: &cadcraft_doc::Space, _: &Value) -> Result<Vec<u8>, String> {
+    fn fake_plot(_: &aad_doc::Drawing, _: &aad_doc::Space, _: &Value) -> Result<Vec<u8>, String> {
         Ok(b"%PDF-1.4 test".to_vec())
     }
 
@@ -571,7 +571,7 @@ mod tests {
         if io().and_then(|h| h.plot).is_none() {
             return; // another test installed hooks without a plotter first
         }
-        let path = std::env::temp_dir().join(format!("cadcraft-print-test-{}.pdf", std::process::id()));
+        let path = std::env::temp_dir().join(format!("aad-print-test-{}.pdf", std::process::id()));
         let ps = path.to_string_lossy().to_string();
         let _ = std::fs::remove_file(&path);
         let (mut app, asked) = app_with_picker(Some(ps.clone()));
@@ -623,7 +623,7 @@ mod shortcut_label_tests {
 
 #[cfg(test)]
 mod units_dialog_tests {
-    use cadcraft_engine::Session;
+    use aad_engine::Session;
     use serde_json::json;
 
     use crate::{CadApp, Services};
@@ -718,8 +718,8 @@ fn reset_workspace(app: &mut CadApp) -> Value {
 }
 
 fn fonts_json(app: &CadApp) -> Value {
-    let p = cadcraft_fonts::registry::preset(&app.ui.font_preset).unwrap_or(&cadcraft_fonts::registry::PRESETS[0]);
-    let t = cadcraft_fonts::registry::Typography { preset: p.id.into(), overrides: Vec::new() };
+    let p = aad_fonts::registry::preset(&app.ui.font_preset).unwrap_or(&aad_fonts::registry::PRESETS[0]);
+    let t = aad_fonts::registry::Typography { preset: p.id.into(), overrides: Vec::new() };
     let roles: Vec<Value> = t
         .resolve_all()
         .into_iter()
@@ -731,7 +731,7 @@ fn fonts_json(app: &CadApp) -> Value {
 /// Select the interface typography preset. The fonts are rebuilt on the next frame; a preset whose
 /// fonts are not installed keeps the system font and the answer says which roles were substituted.
 fn set_font_preset(app: &mut CadApp, id: &str) -> Result<Value, String> {
-    if cadcraft_fonts::registry::preset(id).is_none() {
+    if aad_fonts::registry::preset(id).is_none() {
         return Err(format!("unknown font preset \"{id}\""));
     }
     app.ui.font_preset = id.to_string();

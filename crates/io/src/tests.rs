@@ -1,6 +1,6 @@
-use cadcraft_color::Color;
-use cadcraft_doc::*;
-use cadcraft_geom::{PolyVertex, Vec2, Vec3};
+use aad_color::Color;
+use aad_doc::*;
+use aad_geom::{PolyVertex, Vec2, Vec3};
 
 use crate::*;
 
@@ -71,7 +71,7 @@ fn sample() -> Drawing {
     d.add(
         &Space::Model,
         c("0"),
-        EntityKind::Spline(cadcraft_geom::Spline::from_fit_points(&[Vec2::ZERO, Vec2::new(1.0, 2.0), Vec2::new(3.0, 1.0), Vec2::new(4.0, 3.0)])),
+        EntityKind::Spline(aad_geom::Spline::from_fit_points(&[Vec2::ZERO, Vec2::new(1.0, 2.0), Vec2::new(3.0, 1.0), Vec2::new(4.0, 3.0)])),
     )
     .unwrap();
     d.add(
@@ -338,7 +338,7 @@ fn hostile_dxf_does_not_panic() {
         "0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n42\n5\n20\n1\n0\nENDSEC\n0\nEOF\n",
     ] {
         if let Ok(d) = read(t.as_bytes(), "x.dxf") {
-            let _ = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default());
+            let _ = aad_render::build(&d, &Space::Model, &aad_render::Options::default());
             let _ = d.extents(&Space::Model);
         }
     }
@@ -360,7 +360,7 @@ fn view_box(svg: &str) -> String {
 
 #[test]
 fn image_export_frames_window() {
-    use cadcraft_geom::Bounds2;
+    use aad_geom::Bounds2;
     let d = sample();
     let win = Bounds2::new(Vec2::new(1.0, 2.0), Vec2::new(31.0, 22.0));
     // SVG: the viewBox is exactly the window (no margin); the default still fits the extents.
@@ -369,14 +369,14 @@ fn image_export_frames_window() {
     assert_eq!(view_box(&framed), "0 0 30.000000 20.000000");
     assert_ne!(view_box(&framed), view_box(&plain));
     assert_eq!(plain, String::from_utf8(write_framed(&d, "a.svg", None).unwrap()).unwrap());
-    let ext = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default()).bounds;
+    let ext = aad_render::build(&d, &Space::Model, &aad_render::Options::default()).bounds;
     let m = ext.width().max(ext.height()) * 0.02;
     assert_eq!(view_box(&plain), format!("0 0 {:.6} {:.6}", ext.width() + 2.0 * m, ext.height() + 2.0 * m));
     // PNG: the window fills the 3:2 image exactly, centred.
     let v = png_view(&ext, 2400, 1600, Some(win));
     assert_eq!(v.center, Vec2::new(16.0, 12.0));
     assert!((v.scale - 80.0).abs() < 1e-9);
-    assert_eq!(png_view(&ext, 2400, 1600, None), cadcraft_render::raster::View::fit(&ext, 2400, 1600, 0.05));
+    assert_eq!(png_view(&ext, 2400, 1600, None), aad_render::raster::View::fit(&ext, 2400, 1600, 0.05));
     let png_framed = write_framed(&d, "a.png", Some(win)).unwrap();
     assert_eq!(&png_framed[1..4], b"PNG");
     assert_ne!(png_framed, write(&d, "a.png").unwrap());
@@ -390,7 +390,7 @@ fn image_export_frames_window() {
 
 #[test]
 fn hostile_export_window_is_an_error() {
-    use cadcraft_geom::Bounds2;
+    use aad_geom::Bounds2;
     let d = sample();
     let raw = |x0: f64, y0: f64, x1: f64, y1: f64| Bounds2 { min: Vec2::new(x0, y0), max: Vec2::new(x1, y1) };
     let bad = [
@@ -537,7 +537,7 @@ fn pdf_hostile_options_and_empty() {
 #[test]
 fn dxf_roundtrips_page_setup() {
     let mut d = sample();
-    let a3 = cadcraft_render::paper_size("A3").unwrap();
+    let a3 = aad_render::paper_size("A3").unwrap();
     {
         let p = &mut d.layouts[0].page;
         p.paper = a3.name.into();
@@ -634,7 +634,7 @@ fn viewport_layer_colors_roundtrip() {
             layer_colors: colors,
         })
     };
-    let colors = vec![("Walls".to_string(), Color::Index(5)), ("A B".to_string(), Color::True(cadcraft_color::Rgb(255, 128, 0)))];
+    let colors = vec![("Walls".to_string(), Color::Index(5)), ("A B".to_string(), Color::True(aad_color::Rgb(255, 128, 0)))];
     d.add(&paper, Common::default(), vp(2, Vec::new(), colors.clone())).unwrap();
     d.add(&paper, Common::default(), vp(3, Vec::new(), Vec::new())).unwrap();
     // Frozen layers and colour overrides share one AAD xdata group.
@@ -798,8 +798,8 @@ fn many_entities(n: usize) -> Drawing {
 #[cfg(not(target_arch = "wasm32"))]
 fn ac1024_dwg(n: usize) -> Vec<u8> {
     let dxf = write_dxf(&many_entities(n)).replacen("AC1015", "AC1024", 1);
-    let dwg = cadcraft_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
-    assert_eq!(cadcraft_dwg::version(&dwg).as_deref(), Some("AC1024"));
+    let dwg = aad_dwg::dxf_to_dwg(dxf.as_bytes()).unwrap();
+    assert_eq!(aad_dwg::version(&dwg).as_deref(), Some("AC1024"));
     dwg
 }
 
@@ -811,8 +811,8 @@ fn ac1024_dwg(n: usize) -> Vec<u8> {
 fn ac1024_dwg_with_many_entities_opens() {
     let n = 30_000;
     let dwg = ac1024_dwg(n);
-    let dxf = cadcraft_dwg::dwg_to_dxf(&dwg).unwrap();
-    let tags = cadcraft_dxf::parse(&dxf).unwrap().len();
+    let dxf = aad_dwg::dwg_to_dxf(&dwg).unwrap();
+    let tags = aad_dxf::parse(&dxf).unwrap().len();
     assert!(dxf.len() < dwg.len() * 20, "DXF {} bytes from {} DWG bytes", dxf.len(), dwg.len());
     assert!(tags < dwg.len(), "{tags} group codes from {} DWG bytes", dwg.len());
     let d = read(&dwg, "big.dwg").unwrap();
@@ -828,20 +828,20 @@ fn ac1024_dwg_with_many_entities_opens() {
 #[test]
 fn oversized_dwg_and_dxf_are_rejected_early() {
     let dwg = ac1024_dwg(3000);
-    let full = cadcraft_dwg::dwg_to_dxf(&dwg).unwrap().len();
+    let full = aad_dwg::dwg_to_dxf(&dwg).unwrap().len();
     assert!(full > 400_000, "{full}");
-    let limits = cadcraft_dwg::Limits { max_dxf_bytes: 300_000, ..cadcraft_dwg::Limits::DEFAULT };
-    let e = cadcraft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
+    let limits = aad_dwg::Limits { max_dxf_bytes: 300_000, ..aad_dwg::Limits::DEFAULT };
+    let e = aad_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
     assert!(e.starts_with("DWG: converting this 0."), "{e}");
     assert!(e.contains("MB file produced more than 0.3 MB of drawing data (the limit)"), "{e}");
 
-    let limits = cadcraft_dwg::Limits { max_dwg_bytes: 100_000, ..cadcraft_dwg::Limits::DEFAULT };
-    let e = cadcraft_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
+    let limits = aad_dwg::Limits { max_dwg_bytes: 100_000, ..aad_dwg::Limits::DEFAULT };
+    let e = aad_dwg::dwg_to_dxf_with(&dwg, limits).unwrap_err();
     assert!(e.starts_with("DWG: the file is 0.") && e.ends_with("MB, larger than the 0.1 MB AAD opens"), "{e}");
 
     // Lines that aren't even group codes: the size is reported before anything is parsed.
     let text = "not a group code\nx\n".repeat(60);
-    let e = cadcraft_dxf::parse_with_limit(text.as_bytes(), 50).unwrap_err();
+    let e = aad_dxf::parse_with_limit(text.as_bytes(), 50).unwrap_err();
     assert_eq!(e.to_string(), "drawing too large: 60 DXF group codes, more than the 50 AAD reads");
 }
 
@@ -897,12 +897,12 @@ fn dimension_associativity_roundtrips() {
 
     // Without AAD's xdata (a file from another writer), the standard DIMASSOC objects
     // still give the extension-line links.
-    let tags = cadcraft_dxf::parse(text.as_bytes()).unwrap();
+    let tags = aad_dxf::parse(text.as_bytes()).unwrap();
     let mut stripped = Vec::new();
     let mut skipping = false;
     for t in tags {
         if t.code == 1001 {
-            skipping = t.str() == "CADCRAFT";
+            skipping = t.str() == "AAD";
         } else if t.code < 1000 {
             skipping = false;
         }
@@ -910,7 +910,7 @@ fn dimension_associativity_roundtrips() {
             stripped.push(t);
         }
     }
-    let foreign = read_dxf(cadcraft_dxf::write_ascii(&stripped).as_bytes()).unwrap();
+    let foreign = read_dxf(aad_dxf::write_ascii(&stripped).as_bytes()).unwrap();
     assert_eq!(assoc_of(&foreign, hl), lin.assoc);
     let fa = assoc_of(&foreign, ha);
     assert_eq!(fa.len(), 2);
@@ -924,7 +924,7 @@ fn layer_states_roundtrip() {
     let mut d = Drawing::new_imperial();
     d.layers.push(Layer {
         name: "Wände".into(),
-        color: Color::True(cadcraft_color::Rgb(200, 10, 40)),
+        color: Color::True(aad_color::Rgb(200, 10, 40)),
         transparency: 30,
         description: "walls \\ hidden".into(),
         ..Layer::default()
@@ -936,14 +936,14 @@ fn layer_states_roundtrip() {
     }
     d.layer_states.push(LayerState { name: "All off".into(), layers: off });
     let text = write_dxf(&d);
-    assert!(text.contains("CADCRAFT_LAYERSTATES"));
+    assert!(text.contains("AAD_LAYERSTATES"));
     let back = read_dxf(text.as_bytes()).unwrap();
     assert_eq!(back.layer_states, d.layer_states);
     assert_eq!(roundtrip(&back).layer_states, d.layer_states);
     #[cfg(not(target_arch = "wasm32"))]
     assert_eq!(read(&write(&d, "x.dwg").unwrap(), "x.dwg").unwrap().layer_states, d.layer_states);
     // Drawings without saved layer states carry no record.
-    assert!(!write_dxf(&Drawing::new_imperial()).contains("CADCRAFT_LAYERSTATES"));
+    assert!(!write_dxf(&Drawing::new_imperial()).contains("AAD_LAYERSTATES"));
 }
 
 fn table_sample() -> Table {
@@ -1109,7 +1109,7 @@ fn non_ascii_text_is_escaped_for_r2000_and_roundtrips() {
     let d = intl_sample();
     let text = write_dxf(&d);
     assert!(text.is_ascii(), "an AC1015 DXF must not contain UTF-8 bytes");
-    let tags = cadcraft_dxf::parse(text.as_bytes()).unwrap();
+    let tags = aad_dxf::parse(text.as_bytes()).unwrap();
     let header = |name: &str| tags.windows(2).find(|w| w[0].code == 9 && w[0].str() == name).map(|w| w[1].str());
     assert_eq!(header("$ACADVER").as_deref(), Some("AC1015"));
     assert_eq!(header("$DWGCODEPAGE").as_deref(), Some("ANSI_1252"));
@@ -1155,11 +1155,11 @@ fn hostile_extension_data_never_panics() {
         ent("0\nDIMENSION\n70\n0\n1001\nACAD\n1000\nDSTYLE\n1002\n{\n1070\n40\n1000\nnot a number\n1070\n271\n1070\n32767\n1070\n342\n1005\nZZZZ\n1070\n278\n1070\n-5\n1070\n176\n1070\n-32000\n1070\n9999\n1040\n1e308\n1002\n}\n"),
         ent("0\nDIMENSION\n70\n0\n1001\nACAD\n1000\nDSTYLE\n1002\n}\n1002\n{\n1002\n{\n"),
         // ASSOC: malformed links, missing handles, huge vertex index, nested braces.
-        ent("0\nDIMENSION\n70\n1\n1001\nCADCRAFT\n1000\nASSOC\n1002\n{\n1002\n{\n1000\np13\n1070\n6\n1071\n-1\n1002\n}\n1002\n{\n1000\nbogus\n1005\n1\n1070\n0\n1002\n}\n1002\n{\n1000\np14\n1005\nFFFFFFFFFFFFFFFFFFFF\n1070\n4\n1002\n}\n1002\n{\n1000\np14\n1005\n2A\n1070\n6\n1071\n2147483647\n1002\n}\n"),
-        ent("0\nDIMENSION\n70\n0\n1001\nCADCRAFT\n1000\nASSOC\n1002\n{\n1002\n{\n1002\n{\n1002\n{\n"),
+        ent("0\nDIMENSION\n70\n1\n1001\nAAD\n1000\nASSOC\n1002\n{\n1002\n{\n1000\np13\n1070\n6\n1071\n-1\n1002\n}\n1002\n{\n1000\nbogus\n1005\n1\n1070\n0\n1002\n}\n1002\n{\n1000\np14\n1005\nFFFFFFFFFFFFFFFFFFFF\n1070\n4\n1002\n}\n1002\n{\n1000\np14\n1005\n2A\n1070\n6\n1071\n2147483647\n1002\n}\n"),
+        ent("0\nDIMENSION\n70\n0\n1001\nAAD\n1000\nASSOC\n1002\n{\n1002\n{\n1002\n{\n1002\n{\n"),
         // Tables: enormous or negative counts, cells without bodies, spans past the edge.
         ent("0\nACAD_TABLE\n2\n*T1\n100\nAcDbTable\n91\n999999999\n92\n999999999\n171\n1\n0\nACAD_TABLE\n100\nAcDbTable\n91\n-4\n92\n3\n171\n"),
-        ent("0\nACAD_TABLE\n100\nAcDbTable\n91\n2\n92\n2\n141\nnan\n142\n-1\n171\n1\n173\n1\n175\n99999\n176\n-3\n1\nx\n171\n171\n171\n171\n171\n2\nzzz\n1001\nCADCRAFT\n1000\nTABLE\n1040\n-1\n"),
+        ent("0\nACAD_TABLE\n100\nAcDbTable\n91\n2\n92\n2\n141\nnan\n142\n-1\n171\n1\n173\n1\n175\n99999\n176\n-3\n1\nx\n171\n171\n171\n171\n171\n2\nzzz\n1001\nAAD\n1000\nTABLE\n1040\n-1\n"),
         // DIMASSOC pointing at nothing, or at a non-dimension.
         format!(
             "{}{}",
@@ -1172,7 +1172,7 @@ fn hostile_extension_data_never_panics() {
     ];
     for t in &cases {
         if let Ok(d) = read(t.as_bytes(), "x.dxf") {
-            let _ = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default());
+            let _ = aad_render::build(&d, &Space::Model, &aad_render::Options::default());
             let _ = write_dxf(&d);
         }
     }
@@ -1218,7 +1218,7 @@ fn extension_sample() -> Drawing {
 fn extension_sample_roundtrips_and_can_be_exported() {
     let d = extension_sample();
     let text = write_dxf(&d);
-    if let Ok(path) = std::env::var("CADCRAFT_DXF_OUT") {
+    if let Ok(path) = std::env::var("AAD_DXF_OUT") {
         std::fs::write(path, &text).unwrap();
     }
     let back = read_dxf(text.as_bytes()).unwrap();
@@ -1254,7 +1254,7 @@ fn dwg_roundtrip_keeps_extension_data() {
 #[test]
 fn mleader_is_written_as_leader_and_mtext() {
     let mut d = Drawing::new_metric();
-    let text = cadcraft_doc::MText {
+    let text = aad_doc::MText {
         insert: Vec3::new(12.0, 5.0, 0.0),
         height: 2.5,
         width: 0.0,
@@ -1265,7 +1265,7 @@ fn mleader_is_written_as_leader_and_mtext() {
         line_spacing: 1.0,
         line_spacing_exact: false,
     };
-    let m = cadcraft_doc::MLeader {
+    let m = aad_doc::MLeader {
         leaders: vec![vec![Vec3::new(0.0, 0.0, 0.0)]],
         landing: Vec3::new(10.0, 5.0, 0.0),
         dogleg: 2.0,
@@ -1375,8 +1375,8 @@ fn arc_length_dimension_keeps_its_kind_and_centre_on_roundtrip() {
         _ => panic!("not a dimension"),
     }
     // And through DWG.
-    let dwg = cadcraft_dwg::dxf_to_dwg(text.as_bytes()).unwrap();
-    let back = read_dxf(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+    let dwg = aad_dwg::dxf_to_dwg(text.as_bytes()).unwrap();
+    let back = read_dxf(&aad_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
     let dims: Vec<_> = back.model.iter().filter_map(|e| if let EntityKind::Dimension(x) = &e.kind { Some(x.clone()) } else { None }).collect();
     assert_eq!(dims.len(), 1);
     assert!(matches!(dims[0].kind, DimKind::ArcLength), "{:?}", dims[0].kind);
@@ -1396,8 +1396,8 @@ fn gradient_sample() -> (Drawing, Vec<Option<Gradient>>) {
     let gradients = vec![
         Some(Gradient {
             name: "LINEAR".into(),
-            color1: Color::True(cadcraft_color::Rgb(255, 0, 0)),
-            color2: Color::True(cadcraft_color::Rgb(0, 0, 255)),
+            color1: Color::True(aad_color::Rgb(255, 0, 0)),
+            color2: Color::True(aad_color::Rgb(0, 0, 255)),
             angle: 30f64.to_radians(),
             centered: false,
         }),
@@ -1476,7 +1476,7 @@ fn gradient_falls_back_to_xdata_and_native_groups_win() {
     let back = read_dxf(edited.as_bytes()).unwrap();
     let g = hatches(&back).into_iter().next().and_then(|h| h.gradient).unwrap();
     assert_eq!(g.name, "SPHERICAL");
-    assert_eq!(g.color1, Color::True(cadcraft_color::Rgb(0, 255, 0)));
+    assert_eq!(g.color1, Color::True(aad_color::Rgb(0, 255, 0)));
 }
 
 /// Issue #80: DWG saves (R2000, which has no native gradient fields) keep the gradient too.
@@ -1507,9 +1507,9 @@ fn hostile_gradient_groups_never_panic() {
         hatch("450\n-7\n470\nX\n"),
         hatch("421\n255\n63\n1\n463\n0\n450\n1\n470\nLINEAR\n"),
         // Xdata: missing values, junk colour names, huge numbers.
-        hatch("1001\nCADCRAFT\n1000\nGRADIENT\n"),
-        hatch("1001\nCADCRAFT\n1000\nGRADIENT\n1000\nX\n1040\n1e308\n1070\n-1\n1000\nnot a colour\n1000\n999,999,999\n"),
-        hatch("1001\nCADCRAFT\n1000\nGRADIENT\n1040\nnan\n1001\nACAD\n1000\n\n"),
+        hatch("1001\nAAD\n1000\nGRADIENT\n"),
+        hatch("1001\nAAD\n1000\nGRADIENT\n1000\nX\n1040\n1e308\n1070\n-1\n1000\nnot a colour\n1000\n999,999,999\n"),
+        hatch("1001\nAAD\n1000\nGRADIENT\n1040\nnan\n1001\nACAD\n1000\n\n"),
     ];
     for t in &cases {
         let d = read(t.as_bytes(), "x.dxf").unwrap();
@@ -1518,7 +1518,7 @@ fn hostile_gradient_groups_never_panic() {
                 assert!(g.angle.is_finite());
             }
         }
-        let _ = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default());
+        let _ = aad_render::build(&d, &Space::Model, &aad_render::Options::default());
         let back = read_dxf(write_dxf(&d).as_bytes()).unwrap();
         assert_eq!(
             hatches(&back).into_iter().map(|h| h.gradient).collect::<Vec<_>>(),
@@ -1668,7 +1668,7 @@ fn mirrored_text_extrusion_keeps_its_footprint() {
     assert!(t.rotation.abs() < 1e-12, "{}", t.rotation);
     let a = t.align_pt.expect("right-justified text has an alignment point");
     assert!((a.x - 10.0).abs() < 1e-9 && (a.y - 5.0).abs() < 1e-9, "{a:?}");
-    let list = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default());
+    let list = aad_render::build(&d, &Space::Model, &aad_render::Options::default());
     assert!((list.bounds.max.x - 10.0).abs() < 1e-6 && list.bounds.min.x < 9.5, "drawn left of (10,5): {:?}", list.bounds);
 }
 
@@ -1683,7 +1683,7 @@ fn mirrored_mtext_extrusion_keeps_its_footprint() {
     let t = first(&d, |k| if let EntityKind::MText(t) = k { Some(t.clone()) } else { None });
     assert_eq!(t.attach, 3);
     assert!((t.rotation - std::f64::consts::PI).abs() < 1e-12, "{}", t.rotation);
-    let b = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default()).bounds;
+    let b = aad_render::build(&d, &Space::Model, &aad_render::Options::default()).bounds;
     assert!(b.min.x > -0.2 && b.max.x > 0.5 && b.min.y > -0.2 && b.max.y > 0.5, "box right of and above (0,0): {b:?}");
 }
 
@@ -1694,5 +1694,5 @@ fn project_data_roundtrips_through_dxf() {
     d.project.insert("takeoff:Bricks".into(), "line one\nline \"two\" ünï ✓ ".repeat(40));
     let back = roundtrip(&d);
     assert_eq!(back.project, d.project);
-    assert!(!write_dxf(&Drawing::new_imperial()).contains("CADCRAFT_PROJECT"));
+    assert!(!write_dxf(&Drawing::new_imperial()).contains("AAD_PROJECT"));
 }

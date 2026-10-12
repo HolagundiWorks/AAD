@@ -1,6 +1,6 @@
 //! Project data kept in the drawing: details, floors and heights, beam depths and levels.
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde_json::json;
 
 #[test]

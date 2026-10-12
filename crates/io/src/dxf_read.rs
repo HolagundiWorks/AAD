@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
-use cadcraft_color::{Color, Rgb};
-use cadcraft_doc::*;
-use cadcraft_dxf::{Tag, records, sections};
-use cadcraft_geom::{PolyVertex, Spline, Vec2, Vec3};
+use aad_color::{Color, Rgb};
+use aad_doc::*;
+use aad_dxf::{Tag, records, sections};
+use aad_geom::{PolyVertex, Spline, Vec2, Vec3};
 
 use crate::{IoError, Result};
 
@@ -87,7 +87,7 @@ fn ocs(c: &Common, p: Vec3) -> Vec3 {
 }
 
 fn ocs_n(n: Vec3, p: Vec3) -> Vec3 {
-    if (n.z - 1.0).abs() < 1e-12 && n.x.abs() < 1e-12 && n.y.abs() < 1e-12 { p } else { cadcraft_geom::Mat4::ocs(n).apply(p) }
+    if (n.z - 1.0).abs() < 1e-12 && n.x.abs() < 1e-12 && n.y.abs() < 1e-12 { p } else { aad_geom::Mat4::ocs(n).apply(p) }
 }
 
 /// The properties an ATTRIB carries itself: those it has groups for. Its layer counts only when
@@ -143,7 +143,7 @@ fn text_from(t: &T) -> Text {
 /// (MIRRTEXT = 0), so it keeps the mirrored footprint: the direction turns to -rotation and
 /// left/right justification swap ends (start ↔ end point).
 fn mirror_text(t: &mut Text, align: Option<Vec3>, insert: Vec3) {
-    t.rotation = cadcraft_geom::norm_angle(-t.rotation);
+    t.rotation = aad_geom::norm_angle(-t.rotation);
     let baseline_left = |t: &Text, p: Vec3| if t.valign == VAlign::Baseline { None } else { Some(p) };
     match t.halign {
         HAlign::Left => {
@@ -186,8 +186,8 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
             if c.extrusion.z < 0.0 {
                 // Mirrored OCS: angles run the other way.
                 let (s, e) = (std::f64::consts::PI - a.end, std::f64::consts::PI - a.start);
-                a.start = cadcraft_geom::norm_angle(s);
-                a.end = cadcraft_geom::norm_angle(e);
+                a.start = aad_geom::norm_angle(s);
+                a.end = aad_geom::norm_angle(e);
             }
             EntityKind::Arc(a)
         }
@@ -199,13 +199,13 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
                 start: t.fd(41, 0.0),
                 end: t.fd(42, std::f64::consts::TAU),
             };
-            if c.extrusion.z < 0.0 && (cadcraft_geom::ccw_sweep(e.start, e.end) - std::f64::consts::TAU).abs() > 1e-9 {
+            if c.extrusion.z < 0.0 && (aad_geom::ccw_sweep(e.start, e.end) - std::f64::consts::TAU).abs() > 1e-9 {
                 // Centre and major axis are WCS, but the minor axis is extrusion × major: with (0,0,-1)
                 // it points the other way, so parameter t lands where -t does in the XY plane. A full
                 // ellipse is symmetric and stays as it is.
                 let (s, e2) = (-e.end, -e.start);
-                e.start = cadcraft_geom::norm_angle(s);
-                e.end = cadcraft_geom::norm_angle(e2);
+                e.start = aad_geom::norm_angle(s);
+                e.end = aad_geom::norm_angle(e2);
             }
             EntityKind::Ellipse(e)
         }
@@ -266,13 +266,9 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
             let weights = t.all_f(41);
             let fit = t.pts(11);
             let tangent = |c: i32| t.f(c).map(|_| t.p(c).xy());
-            let fit_opts = cadcraft_geom::FitOptions {
-                knots: Default::default(),
-                start_tangent: tangent(12),
-                end_tangent: tangent(13),
-                tolerance: t.fd(44, 0.0),
-            }
-            .sanitized();
+            let fit_opts =
+                aad_geom::FitOptions { knots: Default::default(), start_tangent: tangent(12), end_tangent: tangent(13), tolerance: t.fd(44, 0.0) }
+                    .sanitized();
             let closed = t.i(70).unwrap_or(0) & 1 != 0;
             let mut sp = Spline { degree, knots, control, weights, fit: fit.clone(), closed, fit_opts };
             if !sp.is_valid() && fit.len() >= 2 {
@@ -304,7 +300,7 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
                 // Insertion point and direction are WCS, but the line height runs along extrusion ×
                 // direction: under (0,0,-1) the glyphs are mirrored. Drawn readable (MIRRTEXT = 0) with
                 // the same footprint, the text turns round and left/right attachment swap.
-                rotation = cadcraft_geom::norm_angle(rotation + std::f64::consts::PI);
+                rotation = aad_geom::norm_angle(rotation + std::f64::consts::PI);
                 attach = match attach {
                     1 | 4 | 7 => attach + 2,
                     3 | 6 | 9 => attach - 2,
@@ -429,7 +425,7 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
                     v.p.x = -v.p.x;
                     v.bulge = -v.bulge;
                 }
-                h.angle = cadcraft_geom::norm_angle(std::f64::consts::PI - h.angle);
+                h.angle = aad_geom::norm_angle(std::f64::consts::PI - h.angle);
             }
             k
         }
@@ -600,12 +596,12 @@ fn hatch(tags: &[Tag], t: &T) -> Option<EntityKind> {
                         let (s, e) = if ccw { (sa, ea) } else { (-sa, -ea) };
                         let p0 = Vec2::polar(c, r, s);
                         let p1 = Vec2::polar(c, r, e);
-                        let sweep = if ccw { cadcraft_geom::ccw_sweep(s, e) } else { -cadcraft_geom::ccw_sweep(e, s) };
+                        let sweep = if ccw { aad_geom::ccw_sweep(s, e) } else { -aad_geom::ccw_sweep(e, s) };
                         if verts.last().is_none_or(|l| !l.p.near(p0, 1e-9)) {
                             verts.push(PolyVertex::new(p0));
                         }
                         if let Some(l) = verts.last_mut() {
-                            l.bulge = cadcraft_geom::arc_to_bulge(sweep);
+                            l.bulge = aad_geom::arc_to_bulge(sweep);
                         }
                         verts.push(PolyVertex::new(p1));
                     }
@@ -617,7 +613,7 @@ fn hatch(tags: &[Tag], t: &T) -> Option<EntityKind> {
                         let sa = f(i + 5).to_radians();
                         let ea = f(i + 6).to_radians();
                         i += 8;
-                        let e = cadcraft_geom::Ellipse { center: c, major: m, ratio, start: sa, end: ea };
+                        let e = aad_geom::Ellipse { center: c, major: m, ratio, start: sa, end: ea };
                         let mut pts = Vec::new();
                         e.tessellate(m.len() * 1e-3, &mut pts);
                         verts.extend(pts.into_iter().map(PolyVertex::new));
@@ -656,7 +652,7 @@ fn hatch(tags: &[Tag], t: &T) -> Option<EntityKind> {
     let (scale, angle) = (t.fd(41, 1.0), t.fd(52, 0.0).to_radians());
     // Definition lines matter only for a pattern the library doesn't define.
     let pattern_lines =
-        if solid || cadcraft_doc::library::pattern(&pattern).is_some() { Vec::new() } else { pattern_definition(tags, scale, angle, origin) };
+        if solid || aad_doc::library::pattern(&pattern).is_some() { Vec::new() } else { pattern_definition(tags, scale, angle, origin) };
     Some(EntityKind::Hatch(Hatch {
         pattern: pattern.to_ascii_uppercase(),
         solid,
@@ -684,7 +680,7 @@ const MAX_PATTERN_DASHES: usize = 256;
 /// (unit scale, no hatch rotation, base point relative to the hatch origin, offset as shift
 /// along the line and spacing), which the writer and the renderer turn back. Lines with
 /// non-finite values are skipped.
-fn pattern_definition(tags: &[Tag], scale: f64, angle: f64, origin: Vec2) -> Vec<cadcraft_doc::library::PatternLine> {
+fn pattern_definition(tags: &[Tag], scale: f64, angle: f64, origin: Vec2) -> Vec<aad_doc::library::PatternLine> {
     let Some(at) = tags.iter().position(|x| x.code == 78) else { return Vec::new() };
     let scale = if scale.is_finite() && scale > 1e-9 { scale } else { 1.0 };
     let angle = if angle.is_finite() { angle } else { 0.0 };
@@ -717,7 +713,7 @@ fn pattern_definition(tags: &[Tag], scale: f64, angle: f64, origin: Vec2) -> Vec
         .map(|(a, base, offset, dashes)| {
             let local = (base - origin).rotate(-angle) * (1.0 / scale);
             let delta = offset.rotate(-a.to_radians()) * (1.0 / scale);
-            cadcraft_doc::library::PatternLine {
+            aad_doc::library::PatternLine {
                 angle: a - angle.to_degrees(),
                 origin: (local.x, local.y),
                 delta: (delta.x, delta.y),
@@ -727,7 +723,7 @@ fn pattern_definition(tags: &[Tag], scale: f64, angle: f64, origin: Vec2) -> Vec
         .collect()
 }
 
-/// Hatch origin and background colour from `CADCRAFT` xdata: `1000 HATCH`, `1011` origin,
+/// Hatch origin and background colour from `AAD` xdata: `1000 HATCH`, `1011` origin,
 /// `1000` background colour name (empty for none). Defaults when absent.
 fn hatch_xdata(tags: &[Tag]) -> (Vec2, Option<Color>) {
     let x = crate::dxf_ext::xdata(tags, crate::dxf_ext::APP);
@@ -751,7 +747,7 @@ fn gradient(tags: &[Tag]) -> Option<Gradient> {
     if tags.iter().any(|x| x.code == 450) { native_gradient(tags) } else { xdata_gradient(tags) }
 }
 
-/// `CADCRAFT` xdata: `1000 GRADIENT`, then name, 1040 angle, 1070 centered, colour 1 and 2 names.
+/// `AAD` xdata: `1000 GRADIENT`, then name, 1040 angle, 1070 centered, colour 1 and 2 names.
 fn xdata_gradient(tags: &[Tag]) -> Option<Gradient> {
     let x = crate::dxf_ext::xdata(tags, crate::dxf_ext::APP);
     let at = x.iter().position(|t| t.code == 1000 && t.str() == "GRADIENT")?;
@@ -829,7 +825,7 @@ struct Rx {
 
 /// The plot style names of a file: the entries of the `ACAD_PLOTSTYLENAME` dictionary of the
 /// named object dictionary (the first object), by placeholder handle.
-fn plot_style_names(secs: &[cadcraft_dxf::Section]) -> HashMap<String, String> {
+fn plot_style_names(secs: &[aad_dxf::Section]) -> HashMap<String, String> {
     let mut out = HashMap::new();
     let Some(objects) = secs.iter().find(|s| s.name == "OBJECTS") else { return out };
     let recs = records(&objects.tags);
@@ -1038,9 +1034,9 @@ fn header(tags: &[Tag], d: &mut Drawing) {
                 [x, y, z] if x.code == 10 => HVal::Point(Vec3::new(x.f64(), y.f64(), z.f64())),
                 [x, y] if x.code == 10 => HVal::Point(Vec3::new(x.f64(), y.f64(), 0.0)),
                 [v] => match &v.value {
-                    cadcraft_dxf::Value::Real(r) => HVal::Real(*r),
-                    cadcraft_dxf::Value::Int(n) => HVal::Int(*n),
-                    cadcraft_dxf::Value::Bool(b) => HVal::Int(i64::from(*b)),
+                    aad_dxf::Value::Real(r) => HVal::Real(*r),
+                    aad_dxf::Value::Int(n) => HVal::Int(*n),
+                    aad_dxf::Value::Bool(b) => HVal::Int(i64::from(*b)),
                     other => HVal::Str(other.as_str()),
                 },
                 _ => continue,
@@ -1052,6 +1048,11 @@ fn header(tags: &[Tag], d: &mut Drawing) {
                     None => continue,
                 },
                 hv => hv,
+            };
+            // Files from before the rename to AAD name their own header variables `CADCRAFT_*`.
+            let name = match name.strip_prefix("CADCRAFT_") {
+                Some(rest) => format!("AAD_{rest}"),
+                None => name,
             };
             d.header.set(&name, hv);
         } else {
@@ -1066,7 +1067,7 @@ fn annotative(tags: &[Tag]) -> bool {
     list.iter().filter(|t| t.code == 1070).nth(1).is_some_and(|t| t.i64() != 0)
 }
 
-/// A text style's font: AAD's own font name from `CADCRAFT` xdata (`1000 FONT`, name)
+/// A text style's font: AAD's own font name from `AAD` xdata (`1000 FONT`, name)
 /// while the font file is still the `txt` written for other readers, otherwise the file.
 fn style_font(tags: &[Tag], file: String) -> String {
     let x = crate::dxf_ext::xdata(tags, crate::dxf_ext::APP);
@@ -1076,7 +1077,10 @@ fn style_font(tags: &[Tag], file: String) -> String {
     });
     let stem = file.trim().to_ascii_lowercase();
     match own {
-        Some(name) if !name.trim().is_empty() && (stem == "txt" || stem == "txt.shx") => name,
+        Some(name) if !name.trim().is_empty() && (stem == "txt" || stem == "txt.shx") => {
+            // The built-in font under its earlier name (before the rename to AAD).
+            if name.trim().eq_ignore_ascii_case("CADCraft Stroke") { "AAD Stroke".to_string() } else { name }
+        }
         _ => file,
     }
 }
@@ -1296,7 +1300,7 @@ fn ltype_pattern(tags: &[Tag], styles: &HashMap<String, String>) -> Vec<DashElem
 
 /// Read a DXF file into a drawing.
 pub fn read(bytes: &[u8]) -> Result<Drawing> {
-    let tags = cadcraft_dxf::parse(bytes).map_err(|e| IoError::Format(e.to_string()))?;
+    let tags = aad_dxf::parse(bytes).map_err(|e| IoError::Format(e.to_string()))?;
     let secs = sections(&tags);
     if secs.is_empty() {
         return Err(IoError::Format("no sections found".into()));
@@ -1505,7 +1509,10 @@ impl Objects {
 
     /// The text of the AAD XRECORD stored under `key` in a dictionary (its 1/3 strings).
     fn xrecord_text(&self, key: &str) -> Option<String> {
-        let h = self.names.iter().find(|(_, n)| n.as_str() == key).map(|(h, _)| h)?;
+        // Files from before the rename to AAD name their records `CADCRAFT_*`.
+        let legacy = key.replacen("AAD_", "CADCRAFT_", 1);
+        let h =
+            self.names.iter().find(|(_, n)| n.as_str() == key).or_else(|| self.names.iter().find(|(_, n)| n.as_str() == legacy)).map(|(h, _)| h)?;
         let tags = self.xrecords.get(h)?;
         let mut text = String::new();
         for t in tags.iter().filter(|t| t.code == 1 || t.code == 3) {
@@ -1657,7 +1664,7 @@ fn infer_snap(d: &Drawing, osnap: i64, main: Handle, other: Option<Handle>, at: 
                 }
             }
             EntityKind::Arc(a) => {
-                let g = cadcraft_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end);
+                let g = aad_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end);
                 if osnap == 13 || g.start_point().dist(at) <= g.end_point().dist(at) { AssocSnap::Start } else { AssocSnap::End }
             }
             EntityKind::LwPolyline(p) => {

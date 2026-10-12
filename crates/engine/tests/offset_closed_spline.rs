@@ -1,9 +1,9 @@
 //! OFFSET keeps a closed (periodic) spline closed (issue #303): the offset copy was built with
 //! the open-spline interpolation, so it came out open with a seam where the curve started.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
-use cadcraft_engine::geom::Spline;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
+use aad_engine::geom::Spline;
 use serde_json::json;
 
 fn last_spline(s: &Session) -> (String, Spline) {

@@ -1,8 +1,8 @@
 //! Units, plot configuration and annotation layout: nothing is scaled silently, annotation sizes
 //! follow the plot scale, and layout only ever moves text, deterministically and undoably.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::{Value, json};
 
 fn mm_session() -> Session {

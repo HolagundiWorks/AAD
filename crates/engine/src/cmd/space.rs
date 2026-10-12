@@ -13,7 +13,7 @@
 //! configuration, a layer that was deleted is reported as `missing` and skipped, and a layer created
 //! later is left alone on activation unless the configuration's `unlisted` policy says otherwise.
 
-use cadcraft_doc::Drawing;
+use aad_doc::Drawing;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -141,7 +141,7 @@ pub(crate) fn follow_rename(d: &mut Drawing, old: &str, new: &str) {
     }
 }
 
-fn entry_of(l: &cadcraft_doc::Layer) -> Entry {
+fn entry_of(l: &aad_doc::Layer) -> Entry {
     Entry { layer: l.name.clone(), visible: l.on, frozen: l.frozen, locked: l.locked }
 }
 
@@ -461,7 +461,7 @@ fn run_activate(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
     }
-    let usable = |l: &cadcraft_doc::Layer| l.on && !l.frozen && !l.locked;
+    let usable = |l: &aad_doc::Layer| l.on && !l.frozen && !l.locked;
     let cur = d.header.str("CLAYER", "0");
     let mut warnings = Vec::new();
     let mut new_current: Option<String> = None;

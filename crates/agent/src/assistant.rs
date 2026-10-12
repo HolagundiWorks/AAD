@@ -16,7 +16,7 @@
 //! model only ever proposes: each reply goes through [`parse_tool_call`] and [`Agent::propose`]
 //! (schema, allow-list, loop limits, confirmation), exactly as in a script.
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde_json::{Value, json};
 
 use crate::agent::{Agent, Outcome, tool_message};

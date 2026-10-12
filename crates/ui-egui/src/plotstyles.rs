@@ -50,17 +50,17 @@ fn window(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
         });
         return None;
     };
-    let names = cadcraft_doc::plot_style_table_names(d);
+    let names = aad_doc::plot_style_table_names(d);
     let layout = match app.session.layout_space() {
-        cadcraft_doc::Space::Paper(n) => d.layout(&n).map(|l| (n.clone(), l.page.plot_style_table.clone(), l.page.show_plot_styles)),
-        cadcraft_doc::Space::Model => None,
+        aad_doc::Space::Paper(n) => d.layout(&n).map(|l| (n.clone(), l.page.plot_style_table.clone(), l.page.show_plot_styles)),
+        aad_doc::Space::Model => None,
     };
     let mut sel = temp::<String>(ctx, "pstyle_sel")
         .filter(|s| names.iter().any(|n| n.eq_ignore_ascii_case(s)))
         .or_else(|| layout.as_ref().map(|l| l.1.clone()).filter(|n| names.iter().any(|x| x.eq_ignore_ascii_case(n))))
         .or_else(|| names.first().cloned())
         .unwrap_or_default();
-    let table = cadcraft_doc::plot_style_table(d, &sel);
+    let table = aad_doc::plot_style_table(d, &sel);
     let in_drawing = d.plot_style_tables.iter().any(|x| x.name.eq_ignore_ascii_case(&sel));
     let linetypes: Vec<String> =
         d.linetypes.iter().map(|l| l.name.clone()).filter(|n| !n.eq_ignore_ascii_case("ByLayer") && !n.eq_ignore_ascii_case("ByBlock")).collect();
@@ -144,7 +144,7 @@ fn window(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                         if let Some(c) = st.color {
                             let mut rgb = [c.0, c.1, c.2];
                             if ui.color_edit_button_srgb(&mut rgb).changed() {
-                                action = set(&table.name, style("color", json!(cadcraft_color::Rgb(rgb[0], rgb[1], rgb[2]).hex())));
+                                action = set(&table.name, style("color", json!(aad_color::Rgb(rgb[0], rgb[1], rgb[2]).hex())));
                             }
                         }
                     });
@@ -183,7 +183,7 @@ fn window(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                         }
                     });
                     if named {
-                        let normal = st.name.eq_ignore_ascii_case(cadcraft_doc::NORMAL_STYLE);
+                        let normal = st.name.eq_ignore_ascii_case(aad_doc::NORMAL_STYLE);
                         if ui.add_enabled(!normal, egui::Button::new(crate::tl!("Remove"))).clicked() {
                             action = Some(("stylesmanager", json!({ "action": "set", "name": table.name, "removeStyle": st.name })));
                         }

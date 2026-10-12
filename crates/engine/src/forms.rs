@@ -714,7 +714,7 @@ impl Interactive for FormRun {
             Kind::Points => {
                 let mut p = Prompt::new(format!("{} ({} picked)", f.label, self.points.len()), Accept::POINT);
                 if let Some(Value::Array(last)) = self.points.last() {
-                    p.base = Some(cadcraft_geom::Vec2::new(last[0].as_f64().unwrap_or(0.0), last[1].as_f64().unwrap_or(0.0)));
+                    p.base = Some(aad_geom::Vec2::new(last[0].as_f64().unwrap_or(0.0), last[1].as_f64().unwrap_or(0.0)));
                 }
                 p
             }

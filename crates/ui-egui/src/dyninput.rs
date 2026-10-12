@@ -14,7 +14,7 @@
 //! Scripts, the control channel and MCP never pass through here, so they keep the plain
 //! command-line rules.
 
-use cadcraft_geom::Vec2;
+use aad_geom::Vec2;
 
 /// How the boxes read the point.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -89,7 +89,7 @@ pub struct Entry<'a> {
 impl Entry<'_> {
     /// The locked first value, once a separator follows it.
     pub fn first_locked(&self) -> Option<f64> {
-        if self.split { cadcraft_engine::units::parse_distance(self.first) } else { None }
+        if self.split { aad_engine::units::parse_distance(self.first) } else { None }
     }
     /// The value typed in the second box (radians for an angle).
     pub fn second_value(&self) -> Option<f64> {
@@ -98,8 +98,8 @@ impl Entry<'_> {
             return None;
         }
         match self.format {
-            Format::Cartesian => cadcraft_engine::units::parse_distance(t),
-            Format::Polar => cadcraft_engine::units::parse_angle(t),
+            Format::Cartesian => aad_engine::units::parse_distance(t),
+            Format::Polar => aad_engine::units::parse_angle(t),
         }
     }
 }
@@ -118,7 +118,7 @@ pub fn parse<'a>(text: &'a str, frame: &Frame) -> Option<Entry<'a>> {
     } else {
         Entry { format: frame.default_format(), first: t, split: false, second: "" }
     };
-    let number_or_empty = |s: &str| s.is_empty() || cadcraft_engine::units::parse_distance(s).is_some();
+    let number_or_empty = |s: &str| s.is_empty() || aad_engine::units::parse_distance(s).is_some();
     if !number_or_empty(entry.first) || entry.second.contains([',', '<']) {
         return None;
     }
@@ -185,7 +185,7 @@ mod tests {
     fn sent(text: &str, frame: &Frame, cursor: Vec2, last: Vec2) -> Option<Vec2> {
         let e = parse(text, frame)?;
         let t = complete(&e, frame, cursor, last)?;
-        cadcraft_engine::prompt::parse_point(&t, last)
+        aad_engine::prompt::parse_point(&t, last)
     }
 
     fn close(a: Option<Vec2>, b: Vec2) -> bool {
@@ -272,11 +272,11 @@ mod tests {
         let other_last = Vec2::new(500.0, 500.0);
         let t = complete(&e, &f, Vec2::ZERO, other_last).unwrap();
         assert!(t.starts_with('#'), "{t}");
-        assert!(close(cadcraft_engine::prompt::parse_point(&t, other_last), Vec2::new(40.0, 100.0)));
+        assert!(close(aad_engine::prompt::parse_point(&t, other_last), Vec2::new(40.0, 100.0)));
         // Polar too.
         let e = parse("40<90", &f).unwrap();
         let t = complete(&e, &f, Vec2::ZERO, other_last).unwrap();
-        assert!(close(cadcraft_engine::prompt::parse_point(&t, other_last), Vec2::new(0.0, 100.0)));
+        assert!(close(aad_engine::prompt::parse_point(&t, other_last), Vec2::new(0.0, 100.0)));
     }
 
     #[test]

@@ -24,8 +24,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-use cadcraft_engine::Input;
-use cadcraft_geom::Vec2;
+use aad_engine::Input;
+use aad_geom::Vec2;
 use serde_json::{Value, json};
 
 use crate::CadApp;
@@ -102,7 +102,7 @@ struct Widget {
 }
 
 fn widgets_id() -> egui::Id {
-    egui::Id::new("cadcraft-observed-widgets")
+    egui::Id::new("aad-observed-widgets")
 }
 
 pub(crate) fn begin_frame(ctx: &egui::Context) {
@@ -186,7 +186,7 @@ fn wrap(r: Result<Value, String>) -> Outcome {
 }
 
 pub fn all_commands(app: &CadApp) -> Value {
-    let mut v: Vec<Value> = cadcraft_engine::command_specs().iter().map(|c| serde_json::to_value(c.info(&app.session)).unwrap_or_default()).collect();
+    let mut v: Vec<Value> = aad_engine::command_specs().iter().map(|c| serde_json::to_value(c.info(&app.session)).unwrap_or_default()).collect();
     for (id, label, menu, sc) in crate::menus::UI_COMMANDS {
         v.push(json!({"id": id, "label": label, "menu": menu, "shortcut": sc, "enabled": true, "ui": true}));
     }
@@ -429,11 +429,11 @@ pub fn handle(app: &mut CadApp, ctx: &egui::Context, req: &ControlRequest) -> Ou
             let w = f("width").unwrap_or(1600.0).clamp(16.0, 8192.0) as u32;
             let h = f("height").unwrap_or(1000.0).clamp(16.0, 8192.0) as u32;
             let Ok(st) = app.session.state() else { return err("no drawing") };
-            let list = cadcraft_render::build(&st.doc, &st.space, &cadcraft_render::Options::default());
+            let list = aad_render::build(&st.doc, &st.space, &aad_render::Options::default());
             let v = st.view();
             let fit = p.get("fit").and_then(Value::as_bool).unwrap_or(true);
             let view = render_view(&list.bounds, v.center, v.height, fit, w, h);
-            let Some(png) = cadcraft_render::raster::render_png(&list, &view, &cadcraft_render::raster::RasterOptions::default()) else {
+            let Some(png) = aad_render::raster::render_png(&list, &view, &aad_render::raster::RasterOptions::default()) else {
                 return err("render failed");
             };
             #[cfg(not(target_arch = "wasm32"))]
@@ -462,17 +462,17 @@ pub fn handle(app: &mut CadApp, ctx: &egui::Context, req: &ControlRequest) -> Ou
 }
 
 /// The raster view for `ui.render`: fitted to the drawing's bounds, or the current screen view.
-fn render_view(bounds: &cadcraft_geom::Bounds2, center: Vec2, height: f64, fit: bool, w: u32, h: u32) -> cadcraft_render::raster::View {
+fn render_view(bounds: &aad_geom::Bounds2, center: Vec2, height: f64, fit: bool, w: u32, h: u32) -> aad_render::raster::View {
     if fit {
-        cadcraft_render::raster::View::fit(bounds, w, h, 0.05)
+        aad_render::raster::View::fit(bounds, w, h, 0.05)
     } else {
-        cadcraft_render::raster::View { center, scale: f64::from(h) / height.max(1e-12), width: w, height: h }
+        aad_render::raster::View { center, scale: f64::from(h) / height.max(1e-12), width: w, height: h }
     }
 }
 
 /// The `ui.render` reply, matching the headless backend (`pngBase64`, `width`, `height`), plus `bytes` and `path`.
 fn render_reply(png: &[u8], w: u32, h: u32, path: Option<&str>) -> Value {
-    let mut v = json!({"pngBase64": cadcraft_engine::cmd::file::base64_encode(png), "width": w, "height": h, "bytes": png.len()});
+    let mut v = json!({"pngBase64": aad_engine::cmd::file::base64_encode(png), "width": w, "height": h, "bytes": png.len()});
     if let (Some(path), Some(o)) = (path, v.as_object_mut()) {
         o.insert("path".to_string(), json!(path));
     }
@@ -487,7 +487,7 @@ pub fn save_screenshot(image: &egui::ColorImage, path: Option<&str>) -> Value {
         buf.extend_from_slice(&c.to_array());
     }
     let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, buf) else { return json!({"ok": false, "error": "bad image"}) };
-    let path = path.map(str::to_string).unwrap_or_else(|| std::env::temp_dir().join("cadcraft-shot.png").to_string_lossy().to_string());
+    let path = path.map(str::to_string).unwrap_or_else(|| std::env::temp_dir().join("aad-shot.png").to_string_lossy().to_string());
     match img.save(&path) {
         Ok(()) => json!({"ok": true, "result": {"path": path, "width": w, "height": h}}),
         Err(e) => json!({"ok": false, "error": e.to_string()}),
@@ -500,7 +500,7 @@ mod tests {
 
     #[test]
     fn render_view_fit_finds_offscreen_drawing() {
-        let far = cadcraft_geom::Bounds2::new(Vec2::new(9000.0, 9000.0), Vec2::new(9100.0, 9050.0));
+        let far = aad_geom::Bounds2::new(Vec2::new(9000.0, 9000.0), Vec2::new(9100.0, 9050.0));
         let fitted = render_view(&far, Vec2::ZERO, 100.0, true, 800, 500);
         assert_eq!(fitted.center, far.center());
         let kept = render_view(&far, Vec2::ZERO, 100.0, false, 800, 500);

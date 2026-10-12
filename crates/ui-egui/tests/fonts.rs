@@ -1,8 +1,8 @@
 //! The interface typography preset: chosen by command, reported with what is substituted, rebuilt
 //! on the next frame, and the layout does not change when the fonts do.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_ui_egui::{CadApp, Services};
 use egui_kittest::Harness;
 use serde_json::json;
 
@@ -53,9 +53,9 @@ fn a_preset_whose_fonts_are_not_installed_does_not_break_or_move_the_interface()
 fn compact_text_and_headings_use_the_condensed_and_heading_families_once_installed() {
     let mut h = harness();
     h.run_steps(5);
-    assert!(cadcraft_ui_egui::theme::named_ready(), "the named families are used from the frame after the fonts were installed");
-    assert_eq!(cadcraft_ui_egui::theme::small().family, egui::FontFamily::Name(cadcraft_ui_egui::theme::CONDENSED_FAMILY.into()));
-    assert_eq!(cadcraft_ui_egui::theme::heading().family, egui::FontFamily::Name(cadcraft_ui_egui::theme::HEADING_FAMILY.into()));
+    assert!(aad_ui_egui::theme::named_ready(), "the named families are used from the frame after the fonts were installed");
+    assert_eq!(aad_ui_egui::theme::small().family, egui::FontFamily::Name(aad_ui_egui::theme::CONDENSED_FAMILY.into()));
+    assert_eq!(aad_ui_egui::theme::heading().family, egui::FontFamily::Name(aad_ui_egui::theme::HEADING_FAMILY.into()));
     // Changing the preset keeps the families defined, so nothing drawn can ask for a missing one.
     h.state_mut().run("ui.fonts", json!({"preset": "multilingual"})).unwrap();
     h.run_steps(5);

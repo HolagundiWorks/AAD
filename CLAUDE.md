@@ -36,14 +36,14 @@ A crash loses someone's drawing. **This outranks feature work.**
 - **Quality gate** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layering, wasm).
 
 ## Running and inspecting the app
-- `cargo run --release -p cadcraft -- --sample --control PORT` starts the app with a sample drawing and the control channel. Pick a free port.
+- `cargo run --release -p aad -- --sample --control PORT` starts the app with a sample drawing and the control channel. Pick a free port.
 - Drive it with JSON lines on `127.0.0.1:PORT`:
   - `{"id":1,"method":"cmdline.input","params":{"text":"circle 0,0 5"}}` types at the command line like a user.
   - `{"id":2,"method":"engine.execute","params":{"command":"line","params":{"points":[[0,0],[10,0]]}}}` is the JSON form.
   - `{"id":3,"method":"ui.screenshot","params":{"path":"shot.png"}}` writes a PNG.
   - Methods: `crates/ui-egui/src/control.rs`; protocol: [docs/control-protocol.md](docs/control-protocol.md).
-- For UI work, look at the result (screenshot). If no frame is presented (screen locked) use `ui.render` or `cadcraft-cli`.
-- Headless: `cadcraft-cli run --sample --script 'LINE 0,0 10,10\n' --export out.png`; `cadcraft-cli info file.dxf`; `cadcraft-cli mcp`.
+- For UI work, look at the result (screenshot). If no frame is presented (screen locked) use `ui.render` or `aad-cli`.
+- Headless: `aad-cli run --sample --script 'LINE 0,0 10,10\n' --export out.png`; `aad-cli info file.dxf`; `aad-cli mcp`.
 - Parallel agents: use a separate `CARGO_TARGET_DIR` per agent and edit only the crates you own.
 
 ## Documentation rules

@@ -2,16 +2,16 @@
 //! zoom band changes: model space at zoom extents, and a layout with a viewport (model space seen
 //! through it, clipped), which is what every frame of panning inside a viewport costs.
 //!
-//! Run: `cargo bench -p cadcraft-render`.
+//! Run: `cargo bench -p aad-render`.
 
 #[path = "../../../tools/quality/synthetic.rs"]
 mod synthetic;
 
 use std::hint::black_box;
 
-use cadcraft_doc::{Common, EntityKind, Space, Viewport};
-use cadcraft_geom::{Vec2, Vec3};
-use cadcraft_render::{Options, build};
+use aad_doc::{Common, EntityKind, Space, Viewport};
+use aad_geom::{Vec2, Vec3};
+use aad_render::{Options, build};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 fn options(side: f64) -> Options {

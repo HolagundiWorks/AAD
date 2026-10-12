@@ -38,7 +38,7 @@ pub fn standard_linetypes() -> Vec<Linetype> {
                     text: Some("o".into()),
                     style: Some("Standard".into()),
                     scale: 0.1,
-                    offset: cadcraft_geom::Vec2::new(-0.035, -0.035),
+                    offset: aad_geom::Vec2::new(-0.035, -0.035),
                     ..DashElement::dash(-0.1)
                 },
                 DashElement::dash(-0.1),

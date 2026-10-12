@@ -1,12 +1,12 @@
 //! Connects the [`Assistant`] state machine to a language model, for hosts that can simply wait
 //! (the command-line `ask`). The desktop app does not use [`ask`]: it runs the same steps but sends
-//! each generation to a background worker (`cadcraft_llm::worker`), using [`to_messages`] and
+//! each generation to a background worker (`aad_llm::worker`), using [`to_messages`] and
 //! [`params_for`] from here.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use cadcraft_engine::Session;
-use cadcraft_llm::{LlmError, Message, Model, Params, Role as LlmRole};
+use aad_engine::Session;
+use aad_llm::{LlmError, Message, Model, Params, Role as LlmRole};
 
 use crate::GenerationProfile;
 use crate::assistant::{Assistant, Msg, Role, Step};

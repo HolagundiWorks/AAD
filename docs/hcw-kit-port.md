@@ -11,7 +11,7 @@ kit's README (`/HolagundiWorks/hcwCAD-KIT`). No C# source is included.
 |---|---|---|
 | Layer sets | `hcwlayers` `{set: hcw\|bp\|both}` | Creates missing layers only; unknown linetypes fall back to Continuous |
 | Rooms | `room` (aliases `hcwroom`, `roomc`), `rarea` | 29 room codes; label with name, size and area; units from the drawing units |
-| Project data | `project`, `floors`, `beams`, `levels` | Stored in the drawing (`Drawing.project`, DXF XRECORD `CADCRAFT_PROJECT`). `floors` rejects a ceiling height above the floor-to-floor height |
+| Project data | `project`, `floors`, `beams`, `levels` | Stored in the drawing (`Drawing.project`, DXF XRECORD `AAD_PROJECT`). `floors` rejects a ceiling height above the floor-to-floor height |
 | Take-off | `takeoff.start` and `takeoff.linear\|brick\|beams\|columns\|rects\|paint\|ceiling\|floor\|area\|slab`, `takeoff.list`, `takeoff.clear`, `takeoff.export` | Reads the `MEASURE-*` layers. Walls are numbered left to right, then bottom to top; equal lengths or areas share a group (FB-A, FB-B ...). Metric results round to 1 cm, imperial to 1/8 in. Tables are drawn in the drawing and results are saved with it. CSV export only |
 | Deductions | `MEASURE-DEDUCT` lines, including lines inside blocks | Door and window blocks made by `wall.door` and `wall.window` carry their own deduction line |
 | Rates and bill | `takeoff.rates`, `takeoff.bill` | Rate book per item, bill of quantities from the saved take-off results |

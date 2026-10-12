@@ -4,8 +4,8 @@
 //! The UI calls [`Session::grip_edit`]; every edit runs through a `grip.*` command so it is
 //! undoable and reachable from scripts, the control channel and MCP.
 
-use cadcraft_doc::{DimKind, EntityKind, Handle, LwPolyline};
-use cadcraft_geom::{Arc, EPS, Mat3, Polyline, Vec2, Vec3, norm_angle};
+use aad_doc::{DimKind, EntityKind, Handle, LwPolyline};
+use aad_geom::{Arc, EPS, Mat3, Polyline, Vec2, Vec3, norm_angle};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -269,8 +269,8 @@ pub fn stretch_grip(kind: &EntityKind, index: usize, to: Vec2) -> Option<EntityK
     Some(k)
 }
 
-fn shift_params(e: &mut cadcraft_doc::Ellipse, by: f64) {
-    let full = (cadcraft_geom::ccw_sweep(e.start, e.end) - cadcraft_geom::TAU).abs() < 1e-9;
+fn shift_params(e: &mut aad_doc::Ellipse, by: f64) {
+    let full = (aad_geom::ccw_sweep(e.start, e.end) - aad_geom::TAU).abs() < 1e-9;
     if !full {
         e.start = norm_angle(e.start + by);
         e.end = norm_angle(e.end + by);

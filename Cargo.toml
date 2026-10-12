@@ -12,20 +12,20 @@ repository = "https://github.com/HolagundiWorks/AADT"
 
 [workspace.dependencies]
 # internal
-cadcraft-geom = { path = "crates/geom" }
-cadcraft-dxf = { path = "crates/dxf" }
-cadcraft-dwg = { path = "crates/dwg" }
-cadcraft-color = { path = "crates/color" }
-cadcraft-doc = { path = "crates/doc" }
-cadcraft-fonts = { path = "crates/fonts" }
-cadcraft-render = { path = "crates/render" }
-cadcraft-io = { path = "crates/io" }
-cadcraft-aorms = { path = "crates/aorms" }
-cadcraft-engine = { path = "crates/engine" }
-cadcraft-ui-egui = { path = "crates/ui-egui" }
-cadcraft-mcp = { path = "crates/mcp" }
-cadcraft-agent = { path = "crates/agent" }
-cadcraft-llm = { path = "crates/llm" }
+aad-geom = { path = "crates/geom" }
+aad-dxf = { path = "crates/dxf" }
+aad-dwg = { path = "crates/dwg" }
+aad-color = { path = "crates/color" }
+aad-doc = { path = "crates/doc" }
+aad-fonts = { path = "crates/fonts" }
+aad-render = { path = "crates/render" }
+aad-io = { path = "crates/io" }
+aad-aorms = { path = "crates/aorms" }
+aad-engine = { path = "crates/engine" }
+aad-ui-egui = { path = "crates/ui-egui" }
+aad-mcp = { path = "crates/mcp" }
+aad-agent = { path = "crates/agent" }
+aad-llm = { path = "crates/llm" }
 
 # foundation
 thiserror = "2"

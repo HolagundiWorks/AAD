@@ -1,7 +1,7 @@
 //! Electrical layout: block mapping, IDs, wiring analysis and the schedule.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::json;
 
 fn session() -> Session {

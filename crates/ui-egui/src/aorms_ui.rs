@@ -8,8 +8,8 @@
 
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use cadcraft_aorms::{AormsError, Client, OnlineProject, RestoreOutcome, SessionInfo};
-use cadcraft_engine::cmd::aorms as engine;
+use aad_aorms::{AormsError, Client, OnlineProject, RestoreOutcome, SessionInfo};
+use aad_engine::cmd::aorms as engine;
 use egui::{Color32, Key, RichText};
 use serde_json::{Value, json};
 

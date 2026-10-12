@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=AAD
+GenericName=Computer-Aided Design
+Comment=Draft, dimension and plot 2D drawings; open DXF and DWG files
+Exec=aad %F
+TryExec=aad
+Icon=io.github.holagundiworks.aad
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.holagundiworks.aad
+Categories=Graphics;Engineering;VectorGraphics;
+MimeType=image/vnd.dxf;image/vnd.dwg;application/x-dxf;application/acad;
+Keywords=cad;drafting;dxf;dwg;drawing;engineering;architecture;mechanical;

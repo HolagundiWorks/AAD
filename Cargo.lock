@@ -3,6 +3,217 @@
 version = 4
 
 [[package]]
+name = "aad"
+version = "0.6.0"
+dependencies = [
+ "aad-agent",
+ "aad-dwg",
+ "aad-engine",
+ "aad-fonts",
+ "aad-io",
+ "aad-llm",
+ "aad-ui-egui",
+ "eframe",
+ "egui",
+ "log",
+ "muda",
+ "rfd",
+ "serde_json",
+ "winit",
+ "winresource",
+]
+
+[[package]]
+name = "aad-agent"
+version = "0.6.0"
+dependencies = [
+ "aad-engine",
+ "aad-llm",
+ "serde_json",
+]
+
+[[package]]
+name = "aad-aorms"
+version = "0.6.0"
+dependencies = [
+ "keyring",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "ureq",
+]
+
+[[package]]
+name = "aad-cli"
+version = "0.6.0"
+dependencies = [
+ "aad-agent",
+ "aad-dwg",
+ "aad-engine",
+ "aad-fonts",
+ "aad-io",
+ "aad-llm",
+ "aad-mcp",
+ "serde_json",
+]
+
+[[package]]
+name = "aad-color"
+version = "0.6.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "aad-doc"
+version = "0.6.0"
+dependencies = [
+ "aad-color",
+ "aad-geom",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "aad-dwg"
+version = "0.6.0"
+dependencies = [
+ "acadrust",
+]
+
+[[package]]
+name = "aad-dxf"
+version = "0.6.0"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "aad-engine"
+version = "0.6.0"
+dependencies = [
+ "aad-aorms",
+ "aad-color",
+ "aad-doc",
+ "aad-fonts",
+ "aad-geom",
+ "aad-render",
+ "criterion",
+ "log",
+ "proptest",
+ "rstar",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "aad-fonts"
+version = "0.6.0"
+dependencies = [
+ "aad-geom",
+ "skrifa 0.47.0",
+]
+
+[[package]]
+name = "aad-geom"
+version = "0.6.0"
+dependencies = [
+ "criterion",
+ "proptest",
+ "serde",
+]
+
+[[package]]
+name = "aad-io"
+version = "0.6.0"
+dependencies = [
+ "aad-color",
+ "aad-doc",
+ "aad-dwg",
+ "aad-dxf",
+ "aad-geom",
+ "aad-render",
+ "criterion",
+ "miniz_oxide 0.8.9",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "aad-llm"
+version = "0.6.0"
+dependencies = [
+ "llama-cpp-2",
+]
+
+[[package]]
+name = "aad-mcp"
+version = "0.6.0"
+dependencies = [
+ "aad-engine",
+ "aad-render",
+ "log",
+ "serde_json",
+]
+
+[[package]]
+name = "aad-render"
+version = "0.6.0"
+dependencies = [
+ "aad-color",
+ "aad-doc",
+ "aad-fonts",
+ "aad-geom",
+ "criterion",
+ "rayon",
+ "serde_json",
+ "tiny-skia",
+]
+
+[[package]]
+name = "aad-ui-egui"
+version = "0.6.0"
+dependencies = [
+ "aad-aorms",
+ "aad-color",
+ "aad-doc",
+ "aad-engine",
+ "aad-fonts",
+ "aad-geom",
+ "aad-io",
+ "aad-render",
+ "craft-ui",
+ "egui",
+ "egui-wgpu",
+ "egui_kittest",
+ "image",
+ "log",
+ "naga",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "aad-web"
+version = "0.6.0"
+dependencies = [
+ "aad-engine",
+ "aad-io",
+ "aad-ui-egui",
+ "eframe",
+ "egui",
+ "log",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "acadrust"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -627,217 +838,6 @@ name = "bytes"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
-
-[[package]]
-name = "cadcraft"
-version = "0.6.0"
-dependencies = [
- "cadcraft-agent",
- "cadcraft-dwg",
- "cadcraft-engine",
- "cadcraft-fonts",
- "cadcraft-io",
- "cadcraft-llm",
- "cadcraft-ui-egui",
- "eframe",
- "egui",
- "log",
- "muda",
- "rfd",
- "serde_json",
- "winit",
- "winresource",
-]
-
-[[package]]
-name = "cadcraft-agent"
-version = "0.6.0"
-dependencies = [
- "cadcraft-engine",
- "cadcraft-llm",
- "serde_json",
-]
-
-[[package]]
-name = "cadcraft-aorms"
-version = "0.6.0"
-dependencies = [
- "keyring",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "ureq",
-]
-
-[[package]]
-name = "cadcraft-cli"
-version = "0.6.0"
-dependencies = [
- "cadcraft-agent",
- "cadcraft-dwg",
- "cadcraft-engine",
- "cadcraft-fonts",
- "cadcraft-io",
- "cadcraft-llm",
- "cadcraft-mcp",
- "serde_json",
-]
-
-[[package]]
-name = "cadcraft-color"
-version = "0.6.0"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "cadcraft-doc"
-version = "0.6.0"
-dependencies = [
- "cadcraft-color",
- "cadcraft-geom",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "cadcraft-dwg"
-version = "0.6.0"
-dependencies = [
- "acadrust",
-]
-
-[[package]]
-name = "cadcraft-dxf"
-version = "0.6.0"
-dependencies = [
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "cadcraft-engine"
-version = "0.6.0"
-dependencies = [
- "cadcraft-aorms",
- "cadcraft-color",
- "cadcraft-doc",
- "cadcraft-fonts",
- "cadcraft-geom",
- "cadcraft-render",
- "criterion",
- "log",
- "proptest",
- "rstar",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "cadcraft-fonts"
-version = "0.6.0"
-dependencies = [
- "cadcraft-geom",
- "skrifa 0.47.0",
-]
-
-[[package]]
-name = "cadcraft-geom"
-version = "0.6.0"
-dependencies = [
- "criterion",
- "proptest",
- "serde",
-]
-
-[[package]]
-name = "cadcraft-io"
-version = "0.6.0"
-dependencies = [
- "cadcraft-color",
- "cadcraft-doc",
- "cadcraft-dwg",
- "cadcraft-dxf",
- "cadcraft-geom",
- "cadcraft-render",
- "criterion",
- "miniz_oxide 0.8.9",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "cadcraft-llm"
-version = "0.6.0"
-dependencies = [
- "llama-cpp-2",
-]
-
-[[package]]
-name = "cadcraft-mcp"
-version = "0.6.0"
-dependencies = [
- "cadcraft-engine",
- "cadcraft-render",
- "log",
- "serde_json",
-]
-
-[[package]]
-name = "cadcraft-render"
-version = "0.6.0"
-dependencies = [
- "cadcraft-color",
- "cadcraft-doc",
- "cadcraft-fonts",
- "cadcraft-geom",
- "criterion",
- "rayon",
- "serde_json",
- "tiny-skia",
-]
-
-[[package]]
-name = "cadcraft-ui-egui"
-version = "0.6.0"
-dependencies = [
- "cadcraft-aorms",
- "cadcraft-color",
- "cadcraft-doc",
- "cadcraft-engine",
- "cadcraft-fonts",
- "cadcraft-geom",
- "cadcraft-io",
- "cadcraft-render",
- "craft-ui",
- "egui",
- "egui-wgpu",
- "egui_kittest",
- "image",
- "log",
- "naga",
- "serde",
- "serde_json",
- "toml",
-]
-
-[[package]]
-name = "cadcraft-web"
-version = "0.6.0"
-dependencies = [
- "cadcraft-engine",
- "cadcraft-io",
- "cadcraft-ui-egui",
- "eframe",
- "egui",
- "log",
- "serde_json",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
 
 [[package]]
 name = "calloop"

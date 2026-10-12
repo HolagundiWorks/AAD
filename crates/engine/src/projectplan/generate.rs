@@ -21,7 +21,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use cadcraft_doc::Drawing;
+use aad_doc::Drawing;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -157,8 +157,8 @@ fn init_drawing(s: &mut Session, cfg: &ProjectConfig, plan: &Plan, d: &PlannedDr
 /// preset's family at the role's weight (the intended font, whether or not it is installed on this
 /// machine), `Standard` and the leader styles on the Primary font, dimension styles on the
 /// Dimension font. Heights, widths and every other style property stay as they are.
-pub fn apply_typography(d: &mut Drawing, t: &cadcraft_fonts::registry::Typography) {
-    use cadcraft_fonts::registry::{ROLES, Role, family_at, style_name};
+pub fn apply_typography(d: &mut Drawing, t: &aad_fonts::registry::Typography) {
+    use aad_fonts::registry::{ROLES, Role, family_at, style_name};
     let preset = t.preset();
     let font_of = |role: Role| {
         let r = t.resolve(role);
@@ -170,7 +170,7 @@ pub fn apply_typography(d: &mut Drawing, t: &cadcraft_fonts::registry::Typograph
         let font = font_of(role);
         match d.text_styles.iter_mut().find(|s| s.name == name) {
             Some(s) => s.font = font,
-            None => d.text_styles.push(cadcraft_doc::TextStyle { name, font, ..cadcraft_doc::TextStyle::default() }),
+            None => d.text_styles.push(aad_doc::TextStyle { name, font, ..aad_doc::TextStyle::default() }),
         }
     }
     let primary = font_of(Role::Primary);

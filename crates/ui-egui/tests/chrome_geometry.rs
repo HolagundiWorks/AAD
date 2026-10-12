@@ -1,8 +1,8 @@
 //! The real app's painted geometry at native and compact window sizes.
 
-use cadcraft_engine::Session;
-use cadcraft_geom::Vec2;
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_geom::Vec2;
+use aad_ui_egui::{CadApp, Services};
 use egui::{Rect, Shape, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;

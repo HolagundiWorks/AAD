@@ -2,9 +2,9 @@
 //! floor and drawing space selectors. The old property row (layer, colour, linetype, lineweight
 //! dropdowns) is gone.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::topbar;
-use cadcraft_ui_egui::{CadApp, Services, WorkspaceMode};
+use aad_engine::Session;
+use aad_ui_egui::topbar;
+use aad_ui_egui::{CadApp, Services, WorkspaceMode};
 use egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;

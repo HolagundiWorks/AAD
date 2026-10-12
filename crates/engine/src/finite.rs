@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use cadcraft_doc::{Drawing, Entity, EntityStore, Handle, entity_bounds};
+use aad_doc::{Drawing, Entity, EntityStore, Handle, entity_bounds};
 use serde::Serialize;
 use serde::ser;
 

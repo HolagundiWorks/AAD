@@ -8,10 +8,10 @@
 
 use std::fmt::Write as _;
 
-use cadcraft_color::Rgb;
-use cadcraft_doc::{Drawing, PageSetup, Space};
-use cadcraft_geom::{Bounds2, Vec2};
-use cadcraft_render::{Kind, Sheet, clip, paper};
+use aad_color::Rgb;
+use aad_doc::{Drawing, PageSetup, Space};
+use aad_geom::{Bounds2, Vec2};
+use aad_render::{Kind, Sheet, clip, paper};
 use serde_json::Value;
 
 use crate::{IoError, Result};
@@ -27,7 +27,7 @@ const MAX_SHEET_MM: f64 = 5080.0;
 pub struct PdfOptions {
     /// Plot style table name, replacing the page setup's (`"None"` plots without one).
     pub plot_style_table: Option<String>,
-    /// Paper name from [`cadcraft_render::PAPER_SIZES`] (`"A4"`, `"Letter"`, `"ANSI B"`…).
+    /// Paper name from [`aad_render::PAPER_SIZES`] (`"A4"`, `"Letter"`, `"ANSI B"`…).
     pub paper: Option<String>,
     /// Custom paper size in millimetres (portrait width, height).
     pub paper_mm: Option<(f64, f64)>,
@@ -137,8 +137,8 @@ pub fn pdf(d: &Drawing, space: &Space, o: &PdfOptions) -> Result<Vec<u8>> {
         Space::Paper(_) => page.lineweights,
         Space::Model => true,
     });
-    let plot_style_table = cadcraft_doc::plot_style_table(d, &page.plot_style_table).map(std::sync::Arc::new);
-    let ropts = cadcraft_render::Options { tolerance: 0.001, min_dash: 0.0, text: true, fill: true, lineweights, view_height: 0.0, plot_style_table };
+    let plot_style_table = aad_doc::plot_style_table(d, &page.plot_style_table).map(std::sync::Arc::new);
+    let ropts = aad_render::Options { tolerance: 0.001, min_dash: 0.0, text: true, fill: true, lineweights, view_height: 0.0, plot_style_table };
     let k = unit_mm * PT_PER_MM;
     let window = o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty());
     let fit = window.is_some() || o.fit.unwrap_or(matches!(space, Space::Model));
@@ -148,7 +148,7 @@ pub fn pdf(d: &Drawing, space: &Space, o: &PdfOptions) -> Result<Vec<u8>> {
     let tolerance = if tol.is_finite() && tol > 0.0 { tol } else { ropts.tolerance };
     // Relative point sizes follow the plotted window (else the extents).
     let view_height = window.map(|w| w.height()).unwrap_or(0.0);
-    let list = cadcraft_render::build_plot(d, space, &cadcraft_render::Options { tolerance, view_height, ..ropts });
+    let list = aad_render::build_plot(d, space, &aad_render::Options { tolerance, view_height, ..ropts });
     let b = window.unwrap_or(list.bounds);
     let s = plot_scale(&b, &sheet, fit, o.scale);
     let map = if fit || matches!(space, Space::Model) {
@@ -224,7 +224,7 @@ fn color(out: &mut String, c: Rgb, op: &str) {
     out.push('\n');
 }
 
-fn content_stream(list: &cadcraft_render::DisplayList, map: &Map, clip_pt: &Bounds2) -> String {
+fn content_stream(list: &aad_render::DisplayList, map: &Map, clip_pt: &Bounds2) -> String {
     let white = Rgb(255, 255, 255);
     let mut c = String::new();
     c.push_str("q\n1 J 1 j\n");

@@ -1,7 +1,7 @@
 //! `grip.*` commands: the undoable, scriptable form of grip editing (see `crate::grips`).
 
-use cadcraft_doc::Handle;
-use cadcraft_geom::{Mat3, Vec2};
+use aad_doc::Handle;
+use aad_geom::{Mat3, Vec2};
 use serde_json::{Value, json};
 
 use super::curves;

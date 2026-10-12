@@ -92,7 +92,7 @@ fn linetype(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
             .filter(|l| !l.name.eq_ignore_ascii_case("ByLayer") && !l.name.eq_ignore_ascii_case("ByBlock"))
             .map(|l| (l.name.clone(), l.description.clone(), l.pattern.iter().map(|e| e.length).collect())),
     );
-    let library: Vec<String> = cadcraft_doc::library::standard_linetypes().into_iter().map(|l| l.name).filter(|n| d.linetype(n).is_none()).collect();
+    let library: Vec<String> = aad_doc::library::standard_linetypes().into_iter().map(|l| l.name).filter(|n| d.linetype(n).is_none()).collect();
     let mut sel = temp::<String>(ctx, "ltmgr_sel").filter(|s| rows.iter().any(|r| r.0.eq_ignore_ascii_case(s))).unwrap_or_else(|| current.clone());
     let mut action = None;
     egui::Window::new("Linetype Manager").open(open).default_size(vec2(520.0, 360.0)).resizable(true).show(ctx, |ui| {
@@ -298,7 +298,7 @@ fn mleader_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Acti
         })
         .collect();
     if styles.is_empty() {
-        let s = cadcraft_doc::MLeaderStyle::default();
+        let s = aad_doc::MLeaderStyle::default();
         styles.push(Style { name: s.name, fields: Vec::new() });
     }
     let current = d.header.str("CMLEADERSTYLE", "Standard");
@@ -387,11 +387,11 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
         no_drawing(ctx, "Page Setup Manager", open);
         return None;
     };
-    let mut layouts: Vec<(u32, String, cadcraft_doc::PageSetup)> = d.layouts.iter().map(|l| (l.tab_order, l.name.clone(), l.page.clone())).collect();
+    let mut layouts: Vec<(u32, String, aad_doc::PageSetup)> = d.layouts.iter().map(|l| (l.tab_order, l.name.clone(), l.page.clone())).collect();
     layouts.sort_by_key(|l| l.0);
     let shown = match app.session.layout_space() {
-        cadcraft_doc::Space::Paper(n) => Some(n),
-        cadcraft_doc::Space::Model => None,
+        aad_doc::Space::Paper(n) => Some(n),
+        aad_doc::Space::Model => None,
     };
     let mut sel = temp::<String>(ctx, "pagesetup_sel")
         .filter(|s| layouts.iter().any(|l| l.1 == *s))
@@ -420,7 +420,7 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
             egui::Grid::new("pagesetup_grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(right, |ui| {
                 ui.label("Paper size");
                 egui::ComboBox::from_id_salt("pagesetup_paper").selected_text(page.paper.as_str()).width(190.0).show_ui(ui, |ui| {
-                    for p in cadcraft_render::PAPER_SIZES {
+                    for p in aad_render::PAPER_SIZES {
                         if ui.selectable_label(p.name == page.paper, p.name).clicked() && p.name != page.paper {
                             action = set("paper", json!(p.name));
                         }

@@ -2,13 +2,13 @@
 //! converts our DXF with acadrust), and the paper-space viewport the DXF writer adds for it.
 #![cfg(not(target_arch = "wasm32"))]
 
-use cadcraft_color::{Color, Rgb};
-use cadcraft_doc::*;
-use cadcraft_geom::{Vec2, Vec3};
+use aad_color::{Color, Rgb};
+use aad_doc::*;
+use aad_geom::{Vec2, Vec3};
 
 fn through_dwg(d: &Drawing) -> Drawing {
-    let dwg = cadcraft_io::write(d, "x.dwg").unwrap();
-    cadcraft_io::read(&dwg, "x.dwg").unwrap()
+    let dwg = aad_io::write(d, "x.dwg").unwrap();
+    aad_io::read(&dwg, "x.dwg").unwrap()
 }
 
 fn line(d: &mut Drawing, space: &Space, common: Common) -> Handle {
@@ -68,12 +68,12 @@ fn dwg_keeps_true_colours_and_transparency() {
         Common { layer: "Fancy".into(), color: Color::True(Rgb(1, 2, 3)), transparency: Transparency::Percent(40), ..Common::default() },
     );
 
-    let dwg = cadcraft_io::write(&d, "x.dwg").unwrap();
-    assert_eq!(cadcraft_dwg::version(&dwg).as_deref(), Some("AC1018"));
-    let header = records(&cadcraft_io::write_dxf(&d), "SECTION");
+    let dwg = aad_io::write(&d, "x.dwg").unwrap();
+    assert_eq!(aad_dwg::version(&dwg).as_deref(), Some("AC1018"));
+    let header = records(&aad_io::write_dxf(&d), "SECTION");
     assert_eq!(header.first().and_then(|h| group(h, "1")), Some("AC1015"), "the DXF stays R2000");
 
-    let back = cadcraft_io::read(&dwg, "x.dwg").unwrap();
+    let back = aad_io::read(&dwg, "x.dwg").unwrap();
     let e = back.entity(h).unwrap();
     assert_eq!(e.common.color, Color::True(Rgb(1, 2, 3)));
     assert_eq!(e.common.transparency, Transparency::Percent(40));
@@ -112,7 +112,7 @@ fn viewport_ids_survive_dwg_and_the_paper_viewport_stays_implicit() {
     let h = d.add(&first, Common::default(), viewport(2)).unwrap();
     d.add(&first, Common::default(), viewport(3)).unwrap();
 
-    let text = cadcraft_io::write_dxf(&d);
+    let text = aad_io::write_dxf(&d);
     let vps = records(&text, "VIEWPORT");
     assert_eq!(vps.len(), 3, "{text}");
     assert_eq!(group(&vps[0], "69"), Some("1"));
@@ -121,7 +121,7 @@ fn viewport_ids_survive_dwg_and_the_paper_viewport_stays_implicit() {
     assert_eq!(group(&vps[1], "68"), Some("2"));
     assert_eq!(group(&vps[1], "90"), Some("32768"));
 
-    let back = cadcraft_io::read_dxf(text.as_bytes()).unwrap();
+    let back = aad_io::read_dxf(text.as_bytes()).unwrap();
     assert_eq!(viewport_ids(&back.layouts[0]), [2, 3]);
     assert_eq!(back.layouts[0].entities.len(), 2);
 
@@ -133,7 +133,7 @@ fn viewport_ids_survive_dwg_and_the_paper_viewport_stays_implicit() {
     let mut d = Drawing::new_metric();
     d.add(&first, Common::default(), viewport(1)).unwrap();
     d.add(&first, Common::default(), viewport(2)).unwrap();
-    let text = cadcraft_io::write_dxf(&d);
+    let text = aad_io::write_dxf(&d);
     assert!(!text.contains("PAPERVIEW"));
-    assert_eq!(viewport_ids(&cadcraft_io::read_dxf(text.as_bytes()).unwrap().layouts[0]), [1, 2]);
+    assert_eq!(viewport_ids(&aad_io::read_dxf(text.as_bytes()).unwrap().layouts[0]), [1, 2]);
 }

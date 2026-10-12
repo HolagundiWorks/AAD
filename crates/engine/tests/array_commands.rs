@@ -1,9 +1,9 @@
 //! ARRAY, ARRAYRECT and ARRAYPOLAR at the command line: the type prompt and the edit-array
 //! option loops. Each input is its own `cmdline` call (one typed line each).
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
-use cadcraft_engine::geom::Vec2;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
+use aad_engine::geom::Vec2;
 use serde_json::json;
 
 fn typed(s: &mut Session, inputs: &[&str]) {

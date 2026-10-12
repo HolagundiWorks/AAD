@@ -203,6 +203,6 @@ fn cmd_ci() -> Result<(), String> {
 }
 
 fn cmd_corpus(_download: bool) -> Result<(), String> {
-    println!("Test corpora live in storytold/cadcraft-corpus (planned); never commit large binaries here.");
+    println!("Test corpora live in a test-corpus repository (planned); never commit large binaries here.");
     Ok(())
 }

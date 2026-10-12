@@ -12,7 +12,7 @@
 //! Failing cases are shrunk and saved in `tests/properties.proptest-regressions` (commit that file).
 //! `PROPTEST_CASES` raises the number of cases.
 
-use cadcraft_engine::{EngineError, Session, command_specs};
+use aad_engine::{EngineError, Session, command_specs};
 use proptest::prelude::*;
 use serde_json::{Value, json};
 
@@ -35,7 +35,7 @@ fn handles(s: &Session) -> Vec<String> {
 
 /// What "the drawing" is for comparisons: every entity (handle, properties, geometry), the layer
 /// names and the block names.
-fn state(s: &Session) -> (Vec<cadcraft_engine::doc::Entity>, Vec<String>, Vec<String>) {
+fn state(s: &Session) -> (Vec<aad_engine::doc::Entity>, Vec<String>, Vec<String>) {
     let d = s.doc().unwrap();
     (d.model.iter().map(|e| (**e).clone()).collect(), d.layers.iter().map(|l| l.name.clone()).collect(), d.blocks.keys().cloned().collect())
 }
@@ -206,7 +206,7 @@ proptest! {
         let after = state(&s).0;
         prop_assert_eq!(before.len(), after.len());
         // Compare through the JSON form with numbers rounded: moves go through floating point.
-        let round = |v: &cadcraft_engine::doc::Entity| {
+        let round = |v: &aad_engine::doc::Entity| {
             let mut t = serde_json::to_string(v).unwrap();
             // Strip the digits beyond 6 decimals so 1e-12 rounding noise does not matter.
             let mut out = String::new();

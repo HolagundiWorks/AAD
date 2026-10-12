@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cadcraft_doc::{Drawing, EntityKind, EntityStore};
+use aad_doc::{Drawing, EntityKind, EntityStore};
 use serde_json::{Value, json};
 
 use crate::cmd::modify2::flatten_kind;

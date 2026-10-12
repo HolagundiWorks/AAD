@@ -10,7 +10,7 @@
 use serde_json::{Map, Value, json};
 
 use crate::Session;
-use cadcraft_doc::{Drawing, EntityKind, Space};
+use aad_doc::{Drawing, EntityKind, Space};
 
 /// A reference the command bar offers.
 #[derive(Clone, Copy, Debug)]
@@ -182,7 +182,7 @@ fn selection(s: &Session, d: &Drawing) -> Value {
         .take(MAX_ITEMS)
         .filter_map(|h| d.entity(*h))
         .map(|e| {
-            let b = cadcraft_doc::entity_bounds(d, e, 0);
+            let b = aad_doc::entity_bounds(d, e, 0);
             json!({
                 "handle": e.handle.hex(), "type": e.kind.type_name(), "layer": e.common.layer,
                 "bounds": if b.is_empty() { Value::Null } else { json!({"min": [b.min.x, b.min.y], "max": [b.max.x, b.max.y]}) },
@@ -209,7 +209,7 @@ fn rooms(d: &Drawing) -> Result<Value, RefError> {
         return Err(unavailable("rooms", "no room labels in this drawing (the ROOM command creates them on layer ROOM-LABELS)"));
     }
     // The ROOM command writes each label as three consecutive texts: name, size, "Area: ...".
-    let texts: Vec<&cadcraft_doc::Text> = d
+    let texts: Vec<&aad_doc::Text> = d
         .model
         .iter()
         .filter(|e| e.common.layer.eq_ignore_ascii_case(LABELS))

@@ -30,7 +30,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use cadcraft_doc::Drawing;
+use aad_doc::Drawing;
 use serde_json::{Value, json};
 
 use super::project;
@@ -894,20 +894,20 @@ fn run_plot_batch(s: &mut Session, p: &Value) -> Result<Value> {
         let sheet = doc
             .layouts
             .iter()
-            .filter(|l| l.entities.iter().any(|x| matches!(&x.kind, cadcraft_doc::EntityKind::Viewport(v) if v.id != 1)))
+            .filter(|l| l.entities.iter().any(|x| matches!(&x.kind, aad_doc::EntityKind::Viewport(v) if v.id != 1)))
             .min_by_key(|l| l.tab_order)
             .map(|l| l.name.clone());
         let (space, opts) = match sheet {
-            Some(n) => (cadcraft_doc::Space::Paper(n), json!({})),
+            Some(n) => (aad_doc::Space::Paper(n), json!({})),
             None => (
-                cadcraft_doc::Space::Model,
+                aad_doc::Space::Model,
                 json!({ "paper": str_param(p, "paper").unwrap_or("A3"), "landscape": bool_or(p, "landscape", true), "fit": true }),
             ),
         };
         let pdf = hook(&doc, &space, &opts).map_err(|x| bad("plot.batch", format!("{}: {x}", item.label)))?;
         let file = out_dir.join(format!("{}.pdf", e.key));
         std::fs::write(&file, &pdf).map_err(|x| bad("plot.batch", format!("{}: {x}", file.display())))?;
-        files.push(json!({ "item": item.label, "path": file.display().to_string(), "bytes": pdf.len(), "space": match &space { cadcraft_doc::Space::Model => "Model".to_string(), cadcraft_doc::Space::Paper(n) => n.clone() } }));
+        files.push(json!({ "item": item.label, "path": file.display().to_string(), "bytes": pdf.len(), "space": match &space { aad_doc::Space::Model => "Model".to_string(), aad_doc::Space::Paper(n) => n.clone() } }));
     }
     // Sheets of the drawing being worked in.
     if let Some(list) = p.get("sheets").and_then(Value::as_array) {
@@ -920,8 +920,7 @@ fn run_plot_batch(s: &mut Session, p: &Value) -> Result<Value> {
         for n in list.iter().filter_map(Value::as_str).take(500) {
             let layout =
                 s.doc()?.layout(n).map(|l| l.name.clone()).ok_or_else(|| bad("plot.batch", format!("no sheet named `{n}` in this drawing")))?;
-            let pdf =
-                hook(s.doc()?, &cadcraft_doc::Space::Paper(layout.clone()), &json!({})).map_err(|x| bad("plot.batch", format!("{layout}: {x}")))?;
+            let pdf = hook(s.doc()?, &aad_doc::Space::Paper(layout.clone()), &json!({})).map_err(|x| bad("plot.batch", format!("{layout}: {x}")))?;
             let file = out_dir.join(format!("{}_{}.pdf", safe(&stem), safe(&layout)));
             std::fs::write(&file, &pdf).map_err(|x| bad("plot.batch", format!("{}: {x}", file.display())))?;
             files.push(json!({ "item": format!("sheet {layout}"), "path": file.display().to_string(), "bytes": pdf.len(), "space": layout }));

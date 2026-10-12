@@ -1,8 +1,8 @@
 //! MTEXT's options before the text (Height, Justify, Line spacing, Rotation, Style, Width,
 //! Columns) for the prompt machine in `draw.rs`.
 
-use cadcraft_doc::MText;
-use cadcraft_geom::{Vec2, Vec3};
+use aad_doc::MText;
+use aad_geom::{Vec2, Vec3};
 
 use super::curves;
 use super::machines::number;

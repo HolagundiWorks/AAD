@@ -44,7 +44,7 @@ jobs:
         env:
           AAD_MUTATION_ITERS: "600"
           AAD_MUTATION_SEED: "100000"
-        run: cargo test -p cadcraft-io --test mutation_robustness -p cadcraft-cli --test dwg_isolation
+        run: cargo test -p aad-io --test mutation_robustness -p aad-cli --test dwg_isolation
       - name: Keep any crash input for reproduction
         if: failure()
         uses: actions/upload-artifact@v4
@@ -62,6 +62,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Release build of the program and the command-line tool
-        run: cargo build --release --locked -p cadcraft -p cadcraft-cli
+        run: cargo build --release --locked -p aad -p aad-cli
       - name: The command-line tool runs
-        run: target/release/cadcraft-cli.exe --version
+        run: target/release/aad-cli.exe --version

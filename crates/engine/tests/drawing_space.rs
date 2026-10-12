@@ -1,7 +1,7 @@
 //! Active Drawing Space: saved layer-state configurations (docs/ACTIVE_DRAWING_SPACE.md).
 
-use cadcraft_doc::Drawing;
-use cadcraft_engine::Session;
+use aad_doc::Drawing;
+use aad_engine::Session;
 use serde_json::{Value, json};
 
 fn session() -> Session {

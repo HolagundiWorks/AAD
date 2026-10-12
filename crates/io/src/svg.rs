@@ -2,10 +2,10 @@
 
 use std::fmt::Write as _;
 
-use cadcraft_color::Rgb;
-use cadcraft_doc::{Drawing, Space};
-use cadcraft_geom::Bounds2;
-use cadcraft_render::Kind;
+use aad_color::Rgb;
+use aad_doc::{Drawing, Space};
+use aad_geom::Bounds2;
+use aad_render::Kind;
 
 /// Export with a white background (colour 7 prints black), fitted to the extents.
 pub fn export(d: &Drawing, space: &Space) -> String {
@@ -15,7 +15,7 @@ pub fn export(d: &Drawing, space: &Space) -> String {
 /// Export showing exactly `window` (the `viewBox`; geometry outside it is clipped by the viewer),
 /// or the extents with a 2% margin when `window` is `None`.
 pub fn export_window(d: &Drawing, space: &Space, window: Option<Bounds2>) -> String {
-    let list = cadcraft_render::build(d, space, &cadcraft_render::Options::default());
+    let list = aad_render::build(d, space, &aad_render::Options::default());
     let window = window.filter(|w| !w.is_empty());
     let b = window.unwrap_or(list.bounds);
     let (w, h) = if b.is_empty() { (1.0, 1.0) } else { (b.width().max(1e-9), b.height().max(1e-9)) };

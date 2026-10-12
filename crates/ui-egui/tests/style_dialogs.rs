@@ -1,8 +1,8 @@
 //! The style and settings dialogs (#126): typed or menu-invoked commands open them, JSON calls run
 //! the command without one.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services, dialogs, menus};
+use aad_engine::Session;
+use aad_ui_egui::{CadApp, Services, dialogs, menus};
 use serde_json::json;
 
 #[test]

@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use cadcraft_doc::EntityKind;
+use aad_doc::EntityKind;
 use egui::{RichText, vec2};
 use serde_json::{Value, json};
 

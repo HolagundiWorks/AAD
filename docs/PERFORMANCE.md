@@ -16,12 +16,12 @@ hardware is stated, and no such statement exists yet.
   absolutes.
 - Data: `tools/quality/synthetic.rs`, a deterministic drawing (lines, circles, arcs, bulging
   polylines and text, equal shares, constant density). It is not a real architectural drawing.
-- Commands: `cargo bench -p cadcraft-geom --bench geometry`, `-p cadcraft-engine --bench selection`,
-  `--bench drawing_operations`, `-p cadcraft-render --bench render`, `-p cadcraft-io --bench dxf`,
+- Commands: `cargo bench -p aad-geom --bench geometry`, `-p aad-engine --bench selection`,
+  `--bench drawing_operations`, `-p aad-render --bench render`, `-p aad-io --bench dxf`,
   each followed by `-- --warm-up-time 1 --measurement-time 3`. Raw output:
   `target/quality/bench-run2.txt` and `bench-run2-ops.txt`; these raw files were deleted by the 2026-10-12 cleanup (the tables here are the record; rerun the commands to regenerate).
 
-## Geometry (`cadcraft-geom`)
+## Geometry (`aad-geom`)
 
 | Operation | Time |
 |---|---|
@@ -38,7 +38,7 @@ hardware is stated, and no such statement exists yet.
 
 All scale linearly with vertex count.
 
-## Selection and snapping (`cadcraft-engine`)
+## Selection and snapping (`aad-engine`)
 
 | Operation | 10 000 entities | 100 000 entities |
 |---|---|---|
@@ -76,7 +76,7 @@ after the edit) rather than at the geometry. It is below the 100 ms feel thresho
 largest single cost of a routine edit. Recorded as PERF-001 in [BUG_BACKLOG.md](BUG_BACKLOG.md); it
 needs a profile before any change.
 
-## Display list (`cadcraft-render`)
+## Display list (`aad-render`)
 
 | Operation | 10 000 | 100 000 |
 |---|---|---|
@@ -88,14 +88,14 @@ Linear in entity count. The pan step costs the same as building the layout, beca
 content is rebuilt when the view centre moves (since the BUG-002 fix); at 100 000 entities that is
 52 ms per pan frame, a candidate for caching.
 
-## DXF read and write (`cadcraft-io`)
+## DXF read and write (`aad-io`)
 
 | Entities | write | read |
 |---|---|---|
 | 10 000 | 29.3 ms | 43.3 ms |
 | 50 000 | 140 ms | 222 ms |
 
-Linear. The one-shot figures from `cadcraft-cli perf` for 100 000 and 1 000 000 entities are in
+Linear. The one-shot figures from `aad-cli perf` for 100 000 and 1 000 000 entities are in
 [UI_BASELINE.md](UI_BASELINE.md); they agree with these (about 4.4 us per entity to read).
 
 ## Not measured
@@ -106,8 +106,8 @@ snapping with many active snap modes, and any machine other than this one.
 ## Reproduce
 
 ```text
-cargo bench -p cadcraft-engine --bench selection -- --warm-up-time 1 --measurement-time 3
-AAD_BENCH_LARGE=1 cargo bench -p cadcraft-engine --bench selection     # adds 1 000 000 entities
+cargo bench -p aad-engine --bench selection -- --warm-up-time 1 --measurement-time 3
+AAD_BENCH_LARGE=1 cargo bench -p aad-engine --bench selection     # adds 1 000 000 entities
 ```
 
 ## Update: PERF-001 fixed

@@ -1,7 +1,7 @@
 //! Inquiry: DIST, ID, LIST, AREA, drawing inspection for agents.
 
-use cadcraft_doc::{EntityKind, Handle};
-use cadcraft_geom::{Polyline, Vec2};
+use aad_doc::{EntityKind, Handle};
+use aad_geom::{Polyline, Vec2};
 use serde_json::{Value, json};
 
 use super::*;
@@ -116,8 +116,8 @@ fn list_text(s: &Session, h: Handle) -> String {
                 fmt_d(s, c.center.y),
                 fmt_d(s, 0.0),
                 fmt_d(s, c.radius),
-                fmt_d(s, c.radius * cadcraft_geom::TAU),
-                fmt_d(s, c.radius * c.radius * cadcraft_geom::PI)
+                fmt_d(s, c.radius * aad_geom::TAU),
+                fmt_d(s, c.radius * c.radius * aad_geom::PI)
             ));
         }
         EntityKind::Arc(a) => {
@@ -170,7 +170,7 @@ fn run_list(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn area_of(pts: &[Vec2]) -> (f64, f64) {
-    let a = cadcraft_geom::shoelace(pts).abs();
+    let a = aad_geom::shoelace(pts).abs();
     let n = pts.len();
     let per: f64 = (0..n).filter_map(|i| Some(pts.get(i)?.dist(*pts.get((i + 1) % n)?))).sum();
     (a, per)
@@ -195,7 +195,7 @@ fn object_area(s: &Session, h: Handle) -> Result<(f64, f64)> {
     let d = s.doc()?;
     let e = d.entity(h).ok_or_else(|| bad("area", "no such object"))?;
     Ok(match &e.kind {
-        EntityKind::Circle(c) => (c.radius * c.radius * cadcraft_geom::PI, c.radius * cadcraft_geom::TAU),
+        EntityKind::Circle(c) => (c.radius * c.radius * aad_geom::PI, c.radius * aad_geom::TAU),
         EntityKind::LwPolyline(pl) => {
             let g = Polyline { vertices: pl.vertices.clone(), closed: true };
             (g.area().abs(), g.len())
@@ -203,7 +203,7 @@ fn object_area(s: &Session, h: Handle) -> Result<(f64, f64)> {
         EntityKind::Ellipse(el) => {
             let a = el.major.xy().len();
             let b = a * el.ratio;
-            (cadcraft_geom::PI * a * b, cadcraft_geom::PI * (3.0 * (a + b) - ((3.0 * a + b) * (a + 3.0 * b)).sqrt()))
+            (aad_geom::PI * a * b, aad_geom::PI * (3.0 * (a + b) - ((3.0 * a + b) * (a + 3.0 * b)).sqrt()))
         }
         EntityKind::Hatch(hh) => {
             // Odd parity, as drawn: a loop nested inside an odd number of other loops is an unfilled island.
@@ -212,7 +212,7 @@ fn object_area(s: &Session, h: Handle) -> Result<(f64, f64)> {
             let mut total = (0.0, 0.0);
             for (i, g) in geoms.iter().enumerate() {
                 let probe = polys.get(i).and_then(|p| p.first().copied());
-                let depth = probe.map_or(0, |pt| polys.iter().enumerate().filter(|(j, q)| *j != i && cadcraft_geom::point_in_polygon(q, pt)).count());
+                let depth = probe.map_or(0, |pt| polys.iter().enumerate().filter(|(j, q)| *j != i && aad_geom::point_in_polygon(q, pt)).count());
                 total.0 += if depth % 2 == 0 { g.area().abs() } else { -g.area().abs() };
                 total.1 += g.len();
             }
@@ -229,7 +229,7 @@ fn run_time(s: &mut Session, _p: &Value) -> Result<Value> {
 
 fn run_status(s: &mut Session, _p: &Value) -> Result<Value> {
     let d = s.doc()?;
-    let ext = d.extents(&cadcraft_doc::Space::Model);
+    let ext = d.extents(&aad_doc::Space::Model);
     let msg = format!(
         "{} objects in {}\nModel space limits are X: {}  Y: {}  (Off)\nModel space uses X: {}  Y: {}\n                 X: {}  Y: {}\nCurrent layer: {}\nCurrent color: {}\nCurrent linetype: {}",
         d.entity_count(),
@@ -241,13 +241,13 @@ fn run_status(s: &mut Session, _p: &Value) -> Result<Value> {
         fmt_d(s, ext.max.x),
         fmt_d(s, ext.max.y),
         d.header.str("CLAYER", "0"),
-        cadcraft_color::Color::from_aci(d.header.i64("CECOLOR", 256) as i16).name(),
+        aad_color::Color::from_aci(d.header.i64("CECOLOR", 256) as i16).name(),
         d.header.str("CELTYPE", "ByLayer"),
     );
     Ok(json!({ "message": msg }))
 }
 
-fn entity_summary(e: &cadcraft_doc::Entity) -> Value {
+fn entity_summary(e: &aad_doc::Entity) -> Value {
     json!({ "handle": e.handle.hex(), "type": e.kind.type_name(), "layer": e.common.layer, "color": e.common.color.name(), "transparency": super::props::transparency_value(e.common.transparency), "geometry": e.kind })
 }
 
@@ -267,7 +267,7 @@ fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
         "title": st.title,
         "path": st.path,
         "dirty": st.is_dirty(),
-        "space": match &space { cadcraft_doc::Space::Model => "Model".to_string(), cadcraft_doc::Space::Paper(n) => n.clone() },
+        "space": match &space { aad_doc::Space::Model => "Model".to_string(), aad_doc::Space::Paper(n) => n.clone() },
         "entityCount": d.entity_count(),
         "counts": counts,
         "extents": if ext.is_empty() { Value::Null } else { json!([[ext.min.x, ext.min.y], [ext.max.x, ext.max.y]]) },
@@ -307,7 +307,7 @@ fn run_entities(s: &mut Session, p: &Value) -> Result<Value> {
         .map(|w| {
             let corners: Option<Vec<Vec2>> = w.as_array().filter(|a| a.len() == 2).and_then(|a| a.iter().map(point_value).collect());
             match corners.as_deref() {
-                Some([a, b]) => Ok(cadcraft_geom::Bounds2::new(*a, *b)),
+                Some([a, b]) => Ok(aad_geom::Bounds2::new(*a, *b)),
                 _ => Err(bad(CMD, "`window` must be two corner points [[x0, y0], [x1, y1]]")),
             }
         })
@@ -319,7 +319,7 @@ fn run_entities(s: &mut Session, p: &Value) -> Result<Value> {
     let d = &st.doc;
     let Some(store) = d.space(&st.space) else { return Ok(json!({ "count": 0, "returned": 0, "entities": [] })) };
     let tol = window.as_ref().map(crate::select::window_tol).unwrap_or(0.0);
-    let matches: Vec<&std::sync::Arc<cadcraft_doc::Entity>> = store
+    let matches: Vec<&std::sync::Arc<aad_doc::Entity>> = store
         .iter()
         .filter(|e| ty.as_ref().is_none_or(|t| e.kind.type_name().to_ascii_lowercase() == *t || e.kind.dxf_name().to_ascii_lowercase() == *t))
         .filter(|e| layer.as_ref().is_none_or(|l| e.common.layer.to_ascii_lowercase() == *l))
@@ -470,8 +470,8 @@ impl Interactive for DistM {
     fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
         match &self.multi {
             Some(pts) => {
-                let mut v: Vec<cadcraft_geom::PolyVertex> = pts.iter().map(|p| cadcraft_geom::PolyVertex::new(*p)).collect();
-                v.push(cadcraft_geom::PolyVertex::new(c));
+                let mut v: Vec<aad_geom::PolyVertex> = pts.iter().map(|p| aad_geom::PolyVertex::new(*p)).collect();
+                v.push(aad_geom::PolyVertex::new(c));
                 vec![super::helpers::lwpoly(v, false)]
             }
             None => self.first.map(|a| vec![super::helpers::line(a, c)]).unwrap_or_default(),
@@ -682,8 +682,8 @@ impl Interactive for AreaM {
         if self.pts.is_empty() || self.object || self.length {
             return Vec::new();
         }
-        let mut v: Vec<cadcraft_geom::PolyVertex> = self.pts.iter().map(|p| cadcraft_geom::PolyVertex::new(*p)).collect();
-        v.push(cadcraft_geom::PolyVertex::new(c));
+        let mut v: Vec<aad_geom::PolyVertex> = self.pts.iter().map(|p| aad_geom::PolyVertex::new(*p)).collect();
+        v.push(aad_geom::PolyVertex::new(c));
         vec![super::helpers::lwpoly(v, true)]
     }
 }

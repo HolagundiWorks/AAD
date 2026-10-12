@@ -4,14 +4,14 @@
 
 use std::sync::OnceLock;
 
-use cadcraft_doc::Drawing;
+use aad_doc::Drawing;
 use serde_json::{Value, json};
 
 use super::*;
 use crate::{Result, Session};
 
 /// Plot a space to PDF bytes with JSON options (`{paper?, landscape?, fit?, lineweights?, …}`).
-pub type PlotHook = fn(&Drawing, &cadcraft_doc::Space, &Value) -> std::result::Result<Vec<u8>, String>;
+pub type PlotHook = fn(&Drawing, &aad_doc::Space, &Value) -> std::result::Result<Vec<u8>, String>;
 
 /// File format hooks (installed by the app so the engine stays I/O-agnostic and wasm-safe).
 pub struct IoHooks {
@@ -176,7 +176,7 @@ fn store(path: &str, bytes: &[u8]) -> Result<()> {
         if std::path::Path::new(path).is_file() && !std::path::Path::new(&backup).exists() {
             std::fs::copy(path, &backup).map_err(|e| bad("save", format!("could not back up {path} to {backup}: {e}")))?;
         }
-        let tmp = format!("{path}.cadcraft-tmp");
+        let tmp = format!("{path}.aad-tmp");
         std::fs::write(&tmp, bytes).map_err(|e| bad("save", format!("{path}: {e}")))?;
         std::fs::rename(&tmp, path).map_err(|e| bad("save", format!("{path}: {e}")))?;
         Ok(())
@@ -260,7 +260,7 @@ pub fn not_saved(d: &Drawing) -> std::collections::BTreeMap<String, usize> {
     let mut out: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     let stores = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).chain(d.blocks.values().map(|b| &b.entities));
     for e in stores.flat_map(|s| s.iter()) {
-        if let cadcraft_doc::EntityKind::Unknown(u) = &e.kind {
+        if let aad_doc::EntityKind::Unknown(u) = &e.kind {
             let n = out.entry(u.dxf_type.clone()).or_insert(0);
             *n = n.saturating_add(1);
         }

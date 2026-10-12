@@ -1,10 +1,10 @@
 //! Opening a drawing flattens it to 2D on a working copy: the original stays recoverable (undo,
 //! `.bak` before the first overwrite), and what could not be flattened is reported.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::cmd::file::{IoHooks, base64_encode, set_io};
-use cadcraft_engine::doc::{Circle, Common, Drawing, Entity, EntityKind, Handle, Line, LwPolyline, Space, Unknown};
-use cadcraft_engine::geom::{PolyVertex, Vec2, Vec3};
+use aad_engine::Session;
+use aad_engine::cmd::file::{IoHooks, base64_encode, set_io};
+use aad_engine::doc::{Circle, Common, Drawing, Entity, EntityKind, Handle, Line, LwPolyline, Space, Unknown};
+use aad_engine::geom::{PolyVertex, Vec2, Vec3};
 use serde_json::json;
 
 fn raw(d: &mut Drawing, common: Common, kind: EntityKind) -> Handle {
@@ -95,7 +95,7 @@ fn a_flat_drawing_opens_unchanged_and_clean() {
 #[test]
 fn the_first_overwrite_keeps_the_original_file_as_bak() {
     install();
-    let dir = std::env::temp_dir().join(format!("cadcraft-bak-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("aad-bak-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("plan.dxf");
     std::fs::write(&path, b"original bytes").unwrap();
@@ -116,7 +116,7 @@ fn a_drawing_without_known_units_is_reported_not_guessed() {
     install();
     let mut s = Session::new();
     s.execute("open", &json!({"data": base64_encode(b"x"), "name": "plan.dxf"})).unwrap();
-    let unknown = cadcraft_engine::annot::drawing_unit(s.doc().unwrap()).is_none();
+    let unknown = aad_engine::annot::drawing_unit(s.doc().unwrap()).is_none();
     assert_eq!(unknown, s.log.iter().any(|l| l.contains("units are not set")), "{:?}", s.log);
     // Setting the unit is explicit, and the geometry is untouched either way.
     s.execute("setvar", &json!({"name": "INSUNITS", "value": 0})).unwrap();

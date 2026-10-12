@@ -16,8 +16,8 @@ mod tables;
 
 use std::collections::BTreeMap;
 
-pub use cadcraft_color as color;
-pub use cadcraft_geom as geom;
+pub use aad_color as color;
+pub use aad_geom as geom;
 pub use entity::*;
 pub use extents::{MAX_BLOCK_DEPTH, entity_bounds};
 pub use header::{HVal, Header};
@@ -268,8 +268,8 @@ impl Drawing {
     }
 
     /// Bounds of all visible entities in a space.
-    pub fn extents(&self, space: &Space) -> cadcraft_geom::Bounds2 {
-        let mut b = cadcraft_geom::Bounds2::EMPTY;
+    pub fn extents(&self, space: &Space) -> aad_geom::Bounds2 {
+        let mut b = aad_geom::Bounds2::EMPTY;
         if let Some(store) = self.space(space) {
             for e in store.iter() {
                 if self.is_visible(e) {

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use cadcraft_doc::{Attrib, Block, Entity, EntityKind, Handle, Insert};
+use aad_doc::{Attrib, Block, Entity, EntityKind, Handle, Insert};
 use serde_json::{Value, json};
 
 use crate::cmd::curves::KW;
@@ -126,8 +126,8 @@ fn sync(s: &mut Session, name: &str) -> Result<(String, usize)> {
             ins.attribs = synced(&blk, &defs, ins);
         }
     };
-    let spaces: Vec<cadcraft_doc::Space> =
-        std::iter::once(cadcraft_doc::Space::Model).chain(d.layouts.iter().map(|l| cadcraft_doc::Space::Paper(l.name.clone()))).collect();
+    let spaces: Vec<aad_doc::Space> =
+        std::iter::once(aad_doc::Space::Model).chain(d.layouts.iter().map(|l| aad_doc::Space::Paper(l.name.clone()))).collect();
     for sp in spaces {
         let Some(store) = d.space_mut(&sp) else { continue };
         let hs = references(store.iter(), &blk.name);

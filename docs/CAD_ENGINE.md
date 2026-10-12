@@ -66,7 +66,7 @@ the original drawing and that a failed command changes nothing.
 ## File interoperability
 
 - DXF: read ASCII and binary; write R2000 (AC1015) ASCII. AAD-only data travels in extension data
-  under the application name `CADCRAFT`.
+  under the application name `AAD`.
 - DWG: read and write through the `acadrust` crate by converting to and from DXF in memory; native
   builds only; run in a worker process. Not every DWG version or object is supported.
 - 3D content is flattened to 2D on import and reported; 3D solids, surfaces and meshes are kept as

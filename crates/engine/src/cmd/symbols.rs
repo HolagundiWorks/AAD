@@ -4,8 +4,8 @@
 //! Level marks keep their value in the project data so `level.schedule` can list them. Not
 //! implemented: drawing a building section from the plan (HCWSECTIONDRAW).
 
-use cadcraft_doc::{HAlign, VAlign};
-use cadcraft_geom::{PolyVertex, Vec2};
+use aad_doc::{HAlign, VAlign};
+use aad_geom::{PolyVertex, Vec2};
 use serde_json::{Value, json};
 
 use super::draw::make_text;
@@ -129,7 +129,7 @@ fn run_level_schedule(s: &mut Session, p: &Value) -> Result<Value> {
         })
         .collect();
     let m = mm(s);
-    let ext = s.doc()?.extents(&cadcraft_doc::Space::Model);
+    let ext = s.doc()?.extents(&aad_doc::Space::Model);
     let at = point_param(p, "at").unwrap_or(if ext.is_empty() { Vec2::ZERO } else { Vec2::new(ext.max.x + 1000.0 * m, ext.max.y) });
     table(s, &table_ctx(125.0 * m), at, "LEVEL SCHEDULE", &["Mark".to_string(), "Level (m)".to_string()], &rows)?;
     Ok(json!({ "levels": rows }))

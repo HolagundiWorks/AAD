@@ -4,8 +4,8 @@ mod purge;
 
 use std::sync::Arc;
 
-use cadcraft_doc::{Attrib, Block, Entity, EntityKind, HAlign, Handle, Insert, Text, VAlign};
-use cadcraft_geom::{Mat3, Vec2, Vec3};
+use aad_doc::{Attrib, Block, Entity, EntityKind, HAlign, Handle, Insert, Text, VAlign};
+use aad_geom::{Mat3, Vec2, Vec3};
 use serde_json::{Value, json};
 
 use super::helpers::v3;
@@ -68,7 +68,7 @@ fn referenced_block(e: &Entity) -> Option<String> {
 }
 
 /// Whether any of `ents` refers to block `name`, directly or through nested block references.
-fn references_block(d: &cadcraft_doc::Drawing, ents: &[Entity], name: &str) -> bool {
+fn references_block(d: &aad_doc::Drawing, ents: &[Entity], name: &str) -> bool {
     let mut todo: Vec<String> = ents.iter().filter_map(referenced_block).collect();
     let mut seen = std::collections::HashSet::new();
     while let Some(b) = todo.pop() {
@@ -256,7 +256,7 @@ fn run_attdef(s: &mut Session, p: &Value) -> Result<Value> {
 fn run_wblock(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path").ok_or_else(|| bad("wblock", "`path` is required"))?.to_string();
     let src = s.doc()?;
-    let mut d = cadcraft_doc::Drawing::new_imperial();
+    let mut d = aad_doc::Drawing::new_imperial();
     d.layers = src.layers.clone();
     d.linetypes = src.linetypes.clone();
     d.text_styles = src.text_styles.clone();
@@ -265,7 +265,7 @@ fn run_wblock(s: &mut Session, p: &Value) -> Result<Value> {
     // The base point becomes the written drawing's origin, its insertion base: by default 0,0 for
     // objects and the block's base point for a block (`base` is then in block coordinates).
     let base = point_param(p, "base");
-    d.header.set("INSBASE", cadcraft_doc::HVal::Point(Vec3::ZERO));
+    d.header.set("INSBASE", aad_doc::HVal::Point(Vec3::ZERO));
     let m = Mat3::translate(-base.unwrap_or(Vec2::ZERO));
     let ents: Vec<Entity> = if let Some(name) = str_param(p, "name") {
         let b = src.block(name).ok_or_else(|| bad("wblock", format!("no block `{name}`")))?;
@@ -302,7 +302,7 @@ fn run_wblock(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn run_base(s: &mut Session, p: &Value) -> Result<Value> {
     let at = point_req("base", p, "at")?;
-    s.doc_mut()?.header.set("INSBASE", cadcraft_doc::HVal::Point(v3(at)));
+    s.doc_mut()?.header.set("INSBASE", aad_doc::HVal::Point(v3(at)));
     ok()
 }
 
@@ -769,7 +769,7 @@ mod attribs;
 /// definition. Every reference of the block shows the change.
 fn run_blocktextedit(s: &mut Session, p: &Value) -> Result<Value> {
     let name = str_param(p, "block").ok_or_else(|| bad("blocktextedit", "`block` is required"))?;
-    let h = cadcraft_doc::Handle::parse_hex(str_param(p, "handle").ok_or_else(|| bad("blocktextedit", "`handle` is required"))?)
+    let h = aad_doc::Handle::parse_hex(str_param(p, "handle").ok_or_else(|| bad("blocktextedit", "`handle` is required"))?)
         .ok_or_else(|| bad("blocktextedit", "`handle` is not an object handle"))?;
     let text = str_param(p, "text").ok_or_else(|| bad("blocktextedit", "`text` is required"))?;
     if text.len() > 1_000_000 {

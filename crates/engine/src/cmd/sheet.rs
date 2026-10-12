@@ -21,8 +21,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use cadcraft_doc::{Attrib, Block, Common, Drawing, Entity, EntityKind, HAlign, PageSetup, Space, Text, VAlign};
-use cadcraft_geom::{Bounds2, Vec2};
+use aad_doc::{Attrib, Block, Common, Drawing, Entity, EntityKind, HAlign, PageSetup, Space, Text, VAlign};
+use aad_geom::{Bounds2, Vec2};
 use serde_json::{Map, Value, json};
 
 use super::draw::make_text;
@@ -103,8 +103,8 @@ fn in_layout<T>(s: &mut Session, layout: &str, f: impl FnOnce(&mut Session) -> R
     r
 }
 
-fn sheet_of(d: &Drawing, layout: &str, cmd: &str) -> Result<cadcraft_render::Sheet> {
-    cadcraft_render::sheet(d, layout).ok_or_else(|| bad(cmd, format!("no layout named `{layout}`")))
+fn sheet_of(d: &Drawing, layout: &str, cmd: &str) -> Result<aad_render::Sheet> {
+    aad_render::sheet(d, layout).ok_or_else(|| bad(cmd, format!("no layout named `{layout}`")))
 }
 
 fn scale_text(scale: f64) -> String {
@@ -129,7 +129,7 @@ fn attdef(style: &str, tag: &str, prompt: &str, at: Vec2, height: f64) -> Entity
     EntityKind::AttDef(Attrib {
         tag: tag.to_string(),
         text: Text {
-            insert: cadcraft_geom::Vec3::new(at.x, at.y, 0.0),
+            insert: aad_geom::Vec3::new(at.x, at.y, 0.0),
             align_pt: None,
             height,
             value: String::new(),
@@ -201,7 +201,7 @@ fn ensure_title_block(s: &mut Session) -> Result<()> {
 }
 
 /// The handles of the title block references (or any block with title fields) in `layout`.
-fn title_inserts(d: &Drawing, layout: &str) -> Vec<cadcraft_doc::Handle> {
+fn title_inserts(d: &Drawing, layout: &str) -> Vec<aad_doc::Handle> {
     let Some(l) = d.layouts.iter().find(|l| l.name == layout) else { return Vec::new() };
     l.entities
         .iter()
@@ -398,7 +398,7 @@ fn capture(d: &Drawing, layout: &str) -> Result<Value> {
         let mut es = Vec::new();
         for e in b.entities.iter() {
             if let EntityKind::Insert(i) = &e.kind
-                && depth < cadcraft_doc::MAX_BLOCK_DEPTH
+                && depth < aad_doc::MAX_BLOCK_DEPTH
             {
                 want.push((i.block.clone(), depth + 1));
             }
@@ -528,13 +528,13 @@ fn run_tpl_apply(s: &mut Session, p: &Value) -> Result<Value> {
             decoded.push(ent);
         }
     }
-    let mut defs: Vec<(String, cadcraft_geom::Vec3, String, Vec<Entity>)> = Vec::new();
+    let mut defs: Vec<(String, aad_geom::Vec3, String, Vec<Entity>)> = Vec::new();
     for b in &blocks {
         let n = b["name"].as_str().filter(|n| !n.is_empty()).ok_or_else(|| bad("sheet.template.apply", "a template block has no name"))?;
         let base = b["base"]
             .as_array()
-            .map(|a| cadcraft_geom::Vec3::new(a.first().and_then(Value::as_f64).unwrap_or(0.0), a.get(1).and_then(Value::as_f64).unwrap_or(0.0), 0.0))
-            .unwrap_or(cadcraft_geom::Vec3::ZERO);
+            .map(|a| aad_geom::Vec3::new(a.first().and_then(Value::as_f64).unwrap_or(0.0), a.get(1).and_then(Value::as_f64).unwrap_or(0.0), 0.0))
+            .unwrap_or(aad_geom::Vec3::ZERO);
         let mut es = Vec::new();
         for e in b["entities"].as_array().into_iter().flatten().take(MAX_TEMPLATE_ENTITIES) {
             es.push(
@@ -556,7 +556,7 @@ fn run_tpl_apply(s: &mut Session, p: &Value) -> Result<Value> {
     let space = Space::Paper(layout.clone());
     let mut replaced = 0;
     for h in old {
-        if let Some(hd) = cadcraft_doc::Handle::parse_hex(&h)
+        if let Some(hd) = aad_doc::Handle::parse_hex(&h)
             && d.space(&space).is_some_and(|st| st.get(hd).is_some())
         {
             d.remove_entity(hd);
@@ -598,7 +598,7 @@ fn run_tpl_apply(s: &mut Session, p: &Value) -> Result<Value> {
 
 // ---------------- viewports ----------------
 
-fn viewport_json(h: cadcraft_doc::Handle, v: &cadcraft_doc::Viewport) -> Value {
+fn viewport_json(h: aad_doc::Handle, v: &aad_doc::Viewport) -> Value {
     let scale = if v.view_height > 1e-12 { v.height / v.view_height } else { 0.0 };
     let (x0, y0) = (v.center.x - v.width / 2.0, v.center.y - v.height / 2.0);
     json!({
@@ -650,7 +650,7 @@ fn run_vp_add(s: &mut Session, p: &Value) -> Result<Value> {
     }
     // A title block on the sheet shows the scale of the viewport just added.
     if !title_inserts(s.doc()?, &layout).is_empty()
-        && let Some(EntityKind::Viewport(v)) = cadcraft_doc::Handle::parse_hex(&handle).and_then(|h| s.doc().ok()?.entity(h).map(|e| e.kind.clone()))
+        && let Some(EntityKind::Viewport(v)) = aad_doc::Handle::parse_hex(&handle).and_then(|h| s.doc().ok()?.entity(h).map(|e| e.kind.clone()))
         && v.view_height > 1e-12
     {
         let mut f = BTreeMap::new();
@@ -662,7 +662,7 @@ fn run_vp_add(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn run_vp_remove(s: &mut Session, p: &Value) -> Result<Value> {
     let hex = str_param(p, "handle").ok_or_else(|| bad("viewport.remove", "`handle` is required"))?;
-    let h = cadcraft_doc::Handle::parse_hex(hex).ok_or_else(|| bad("viewport.remove", "`handle` is not a handle"))?;
+    let h = aad_doc::Handle::parse_hex(hex).ok_or_else(|| bad("viewport.remove", "`handle` is not a handle"))?;
     let d = s.doc_mut()?;
     let is_vp = d.entity(h).is_some_and(|e| matches!(&e.kind, EntityKind::Viewport(v) if v.id != 1));
     if !is_vp {

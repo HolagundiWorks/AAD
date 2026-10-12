@@ -1,7 +1,7 @@
 //! The allow-listed tool registry. Each tool is one existing engine command with a strict
 //! argument schema; the model never reaches anything outside this list.
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde_json::{Map, Value, json};
 
 /// How much a call can change, which decides whether the user must confirm it first.

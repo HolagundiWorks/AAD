@@ -1,12 +1,12 @@
 //! Floating widgets: the architect calculator and the Pomodoro timer.
 //!
-//! Both are thin: the maths and the timer live in `cadcraft_engine::{calc, pomodoro}`; the windows
+//! Both are thin: the maths and the timer live in `aad_engine::{calc, pomodoro}`; the windows
 //! only draw them and send key presses through commands (`ui.calculator`, `ui.pomodoro`), so the
 //! control channel and the tests drive exactly what the buttons do. The timer keeps counting while
 //! its window is closed.
 
-use cadcraft_engine::calc::{Calculator, Kind};
-use cadcraft_engine::pomodoro::{Event, Pomodoro};
+use aad_engine::calc::{Calculator, Kind};
+use aad_engine::pomodoro::{Event, Pomodoro};
 use egui::{Align2, Pos2, RichText, Sense, Stroke, Ui, vec2};
 use serde_json::{Value, json};
 
@@ -59,7 +59,7 @@ fn calculator_command(app: &mut CadApp, p: &Value) -> Value {
     }
     if let Some(keys) = p.get("keys").and_then(Value::as_str) {
         // Anything after the cap is dropped, whatever the caller sent.
-        for ch in keys.chars().take(cadcraft_engine::calc::MAX_EXPRESSION * 2) {
+        for ch in keys.chars().take(aad_engine::calc::MAX_EXPRESSION * 2) {
             c.type_char(ch);
         }
     }
@@ -159,7 +159,7 @@ fn calculator_window(app: &mut CadApp, ctx: &egui::Context) {
             let mut text = app.widgets.calc.raw().to_string();
             let edit = egui::TextEdit::singleline(&mut text)
                 .font(egui::TextStyle::Monospace)
-                .char_limit(cadcraft_engine::calc::MAX_EXPRESSION)
+                .char_limit(aad_engine::calc::MAX_EXPRESSION)
                 .desired_width(f32::INFINITY)
                 .hint_text(crate::tl!("10' 6\" x 20'"));
             let r = ui.add(edit);

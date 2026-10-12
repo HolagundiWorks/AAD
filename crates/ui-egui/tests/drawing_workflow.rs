@@ -2,10 +2,10 @@
 //! the real window layout, not engine calls. Each step asserts the resulting drawing, selection and
 //! command state, not just that an event fired.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::{Drawing, EntityKind};
-use cadcraft_engine::geom::Vec2;
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_engine::doc::{Drawing, EntityKind};
+use aad_engine::geom::Vec2;
+use aad_ui_egui::{CadApp, Services};
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use serde_json::json;
@@ -283,9 +283,9 @@ fn resizing_the_window_keeps_the_canvas_inside_and_the_world_point_at_the_pointe
 fn install_io() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
-            read: |b, name| cadcraft_io::read(b, name).map_err(|e| e.to_string()),
-            write: |d, name| cadcraft_io::write(d, name).map_err(|e| e.to_string()),
+        aad_engine::cmd::file::set_io(aad_engine::cmd::file::IoHooks {
+            read: |b, name| aad_io::read(b, name).map_err(|e| e.to_string()),
+            write: |d, name| aad_io::write(d, name).map_err(|e| e.to_string()),
             plot: None,
         });
     });

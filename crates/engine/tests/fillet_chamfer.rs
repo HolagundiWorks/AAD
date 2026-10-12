@@ -1,8 +1,8 @@
 //! FILLET and CHAMFER options at the command line: Trim, Multiple, Undo, and CHAMFER's Angle,
 //! mEthod and Polyline.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::json;
 
 type Seg = ((f64, f64), (f64, f64));

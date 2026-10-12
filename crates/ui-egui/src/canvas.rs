@@ -1,12 +1,12 @@
 //! The drawing area: grid, entities, selection highlighting, grips, rubber bands, object-snap
 //! markers, crosshair cursor, UCS icon and mouse handling.
 
-use cadcraft_color::Rgb;
-use cadcraft_doc::Handle;
-use cadcraft_engine::Input;
-use cadcraft_engine::snap::{self, SnapHit};
-use cadcraft_geom::{Bounds2, Vec2};
-use cadcraft_render::{DisplayList, Kind};
+use aad_color::Rgb;
+use aad_doc::Handle;
+use aad_engine::Input;
+use aad_engine::snap::{self, SnapHit};
+use aad_geom::{Bounds2, Vec2};
+use aad_render::{DisplayList, Kind};
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2, vec2};
 
 use crate::CadApp;
@@ -40,12 +40,12 @@ pub struct HotGrip {
     pub handle: Handle,
     pub index: usize,
     pub base: Vec2,
-    pub mode: cadcraft_engine::grips::GripMode,
+    pub mode: aad_engine::grips::GripMode,
 }
 
 impl HotGrip {
     pub fn label(&self) -> &'static str {
-        use cadcraft_engine::grips::GripMode::*;
+        use aad_engine::grips::GripMode::*;
         match self.mode {
             Stretch => "** STRETCH ** Specify stretch point or [Base point/Copy/Undo/eXit]:",
             Move => "** MOVE ** Specify move point or [Base point/Copy/Undo/eXit]:",
@@ -55,7 +55,7 @@ impl HotGrip {
         }
     }
     pub fn next_mode(&mut self) {
-        use cadcraft_engine::grips::GripMode::*;
+        use aad_engine::grips::GripMode::*;
         self.mode = match self.mode {
             Stretch => Move,
             Move => Rotate,
@@ -81,8 +81,8 @@ pub struct CanvasState {
     key: ListKey,
     /// A display list for a new zoom band being built on a worker thread.
     pending: Option<PendingList>,
-    /// The drawing `list` was built from (the next edit updates the list from it, see `cadcraft_render::rebuild`).
-    list_doc: Option<std::sync::Arc<cadcraft_doc::Drawing>>,
+    /// The drawing `list` was built from (the next edit updates the list from it, see `aad_render::rebuild`).
+    list_doc: Option<std::sync::Arc<aad_doc::Drawing>>,
     /// Bumped whenever `list` is rebuilt (identifies it for [`PrimIndex`]).
     list_gen: u64,
     prim_index: PrimIndex,
@@ -188,8 +188,8 @@ pub struct PendingList {
     t0: f64,
 }
 
-fn list_options(app: &CadApp, st: &cadcraft_engine::DocState, band: i32, px: f64) -> cadcraft_render::Options {
-    cadcraft_render::Options {
+fn list_options(app: &CadApp, st: &aad_engine::DocState, band: i32, px: f64) -> aad_render::Options {
+    aad_render::Options {
         tolerance: 2f64.powi(band) * 0.5,
         min_dash: px * 2.0,
         text: true,
@@ -241,7 +241,7 @@ fn ensure_list(app: &mut CadApp, ctx: &egui::Context, px: f64) {
             let (tx, rx) = std::sync::mpsc::channel();
             let (doc, opts, repaint, space) = (st.doc.clone(), list_options(app, st, band, px), ctx.clone(), space.clone());
             let spawned = std::thread::Builder::new().name("aad-display-list".into()).spawn(move || {
-                let _ = tx.send(cadcraft_render::build(&doc, &space, &opts));
+                let _ = tx.send(aad_render::build(&doc, &space, &opts));
                 repaint.request_repaint();
             });
             if spawned.is_ok() {
@@ -258,17 +258,17 @@ fn ensure_list(app: &mut CadApp, ctx: &egui::Context, px: f64) {
     let t0 = crate::now_ms();
     let opts = list_options(app, st, band, px);
     // Picking and snapping need the spatial index: build it off the UI thread, alongside the display list, so the first pick does not.
-    cadcraft_engine::spatial::warm(st.doc.clone(), space.clone());
+    aad_engine::spatial::warm(st.doc.clone(), space.clone());
     // An edit at the same zoom: keep what did not change and draw only the changed entities.
     let incremental = match (&app.canvas.list, &app.canvas.list_doc) {
         (Some(old), Some(old_doc))
-            if matches!(space, cadcraft_doc::Space::Model) && (app.canvas.key.0, app.canvas.key.2, app.canvas.key.3) == (key.0, key.2, key.3) =>
+            if matches!(space, aad_doc::Space::Model) && (app.canvas.key.0, app.canvas.key.2, app.canvas.key.3) == (key.0, key.2, key.3) =>
         {
-            cadcraft_render::rebuild(old, old_doc, &st.doc, &opts)
+            aad_render::rebuild(old, old_doc, &st.doc, &opts)
         }
         _ => None,
     };
-    app.canvas.list = Some(incremental.unwrap_or_else(|| cadcraft_render::build(&st.doc, &space, &opts)));
+    app.canvas.list = Some(incremental.unwrap_or_else(|| aad_render::build(&st.doc, &space, &opts)));
     app.canvas.key = key;
     app.canvas.list_doc = Some(st.doc.clone());
     app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
@@ -544,7 +544,7 @@ fn draw_tracking(p: &egui::Painter, xf: &Xf, acquired: &[snap::tracking::Acquire
         };
         p.extend(Shape::dotted_line(&pts, t.snap, 6.0, 1.0));
         let (distance, angle) = (
-            cadcraft_engine::units::format_distance(path.from.dist(tr.point), 2, 4),
+            aad_engine::units::format_distance(path.from.dist(tr.point), 2, 4),
             (path.from.angle_to(tr.point).to_degrees().round() as i64).rem_euclid(360),
         );
         tips.push(if path.name == "Polar" {
@@ -639,7 +639,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             // Pinch (and Cmd+scroll) still zoom via `zoom_delta` below.
             if let Ok(st) = app.session.state_mut() {
                 let v = st.view();
-                st.set_view_quiet(cadcraft_engine::View {
+                st.set_view_quiet(aad_engine::View {
                     center: v.center - Vec2::new(f64::from(scroll.x) / scale, -f64::from(scroll.y) / scale),
                     height: v.height,
                 });
@@ -672,7 +672,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             let d = hp - last;
             if let Ok(st) = app.session.state_mut() {
                 let v = st.view();
-                st.set_view_quiet(cadcraft_engine::View {
+                st.set_view_quiet(aad_engine::View {
                     center: v.center - Vec2::new(f64::from(d.x) / scale, -f64::from(d.y) / scale),
                     height: v.height,
                 });
@@ -703,7 +703,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     if inside
         && dbl_primary
         && app.session.running.is_none()
-        && matches!(app.session.layout_space(), cadcraft_doc::Space::Paper(_))
+        && matches!(app.session.layout_space(), aad_doc::Space::Paper(_))
         && let Some(hp) = hover_pos
     {
         let pp = xf_paper.to_world(hp);
@@ -826,7 +826,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         if hover_pos != app.canvas.hover_at
             && let (Some(w), Ok(st)) = (raw_world, app.session.state())
         {
-            app.canvas.hover = cadcraft_engine::select::pick(&st.doc, &st.edit_space(), w, app.session.settings.pickbox.max(1.0) * 1.5 / scale);
+            app.canvas.hover = aad_engine::select::pick(&st.doc, &st.edit_space(), w, app.session.settings.pickbox.max(1.0) * 1.5 / scale);
             app.canvas.hover_at = hover_pos;
         }
     } else {
@@ -879,7 +879,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             hs.extend(app.canvas.hover.filter(|h| !sel.contains(h)));
             let ents: Vec<_> = hs.iter().filter_map(|h| st.doc.model.get(*h)).map(|e| e.as_ref()).collect();
             if !ents.is_empty() {
-                let list = cadcraft_render::build_entities(&st.doc, ents, &cadcraft_render::Options { tolerance: 0.5 / scale, ..Default::default() });
+                let list = aad_render::build_entities(&st.doc, ents, &aad_render::Options { tolerance: 0.5 / scale, ..Default::default() });
                 let clipped = painter.with_clip_rect(r.intersect(rect));
                 if let Some(h) = app.canvas.hover
                     && !sel.contains(&h)
@@ -932,21 +932,21 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     if let (Some(g), Some(c), Ok(st)) = (app.canvas.hot_grip, app.canvas.cursor, app.session.state())
         && let Some(e) = st.doc.entity(g.handle)
     {
-        let k = match cadcraft_engine::grips::mode_matrix(g.mode, g.base, c) {
+        let k = match aad_engine::grips::mode_matrix(g.mode, g.base, c) {
             Some(m) => {
                 let mut k = e.kind.clone();
                 k.transform(&m);
                 Some(k)
             }
-            None if g.mode == cadcraft_engine::grips::GripMode::Stretch => cadcraft_engine::grips::stretch_grip(&e.kind, g.index, c),
+            None if g.mode == aad_engine::grips::GripMode::Stretch => aad_engine::grips::stretch_grip(&e.kind, g.index, c),
             None => None,
         };
         if let Some(k) = k {
-            let ent = cadcraft_doc::Entity { handle: Handle(0), common: e.common.clone(), kind: k };
-            let list = cadcraft_render::build_entities(
+            let ent = aad_doc::Entity { handle: Handle(0), common: e.common.clone(), kind: k };
+            let list = aad_render::build_entities(
                 &st.doc,
                 std::iter::once(&ent),
-                &cadcraft_render::Options { tolerance: 0.5 / scale, min_dash: 2.0 / scale, ..Default::default() },
+                &aad_render::Options { tolerance: 0.5 / scale, min_dash: 2.0 / scale, ..Default::default() },
             );
             draw_list(&painter, &xf, &list, bg, false);
         }
@@ -958,10 +958,10 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         if !ents.is_empty()
             && let Ok(st) = app.session.state()
         {
-            let list = cadcraft_render::build_entities(
+            let list = aad_render::build_entities(
                 &st.doc,
                 ents.iter(),
-                &cadcraft_render::Options { tolerance: 0.5 / scale, min_dash: 2.0 / scale, ..Default::default() },
+                &aad_render::Options { tolerance: 0.5 / scale, min_dash: 2.0 / scale, ..Default::default() },
             );
             draw_list(&painter, &xf, &list, bg, false);
         }
@@ -1061,7 +1061,7 @@ fn override_cursor(app: &mut CadApp, raw: Vec2, xf: &Xf) {
     let Ok(st) = app.session.state() else { return };
     let hit = match cycle {
         Some(i) => {
-            let cands = cadcraft_engine::pointmod::snap_candidates(&st.doc, &st.edit_space(), raw, ap, osmode, base, deferred);
+            let cands = aad_engine::pointmod::snap_candidates(&st.doc, &st.edit_space(), raw, ap, osmode, base, deferred);
             cands.get(i % cands.len().max(1)).copied()
         }
         None => snap::osnap(&st.doc, &st.edit_space(), raw, ap, osmode, base, deferred),
@@ -1120,15 +1120,15 @@ fn dynamic_input(app: &CadApp, p: &egui::Painter, at: Pos2) {
         text = format!(
             "{}   {}  <  {}°",
             crate::i18n::t(&prompt.message),
-            cadcraft_engine::units::format_distance(base.dist(c), 2, 4),
+            aad_engine::units::format_distance(base.dist(c), 2, 4),
             (base.angle_to(c).to_degrees() * 10.0).round() / 10.0
         );
     } else if let Some(c) = app.canvas.cursor {
         text = format!(
             "{}   {}, {}",
             crate::i18n::t(&prompt.message),
-            cadcraft_engine::units::format_distance(c.x, 2, 4),
-            cadcraft_engine::units::format_distance(c.y, 2, 4)
+            aad_engine::units::format_distance(c.x, 2, 4),
+            aad_engine::units::format_distance(c.y, 2, 4)
         );
     }
     let t = Tokens::get();
@@ -1154,7 +1154,7 @@ fn dynamic_input_boxes(p: &egui::Painter, at: Pos2, message: &str, f: &crate::dy
     use crate::dyninput::Format;
     let t = Tokens::get();
     let font = crate::theme::small();
-    let dist = |v: f64| cadcraft_engine::units::format_distance(v, 2, 4);
+    let dist = |v: f64| aad_engine::units::format_distance(v, 2, 4);
     let (live_first, live_second) = f.live(e.format, cursor);
     let live_second = match e.format {
         Format::Cartesian => dist(live_second),
@@ -1268,7 +1268,7 @@ fn grip_at(app: &CadApp, xf: &Xf, hover: Option<Pos2>) -> Option<HotGrip> {
         for (i, g) in e.kind.grips().into_iter().enumerate() {
             let sp = xf.to_screen(g);
             if (sp.x - hp.x).abs() <= gs && (sp.y - hp.y).abs() <= gs {
-                return Some(HotGrip { handle: *h, index: i, base: g, mode: cadcraft_engine::grips::GripMode::Stretch });
+                return Some(HotGrip { handle: *h, index: i, base: g, mode: aad_engine::grips::GripMode::Stretch });
             }
         }
     }
@@ -1282,10 +1282,7 @@ pub fn edit_selected_text_at(app: &mut CadApp, w: Vec2) -> bool {
         [h] => st.doc.entity(*h).map(|e| {
             matches!(
                 e.kind,
-                cadcraft_doc::EntityKind::Text(_)
-                    | cadcraft_doc::EntityKind::MText(_)
-                    | cadcraft_doc::EntityKind::AttDef(_)
-                    | cadcraft_doc::EntityKind::Dimension(_)
+                aad_doc::EntityKind::Text(_) | aad_doc::EntityKind::MText(_) | aad_doc::EntityKind::AttDef(_) | aad_doc::EntityKind::Dimension(_)
             )
         }),
         _ => None,
@@ -1304,7 +1301,7 @@ pub fn edit_selected_text_at(app: &mut CadApp, w: Vec2) -> bool {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use cadcraft_render::DPrim;
+    use aad_render::DPrim;
 
     fn list(handles: &[u64]) -> DisplayList {
         let prim = |h| DPrim { handle: Handle(h), color: Rgb(255, 255, 255), aci7: true, lw: 0.0, kind: Kind::Polyline, start: 0, len: 0 };

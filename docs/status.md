@@ -21,7 +21,7 @@ marks, isometric drafting).
 | Architecture: walls and openings | `wall.draw` (mitred faces and end caps), `wall.door`, `wall.window` (cut the wall lines, place a block that carries a deduction line, link the schedule entry), `wall.clean` |
 | Architecture: structure | `grid.axis`, `column.place`, `column.schedule`, `lintel.draw`, `stair.plan` (straight or dogleg, risers, goings, concrete volume), `lift.shaft`, `rail.draw` |
 | Architecture: levels and symbols | `level.mark`, `level.schedule`, `section.marker`, `elevation.marker`, `north.arrow`, `slope.arrow` |
-| Project data | `project`, `floors`, `beams`, `levels`: kept in the drawing (DXF extension data `CADCRAFT_PROJECT`) and restored on open |
+| Project data | `project`, `floors`, `beams`, `levels`: kept in the drawing (DXF extension data `AAD_PROJECT`) and restored on open |
 | Quantity take-off | `takeoff.start`, `takeoff.linear`, `takeoff.brick`, `takeoff.beams`, `takeoff.columns`, `takeoff.rects`, `takeoff.paint`, `takeoff.ceiling`, `takeoff.floor`, `takeoff.area`, `takeoff.slab`, `takeoff.list`, `takeoff.clear`, `takeoff.export` (CSV), `takeoff.rates`, `takeoff.bill`; opening deductions from blocks |
 | Schedules | `schedule`, `openings.std`, `openings.sync`, `openings.table` (door and window schedule drawn as a table) |
 | Electrical layout | `electrical.blocks`, `electrical.number`, `electrical.layers`, `electrical.connect`, `electrical.schedule`, `electrical.update` (17 symbol codes, boards and circuits; no load or cable sizing) |
@@ -32,7 +32,7 @@ marks, isometric drafting).
 | Context bar and workspaces | Current layer, floor and drawing space selectors in both workspaces; Classic: left toolbars, tabbed right-hand panels pinned; Pro: collapsed panels; each mode keeps its own layout, pin state and toolbars; `floor.current` ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)) |
 | Widgets | Architect calculator (`cal`, `ui.toggle.calculator`) and Pomodoro timer (`ui.toggle.pomodoro`) ([widgets.md](widgets.md)) |
 | Input forms | Dialogs and command-line prompts for the architecture commands ([input-forms.md](input-forms.md)) |
-| Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), |
+| Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), customisable top tool bar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), |
 | AORMS connection | Optional sign-in to AORMS (shared login, one session per app), project list, pulling project details and floors into a drawing, drawing list ([aorms.md](aorms.md)). AORMS menu, sign-in/projects dialog and status-bar chip; network calls run off the UI thread |
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
 | Units and annotation | Drawing and display units, plot scale and paper, annotation sizing, collision analysis and text layout ([units-annotation.md](units-annotation.md)) |

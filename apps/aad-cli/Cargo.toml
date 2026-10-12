@@ -1,0 +1,25 @@
+[package]
+name = "aad-cli"
+description = "AAD command-line tool: info, convert, run scripts, export, commands, MCP server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+aad-engine = { workspace = true }
+aad-dwg = { workspace = true }
+aad-io = { workspace = true }
+aad-fonts = { workspace = true }
+aad-mcp = { workspace = true }
+serde_json = { workspace = true }
+aad-agent = { workspace = true }
+aad-llm = { workspace = true }
+
+[features]
+# The local language model runtime (llama.cpp). Off by default: building it needs CMake, a C++
+# toolchain and LLVM's libclang (see docs/BUILD_AND_DEVELOPMENT.md).
+assistant = ["aad-llm/llama"]

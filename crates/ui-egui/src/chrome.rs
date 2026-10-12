@@ -284,8 +284,8 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         // Layout tabs.
         let mut tabs: Vec<String> = vec!["Model".into()];
         let cur = app.session.state().map(|s| match &s.space {
-            cadcraft_doc::Space::Model => "Model".to_string(),
-            cadcraft_doc::Space::Paper(n) => n.clone(),
+            aad_doc::Space::Model => "Model".to_string(),
+            aad_doc::Space::Paper(n) => n.clone(),
         });
         if let Ok(st) = app.session.state() {
             let mut ls: Vec<_> = st.doc.layouts.iter().collect();
@@ -329,7 +329,7 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         }
         // Right side: toggles, right-aligned.
         let s = app.session.settings.clone();
-        use cadcraft_engine::snap::mode;
+        use aad_engine::snap::mode;
         let toggles: Vec<(Icon, bool, &str, &str)> = vec![
             (Icon::Ortho, s.orthomode, "ortho", "Ortho Mode (F8)"),
             (Icon::Polar, s.polarmode, "polar", "Polar Tracking (F10)"),
@@ -474,14 +474,14 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             let sel = if selected > 0 { format!("  |  {selected} selected") } else { String::new() };
             format!(
                 "{}, {}, {}  ({units}){sel}",
-                cadcraft_engine::units::format_distance(c.x, lu, lp),
-                cadcraft_engine::units::format_distance(c.y, lu, lp),
-                cadcraft_engine::units::format_distance(0.0, lu, lp)
+                aad_engine::units::format_distance(c.x, lu, lp),
+                aad_engine::units::format_distance(c.y, lu, lp),
+                aad_engine::units::format_distance(0.0, lu, lp)
             )
         });
         // MODEL / PAPER (layouts only): toggles MSPACE and PSPACE like AutoCAD's status button.
         let mut coord_right = rx - 8.0;
-        if matches!(app.session.layout_space(), cadcraft_doc::Space::Paper(_)) {
+        if matches!(app.session.layout_space(), aad_doc::Space::Paper(_)) {
             let model = app.session.state().is_ok_and(|st| st.mspace.is_some());
             let label = if model { "MODEL" } else { "PAPER" };
             let br = Rect::from_min_max(pos2(rx - 60.0, r.center().y - 9.0), pos2(rx - 6.0, r.center().y + 9.0));

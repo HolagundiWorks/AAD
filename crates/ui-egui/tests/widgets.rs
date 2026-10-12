@@ -1,8 +1,8 @@
 //! The Calculator and Pomodoro widgets: opened from the Tools menu commands, driven by the same
 //! commands the buttons send, and the timer keeps counting while its window is closed.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_ui_egui::{CadApp, Services};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
@@ -120,7 +120,7 @@ fn importing_an_aqc_file_previews_then_applies_on_the_button() {
         r#"{"format":"hcw-aqc-bridge","version":1,"source":{"app":"AQC","drawing_id":"ui-1"},"units":"mm","project":{"name":"Rao House"}}"#,
     )
     .unwrap();
-    cadcraft_ui_egui::widgets::start_bridge_import(h.state_mut(), path.to_str().unwrap());
+    aad_ui_egui::widgets::start_bridge_import(h.state_mut(), path.to_str().unwrap());
     h.run_steps(5);
     assert!(has(&h, "Overwrite fields already filled in AAD"), "the preview window is open");
     assert_eq!(h.state_mut().run("project", json!({})).unwrap()["details"]["title"], serde_json::Value::Null, "nothing applied yet");
@@ -170,9 +170,9 @@ fn menu_commands_that_need_input_open_their_dialog() {
 
 #[test]
 fn a_saved_panel_layout_from_before_the_layout_panel_was_removed_is_refused_not_a_crash() {
-    use cadcraft_ui_egui::docking::Workspace;
+    use aad_ui_egui::docking::Workspace;
     // The default layout has no Layout tab and a saved one that names it cannot be read as a
-    // layout: the loader (`apps/cadcraft/src/workspace.rs`) then keeps the other preferences and
+    // layout: the loader (`apps/aad/src/workspace.rs`) then keeps the other preferences and
     // uses the default panel arrangement.
     let mut saved = serde_json::to_value(Workspace::default()).unwrap();
     assert!(!saved.to_string().contains("\"layout\":\"layout\"") && !saved.to_string().contains("\"layout\"]"));

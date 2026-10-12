@@ -1,7 +1,7 @@
 //! A pattern hatch is picked anywhere inside its area, and its boundary stays separately selectable.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::json;
 
 fn selected_kinds(s: &Session) -> Vec<&'static str> {

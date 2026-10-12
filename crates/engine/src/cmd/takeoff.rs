@@ -8,8 +8,8 @@
 //! the elements on `MEASURE-LABELS`, draws a summary table on `MEASURE-TABLE`, and saves the result
 //! in the drawing as `takeoff:<name>` so it can be exported later.
 
-use cadcraft_doc::{Drawing, EntityKind, HAlign, Handle, Space, VAlign};
-use cadcraft_geom::{Bounds2, Polyline, Segment, Vec2, point_in_polygon};
+use aad_doc::{Drawing, EntityKind, HAlign, Handle, Space, VAlign};
+use aad_geom::{Bounds2, Polyline, Segment, Vec2, point_in_polygon};
 use serde_json::{Value, json};
 
 use super::draw::make_text;
@@ -146,7 +146,7 @@ fn ctx(s: &Session, p: &Value, cmd: &str) -> Result<Ctx> {
 // ---------------------------------------------------------------------------------------------
 // Elements
 
-fn on_layer(e: &cadcraft_doc::Entity, layer: &str) -> bool {
+fn on_layer(e: &aad_doc::Entity, layer: &str) -> bool {
     e.common.layer.eq_ignore_ascii_case(layer)
 }
 
@@ -159,9 +159,9 @@ struct Wall {
 
 pub(crate) fn segments_of(kind: &EntityKind) -> Vec<Segment> {
     match kind {
-        EntityKind::Line(l) => vec![Segment::Line(cadcraft_geom::Line::new(l.a.xy(), l.b.xy()))],
+        EntityKind::Line(l) => vec![Segment::Line(aad_geom::Line::new(l.a.xy(), l.b.xy()))],
         EntityKind::Arc(a) => {
-            let arc = cadcraft_geom::Arc { center: a.center.xy(), radius: a.radius, start: a.start, end: a.end };
+            let arc = aad_geom::Arc { center: a.center.xy(), radius: a.radius, start: a.start, end: a.end };
             vec![Segment::Arc { arc, ccw: true }]
         }
         EntityKind::LwPolyline(p) => Polyline { vertices: p.vertices.clone(), closed: p.closed }.segments(),
@@ -295,7 +295,7 @@ fn deductions(d: &Drawing, space: &Space) -> Vec<Deduction> {
             EntityKind::Insert(i) => {
                 let Some(b) = d.block(&i.block) else { continue };
                 let (sin, cos) = i.rotation.sin_cos();
-                let tf = |p: cadcraft_geom::Vec3| {
+                let tf = |p: aad_geom::Vec3| {
                     let (x, y) = ((p.x - b.base.x) * i.scale.x, (p.y - b.base.y) * i.scale.y);
                     Vec2::new(i.insert.x + x * cos - y * sin, i.insert.y + x * sin + y * cos)
                 };

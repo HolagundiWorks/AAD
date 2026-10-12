@@ -5,10 +5,10 @@
 //! opposite colour where they cross the mark. Everything under `assets/app-icon/` is generated:
 //!
 //! - `aad-logo.svg`: the vector source
-//! - `cadcraft-1024.png`, `-256.png`, `-64.png`: the square icons
-//! - `cadcraft-macos-512.png`: the rounded icon with a margin, for macOS
-//! - `hicolor/<n>x<n>/apps/ai.storyteller.cadcraft.png`: the Linux sizes
-//! - `cadcraft.ico` (Windows) and `cadcraft.icns` (macOS)
+//! - `aad-1024.png`, `-256.png`, `-64.png`: the square icons
+//! - `aad-macos-512.png`: the rounded icon with a margin, for macOS
+//! - `hicolor/<n>x<n>/apps/io.github.holagundiworks.aad.png`: the Linux sizes
+//! - `aad.ico` (Windows) and `aad.icns` (macOS)
 //!
 //! Coordinates are those of the original 1254 x 1254 artwork. The PNG writer is a small deflate
 //! (fixed Huffman codes with greedy matching): the artwork is flat colour, so files stay small.
@@ -307,19 +307,19 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 pub fn run(root: &Path) -> Result<(), String> {
     let dir = root.join("assets/app-icon");
-    let id = "ai.storyteller.cadcraft";
+    let id = "io.github.holagundiworks.aad";
     write(&dir.join("aad-logo.svg"), SVG.as_bytes())?;
     let square = |n: u32| png(n, &render(n, false));
     let mac = |n: u32| png(n, &render(n, true));
     for n in [64u32, 256, 1024] {
-        write(&dir.join(format!("cadcraft-{n}.png")), &square(n))?;
+        write(&dir.join(format!("aad-{n}.png")), &square(n))?;
     }
-    write(&dir.join("cadcraft-macos-512.png"), &mac(512))?;
+    write(&dir.join("aad-macos-512.png"), &mac(512))?;
     for n in [16u32, 24, 32, 48, 64, 128, 256, 512] {
         write(&dir.join(format!("hicolor/{n}x{n}/apps/{id}.png")), &square(n))?;
     }
     let pngs: Vec<Vec<u8>> = [16u32, 20, 24, 32, 40, 48, 64, 128, 256].iter().map(|n| square(*n)).collect();
-    write(&dir.join("cadcraft.ico"), &crate::ico::pack(&pngs)?)?;
+    write(&dir.join("aad.ico"), &crate::ico::pack(&pngs)?)?;
     let icns_bytes = icns(&[
         (b"icp4", mac(16)),
         (b"icp5", mac(32)),
@@ -329,7 +329,7 @@ pub fn run(root: &Path) -> Result<(), String> {
         (b"ic09", mac(512)),
         (b"ic10", mac(1024)),
     ]);
-    write(&dir.join("cadcraft.icns"), &icns_bytes)?;
+    write(&dir.join("aad.icns"), &icns_bytes)?;
     println!("logo written to {}", dir.display());
     Ok(())
 }

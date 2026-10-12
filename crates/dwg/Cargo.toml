@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-dwg"
+name = "aad-dwg"
 description = "AAD DWG bridge: converts DWG to and from DXF bytes using the acadrust crate (MPL-2.0, used unmodified)"
 version.workspace = true
 edition.workspace = true

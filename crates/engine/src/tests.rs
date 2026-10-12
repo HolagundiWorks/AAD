@@ -1,5 +1,5 @@
-use cadcraft_doc::EntityKind;
-use cadcraft_geom::Vec2;
+use aad_doc::EntityKind;
+use aad_geom::Vec2;
 use serde_json::json;
 
 use crate::*;
@@ -315,7 +315,7 @@ fn offset_circle_and_polyline() {
     let last = d.model.last().unwrap();
     match &last.kind {
         EntityKind::LwPolyline(p) => {
-            let b = cadcraft_geom::Bounds2::from_points(p.vertices.iter().map(|v| v.p));
+            let b = aad_geom::Bounds2::from_points(p.vertices.iter().map(|v| v.p));
             assert!(b.min.near(Vec2::new(1.0, 1.0), 1e-9), "{b:?}");
             assert!(b.max.near(Vec2::new(9.0, 9.0), 1e-9));
         }
@@ -332,7 +332,7 @@ fn copy_rotate_scale_mirror() {
     assert_eq!(s.doc().unwrap().model.len(), 4);
     s.execute("rotate", &json!({"handles": [h], "base": [0, 0], "angle": 90})).unwrap();
     s.execute("scale", &json!({"handles": [h], "base": [0, 0], "factor": 3})).unwrap();
-    let hh = cadcraft_doc::Handle::parse_hex(h.as_str().unwrap()).unwrap();
+    let hh = aad_doc::Handle::parse_hex(h.as_str().unwrap()).unwrap();
     let g = s.doc().unwrap().entity(hh).unwrap().kind.grips();
     assert!(g[2].near(Vec2::new(0.0, 3.0), 1e-9));
     s.execute("mirror", &json!({"handles": [h], "p1": [-1, 0], "p2": [-1, 1]})).unwrap();
@@ -383,24 +383,24 @@ fn layers_and_properties() {
     let mut s = Session::new();
     s.execute("layer.new", &json!({"name": "Walls", "color": "red", "current": true})).unwrap();
     let c = s.execute("circle", &json!({"center": [0, 0], "radius": 1})).unwrap();
-    let h = cadcraft_doc::Handle::parse_hex(c["handle"].as_str().unwrap()).unwrap();
+    let h = aad_doc::Handle::parse_hex(c["handle"].as_str().unwrap()).unwrap();
     assert_eq!(s.doc().unwrap().entity(h).unwrap().common.layer, "Walls");
     assert!(s.execute("layer.set", &json!({"name": "Walls", "frozen": true})).is_err());
     s.execute("properties.set", &json!({"handles": [h.hex()], "color": 3, "radius": 4})).unwrap();
     let e = s.doc().unwrap().entity(h).unwrap();
-    assert_eq!(e.common.color, cadcraft_color::Color::Index(3));
+    assert_eq!(e.common.color, aad_color::Color::Index(3));
     assert!(matches!(&e.kind, EntityKind::Circle(c) if c.radius == 4.0));
     assert!(s.execute("layer.new", &json!({"name": "bad/name"})).is_err());
 }
 
 #[test]
 fn properties_set_transparency() {
-    use cadcraft_doc::Transparency;
+    use aad_doc::Transparency;
     // Issue #132: `properties.set` used to ignore `transparency`.
     let mut s = Session::new();
     let r = s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap();
     let h = r["handles"][0].as_str().unwrap().to_string();
-    let hh = cadcraft_doc::Handle::parse_hex(&h).unwrap();
+    let hh = aad_doc::Handle::parse_hex(&h).unwrap();
     let tr = |s: &Session| s.doc().unwrap().entity(hh).unwrap().common.transparency;
     for (v, want) in [
         (json!(50), Transparency::Percent(50)),
@@ -495,7 +495,7 @@ fn setvar_keeps_header_types() {
     assert!(s.execute("setvar", &json!({"name": "LUNITS", "value": "x"})).is_err());
     assert!(s.execute("setvar", &json!({"name": "LUNITS", "value": 2.5})).is_err());
     s.execute("setvar", &json!({"name": "LUNITS", "value": 3.0})).unwrap();
-    assert_eq!(s.doc().unwrap().header.get("LUNITS"), Some(&cadcraft_doc::HVal::Int(3)));
+    assert_eq!(s.doc().unwrap().header.get("LUNITS"), Some(&aad_doc::HVal::Int(3)));
     assert!(s.execute("setvar", &json!({"name": "LTSCALE", "value": "big"})).is_err());
     assert_eq!(s.doc().unwrap().header.f64("LTSCALE", 0.0), 1.0);
 }
@@ -587,7 +587,7 @@ fn every_interactive_command_starts_and_cancels() {
 fn sample_drawing_builds() {
     let d = sample::bracket();
     assert!(d.model.len() > 30);
-    let l = cadcraft_render::build(&d, &cadcraft_doc::Space::Model, &cadcraft_render::Options::default());
+    let l = aad_render::build(&d, &aad_doc::Space::Model, &aad_render::Options::default());
     assert!(l.prims.len() > 100);
 }
 
@@ -639,8 +639,8 @@ fn dim_auto_vertical_and_radius() {
     s.execute("dimradius", &json!({"handle": c["handle"], "at": [23, 1]})).unwrap();
     let d = s.doc().unwrap();
     let kinds: Vec<_> = d.model.iter().filter_map(|e| if let EntityKind::Dimension(d) = &e.kind { Some(d.kind) } else { None }).collect();
-    assert!(matches!(kinds[0], cadcraft_doc::DimKind::Linear { rotation } if (rotation - std::f64::consts::FRAC_PI_2).abs() < 1e-12));
-    assert!(matches!(kinds[1], cadcraft_doc::DimKind::Radius));
+    assert!(matches!(kinds[0], aad_doc::DimKind::Linear { rotation } if (rotation - std::f64::consts::FRAC_PI_2).abs() < 1e-12));
+    assert!(matches!(kinds[1], aad_doc::DimKind::Radius));
 }
 
 #[test]
@@ -710,19 +710,19 @@ fn square_hole_fixture(lines: bool) -> Session {
     s
 }
 
-fn only_hatch(s: &Session) -> std::sync::Arc<cadcraft_doc::Entity> {
+fn only_hatch(s: &Session) -> std::sync::Arc<aad_doc::Entity> {
     let hs: Vec<_> = s.doc().unwrap().model.iter().filter(|e| matches!(e.kind, EntityKind::Hatch(_))).cloned().collect();
     assert_eq!(hs.len(), 1);
     hs[0].clone()
 }
 
 /// The hatch stores the outer rectangle plus the square island.
-fn assert_outer_and_square_island(h: &cadcraft_doc::Hatch) {
+fn assert_outer_and_square_island(h: &aad_doc::Hatch) {
     assert_eq!(h.loops.len(), 2, "outer boundary plus the square island");
     assert!(h.loops[0].outer && !h.loops[1].outer);
     let island: Vec<Vec2> = h.loops[1].vertices.iter().map(|v| v.p).collect();
-    assert!((cadcraft_geom::shoelace(&island).abs() - 25.0).abs() < 1e-9);
-    let b = cadcraft_geom::Bounds2::from_points(island.iter().copied());
+    assert!((aad_geom::shoelace(&island).abs() - 25.0).abs() < 1e-9);
+    let b = aad_geom::Bounds2::from_points(island.iter().copied());
     assert!(b.min.near(Vec2::new(5.0, 5.0), 1e-9) && b.max.near(Vec2::new(10.0, 10.0), 1e-9));
 }
 
@@ -740,7 +740,7 @@ fn hatch_pick_point_keeps_island_of_separate_lines() {
         assert_outer_and_square_island(h);
         // The rendered pattern never enters the hole.
         let d = s.doc().unwrap();
-        let list = cadcraft_render::build_entities(d, std::iter::once(e.as_ref()), &cadcraft_render::Options::default());
+        let list = aad_render::build_entities(d, std::iter::once(e.as_ref()), &aad_render::Options::default());
         assert!(list.segment_count() > 0);
         for p in &list.prims {
             for w in list.points(p).windows(2) {
@@ -831,7 +831,7 @@ fn mleader_and_qdim() {
 /// Click at `at` the way the canvas does: object snap for the current prompt, then the input.
 fn snap_click(s: &mut Session, at: Vec2) {
     let prompt = s.current_prompt().unwrap();
-    let hit = snap::osnap(s.doc().unwrap(), &cadcraft_doc::Space::Model, at, 0.5, s.settings.osmode, prompt.base, prompt.deferred);
+    let hit = snap::osnap(s.doc().unwrap(), &aad_doc::Space::Model, at, 0.5, s.settings.osmode, prompt.base, prompt.deferred);
     s.input(hit.map_or(Input::Point(at), |h| h.input())).unwrap();
 }
 
@@ -892,7 +892,7 @@ fn line_belt_tangent_to_tangent() {
     s.cmdline("line").unwrap();
     snap_click(&mut s, Vec2::new(-1.0, 10.1));
     // Hovering the small circle previews the line the click will draw.
-    let hover = snap::osnap(s.doc().unwrap(), &cadcraft_doc::Space::Model, Vec2::new(31.0, 4.1), 0.5, s.settings.osmode, None, true).unwrap();
+    let hover = snap::osnap(s.doc().unwrap(), &aad_doc::Space::Model, Vec2::new(31.0, 4.1), 0.5, s.settings.osmode, None, true).unwrap();
     s.cursor_deferred = hover.deferred;
     let pv = s.preview(hover.point);
     s.cursor_deferred = None;
@@ -983,7 +983,7 @@ fn arc_refuses_zero_radius() {
 }
 
 /// The single polyline in a fresh drawing after typing `script`, then pressing Enter.
-fn typed_pline(script: &str) -> cadcraft_doc::LwPolyline {
+fn typed_pline(script: &str) -> aad_doc::LwPolyline {
     let mut s = Session::new();
     for line in script.split('\n') {
         s.cmdline(line).unwrap();
@@ -1000,7 +1000,7 @@ fn typed_pline(script: &str) -> cadcraft_doc::LwPolyline {
 }
 
 /// (const_width, [(start_width, end_width) per vertex]).
-fn widths(p: &cadcraft_doc::LwPolyline) -> (f64, Vec<(f64, f64)>) {
+fn widths(p: &aad_doc::LwPolyline) -> (f64, Vec<(f64, f64)>) {
     (p.const_width, p.vertices.iter().map(|v| (v.start_width, v.end_width)).collect())
 }
 

@@ -9,8 +9,8 @@
 //! fixed list of tools, a tool that changes the drawing waits for the user's answer, and the engine
 //! does the work and keeps the undo history. See docs/COMMAND_BAR.md and docs/ai-agent.md.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::cmd::context;
+use aad_engine::Session;
+use aad_engine::cmd::context;
 use serde_json::{Map, Value};
 
 use crate::CadApp;

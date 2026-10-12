@@ -1,8 +1,8 @@
 //! Walls, doors and windows: faces with mitred corners, openings cut in the wall lines, blocks that
 //! carry a deduction line for the take-off, and line clean-up.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
 use serde_json::json;
 
 fn session() -> Session {

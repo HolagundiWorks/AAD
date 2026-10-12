@@ -23,12 +23,12 @@ covered yet. Windows is the supported platform for now.
 | Application state | the engine's `Session` (selection, running command, drawing) | Assertions check geometry and command state, not only that an event fired |
 | Whole-menu checks | `menus::tree` + `CadApp::start` | Every menu entry is walked automatically |
 | Visual checks | `Harness::render()` (wgpu) writing PNGs, in existing tests, to a folder named by `CRAFT_UI_VISUAL_DIR` | Already used by `chrome_geometry` and `docking_workflows` |
-| Real-application measurement | the control channel against `cadcraft.exe` | The only way to measure the GPU canvas; the harness cannot |
+| Real-application measurement | the control channel against `aad.exe` | The only way to measure the GPU canvas; the harness cannot |
 | Browser tools (Playwright etc.) | **not used** | The product is a native application; the web build is a later phase |
 | OS-level UI automation | **not used** | `egui_kittest` plus the control channel cover the same ground with stable results |
 
-No overlapping framework was added. One dev-dependency was added to `cadcraft-ui-egui`
-(`cadcraft-io`, a workspace crate, to register file formats in the save-and-reopen test).
+No overlapping framework was added. One dev-dependency was added to `aad-ui-egui`
+(`aad-io`, a workspace crate, to register file formats in the save-and-reopen test).
 
 ## The suites
 
@@ -42,20 +42,20 @@ No overlapping framework was added. One dev-dependency was added to `cadcraft-ui
 ## Run locally
 
 ```text
-cargo test -p cadcraft-ui-egui                                   # all UI tests (about 15 s after a build)
-cargo test -p cadcraft-ui-egui --test drawing_workflow           # the drawing workflow
-cargo test -p cadcraft-ui-egui --test menu_integrity -- --nocapture   # prints the menu summary
-CRAFT_UI_VISUAL_DIR=target/ui-shots cargo test -p cadcraft-ui-egui --test chrome_geometry   # save screenshots
+cargo test -p aad-ui-egui                                   # all UI tests (about 15 s after a build)
+cargo test -p aad-ui-egui --test drawing_workflow           # the drawing workflow
+cargo test -p aad-ui-egui --test menu_integrity -- --nocapture   # prints the menu summary
+CRAFT_UI_VISUAL_DIR=target/ui-shots cargo test -p aad-ui-egui --test chrome_geometry   # save screenshots
 
-cargo test --release -p cadcraft-ui-egui --test ui_latency -- --ignored --nocapture         # frame timing
-AAD_LATENCY_N=10000 cargo test --release -p cadcraft-ui-egui --test ui_latency -- --ignored --nocapture
+cargo test --release -p aad-ui-egui --test ui_latency -- --ignored --nocapture         # frame timing
+AAD_LATENCY_N=10000 cargo test --release -p aad-ui-egui --test ui_latency -- --ignored --nocapture
 ```
 
 To measure the real GPU canvas, write a drawing and open it in the app:
 
 ```text
-AAD_LATENCY_WRITE=%TEMP%\synth.dxf AAD_LATENCY_COUNT=100000 cargo test --release -p cadcraft-ui-egui --test ui_latency write_synthetic -- --ignored
-target\release\cadcraft.exe --control 47123 %TEMP%\synth.dxf
+AAD_LATENCY_WRITE=%TEMP%\synth.dxf AAD_LATENCY_COUNT=100000 cargo test --release -p aad-ui-egui --test ui_latency write_synthetic -- --ignored
+target\release\aad.exe --control 47123 %TEMP%\synth.dxf
 ```
 
 then send `ui.inspect` (it returns `perf.frameMs`, `buildMs`, `meshMs`, `renderer`) and `ui.move` over

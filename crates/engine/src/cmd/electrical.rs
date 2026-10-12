@@ -16,8 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cadcraft_doc::{Drawing, EntityKind, HAlign, Handle, Space, VAlign, entity_bounds};
-use cadcraft_geom::{Bounds2, Vec2};
+use aad_doc::{Drawing, EntityKind, HAlign, Handle, Space, VAlign, entity_bounds};
+use aad_geom::{Bounds2, Vec2};
 use serde_json::{Map, Value, json};
 
 use super::draw::make_text;
@@ -209,7 +209,7 @@ fn write_labels(s: &mut Session, o: &mut Map<String, Value>, list: &[Item]) -> R
                         t.value = id.clone();
                         t.insert.x = at.x;
                         t.insert.y = at.y;
-                        t.align_pt = Some(cadcraft_geom::Vec3::new(at.x, at.y, 0.0));
+                        t.align_pt = Some(aad_geom::Vec3::new(at.x, at.y, 0.0));
                     }
                 })?;
                 h
@@ -355,7 +355,7 @@ fn dist_to_bounds(b: &Bounds2, p: Vec2) -> f64 {
 }
 
 fn seg_point_dist(a: Vec2, b: Vec2, p: Vec2) -> f64 {
-    cadcraft_geom::Line::new(a, b).closest(p).dist(p)
+    aad_geom::Line::new(a, b).closest(p).dist(p)
 }
 
 struct Net {

@@ -1,9 +1,9 @@
 //! -PURGE asks for the type, the names and whether to verify each; the JSON form takes
 //! `{type, names}`.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
-use cadcraft_engine::geom::Vec3;
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
+use aad_engine::geom::Vec3;
 use serde_json::json;
 
 /// Unused: blocks U1 and U2, layer Spare, linetype DASHED, text style Notes, dimension style Arch.
@@ -77,8 +77,8 @@ fn verify_asks_for_each_name_and_absent_types_take_their_tokens() {
     assert_eq!(count(&s, |k| matches!(k, EntityKind::Line(_))), 1);
     // Zero-length geometry purges at once.
     // (Drawn directly: the LINE command refuses coincident points, but files can hold them.)
-    let zero = EntityKind::Line(cadcraft_engine::doc::Line { a: Vec3::new(3.0, 3.0, 0.0), b: Vec3::new(3.0, 3.0, 0.0) });
-    s.doc_mut().unwrap().add(&cadcraft_engine::doc::Space::Model, cadcraft_engine::doc::Common::default(), zero).unwrap();
+    let zero = EntityKind::Line(aad_engine::doc::Line { a: Vec3::new(3.0, 3.0, 0.0), b: Vec3::new(3.0, 3.0, 0.0) });
+    s.doc_mut().unwrap().add(&aad_engine::doc::Space::Model, aad_engine::doc::Common::default(), zero).unwrap();
     s.script("-PURGE Z\n").unwrap();
     assert!(s.running.is_none(), "{}", s.prompt_text());
     assert_eq!(count(&s, |k| matches!(k, EntityKind::Line(_))), 1);

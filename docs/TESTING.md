@@ -9,7 +9,7 @@ supported platform for now.
 cargo xtask ci                                   # the gate: fmt, clippy -D warnings, all tests,
                                                  # asset attribution, layering, wasm compile
 powershell -File tools/quality/baseline.ps1      # the same commands with timings, as a report
-cargo bench -p cadcraft-geom --bench geometry    # benchmarks (see PERFORMANCE.md)
+cargo bench -p aad-geom --bench geometry    # benchmarks (see PERFORMANCE.md)
 ```
 
 `cargo xtask ci` is what the pull-request workflow (`.github/workflows/cad-ci.yml`) runs, so a green
@@ -21,12 +21,12 @@ local run is a green CI run, apart from machine differences.
 |---|---|---|---|
 | Unit | `src/**` (`#[cfg(test)]`) | One function or module: geometry, parsing, units, snapping, command validation | `cargo test -p <crate>` |
 | Crate integration | `crates/*/tests/` | A feature through its public API: commands, forms, sheets, xrefs, schedules, take-off | `cargo test -p <crate> --test <name>` |
-| Workflow | `apps/cadcraft-cli/tests/` | Real files and real processes: project folders, floors, Xrefs, batch plot, DWG isolation | `cargo test -p cadcraft-cli` |
-| UI | `crates/ui-egui/tests/` | Dialogs, panels, widgets, docking, the click-driven drawing workflow and the menu walk through `egui_kittest` (see [UI_TESTING_STRATEGY.md](UI_TESTING_STRATEGY.md)) | `cargo test -p cadcraft-ui-egui` |
-| Property-based | `crates/geom/tests/properties.rs`, `crates/engine/tests/properties.rs` | Invariants over generated inputs (below) | `PROPTEST_CASES=20000 cargo test -p cadcraft-engine --test properties` |
-| Mutation (file readers) | `crates/io/tests/mutation_robustness.rs` | Corrupted copies of valid DXF files never panic, hang or break writing back | `AAD_MUTATION_ITERS=4000 cargo test -p cadcraft-io --test mutation_robustness` |
-| Isolation (DWG) | `apps/cadcraft-cli/tests/dwg_isolation.rs` | Corrupted DWG files cannot take the program down | `cargo test -p cadcraft-cli --test dwg_isolation` |
-| Benchmarks | `crates/*/benches/` and `cadcraft-cli perf` | Time of selection, snapping, editing, display-list build, DXF read and write | `cargo bench -p ...` |
+| Workflow | `apps/aad-cli/tests/` | Real files and real processes: project folders, floors, Xrefs, batch plot, DWG isolation | `cargo test -p aad-cli` |
+| UI | `crates/ui-egui/tests/` | Dialogs, panels, widgets, docking, the click-driven drawing workflow and the menu walk through `egui_kittest` (see [UI_TESTING_STRATEGY.md](UI_TESTING_STRATEGY.md)) | `cargo test -p aad-ui-egui` |
+| Property-based | `crates/geom/tests/properties.rs`, `crates/engine/tests/properties.rs` | Invariants over generated inputs (below) | `PROPTEST_CASES=20000 cargo test -p aad-engine --test properties` |
+| Mutation (file readers) | `crates/io/tests/mutation_robustness.rs` | Corrupted copies of valid DXF files never panic, hang or break writing back | `AAD_MUTATION_ITERS=4000 cargo test -p aad-io --test mutation_robustness` |
+| Isolation (DWG) | `apps/aad-cli/tests/dwg_isolation.rs` | Corrupted DWG files cannot take the program down | `cargo test -p aad-cli --test dwg_isolation` |
+| Benchmarks | `crates/*/benches/` and `aad-cli perf` | Time of selection, snapping, editing, display-list build, DXF read and write | `cargo bench -p ...` |
 
 ### Property-based tests
 
@@ -68,12 +68,12 @@ corpus above is the seed corpus for them.
 
 DWG is parsed by a third-party library that aborts the process on some damaged files, which no
 in-process test can survive. DWG is therefore read in a worker process
-(`cadcraft_dwg::isolated`) and tested through it; see BUG-001.
+(`aad_dwg::isolated`) and tested through it; see BUG-001.
 
 ## Adding a regression test for a bug
 
 1. Make the smallest input that shows the bug. Put a file in a `fixtures/` folder next to the test
-   (`apps/cadcraft-cli/tests/fixtures/` for files) and add a row to its `README.md` saying how it
+   (`apps/aad-cli/tests/fixtures/` for files) and add a row to its `README.md` saying how it
    was made and what must happen. If it is an asset-like file, add a row to `ATTRIBUTION.md`.
 2. Write the test and **run it on the unfixed code**; it must fail. Keep the output.
 3. Make the smallest fix that makes it pass. Do not refactor around it.
@@ -134,7 +134,7 @@ treat them as unverified until the first run is green.
 - No automated visual comparison; screenshots were used by hand during development.
 - UI tests are headless; GPU rendering is not under test.
 - The DWG worker has no memory cap.
-- Large-drawing stress (1M entities) is a benchmark (`AAD_BENCH_LARGE=1`, `cadcraft-cli perf`), not
+- Large-drawing stress (1M entities) is a benchmark (`AAD_BENCH_LARGE=1`, `aad-cli perf`), not
   a pass/fail test.
 
 ## Layer protection, drawing spaces and workspaces (tests)
@@ -143,7 +143,7 @@ treat them as unverified until the first run is green.
 |---|---|
 | `crates/engine/tests/layer_protection.rs` | 22 editing calls, by handle and by selection, on a locked and on a frozen layer change nothing; the same calls work on an unlocked drawing (so "refused" is not a bad call); drawing on a locked layer is refused |
 | `crates/engine/tests/drawing_space.rs` | independent visible/frozen/locked, switching back and forth restores states, geometry untouched, protection after activation, dirty status, rename/delete/new layers, current-layer rules, undo, validation, hostile parameters, floors |
-| `apps/cadcraft-cli/tests/drawing_space_file.rs` | spaces and layer states survive a DXF save and reopen, and still protect |
+| `apps/aad-cli/tests/drawing_space_file.rs` | spaces and layer states survive a DXF save and reopen, and still protect |
 | `crates/ui-egui/tests/context_bar.rs` | both workspaces show the bar; layer, floor and space selectors by clicks; editor saves the saved space only; large changes ask first |
 | `crates/ui-egui/tests/workspace_modes.rs` | per-mode arrangement, pin and toolbar state; reset; broken saved slot; tab switching leaves selection and command state alone |
-| `apps/cadcraft/src/workspace.rs` (unit tests) | each mode's slot survives a restart |
+| `apps/aad/src/workspace.rs` (unit tests) | each mode's slot survives a restart |

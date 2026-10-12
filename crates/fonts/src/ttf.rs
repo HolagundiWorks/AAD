@@ -11,14 +11,14 @@
 //! - [`fallback_fonts`] (`FONTFALLBACK`): fonts tried first for characters the text's font
 //!   lacks (CJK in an SHX big font, for example), before the automatic system font search.
 //!
-//! On native builds both start from the `CADCRAFT_FONTALT` / `CADCRAFT_FONTFALLBACK`
+//! On native builds both start from the `AAD_FONTALT` / `AAD_FONTFALLBACK`
 //! environment variables.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
-use cadcraft_geom::Vec2;
+use aad_geom::Vec2;
 use skrifa::instance::{LocationRef, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
 use skrifa::raw::FileRef;
@@ -177,7 +177,7 @@ fn scan() -> HashMap<String, PathBuf> {
     // first out and the first file with a name wins, so these are pushed last.
     // AAD_FONTS_DIR is the packaging input (the licensed font files); honouring it here lets a
     // development run use the same fonts without installing them.
-    for var in ["AAD_FONTS_DIR", "CADCRAFT_FONT_DIR"] {
+    for var in ["AAD_FONTS_DIR", "AAD_FONT_DIR"] {
         if let Some(list) = std::env::var_os(var) {
             dirs.extend(std::env::split_paths(&list));
         }
@@ -380,7 +380,7 @@ fn key(name: &str) -> String {
 
 /// Names that mean a stroke font: never looked up as TrueType.
 fn is_stroke_name(k: &str) -> bool {
-    k.is_empty() || k.ends_with(".shx") || k == crate::BUILTIN_FONT.to_ascii_lowercase() || k == "txt" || k == "simplex" || k == "romans"
+    k.is_empty() || k.ends_with(".shx") || crate::is_builtin_font(k) || k == "txt" || k == "simplex" || k == "romans"
 }
 
 /// A face of an installed (or registered) font by file name or family name. Stroke-font names
@@ -414,7 +414,7 @@ fn prefs() -> MutexGuard<'static, Prefs> {
         let env = |k: &str| std::env::var(k).unwrap_or_default();
         #[cfg(target_arch = "wasm32")]
         let env = |_: &str| String::new();
-        Mutex::new(Prefs { alt: clean_name(&env("CADCRAFT_FONTALT")), fallback: split_list(&env("CADCRAFT_FONTFALLBACK")) })
+        Mutex::new(Prefs { alt: clean_name(&env("AAD_FONTALT")), fallback: split_list(&env("AAD_FONTFALLBACK")) })
     })
     .lock()
     .unwrap_or_else(PoisonError::into_inner)

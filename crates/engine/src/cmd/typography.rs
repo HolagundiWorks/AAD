@@ -7,8 +7,8 @@
 //! are listed as unclassified and left alone until the caller assigns a role. One migration is one
 //! undo step, so it can be rolled back.
 
-use cadcraft_doc::{Drawing, EntityKind, Space};
-use cadcraft_fonts::registry::{self, Face, Role, Typography};
+use aad_doc::{Drawing, EntityKind, Space};
+use aad_fonts::registry::{self, Face, Role, Typography};
 use serde_json::{Value, json};
 
 use super::*;
@@ -106,7 +106,7 @@ const MAX_SAMPLES: usize = 40;
 fn usage_of(d: &Drawing) -> std::collections::BTreeMap<String, Usage> {
     let mut out: std::collections::BTreeMap<String, Usage> = std::collections::BTreeMap::new();
     let key = |s: &str| s.to_ascii_lowercase();
-    let mut visit = |e: &cadcraft_doc::Entity| match &e.kind {
+    let mut visit = |e: &aad_doc::Entity| match &e.kind {
         EntityKind::Text(t) => {
             let u = out.entry(key(&t.style)).or_default();
             u.text += 1;
@@ -186,9 +186,8 @@ fn run_scan(s: &mut Session, _p: &Value) -> Result<Value> {
     let (mut unclassified, mut missing) = (Vec::new(), Vec::new());
     for ts in &d.text_styles {
         let u = usage.get(&ts.name.to_ascii_lowercase()).cloned().unwrap_or_default();
-        let stroke =
-            ts.font.is_empty() || ts.font.eq_ignore_ascii_case(cadcraft_fonts::BUILTIN_FONT) || ts.font.to_ascii_lowercase().ends_with(".shx");
-        let installed = stroke || cadcraft_fonts::ttf::find(&ts.font).is_some();
+        let stroke = ts.font.is_empty() || aad_fonts::is_builtin_font(&ts.font) || ts.font.to_ascii_lowercase().ends_with(".shx");
+        let installed = stroke || aad_fonts::ttf::find(&ts.font).is_some();
         if !installed {
             missing.push(ts.font.clone());
         }
@@ -208,9 +207,9 @@ fn run_scan(s: &mut Session, _p: &Value) -> Result<Value> {
 
 /// The width of `text` at `height` in the font `name` (the stroke font when it is not a TrueType font).
 fn text_width(name: &str, text: &str, height: f64, width_factor: f64) -> f64 {
-    match cadcraft_fonts::ttf::find(name) {
-        Some(face) => cadcraft_fonts::ttf::width(&face, text, height, width_factor).unwrap_or(0.0),
-        None => cadcraft_fonts::line_width(text, height, width_factor),
+    match aad_fonts::ttf::find(name) {
+        Some(face) => aad_fonts::ttf::width(&face, text, height, width_factor).unwrap_or(0.0),
+        None => aad_fonts::line_width(text, height, width_factor),
     }
 }
 
@@ -291,7 +290,7 @@ fn migrate_active(s: &mut Session, t: &Typography, overrides: &std::collections:
             let h = if t.height > 0.0 { t.height } else { style.height.max(1e-9) };
             let old = text_width(&style.font, &t.value, h, t.width_factor);
             let new = new_font.get(&t.style.to_ascii_lowercase()).map_or(old, |f| text_width(f, &t.value, h, t.width_factor));
-            if t.rotation == 0.0 && matches!(t.halign, cadcraft_doc::HAlign::Left) {
+            if t.rotation == 0.0 && matches!(t.halign, aad_doc::HAlign::Left) {
                 boxes.push((e.handle.0, t.insert.x, t.insert.y, new, h));
             }
             if new > old * 1.05 + 1e-9 && grown.len() < 20 {

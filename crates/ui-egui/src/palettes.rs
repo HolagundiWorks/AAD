@@ -1,7 +1,7 @@
 //! Tool Sets (left) and the Layers / Properties palettes (right).
 
-use cadcraft_color::Color;
-use cadcraft_doc::EntityKind;
+use aad_color::Color;
+use aad_doc::EntityKind;
 use egui::{Color32, Rect, Sense, Stroke, pos2, vec2};
 use serde_json::{Value, json};
 
@@ -94,7 +94,7 @@ pub const DRAFTING: &[(&str, &[Tool], &[Tool])] = &[
 ];
 
 pub(crate) fn command_known(id: &str) -> bool {
-    cadcraft_engine::find_command(id).is_some() || crate::menus::is_ui_command(id)
+    aad_engine::find_command(id).is_some() || crate::menus::is_ui_command(id)
 }
 
 fn section_header(ui: &mut egui::Ui, title: &str) -> Rect {
@@ -493,14 +493,14 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         });
         prop_row(ui, "Lineweight", |ui| {
-            ui.menu_button(crate::i18n::t(&cadcraft_doc::Lineweight::from_dxf(h.i64("CELWEIGHT", -1) as i16).name()), |ui| {
+            ui.menu_button(crate::i18n::t(&aad_doc::Lineweight::from_dxf(h.i64("CELWEIGHT", -1) as i16).name()), |ui| {
                 for n in ["ByLayer", "ByBlock", "Default"] {
                     if ui.button(crate::i18n::t(n)).clicked() {
                         act("lweight", json!({ "lineweight": n }));
                         ui.close();
                     }
                 }
-                for v in cadcraft_doc::Lineweight::STANDARD {
+                for v in aad_doc::Lineweight::STANDARD {
                     if ui.button(format!("{:.2} mm", f64::from(v) / 100.0)).clicked() {
                         act("lweight", json!({ "lineweight": f64::from(v) / 100.0 }));
                         ui.close();
@@ -541,10 +541,10 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
         });
         // The current layout's plot style table; named tables give the current plot style.
         let layout = match app.session.layout_space() {
-            cadcraft_doc::Space::Paper(n) => d.layout(&n).map(|l| (n.clone(), l.page.plot_style_table.clone())),
-            cadcraft_doc::Space::Model => None,
+            aad_doc::Space::Paper(n) => d.layout(&n).map(|l| (n.clone(), l.page.plot_style_table.clone())),
+            aad_doc::Space::Model => None,
         };
-        let table = layout.as_ref().and_then(|(_, t)| cadcraft_doc::plot_style_table(d, t));
+        let table = layout.as_ref().and_then(|(_, t)| aad_doc::plot_style_table(d, t));
         match table.as_ref().filter(|t| !t.is_color_dependent()) {
             Some(t) => prop_row(ui, "Plot style", |ui| {
                 let items = ["ByLayer", "ByBlock"].map(String::from).into_iter().chain(t.styles.iter().map(|s| s.name.clone()));
@@ -557,7 +557,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
         match &layout {
             Some((name, current)) => prop_row(ui, "Plot style table", |ui| {
                 let shown = if current.trim().is_empty() { "None".to_string() } else { current.clone() };
-                let items = std::iter::once("None".to_string()).chain(cadcraft_doc::plot_style_table_names(d));
+                let items = std::iter::once("None".to_string()).chain(aad_doc::plot_style_table_names(d));
                 if let Some(n) = pick_menu(ui, &shown, items) {
                     act("pagesetup", json!({ "layout": name, "plotStyleTable": n }));
                 }
@@ -580,7 +580,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     // Selected objects: common + geometry for a single object.
     let first = sel.first().and_then(|h| d.entity(*h)).map(|e| (**e).clone());
     let Some(e) = first else { return };
-    let same = |f: &dyn Fn(&cadcraft_doc::Entity) -> String| -> String {
+    let same = |f: &dyn Fn(&aad_doc::Entity) -> String| -> String {
         let vals: Vec<String> = sel.iter().filter_map(|h| d.entity(*h)).map(|e| f(e)).collect();
         match vals.first() {
             Some(v0) if vals.iter().all(|v| v == v0) => v0.clone(),
@@ -663,7 +663,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                     ui.close();
                 }
             }
-            for v in cadcraft_doc::Lineweight::STANDARD {
+            for v in aad_doc::Lineweight::STANDARD {
                 if ui.button(format!("{:.2} mm", f64::from(v) / 100.0)).clicked() {
                     set = Some(json!({ "handles": ids, "lineweight": f64::from(v) / 100.0 }));
                     ui.close();
@@ -791,7 +791,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             }
             EntityKind::LwPolyline(pl) => {
                 num(ui, "Global width", "width", pl.const_width, &mut set, &ids);
-                let g = cadcraft_geom::Polyline { vertices: pl.vertices.clone(), closed: pl.closed };
+                let g = aad_geom::Polyline { vertices: pl.vertices.clone(), closed: pl.closed };
                 prop_row(ui, "Length", |ui| read_only(ui, &format!("{:.4}", g.len())));
                 if pl.closed {
                     prop_row(ui, "Area", |ui| read_only(ui, &format!("{:.4}", g.area().abs())));
@@ -807,7 +807,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
             EntityKind::Hatch(hh) => {
                 prop_row(ui, "Pattern", |ui| {
                     ui.menu_button(hh.pattern.clone(), |ui| {
-                        for pat in cadcraft_doc::library::standard_patterns() {
+                        for pat in aad_doc::library::standard_patterns() {
                             if ui.button(pat.name).clicked() {
                                 set = Some(json!({ "handles": ids, "pattern": pat.name }));
                                 ui.close();

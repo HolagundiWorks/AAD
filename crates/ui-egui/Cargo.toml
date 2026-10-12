@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-ui-egui"
+name = "aad-ui-egui"
 description = "AAD user interface (egui): the swappable front end"
 version.workspace = true
 edition.workspace = true
@@ -11,13 +11,13 @@ workspace = true
 
 [dependencies]
 craft-ui = { workspace = true }
-cadcraft-geom = { workspace = true }
-cadcraft-color = { workspace = true }
-cadcraft-doc = { workspace = true }
-cadcraft-fonts = { workspace = true }
-cadcraft-render = { workspace = true }
-cadcraft-engine = { workspace = true }
-cadcraft-aorms = { workspace = true }
+aad-geom = { workspace = true }
+aad-color = { workspace = true }
+aad-doc = { workspace = true }
+aad-fonts = { workspace = true }
+aad-render = { workspace = true }
+aad-engine = { workspace = true }
+aad-aorms = { workspace = true }
 egui = { workspace = true }
 # GPU canvas paint callback (same egui-wgpu/wgpu eframe uses with its "wgpu" feature).
 egui-wgpu = { workspace = true }
@@ -29,7 +29,7 @@ image = { workspace = true }
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 # File formats for the save and reopen workflow test (the apps install the same hooks).
-cadcraft-io = { workspace = true }
+aad-io = { workspace = true }
 # Validates the canvas WGSL and its GLSL ES 3.0 (WebGL2) translation in tests (same naga wgpu uses).
 naga = { version = "30", features = ["wgsl-in", "glsl-out"] }
 

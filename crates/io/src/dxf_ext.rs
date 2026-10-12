@@ -3,25 +3,27 @@
 //! both per the DXF Reference), arrowhead block names, extended-data helpers and the
 //! AAD-owned payloads (exact associativity, table flags, hatch gradients).
 //!
-//! AAD's own data lives under the registered application `CADCRAFT` (xdata) and the
-//! named-object-dictionary entries `CADCRAFT_LAYERSTATES` and
-//! `CADCRAFT_PLOTSTYLES` (XRECORDs). Other readers keep or ignore them.
+//! AAD's own data lives under the registered application `AAD` (xdata) and the
+//! named-object-dictionary entries `AAD_LAYERSTATES` and
+//! `AAD_PLOTSTYLES` (XRECORDs). Other readers keep or ignore them.
 
 use std::collections::HashMap;
 
-use cadcraft_color::Color;
-use cadcraft_doc::{AssocSnap, DimAssoc, DimStyle, Handle, LayerState, PlotStyleTable};
-use cadcraft_dxf::Tag;
-use cadcraft_render::Arrowhead;
+use aad_color::Color;
+use aad_doc::{AssocSnap, DimAssoc, DimStyle, Handle, LayerState, PlotStyleTable};
+use aad_dxf::Tag;
+use aad_render::Arrowhead;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Registered application name of AAD's extended data.
-pub(crate) const APP: &str = "CADCRAFT";
+pub(crate) const APP: &str = "AAD";
+/// The application name older files carry in xdata (before the rename to AAD): still read, never written.
+pub(crate) const LEGACY_APP: &str = "CADCRAFT";
 /// Named-object-dictionary key of the saved layer states XRECORD.
-pub(crate) const LAYER_STATES_KEY: &str = "CADCRAFT_LAYERSTATES";
+pub(crate) const LAYER_STATES_KEY: &str = "AAD_LAYERSTATES";
 /// Named-object-dictionary key of the drawing's plot style tables XRECORD.
-pub(crate) const PLOT_STYLES_KEY: &str = "CADCRAFT_PLOTSTYLES";
+pub(crate) const PLOT_STYLES_KEY: &str = "AAD_PLOTSTYLES";
 /// Named-object-dictionary key of the plot style names dictionary (DXF Reference): its entries
 /// name `ACDBPLACEHOLDER` objects, and layers and objects point at them with group 390.
 pub(crate) const PLOT_STYLE_NAMES_KEY: &str = "ACAD_PLOTSTYLENAME";
@@ -255,7 +257,9 @@ pub(crate) fn xdata_str(s: &str) -> &str {
 
 /// The extended data of one application: the groups after its `1001` up to the next `1001`.
 pub(crate) fn xdata<'a>(tags: &'a [Tag], app: &str) -> &'a [Tag] {
-    let Some(start) = tags.iter().position(|t| t.code == 1001 && t.str().trim().eq_ignore_ascii_case(app)) else { return &[] };
+    let is_app =
+        |t: &Tag| t.code == 1001 && (t.str().trim().eq_ignore_ascii_case(app) || (app == APP && t.str().trim().eq_ignore_ascii_case(LEGACY_APP)));
+    let Some(start) = tags.iter().position(is_app) else { return &[] };
     let rest = tags.get(start + 1..).unwrap_or(&[]);
     let end = rest.iter().position(|t| t.code == 1001).unwrap_or(rest.len());
     rest.get(..end).unwrap_or(&[])
@@ -362,15 +366,15 @@ pub(crate) fn assoc_xdata(assoc: &[DimAssoc]) -> Vec<Tag> {
 /// An arc-length dimension as AAD xdata: `1000 ARCLEN`, `1002 {`, the arc centre as an xdata
 /// point (`1010`/`1020`/`1030`), `1002 }`. The record itself stays a standard aligned dimension
 /// (DXF has no arc-length DIMENSION type), so other programs still read it.
-pub(crate) fn arclen_xdata(center: cadcraft_geom::Vec3) -> Vec<Tag> {
+pub(crate) fn arclen_xdata(center: aad_geom::Vec3) -> Vec<Tag> {
     vec![Tag::s(1000, "ARCLEN"), Tag::s(1002, "{"), Tag::f(1010, center.x), Tag::f(1020, center.y), Tag::f(1030, center.z), Tag::s(1002, "}")]
 }
 
 /// The arc centre written by [`arclen_xdata`]; None for other dimensions and other writers.
-pub(crate) fn read_arclen(tags: &[Tag]) -> Option<cadcraft_geom::Vec3> {
+pub(crate) fn read_arclen(tags: &[Tag]) -> Option<aad_geom::Vec3> {
     let list = xdata_list(xdata(tags, APP), "ARCLEN");
     let g = |c: i32| list.iter().find(|t| t.code == c).map(Tag::f64).filter(|v| v.is_finite());
-    Some(cadcraft_geom::Vec3::new(g(1010)?, g(1020)?, g(1030).unwrap_or(0.0)))
+    Some(aad_geom::Vec3::new(g(1010)?, g(1020)?, g(1030).unwrap_or(0.0)))
 }
 
 /// A viewport's frozen layer names as AAD xdata: `1000 VPFROZEN`, `1002 {`, one `1000` per layer, `1002 }`.
@@ -476,7 +480,7 @@ fn json_chunks(json: &str) -> Vec<String> {
     chars.chunks(250).map(|c| c.iter().collect()).collect()
 }
 
-/// The saved layer states stored in the `CADCRAFT_LAYERSTATES` XRECORD.
+/// The saved layer states stored in the `AAD_LAYERSTATES` XRECORD.
 #[derive(Serialize, Deserialize)]
 struct LayerStatesPayload {
     version: u32,
@@ -506,7 +510,7 @@ pub(crate) fn parse_layer_states(text: &str) -> Option<Vec<LayerState>> {
     Some(p.states)
 }
 
-/// The drawing's plot style tables stored in the `CADCRAFT_PLOTSTYLES` XRECORD.
+/// The drawing's plot style tables stored in the `AAD_PLOTSTYLES` XRECORD.
 #[derive(Serialize, Deserialize)]
 struct PlotStylesPayload {
     version: u32,
@@ -542,7 +546,7 @@ mod tests {
 
     #[test]
     fn every_dimvar_has_a_code() {
-        for (_, field) in cadcraft_doc::DIMVARS {
+        for (_, field) in aad_doc::DIMVARS {
             assert!(dim_code(field).is_some(), "{field} has no DXF group code");
         }
     }
@@ -558,7 +562,7 @@ mod tests {
 }
 
 /// Named-object-dictionary key of the project data XRECORD.
-pub(crate) const PROJECT_KEY: &str = "CADCRAFT_PROJECT";
+pub(crate) const PROJECT_KEY: &str = "AAD_PROJECT";
 /// Most project entries read from a file.
 pub(crate) const MAX_PROJECT_ENTRIES: usize = 10_000;
 

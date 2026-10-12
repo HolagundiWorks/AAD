@@ -1,9 +1,9 @@
 //! Midpoint, Quadrant, Perpendicular and Tangent snaps on elliptical arcs and splines (#332).
 
-use cadcraft_doc::{EntityKind, Space};
-use cadcraft_engine::Session;
-use cadcraft_engine::snap::{self, mode};
-use cadcraft_geom::Vec2;
+use aad_doc::{EntityKind, Space};
+use aad_engine::Session;
+use aad_engine::snap::{self, mode};
+use aad_geom::Vec2;
 
 fn last(s: &Session) -> EntityKind {
     s.doc().unwrap().model.iter().last().map(|e| e.kind.clone()).unwrap()

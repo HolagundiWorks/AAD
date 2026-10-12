@@ -15,8 +15,8 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use cadcraft_doc::{Block, DimStyle, Drawing, Entity, EntityKind, EntityStore, Space, entity_bounds};
-use cadcraft_geom::Bounds2;
+use aad_doc::{Block, DimStyle, Drawing, Entity, EntityKind, EntityStore, Space, entity_bounds};
+use aad_geom::Bounds2;
 use rstar::primitives::{GeomWithData, Rectangle};
 use rstar::{AABB, RTree};
 
@@ -273,8 +273,8 @@ pub fn clear_cache() {
 mod tests {
     use super::*;
     use crate::{select, snap};
-    use cadcraft_doc::{Common, Insert, Text};
-    use cadcraft_geom::{PolyVertex, Vec2, Vec3};
+    use aad_doc::{Common, Insert, Text};
+    use aad_geom::{PolyVertex, Vec2, Vec3};
 
     /// UI-001: the first pick after opening a large drawing used to build the index on the thread
     /// that draws the window. `warm` builds it ahead, in the background, with no pick involved.
@@ -283,7 +283,7 @@ mod tests {
         let mut d = Drawing::default();
         for i in 0..2000 {
             let c = v3(f64::from(i % 50) * 3.0, f64::from(i / 50) * 3.0);
-            d.add(&Space::Model, Common::default(), EntityKind::Circle(cadcraft_doc::Circle { center: c, radius: 1.0 })).unwrap();
+            d.add(&Space::Model, Common::default(), EntityKind::Circle(aad_doc::Circle { center: c, radius: 1.0 })).unwrap();
         }
         let d = Arc::new(d);
         let store = d.space(&Space::Model).unwrap();
@@ -327,8 +327,7 @@ mod tests {
             explodable: true,
             units: 0,
         };
-        blk.entities
-            .push(Entity::new(cadcraft_doc::Handle(1_000_000), EntityKind::Circle(cadcraft_doc::Circle { center: v3(0.0, 0.0), radius: 1.0 })));
+        blk.entities.push(Entity::new(aad_doc::Handle(1_000_000), EntityKind::Circle(aad_doc::Circle { center: v3(0.0, 0.0), radius: 1.0 })));
         d.blocks.insert("B".into(), Arc::new(blk));
         d.ensure_layer("OFF");
         if let Some(l) = d.layer_mut("OFF") {
@@ -339,10 +338,10 @@ mod tests {
             let (x, y) = (r.r(0.0, 100.0), r.r(0.0, 100.0));
             let s = r.r(0.2, 6.0);
             let kind = match i % 10 {
-                0 | 1 => EntityKind::Line(cadcraft_doc::Line { a: v3(x, y), b: v3(x + r.r(-s, s), y + r.r(-s, s)) }),
-                2 => EntityKind::Circle(cadcraft_doc::Circle { center: v3(x, y), radius: s * 0.5 }),
-                3 => EntityKind::Arc(cadcraft_doc::Arc { center: v3(x, y), radius: s * 0.5, start: r.r(0.0, 3.0), end: r.r(3.2, 6.2) }),
-                4 => EntityKind::LwPolyline(cadcraft_doc::LwPolyline {
+                0 | 1 => EntityKind::Line(aad_doc::Line { a: v3(x, y), b: v3(x + r.r(-s, s), y + r.r(-s, s)) }),
+                2 => EntityKind::Circle(aad_doc::Circle { center: v3(x, y), radius: s * 0.5 }),
+                3 => EntityKind::Arc(aad_doc::Arc { center: v3(x, y), radius: s * 0.5, start: r.r(0.0, 3.0), end: r.r(3.2, 6.2) }),
+                4 => EntityKind::LwPolyline(aad_doc::LwPolyline {
                     vertices: (0..5)
                         .map(|k| PolyVertex {
                             p: Vec2::new(x + f64::from(k) * s * 0.3, y + r.r(-s, s) * 0.3),
@@ -368,7 +367,7 @@ mod tests {
                     halign: Default::default(),
                     valign: Default::default(),
                 }),
-                6 => EntityKind::Point(cadcraft_doc::Point { p: v3(x, y), angle: 0.0 }),
+                6 => EntityKind::Point(aad_doc::Point { p: v3(x, y), angle: 0.0 }),
                 7 => EntityKind::Insert(Insert {
                     block: "B".into(),
                     insert: v3(x, y),
@@ -380,9 +379,9 @@ mod tests {
                     col_spacing: 0.0,
                     row_spacing: 0.0,
                 }),
-                8 if i % 40 == 8 => EntityKind::XLine(cadcraft_doc::RayLine { base: v3(x, y), dir: v3(r.r(-1.0, 1.0), 1.0) }),
-                8 if i % 40 == 18 => EntityKind::Ray(cadcraft_doc::RayLine { base: v3(x, y), dir: v3(1.0, r.r(-1.0, 1.0)) }),
-                _ => EntityKind::Circle(cadcraft_doc::Circle { center: v3(x, y), radius: s * 0.1 }),
+                8 if i % 40 == 8 => EntityKind::XLine(aad_doc::RayLine { base: v3(x, y), dir: v3(r.r(-1.0, 1.0), 1.0) }),
+                8 if i % 40 == 18 => EntityKind::Ray(aad_doc::RayLine { base: v3(x, y), dir: v3(1.0, r.r(-1.0, 1.0)) }),
+                _ => EntityKind::Circle(aad_doc::Circle { center: v3(x, y), radius: s * 0.1 }),
             };
             let common = if i % 17 == 0 { Common { layer: "OFF".into(), ..Common::default() } } else { Common::default() };
             d.add(&Space::Model, common, kind).unwrap();
@@ -488,13 +487,12 @@ mod tests {
         assert!(!Arc::ptr_eq(&first, &second));
         assert_eq!(select::pick(&d, &Space::Model, Vec2::new(500.5, 500.0), 0.1), Some(h));
         // A new entity is found too.
-        let nh = d.add(&Space::Model, Common::default(), EntityKind::Circle(cadcraft_doc::Circle { center: v3(-300.0, 0.0), radius: 1.0 })).unwrap();
+        let nh = d.add(&Space::Model, Common::default(), EntityKind::Circle(aad_doc::Circle { center: v3(-300.0, 0.0), radius: 1.0 })).unwrap();
         assert_eq!(select::pick(&d, &Space::Model, Vec2::new(-299.0, 0.0), 0.1), Some(nh));
         // Redefining the block changes insert bounds: the index is rebuilt.
         let before = index(&d, &Space::Model).unwrap();
         let mut blk = (**d.blocks.get("B").unwrap()).clone();
-        blk.entities
-            .push(Entity::new(cadcraft_doc::Handle(2_000_000), EntityKind::Circle(cadcraft_doc::Circle { center: v3(0.0, 0.0), radius: 50.0 })));
+        blk.entities.push(Entity::new(aad_doc::Handle(2_000_000), EntityKind::Circle(aad_doc::Circle { center: v3(0.0, 0.0), radius: 50.0 })));
         d.blocks.insert("B".into(), Arc::new(blk));
         assert!(!Arc::ptr_eq(&before, &index(&d, &Space::Model).unwrap()));
     }
@@ -520,14 +518,14 @@ mod tests {
                 }
                 1 => {
                     let c = v3(r.r(-50.0, 150.0), r.r(-50.0, 150.0));
-                    d.add(&Space::Model, Common::default(), EntityKind::Circle(cadcraft_doc::Circle { center: c, radius: r.r(0.1, 5.0) })).unwrap();
+                    d.add(&Space::Model, Common::default(), EntityKind::Circle(aad_doc::Circle { center: c, radius: r.r(0.1, 5.0) })).unwrap();
                 }
                 2 => {
                     d.model.send_to_back(h);
                 }
                 _ => {
                     let (dx, dy) = (r.r(-20.0, 20.0), r.r(-20.0, 20.0));
-                    d.modify_entity(h, |e| e.kind.transform(&cadcraft_geom::Mat3::translate(Vec2::new(dx, dy)))).unwrap();
+                    d.modify_entity(h, |e| e.kind.transform(&aad_geom::Mat3::translate(Vec2::new(dx, dy)))).unwrap();
                 }
             }
             let inc = SpatialIndex::build_from(&d, &d.model, Some(&prev));

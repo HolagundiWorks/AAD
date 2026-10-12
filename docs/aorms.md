@@ -9,12 +9,12 @@ AAD can sign in to AORMS (the office-management web portal) and pull project inf
 * **Status-bar chip** left of the units button: `AORMS` (Community, not signed in) / `AORMS · <studio>` (connected) / `AORMS · !` (signed in, not connected) / `AORMS …` (working). Click opens the dialog.
 * **No freezing:** every network call runs on a worker thread (`crates/ui-egui/src/aorms_ui.rs`): the job takes the client out of the session, runs, and hands it back with the result; the drawing is only touched on the UI thread, through the `aorms.apply` command, so a pull is **one undo step** and changes only project details and floors, never geometry.
 * **Preferences** save the e-mail and server only. The password is cleared from the text field the moment the sign-in starts and is never stored, logged or saved; no token is ever in the preferences (the refresh token lives in the OS credential store).
-* **Start-up:** the desktop app silently restores the shared sign-in once (`CADCRAFT_NO_AORMS=1` turns that off). It never takes a session over.
+* **Start-up:** the desktop app silently restores the shared sign-in once (`AAD_NO_AORMS=1` turns that off). It never takes a session over.
 
 ## Commands
 
 
-Crate `cadcraft-aorms` (layer 3, native only; the web build compiles it to "not available") and the engine commands in `crates/engine/src/cmd/aorms.rs`.
+Crate `aad-aorms` (layer 3, native only; the web build compiles it to "not available") and the engine commands in `crates/engine/src/cmd/aorms.rs`.
 
 | Command | Does |
 |---|---|
@@ -42,8 +42,8 @@ The OS store (`KeyringStore`) is behind the cargo feature `keyring-store` (engin
 
 ## Tested
 
-* `cargo test -p cadcraft-aorms` (25 tests: contract handling, restore without stealing a session, rotation, busy/offline/refused refresh, hostile answers, mapping) and `cargo test -p cadcraft-engine aorms` (12 tests: commands against a scripted server, no geometry changed, hostile parameters, signed-out behaviour).
-* `cargo test -p cadcraft-ui-egui --test aorms_ui` (15 tests: sign-in off the UI thread with a slow server, password leaves the field at once, errors in words, pull = one undo step and no geometry change, hostile ids refused, menu vs JSON routing, the dialog drawn in every state, chip states, preferences hold no secret, start-up restore silent when nothing is stored).
+* `cargo test -p aad-aorms` (25 tests: contract handling, restore without stealing a session, rotation, busy/offline/refused refresh, hostile answers, mapping) and `cargo test -p aad-engine aorms` (12 tests: commands against a scripted server, no geometry changed, hostile parameters, signed-out behaviour).
+* `cargo test -p aad-ui-egui --test aorms_ui` (15 tests: sign-in off the UI thread with a slow server, password leaves the field at once, errors in words, pull = one undo step and no geometry change, hostile ids refused, menu vs JSON routing, the dialog drawn in every state, chip states, preferences hold no secret, start-up restore silent when nothing is stored).
 * `crates/engine/examples/aorms_smoke.rs` runs the commands against a real server: signed in as `aad`, listed projects, pulled a bound project's details and floors into a scratch drawing, signed out (2026-10-11, a local AORMS dev server).
 
 **Not verified:** how the dialog and chip look on a real display (they were exercised through the egui test harness, not by eye), and the Windows credential store.

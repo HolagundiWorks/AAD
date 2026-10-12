@@ -103,8 +103,8 @@ dimension, multileader and table styles, groups, and optionally zero-length geom
 
 DWG parsing is done by a third-party library that can abort the whole process on a damaged file
 (an impossible allocation cannot be caught) or run for a very long time. The applications therefore
-read DWG in a short-lived copy of themselves (`cadcraft_dwg::isolated`, flag `--aad-dwg-worker`): a
+read DWG in a short-lived copy of themselves (`aad_dwg::isolated`, flag `--aad-dwg-worker`): a
 crash or hang is an error message, and the open drawings survive. The first thing `main` does in
-`cadcraft` and `cadcraft-cli` is call `run_worker_if_requested()` and `enable()`. Anything else that
-links `cadcraft-dwg` reads in-process unless it does the same. The worker has a 180 s limit and its
+`aad` and `aad-cli` is call `run_worker_if_requested()` and `enable()`. Anything else that
+links `aad-dwg` reads in-process unless it does the same. The worker has a 180 s limit and its
 memory is not capped. See BUG-001 in [BUG_BACKLOG.md](BUG_BACKLOG.md).

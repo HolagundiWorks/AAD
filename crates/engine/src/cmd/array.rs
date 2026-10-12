@@ -4,8 +4,8 @@
 //! forms select objects, then edit the array in an option loop with a live preview, and create
 //! the copies on eXit (or Enter).
 
-use cadcraft_doc::{Drawing, EntityKind, Handle};
-use cadcraft_geom::{Bounds2, Mat3, TAU, Vec2};
+use aad_doc::{Drawing, EntityKind, Handle};
+use aad_geom::{Bounds2, Mat3, TAU, Vec2};
 use serde_json::{Value, json};
 
 use super::helpers::line;
@@ -62,12 +62,12 @@ fn polar_mats(center: Vec2, n: u64, fill: f64, rotate: bool, reference: Vec2) ->
 }
 
 fn bounds(d: &Drawing, hs: &[Handle]) -> Bounds2 {
-    hs.iter().filter_map(|h| d.entity(*h).map(|e| cadcraft_doc::entity_bounds(d, e, 0))).fold(Bounds2::EMPTY, |a, b| a.union(&b))
+    hs.iter().filter_map(|h| d.entity(*h).map(|e| aad_doc::entity_bounds(d, e, 0))).fold(Bounds2::EMPTY, |a, b| a.union(&b))
 }
 
 /// The centre of the first object (the point a non-rotated polar copy is moved by).
 fn first_center(d: &Drawing, hs: &[Handle]) -> Option<Vec2> {
-    hs.first().and_then(|h| d.entity(*h)).map(|e| cadcraft_doc::entity_bounds(d, e, 0).center()).filter(|c| c.is_finite())
+    hs.first().and_then(|h| d.entity(*h)).map(|e| aad_doc::entity_bounds(d, e, 0).center()).filter(|c| c.is_finite())
 }
 
 /// MAXARRAY: refuse an array of `items` copies of `objs` objects that would exceed the limit

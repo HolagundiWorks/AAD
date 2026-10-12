@@ -5,9 +5,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::assistant::{Backend, Line, State};
-use cadcraft_ui_egui::{CadApp, Services, WorkspaceMode, cmdline};
+use aad_engine::Session;
+use aad_ui_egui::assistant::{Backend, Line, State};
+use aad_ui_egui::{CadApp, Services, WorkspaceMode, cmdline};
 use egui::{Event, Key, Modifiers};
 use egui_kittest::Harness;
 use serde_json::json;
@@ -214,7 +214,7 @@ fn the_slash_menu_lists_references_and_arrows_tab_enter_and_escape_work_on_it() 
     let mut h = harness(Some(s.clone()));
     typed(&mut h, "/");
     let all = cmdline::menu(h.state_mut());
-    assert_eq!(all.len(), cadcraft_engine::cmd::context::PROVIDERS.len());
+    assert_eq!(all.len(), aad_engine::cmd::context::PROVIDERS.len());
     assert!(all.iter().all(|e| e.reference));
     typed(&mut h, "ro");
     let m = cmdline::menu(h.state_mut());
@@ -398,7 +398,7 @@ fn there_is_one_input_and_no_assistant_window_or_menu_entry() {
     let h = harness(Some(shared()));
     assert!(h.query_all_by_label("Assistant").next().is_none());
     assert!(h.query_all_by_label("Ask about the drawing…").next().is_none());
-    assert!(cadcraft_ui_egui::menus::UI_COMMANDS.iter().all(|c| !c.0.contains("assistant")), "no separate assistant command or menu item");
+    assert!(aad_ui_egui::menus::UI_COMMANDS.iter().all(|c| !c.0.contains("assistant")), "no separate assistant command or menu item");
 }
 
 use egui_kittest::kittest::Queryable;

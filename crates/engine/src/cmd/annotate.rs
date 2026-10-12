@@ -2,8 +2,8 @@
 //! DIMORDINATE, DIMCONTINUE, DIMBASELINE, QDIM, DIM (smart), MLEADER, LEADER, DIMOVERRIDE,
 //! DIMREASSOCIATE / DIMDISASSOCIATE, DIMTEDIT, DIMSPACE.
 
-use cadcraft_doc::{AssocSnap, DimAssoc, DimKind, Dimension, EntityKind, Handle, MLeader, MText, Prim};
-use cadcraft_geom::{Segment, Vec2, Vec3};
+use aad_doc::{AssocSnap, DimAssoc, DimKind, Dimension, EntityKind, Handle, MLeader, MText, Prim};
+use aad_geom::{Segment, Vec2, Vec3};
 use serde_json::{Value, json};
 
 use super::helpers::v3;
@@ -169,7 +169,7 @@ fn angular_from_lines(s: &Session, h1: Handle, h2: Handle, at: Vec2) -> Option<E
         _ => None,
     };
     let ((a1, a2), (b1, b2)) = (line(h1)?, line(h2)?);
-    let (v, _, _) = cadcraft_geom::line_line_infinite(a1, a2, b1, b2)?;
+    let (v, _, _) = aad_geom::line_line_infinite(a1, a2, b1, b2)?;
     // Use the leg ends on the side of the picked arc location (the quadrant the user meant).
     let pick = |p: Vec2, q: Vec2, snap_p: AssocSnap, snap_q: AssocSnap| {
         let dir = if (p - v).len() > (q - v).len() { (p, snap_p) } else { (q, snap_q) };
@@ -282,7 +282,7 @@ fn run_angular(s: &mut Session, p: &Value) -> Result<Value> {
             Some(EntityKind::Arc(a)) => a,
             _ => return Err(bad("dimangular", "object is not an arc")),
         };
-        let g = cadcraft_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end);
+        let g = aad_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end);
         let k = dim(s, DimKind::Angular3P, at, g.start_point(), g.end_point(), g.center, Vec2::ZERO, "");
         return Ok(json!({ "handle": add_dim(s, k)?.hex() }));
     }
@@ -479,12 +479,8 @@ fn run_leader(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("leader", "need 2+ points"));
     }
     let st = style(s);
-    let h = s.add_entity(EntityKind::Leader(cadcraft_doc::Leader {
-        vertices: pts.iter().map(|q| v3(*q)).collect(),
-        arrow: true,
-        spline: false,
-        style: st,
-    }))?;
+    let h =
+        s.add_entity(EntityKind::Leader(aad_doc::Leader { vertices: pts.iter().map(|q| v3(*q)).collect(), arrow: true, spline: false, style: st }))?;
     let mut out = vec![h.hex()];
     if let (Some(t), Some(last)) = (str_param(p, "text"), pts.last()) {
         let th = s.doc()?.dim_style(&style(s)).map(|d| d.text_height).unwrap_or(0.18);
@@ -722,7 +718,7 @@ impl Interactive for OverrideM {
                 if t.eq_ignore_ascii_case("c") {
                     self.clear = true;
                     self.selecting = Some(super::machines::SelectPhase::default());
-                } else if cadcraft_doc::DimStyle::field_name(&t).is_some() {
+                } else if aad_doc::DimStyle::field_name(&t).is_some() {
                     self.var = Some(t);
                 } else {
                     s.echo(format!("Unknown dimension variable \"{t}\"."));
@@ -758,9 +754,9 @@ fn pick_at(s: &Session, p: Vec2) -> Option<Handle> {
 /// The straight or curved piece of `h` picked at `p`: a line, an arc, or the polyline segment nearest `p`.
 fn segment_at(s: &Session, h: Handle, p: Vec2) -> Option<Segment> {
     match &s.doc().ok()?.entity(h)?.kind {
-        EntityKind::Line(l) => Some(Segment::Line(cadcraft_geom::Line::new(l.a.xy(), l.b.xy()))),
-        EntityKind::Arc(a) => Some(Segment::Arc { arc: cadcraft_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end), ccw: true }),
-        EntityKind::LwPolyline(pl) => cadcraft_geom::Polyline { vertices: pl.vertices.clone(), closed: pl.closed }
+        EntityKind::Line(l) => Some(Segment::Line(aad_geom::Line::new(l.a.xy(), l.b.xy()))),
+        EntityKind::Arc(a) => Some(Segment::Arc { arc: aad_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end), ccw: true }),
+        EntityKind::LwPolyline(pl) => aad_geom::Polyline { vertices: pl.vertices.clone(), closed: pl.closed }
             .segments()
             .into_iter()
             .min_by(|x, y| x.closest(p).dist(p).total_cmp(&y.closest(p).dist(p))),
@@ -922,7 +918,7 @@ impl Interactive for LinearM {
                 add_dim(s, k)?;
                 if let Some(EntityKind::Dimension(d)) = s.last_dim.and_then(|h| s.doc().ok()?.entity(h).map(|e| e.kind.clone())) {
                     let st = s.doc()?.dim_style(&d.style).cloned().unwrap_or_default();
-                    let g = cadcraft_render::dimension_geometry(&d, &st, 1.0);
+                    let g = aad_render::dimension_geometry(&d, &st, 1.0);
                     s.echo(format!("Dimension text = {}", g.value));
                 }
                 Ok(Step::Done)
@@ -1039,7 +1035,7 @@ impl AngularM {
             return Some((*v, *a, *b));
         }
         let ((a1, a2), (b1, b2)) = (self.first?, self.second?);
-        let (v, _, _) = cadcraft_geom::line_line_infinite(a1, a2, b1, b2)?;
+        let (v, _, _) = aad_geom::line_line_infinite(a1, a2, b1, b2)?;
         let far = |p: Vec2, q: Vec2| if p.dist(v) > q.dist(v) { p } else { q };
         Some((v, far(a1, a2), far(b1, b2)))
     }
@@ -1136,7 +1132,7 @@ impl Interactive for AngularM {
                 let circle = s
                     .doc()?
                     .entity(h)
-                    .and_then(|e| if let EntityKind::Circle(c) = &e.kind { Some(cadcraft_geom::Circle::new(c.center.xy(), c.radius)) } else { None });
+                    .and_then(|e| if let EntityKind::Circle(c) = &e.kind { Some(aad_geom::Circle::new(c.center.xy(), c.radius)) } else { None });
                 if let Some(g) = circle.filter(|_| self.first.is_none()) {
                     // The center is the vertex and the pick the first endpoint; ask for the second.
                     self.vertex = true;

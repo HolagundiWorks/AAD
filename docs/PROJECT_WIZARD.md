@@ -56,7 +56,7 @@ the naming rules only for when DWG writing exists.
   regenerating after the user edited a drawing leaves it byte for byte as it was. An invalid
   configuration, a different project in the folder or a non-empty folder writes nothing. Overlay
   Xrefs are session-only in this engine, so they are recorded in the manifest and not written into
-  the files. Tested on real files: `apps/cadcraft-cli/tests/project_generate.rs` (generate, verify,
+  the files. Tested on real files: `apps/aad-cli/tests/project_generate.rs` (generate, verify,
   move the folder, regenerate, refuse, interrupt, resume, clean up).
 - **Recovery** (`generation.log.json`, command `project.recover`): the log is replaced atomically
   after every step and records the files this run created with a hash of their content and the
@@ -78,7 +78,7 @@ the naming rules only for when DWG writing exists.
    exists. `project.check {root}` compares the file with `project.json` and reports a missing, damaged,
    hand-kept or stale copy. Generated drawings carry a `projectManifest` pointer so `floor.list`,
    `floor.set` and `floor.activate` work on them. Tested in
-   `apps/cadcraft-cli/tests/project_generate.rs`. Still to do, as its own step: move the floor
+   `apps/aad-cli/tests/project_generate.rs`. Still to do, as its own step: move the floor
    commands to ID-based references; only then remove `project.aad.json` (the schema versions are
    `schema_version` 1 in `project.json` and `version` 1 plus `compat.version` 1 in the legacy file).
 2. **File format.** DXF now. Generation goes through the engine's own commands and file writer, and

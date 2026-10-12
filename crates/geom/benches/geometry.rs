@@ -2,11 +2,11 @@
 //! transforms, on batches of pseudo-random inputs (so one iteration is a batch, and the time per
 //! operation is the reported time divided by the batch size, which is in the benchmark name).
 //!
-//! Run: `cargo bench -p cadcraft-geom`. Numbers are only comparable on the same machine and build.
+//! Run: `cargo bench -p aad-geom`. Numbers are only comparable on the same machine and build.
 
 use std::hint::black_box;
 
-use cadcraft_geom::{Arc, Circle, Line, Mat3, PolyVertex, Polyline, Vec2, circle_circle, line_circle, line_line, point_in_polygon, shoelace};
+use aad_geom::{Arc, Circle, Line, Mat3, PolyVertex, Polyline, Vec2, circle_circle, line_circle, line_line, point_in_polygon, shoelace};
 use criterion::{Criterion, criterion_group, criterion_main};
 
 struct Rng(u64);

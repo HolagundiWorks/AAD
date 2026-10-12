@@ -16,14 +16,14 @@ The single source is `[workspace.package] version` in the root `Cargo.toml` (cur
 powershell -NoProfile -ExecutionPolicy Bypass -File packagingwindowspackage.ps1 -Arch x64
 ```
 
-1. `cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc`
+1. `cargo build --release --locked -p aad -p aad-cli --target x86_64-pc-windows-msvc`
    with a static C runtime, so no Visual C++ redistributable is needed.
 2. Stage the files under `target/windows-package/`.
-3. Build the MSI with WiX v5 (`packaging/windows/cadcraft.wxs`) and the portable zip.
+3. Build the MSI with WiX v5 (`packaging/windows/aad.wxs`) and the portable zip.
 4. Sign with `packaging/windows/sign.ps1` if signing secrets exist; otherwise the artifacts are
    unsigned and the script warns.
 
-Output: `dist/release/cadcraft-<version>-windows-x64.msi` and `...-portable.zip`.
+Output: `dist/release/aad-<version>-windows-x64.msi` and `...-portable.zip`.
 
 ## Required at run time
 
@@ -42,7 +42,7 @@ moved to `dist/release`):
 | Check | Result |
 |---|---|
 | Build: `package.ps1 -Arch x64` | passed (release build 3.5 minutes); MSI 17 846 272 bytes, zip 22 689 850 bytes |
-| Portable zip, extracted to an empty folder | contains `cadcraft.exe`, `cadcraft-cli.exe`, `LICENSE-APACHE`, `LICENSE-MIT`, `README.md`; the CLI reports 0.6.0, reads a DXF, draws, saves and exports a PNG; the GUI starts on the GPU canvas, answers the control channel and quits; a damaged DWG (the BUG-001 fixture) is refused with a message by both the CLI and the GUI and the program stays up (the DWG worker works from the packaged executable) |
+| Portable zip, extracted to an empty folder | contains `aad.exe`, `aad-cli.exe`, `LICENSE-APACHE`, `LICENSE-MIT`, `README.md`; the CLI reports 0.6.0, reads a DXF, draws, saves and exports a PNG; the GUI starts on the GPU canvas, answers the control channel and quits; a damaged DWG (the BUG-001 fixture) is refused with a message by both the CLI and the GUI and the program stays up (the DWG worker works from the packaged executable) |
 | MSI administrative extract | the same two executables as the previous build |
 | MSI real install (silent, elevated) | exit 0; `C:\Program Files\AAD\` with both executables; "Add or remove programs" entry "AAD 0.6.0" by Human Centric Works; Start Menu shortcut; no desktop shortcut (opt-in) |
 | Installed programs | CLI runs and saves a DXF; GUI starts, shows 46 entities on the GPU canvas, exits cleanly |
@@ -52,7 +52,7 @@ Limits of that test: it ran on the development machine, not a clean one, and an 
 already existed (the install upgraded it). It was a silent install, so the wizard pages (Welcome,
 Shortcuts) were **not** exercised, nor the desktop-shortcut option, upgrade-over-older-version
 behaviour with a real older release, file-type registration (the `.dxf` and `.dwg` "Open with"
-entries exist in `cadcraft.wxs` but were not read back from the registry), or the x86 and arm64
+entries exist in `aad.wxs` but were not read back from the registry), or the x86 and arm64
 variants. Signing was not tested (no secrets).
 
 Findings from the test:

@@ -13,8 +13,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
-use cadcraft_doc::{Block, Drawing, Entity, EntityKind, HVal, Handle};
-use cadcraft_geom::{Mat3, Vec2};
+use aad_doc::{Block, Drawing, Entity, EntityKind, HVal, Handle};
+use aad_geom::{Mat3, Vec2};
 
 use super::{bad, has_doc};
 use crate::{Result, Session};

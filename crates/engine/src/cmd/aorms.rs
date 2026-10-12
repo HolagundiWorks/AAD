@@ -1,11 +1,11 @@
 //! AORMS connection commands: sign in to the shared AORMS login, list the studio's projects and pull project information into the drawing
 //! (details, floors). Optional: signed out, AAD is a complete standalone program. The contract and rules are in
-//! `docs/esti/AORMS-SUITE-SIGNIN.md` of the AORMS repository; the client is `cadcraft-aorms`.
+//! `docs/esti/AORMS-SUITE-SIGNIN.md` of the AORMS repository; the client is `aad-aorms`.
 //!
 //! Portal data reaches the drawing only on `aorms.open` / `aorms.pull`, and only project details and floors — never drawn geometry.
 //! The password is used once for the sign-in call and never stored, logged or returned.
 
-use cadcraft_aorms::{AormsError, Client, RestoreOutcome};
+use aad_aorms::{AormsError, Client, RestoreOutcome};
 use serde_json::{Value, json};
 
 use super::*;
@@ -106,13 +106,13 @@ fn base_url(cmd: &str, p: &Value) -> Result<String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn make_client(base: &str) -> Result<Client> {
-    use cadcraft_aorms::UreqTransport;
+    use aad_aorms::UreqTransport;
     #[cfg(feature = "aorms-keyring")]
-    let (shared, local): (Box<dyn cadcraft_aorms::SharedSignInStore>, Box<dyn cadcraft_aorms::SessionStore>) =
-        (Box::new(cadcraft_aorms::KeyringStore::shared()), Box::new(cadcraft_aorms::KeyringStore::session()));
+    let (shared, local): (Box<dyn aad_aorms::SharedSignInStore>, Box<dyn aad_aorms::SessionStore>) =
+        (Box::new(aad_aorms::KeyringStore::shared()), Box::new(aad_aorms::KeyringStore::session()));
     #[cfg(not(feature = "aorms-keyring"))]
-    let (shared, local): (Box<dyn cadcraft_aorms::SharedSignInStore>, Box<dyn cadcraft_aorms::SessionStore>) =
-        (Box::new(cadcraft_aorms::MemorySharedStore::default()), Box::new(cadcraft_aorms::MemorySessionStore::default()));
+    let (shared, local): (Box<dyn aad_aorms::SharedSignInStore>, Box<dyn aad_aorms::SessionStore>) =
+        (Box::new(aad_aorms::MemorySharedStore::default()), Box::new(aad_aorms::MemorySessionStore::default()));
     Ok(Client::new(base, Box::new(UreqTransport::default()), shared, local))
 }
 
@@ -252,13 +252,13 @@ pub fn fetch_project(c: &mut Client, project_id: &str) -> std::result::Result<(V
 /// drawn geometry. Called directly it records no undo step; the `aorms.apply` command wraps it so the UI's pull is one undo step.
 pub fn apply_project(s: &mut Session, project_id: &str, seed: &Value, settings: &Value) -> Result<Value> {
     let mut warnings = Vec::<String>::new();
-    let details = cadcraft_aorms::mapping::details_from_seed(seed);
+    let details = aad_aorms::mapping::details_from_seed(seed);
     let mut out = json!({});
     if !details.is_empty() {
         out["details"] = project::run_project(s, &json!({ "details": Value::Object(details) }))?["details"].clone();
     }
     let existing = project::floors(s.doc()?);
-    match cadcraft_aorms::mapping::floors_from_settings(settings, &existing) {
+    match aad_aorms::mapping::floors_from_settings(settings, &existing) {
         Some(floors) => match project::run_floors(s, &json!({ "floors": floors })) {
             Ok(v) => out["floors"] = v["floors"].clone(),
             Err(e) => warnings.push(format!("floors not updated: {e}")),
@@ -331,7 +331,7 @@ fn run_drawings(s: &mut Session, p: &Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cadcraft_aorms::{MemorySessionStore, MemorySharedStore, Method, Request, Response, Transport};
+    use aad_aorms::{MemorySessionStore, MemorySharedStore, Method, Request, Response, Transport};
     use std::sync::{Arc, Mutex};
 
     /// Scripted AORMS: answers by "METHOD path-prefix" (longest wins). Records requests.

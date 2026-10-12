@@ -4,11 +4,11 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde_json::{Value, json};
 
 /// Something that answers control-channel methods (`engine.execute`, `cmdline.input`,
-/// `drawing.inspect`, `ui.render`…). See `cadcraft_ui_egui::control` for the full list.
+/// `drawing.inspect`, `ui.render`…). See `aad_ui_egui::control` for the full list.
 pub trait Backend {
     fn call(&mut self, method: &str, params: Value) -> Result<Value, String>;
     /// True when a real UI is attached (`ui.screenshot` works).
@@ -126,7 +126,7 @@ impl Default for Headless {
     }
 }
 
-/// The command-line state, with the same fields as the app's (`cadcraft_ui_egui::control`). There
+/// The command-line state, with the same fields as the app's (`aad_ui_egui::control`). There
 /// is no command-line widget here: nothing is typed (`buffer`) and the history isn't expanded.
 fn state(s: &Session) -> Value {
     let p = s.current_prompt();
@@ -181,7 +181,7 @@ impl Backend for Headless {
                     s.cancel();
                     Ok(())
                 } else {
-                    s.input(cadcraft_engine::Input::Enter)
+                    s.input(aad_engine::Input::Enter)
                 };
                 // Like the app: a refused Enter is echoed to the history (and `output`), and also
                 // reported in `error`; the call itself succeeds.
@@ -200,27 +200,26 @@ impl Backend for Headless {
             }
             "cmdline.state" => Ok(state(s)),
             "engine.commands" => {
-                Ok(Value::Array(cadcraft_engine::command_specs().iter().map(|c| serde_json::to_value(c.info(s)).unwrap_or_default()).collect()))
+                Ok(Value::Array(aad_engine::command_specs().iter().map(|c| serde_json::to_value(c.info(s)).unwrap_or_default()).collect()))
             }
             "drawing.inspect" | "document.inspect" => s.execute("drawing.inspect", &p).map_err(|e| e.to_string()),
             "ui.render" => {
                 let w = p.get("width").and_then(Value::as_f64).unwrap_or(1600.0).clamp(16.0, 8192.0) as u32;
                 let h = p.get("height").and_then(Value::as_f64).unwrap_or(1000.0).clamp(16.0, 8192.0) as u32;
                 let st = s.state().map_err(|e| e.to_string())?;
-                let list = cadcraft_render::build(&st.doc, &st.space, &cadcraft_render::Options::default());
+                let list = aad_render::build(&st.doc, &st.space, &aad_render::Options::default());
                 let fit = p.get("fit").and_then(Value::as_bool).unwrap_or(true);
                 let view = if fit {
-                    cadcraft_render::raster::View::fit(&list.bounds, w, h, 0.05)
+                    aad_render::raster::View::fit(&list.bounds, w, h, 0.05)
                 } else {
                     let v = st.view();
-                    cadcraft_render::raster::View { center: v.center, scale: f64::from(h) / v.height.max(1e-12), width: w, height: h }
+                    aad_render::raster::View { center: v.center, scale: f64::from(h) / v.height.max(1e-12), width: w, height: h }
                 };
-                let png =
-                    cadcraft_render::raster::render_png(&list, &view, &cadcraft_render::raster::RasterOptions::default()).ok_or("render failed")?;
+                let png = aad_render::raster::render_png(&list, &view, &aad_render::raster::RasterOptions::default()).ok_or("render failed")?;
                 if let Some(path) = str_p("path") {
                     std::fs::write(&path, &png).map_err(|e| format!("{path}: {e}"))?;
                 }
-                Ok(json!({"pngBase64": cadcraft_engine::cmd::file::base64_encode(&png), "width": w, "height": h}))
+                Ok(json!({"pngBase64": aad_engine::cmd::file::base64_encode(&png), "width": w, "height": h}))
             }
             "app.open" => {
                 let path = str_p("path").ok_or("missing path")?;

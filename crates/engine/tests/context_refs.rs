@@ -1,8 +1,8 @@
 //! `/reference` resolution for the assistant (`cmd::context`): live data, bounded, read-only,
 //! missing data reported differently from empty data.
 
-use cadcraft_engine::Session;
-use cadcraft_engine::cmd::context::{self, PROVIDERS, RefError};
+use aad_engine::Session;
+use aad_engine::cmd::context::{self, PROVIDERS, RefError};
 use serde_json::json;
 
 fn session() -> Session {

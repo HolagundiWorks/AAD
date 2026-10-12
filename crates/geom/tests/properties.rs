@@ -6,7 +6,7 @@
 //! becomes a permanent regression test). `PROPTEST_CASES` raises the number of cases per property
 //! (the scheduled job does).
 
-use cadcraft_geom::{
+use aad_geom::{
     Arc, Bounds2, Circle, Line, Mat3, Polyline, Segment, Vec2, bulge_to_arc, circle_circle, intersect_segments, line_circle, line_line, shoelace,
 };
 use proptest::prelude::*;

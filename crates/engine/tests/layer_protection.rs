@@ -2,8 +2,8 @@
 //! is reached: handles given explicitly, the current selection, or a layer change. The engine
 //! enforces this (`crates/engine/src/protect.rs`); the interface only shows it.
 
-use cadcraft_doc::{Drawing, EntityKind};
-use cadcraft_engine::Session;
+use aad_doc::{Drawing, EntityKind};
+use aad_engine::Session;
 use serde_json::{Value, json};
 
 fn handle_of(d: &Drawing, f: impl Fn(&EntityKind) -> bool) -> String {

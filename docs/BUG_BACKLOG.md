@@ -26,13 +26,13 @@ significant lag or important functionality unreliable; P3 minor; P4 optimisation
   (180 s timeout), stack overflow or runaway output in the worker is an ordinary error message in
   the parent. Both applications turn it on at start-up. The dependency stays unmodified.
 - **Evidence:** before: `cargo run` of a throw-away binary on the fixture printed the backtrace
-  above and exited 0xc0000409. After: `apps/cadcraft-cli/tests/dwg_isolation.rs` (4 tests) and
-  `crates/dwg` unit tests (5) pass; `cadcraft-cli info <fixture>` exits 1 with
+  above and exited 0xc0000409. After: `apps/aad-cli/tests/dwg_isolation.rs` (4 tests) and
+  `crates/dwg` unit tests (5) pass; `aad-cli info <fixture>` exits 1 with
   *DWG: the reader stopped on this file*; 400 corrupted DWG files were read through the worker
   (96 read, 304 refused, 0 crashes of the test process).
 - **Regression tests:** `dwg_isolation.rs::the_file_that_aborted_the_reader_is_now_an_error_and_the_process_lives`,
   `::the_command_line_tool_reports_the_bad_file_and_exits_normally`, fixture
-  `apps/cadcraft-cli/tests/fixtures/dwg/alloc-bomb-ac18-section-size.dwg`.
+  `apps/aad-cli/tests/fixtures/dwg/alloc-bomb-ac18-section-size.dwg`.
 - **Remaining risks:** the worker's memory is not capped (needs OS job objects and `unsafe`), so a
   file that makes it allocate a large but possible amount uses that memory until it ends. Library
   users that do not call `isolated::enable()` still read DWG in-process and are exposed. Not
@@ -51,7 +51,7 @@ None confirmed that is still unfixed. Hypotheses and limits: [KNOWN_ISSUES.md](K
 
 ## PERF-001 (P3): editing existing objects cost about 40 ms at 100 000 entities - FIXED
 
-- **Measured before** (`cargo bench -p cadcraft-engine --bench drawing_operations`, 1 000 objects
+- **Measured before** (`cargo bench -p aad-engine --bench drawing_operations`, 1 000 objects
   in a 100 000-entity synthetic drawing, `Session::execute`): move 41.8 ms, rotate 40.3 ms, erase
   39.2 ms, recolour 40.3 ms; copy 2.7 ms; undo of a move 0.62 ms.
 - **Profile** (temporary timers around each stage of `Session::execute`, since removed; five move

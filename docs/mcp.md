@@ -6,21 +6,21 @@ AAD speaks the [Model Context Protocol](https://modelcontextprotocol.io) over st
 
 ```sh
 # Headless: an in-process drawing session, no window.
-cadcraft-cli mcp
+aad-cli mcp
 
 # Bridged to the running app (watch the agent draw):
-cadcraft --control 7979 &
-cadcraft-cli mcp --connect 127.0.0.1:7979
+aad --control 7979 &
+aad-cli mcp --connect 127.0.0.1:7979
 ```
 
-`--connect` needs the app's `HOST:PORT`. Without one (or with an unknown argument) `cadcraft-cli mcp`
+`--connect` needs the app's `HOST:PORT`. Without one (or with an unknown argument) `aad-cli mcp`
 exits with an error instead of falling back to a headless session, so a client meant for the app
 never edits a separate drawing by mistake. If the app can't be reached, startup fails too.
 
 Example client configuration (Claude Code / Claude Desktop):
 
 ```json
-{ "mcpServers": { "cadcraft": { "command": "cadcraft-cli", "args": ["mcp"] } } }
+{ "mcpServers": { "aad": { "command": "aad-cli", "args": ["mcp"] } } }
 ```
 
 ## Tools
@@ -37,7 +37,7 @@ Example client configuration (Claude Code / Claude Desktop):
 | `new_drawing {metric?}`, `open {path}`, `save {path?}`, `cancel` | Files and Escape. `save` to a `.svg`, `.png` or `.pdf` path exports: the drawing keeps its name and unsaved changes. |
 | `screenshot`, `ui_inspect`, `ui_click {x, y}` | Only when connected to the app. |
 
-Resources: `cadcraft://drawing` (inspect JSON) and `cadcraft://commands` (catalog).
+Resources: `aad://drawing` (inspect JSON) and `aad://commands` (catalog).
 
 Arguments are checked against each tool's input schema. An unknown tool, `arguments` that aren't an
 object, a missing required argument or one of the wrong type is a JSON-RPC error `-32602` (invalid

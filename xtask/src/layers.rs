@@ -30,7 +30,7 @@ impl Class {
     }
 }
 
-/// The layering table. Names are package names without the `cadcraft-`
+/// The layering table. Names are package names without the `aad-`
 /// prefix.
 pub const TABLE: &[(&str, Class)] = &[
     ("geom", Class::Layer(0)),
@@ -49,7 +49,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("llm", Class::Standalone),
     ("testkit", Class::Testkit),
     // apps and tooling
-    ("cadcraft", Class::Exempt),
+    ("aad", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
     ("xtask", Class::Exempt),
@@ -77,7 +77,7 @@ pub const UI_CRATES: &[&str] = &["craft-ui", "egui", "eframe", "egui-wgpu", "wgp
 pub const UI_MIN_LAYER: u8 = 5;
 
 pub fn short_name(pkg: &str) -> &str {
-    pkg.strip_prefix("cadcraft-").unwrap_or(pkg)
+    pkg.strip_prefix("aad-").unwrap_or(pkg)
 }
 
 pub fn classify(pkg: &str) -> Option<Class> {
@@ -135,7 +135,7 @@ impl std::fmt::Display for Violation {
                 write!(f, "{krate}: standalone crate must not depend on workspace crate {dep}")
             }
             Violation::TestkitAsNormalDep { krate } => {
-                write!(f, "{krate}: cadcraft-testkit may only be a dev-dependency")
+                write!(f, "{krate}: aad-testkit may only be a dev-dependency")
             }
             Violation::UiBelowL6 { krate, dep, layer } => {
                 write!(f, "{krate} (L{layer}) depends on UI crate `{dep}`; UI toolkits are only allowed in L6+")
@@ -242,74 +242,74 @@ mod tests {
     #[test]
     fn clean_downward_graph_passes() {
         let g = [
-            c("cadcraft-geom", &[("kurbo", Normal, false)]),
-            c("cadcraft-doc", &[("cadcraft-geom", Normal, true)]),
-            c("cadcraft-engine", &[("cadcraft-doc", Normal, true), ("cadcraft-testkit", Dev, true)]),
-            c("cadcraft-ui-egui", &[("cadcraft-engine", Normal, true), ("egui", Normal, false)]),
-            c("cadcraft-cli", &[("cadcraft-ui-egui", Normal, true)]),
+            c("aad-geom", &[("kurbo", Normal, false)]),
+            c("aad-doc", &[("aad-geom", Normal, true)]),
+            c("aad-engine", &[("aad-doc", Normal, true), ("aad-testkit", Dev, true)]),
+            c("aad-ui-egui", &[("aad-engine", Normal, true), ("egui", Normal, false)]),
+            c("aad-cli", &[("aad-ui-egui", Normal, true)]),
         ];
         assert!(check(&g).is_empty(), "{:?}", check(&g));
     }
 
     #[test]
     fn upward_dependency_flagged() {
-        let v = check(&[c("cadcraft-doc", &[("cadcraft-engine", Normal, true)])]);
+        let v = check(&[c("aad-doc", &[("aad-engine", Normal, true)])]);
         assert!(matches!(v[..], [Violation::Upward { from: 1, to: 4, .. }]));
     }
 
     #[test]
     fn sideways_dependency_flagged() {
-        let v = check(&[c("cadcraft-fonts", &[("cadcraft-render", Normal, true)])]);
+        let v = check(&[c("aad-fonts", &[("aad-render", Normal, true)])]);
         assert!(matches!(v[..], [Violation::Upward { from: 2, to: 2, .. }]));
     }
 
     #[test]
     fn l0_foundation_chain_allowed_one_way() {
-        assert!(check(&[c("cadcraft-color", &[("cadcraft-geom", Normal, true)])]).is_empty());
-        let v = check(&[c("cadcraft-geom", &[("cadcraft-color", Normal, true)])]);
+        assert!(check(&[c("aad-color", &[("aad-geom", Normal, true)])]).is_empty());
+        let v = check(&[c("aad-geom", &[("aad-color", Normal, true)])]);
         assert!(matches!(v[..], [Violation::Upward { from: 0, to: 0, .. }]));
     }
 
     #[test]
     fn self_dev_dependency_ignored() {
-        assert!(check(&[c("cadcraft-doc", &[("cadcraft-doc", Dev, true)])]).is_empty());
+        assert!(check(&[c("aad-doc", &[("aad-doc", Dev, true)])]).is_empty());
     }
 
     #[test]
     fn upward_dev_dependency_flagged() {
-        let v = check(&[c("cadcraft-geom", &[("cadcraft-doc", Dev, true)])]);
+        let v = check(&[c("aad-geom", &[("aad-doc", Dev, true)])]);
         assert!(matches!(v[..], [Violation::Upward { kind: Dev, .. }]));
     }
 
     #[test]
     fn ui_crates_below_l6_flagged() {
         for dep in ["craft-ui", "egui", "eframe", "winit", "egui_kittest", "rfd", "bevy_ecs", "bevy"] {
-            let v = check(&[c("cadcraft-engine", &[(dep, Normal, false)])]);
+            let v = check(&[c("aad-engine", &[(dep, Normal, false)])]);
             assert!(matches!(v[..], [Violation::UiBelowL6 { layer: 4, .. }]), "{dep}");
         }
-        assert!(check(&[c("cadcraft-engine", &[("egui_extras_not", Normal, false)])]).is_empty());
-        assert!(check(&[c("cadcraft-mcp", &[("winit", Normal, false)])]).is_empty());
+        assert!(check(&[c("aad-engine", &[("egui_extras_not", Normal, false)])]).is_empty());
+        assert!(check(&[c("aad-mcp", &[("winit", Normal, false)])]).is_empty());
     }
 
     #[test]
     fn unregistered_crate_is_error() {
-        let v = check(&[c("cadcraft-mystery", &[])]);
-        assert!(matches!(&v[..], [Violation::Unregistered { krate }] if krate == "cadcraft-mystery"));
+        let v = check(&[c("aad-mystery", &[])]);
+        assert!(matches!(&v[..], [Violation::Unregistered { krate }] if krate == "aad-mystery"));
         assert!(v[0].to_string().contains("register"));
     }
 
     #[test]
     fn testkit_only_as_dev_dependency() {
-        let v = check(&[c("cadcraft-render", &[("cadcraft-testkit", Normal, true)])]);
+        let v = check(&[c("aad-render", &[("aad-testkit", Normal, true)])]);
         assert!(matches!(v[..], [Violation::TestkitAsNormalDep { .. }]));
-        assert!(check(&[c("cadcraft-render", &[("cadcraft-testkit", Dev, true)])]).is_empty());
-        assert!(check(&[c("cadcraft-testkit", &[("cadcraft-engine", Normal, true)])]).is_empty());
+        assert!(check(&[c("aad-render", &[("aad-testkit", Dev, true)])]).is_empty());
+        assert!(check(&[c("aad-testkit", &[("aad-engine", Normal, true)])]).is_empty());
     }
 
     #[test]
     fn apps_and_xtask_exempt() {
-        for app in ["cadcraft", "cadcraft-cli", "cadcraft-web", "xtask"] {
-            assert!(check(&[c(app, &[("egui", Normal, false), ("cadcraft-ui-egui", Normal, true)])]).is_empty());
+        for app in ["aad", "aad-cli", "aad-web", "xtask"] {
+            assert!(check(&[c(app, &[("egui", Normal, false), ("aad-ui-egui", Normal, true)])]).is_empty());
         }
     }
 
@@ -317,17 +317,17 @@ mod tests {
     fn metadata_parsing() {
         let meta: Value = serde_json::from_str(
             r#"{"packages":[
-                {"name":"cadcraft-doc","dependencies":[
-                    {"name":"cadcraft-geom","kind":null,"path":"/x/crates/geom"},
+                {"name":"aad-doc","dependencies":[
+                    {"name":"aad-geom","kind":null,"path":"/x/crates/geom"},
                     {"name":"serde","kind":null},
                     {"name":"proptest","kind":"dev"}]},
-                {"name":"cadcraft-geom","dependencies":[]}
+                {"name":"aad-geom","dependencies":[]}
             ]}"#,
         )
         .unwrap();
         let g = from_metadata(&meta).unwrap();
         assert_eq!(g.len(), 2);
-        let doc = g.iter().find(|c| c.name == "cadcraft-doc").unwrap();
+        let doc = g.iter().find(|c| c.name == "aad-doc").unwrap();
         assert!(doc.deps[0].workspace && !doc.deps[1].workspace);
         assert_eq!(doc.deps[2].kind, Dev);
         assert!(check(&g).is_empty());

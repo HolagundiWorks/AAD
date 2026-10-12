@@ -1,5 +1,6 @@
 *~
 /target
+/target-*/
 /plan/
 /plans/
 /dist/
@@ -7,5 +8,5 @@
 /temp/
 .DS_Store
 *.swp
-/apps/cadcraft-web/dist/
+/apps/aad-web/dist/
 /.claude/worktrees/

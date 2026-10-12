@@ -14,7 +14,7 @@ selector. The choice is saved with the other preferences (`prefs_json`: `workspa
 | | Classic | Pro |
 |---|---|---|
 | Menu bar, status bar, command line | shown | shown |
-| Standard toolbar, property row, Draw and Modify toolbars (both on the left) | shown | hidden |
+| Standard toolbar, top tool bar (customisable), Draw and Modify toolbars (both on the left) | shown | hidden |
 | Side panels: Layers, Properties, Blocks (one tabbed stack on the right) | shown, pinned by default | collapsed by default |
 | Context bar (current layer, floor, drawing space, panel pin) | shown | shown |
 | Drawing area | between the toolbars and panels | the whole window |
@@ -41,21 +41,17 @@ implemented: an annotation or plot scale indicator (the engine has no annotation
 
 The drawing grid and grid snap (`GRID`, `SNAP`, `GRIDMODE`, `SNAPMODE`, `SNAPUNIT`, `GRIDUNIT`, `GRIDMAJOR`, F7, F9) were removed: AAD draws on a plain canvas and typed coordinates are never quantized. Object snap, ortho and polar tracking remain. The structural axis grid of a building (`grid.axis`) is a different feature and stays.
 
-## Property toolbar
+## Changing properties of objects
 
-`toolbars.rs`, the row under the menu: current layer, colour, linetype and lineweight dropdowns.
-They read the drawing database every frame (layer table, loaded linetypes, the standard lineweights).
+The Properties panel and `properties.set` change the layer, colour, linetype and lineweight of the
+selected objects (the property row under the menu was removed; the layer, floor and drawing space
+are chosen in the context bar).
 
-- With a selection they show the selection's values, or `*Varies*` when they differ
-  (`current_props`), and a change runs `properties.set` on the selected handles.
-- With no selection they show the current settings and change them for new objects
-  (`layer.current`, `color`, `linetype`, `lweight`).
 - `properties.set` leaves objects on locked layers unchanged and returns `skippedLocked`; if every
-  object is locked it fails with the reason. It refuses a linetype that is not loaded. The toolbar
-  reports either on the status line.
+  object is locked it fails with the reason. It refuses a linetype that is not loaded.
 - Every change is one undo step. ByLayer and ByBlock are offered and applied as such.
 
-Tests: `crates/engine/tests/properties_set.rs`, `toolbars::tests`.
+Tests: `crates/engine/tests/properties_set.rs`.
 
 ## Panels
 

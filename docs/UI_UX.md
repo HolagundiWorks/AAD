@@ -9,7 +9,7 @@ and [UI_BASELINE.md](UI_BASELINE.md); workspace details in [workspaces.md](works
 | Region | Notes |
 |---|---|
 | Menu bar | 12 menus: File, Edit, View, Insert, Format, Tools, Draw, Dimension, Modify, Architecture, Window, Help (282 entries) |
-| Toolbars | Classic only: Draw and Modify (with Dimension and Leader) as two vertical bars on the left, and a property row under the menu |
+| Toolbars | Classic only: Draw and Modify (with Dimension and Leader) as two vertical bars on the left, and the customisable top tool bar under the menu (right-click it or View > Customize Top Bar) |
 | Context bar | Both workspaces: current layer (searchable), floor, drawing space, panel pin/auto-hide ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)) |
 | File tabs and layout tabs | Drawings along the top; Model and layout tabs along the bottom, with New layout and a layout list |
 | Canvas | GPU-drawn; crosshair, snap markers, grips, selection window |

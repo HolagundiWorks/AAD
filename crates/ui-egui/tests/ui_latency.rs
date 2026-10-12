@@ -2,7 +2,7 @@
 //! `tools/quality/synthetic.rs`. Hardware dependent, so it is `#[ignore]`d in the normal run and
 //! asserts nothing about speed (only that the work happened); it prints median / p95 / max.
 //!
-//! Run: `cargo test --release -p cadcraft-ui-egui --test ui_latency -- --ignored --nocapture`
+//! Run: `cargo test --release -p aad-ui-egui --test ui_latency -- --ignored --nocapture`
 //! Sizes: `AAD_LATENCY_N=10000,100000` (default).
 //!
 //! What is timed is one `Harness::run_steps(1)` after the event: the whole `logic` + `ui` pass the
@@ -14,9 +14,9 @@ mod synthetic;
 
 use std::time::Instant;
 
-use cadcraft_engine::Session;
-use cadcraft_engine::geom::Vec2;
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_engine::geom::Vec2;
+use aad_ui_egui::{CadApp, Services};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use serde_json::json;
@@ -154,13 +154,13 @@ fn input_to_frame_latency() {
 }
 
 /// Writes the synthetic drawing as DXF so the real application (GPU canvas) can open the same
-/// content: `AAD_LATENCY_WRITE=path.dxf AAD_LATENCY_COUNT=100000 cargo test -p cadcraft-ui-egui
+/// content: `AAD_LATENCY_WRITE=path.dxf AAD_LATENCY_COUNT=100000 cargo test -p aad-ui-egui
 /// --test ui_latency write_synthetic_dxf -- --ignored`.
 #[test]
 #[ignore = "writes a file when AAD_LATENCY_WRITE is set"]
 fn write_synthetic_dxf() {
     let Ok(path) = std::env::var("AAD_LATENCY_WRITE") else { return };
     let n: usize = std::env::var("AAD_LATENCY_COUNT").ok().and_then(|v| v.parse().ok()).unwrap_or(100_000);
-    let bytes = cadcraft_io::write(&synthetic::drawing(n), "synthetic.dxf").expect("write");
+    let bytes = aad_io::write(&synthetic::drawing(n), "synthetic.dxf").expect("write");
     std::fs::write(path, bytes).expect("save");
 }

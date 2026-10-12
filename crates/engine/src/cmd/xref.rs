@@ -25,8 +25,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use cadcraft_doc::{Block, Drawing, Entity, EntityKind, Insert, Layer, Space};
-use cadcraft_geom::Vec3;
+use aad_doc::{Block, Drawing, Entity, EntityKind, Insert, Layer, Space};
+use aad_geom::Vec3;
 use serde_json::{Value, json};
 
 use super::*;
@@ -218,7 +218,7 @@ fn load_into(host: &mut Drawing, name: &str, source: &Drawing, path: &str) -> Re
     let mut block = Block::new(name);
     block.xref_path = Some(path.to_string());
     let mut note_block = |b: &str, depth: usize, queue: &mut Vec<(String, usize)>| -> String {
-        if copied.insert(b.to_ascii_uppercase()) && depth < cadcraft_doc::MAX_BLOCK_DEPTH {
+        if copied.insert(b.to_ascii_uppercase()) && depth < aad_doc::MAX_BLOCK_DEPTH {
             queue.push((b.to_string(), depth + 1));
         }
         format!("{name}|{b}")
@@ -302,7 +302,7 @@ fn run_attach(s: &mut Session, p: &Value) -> Result<Value> {
         if s.doc()?.blocks.keys().any(|k| k.eq_ignore_ascii_case(&name)) {
             return Err(bad("xref.attach", format!("`{name}` is already in the drawing; use xref.reload, or another name")));
         }
-        let at = point_param(p, "at").unwrap_or(cadcraft_geom::Vec2::ZERO);
+        let at = point_param(p, "at").unwrap_or(aad_geom::Vec2::ZERO);
         let scale = f64_or(p, "scale", 1.0);
         let rot = f64_or(p, "rotation", 0.0);
         if !(scale.is_finite() && scale > 0.0 && rot.is_finite()) {
@@ -329,7 +329,7 @@ fn run_attach(s: &mut Session, p: &Value) -> Result<Value> {
             row_spacing: 0.0,
         });
         let layer = if overlay { format!("{name}|0") } else { "0".to_string() };
-        let common = cadcraft_doc::Common { layer, ..Default::default() };
+        let common = aad_doc::Common { layer, ..Default::default() };
         s.doc_mut()?.add(&Space::Model, common, kind)?;
         let mut out = json!({ "name": name, "entities": loaded.entities, "layers": loaded.layers, "path": stored, "overlay": overlay, "scale": sc });
         if let Some(n) = note {
@@ -434,7 +434,7 @@ fn run_bind(s: &mut Session, p: &Value) -> Result<Value> {
     for old in names {
         let Some(arc) = d.blocks.remove(&old) else { continue };
         let mut b = Arc::try_unwrap(arc).unwrap_or_else(|a| (*a).clone());
-        let mut store = cadcraft_doc::EntityStore::new();
+        let mut store = aad_doc::EntityStore::new();
         for e in b.entities.iter() {
             let mut e: Entity = (**e).clone();
             if e.common.layer.starts_with(&prefix) {

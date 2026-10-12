@@ -26,3 +26,13 @@ Report bugs and security issues through GitHub issues; for a security issue, ope
   `docs/status.md`).
 - Before deleting a file, find its references (`grep`, `#[path]`, scripts, workflows) and record why
   in the commit message.
+
+## Licence of contributions
+
+AAD is licensed under the MIT License or the Apache License 2.0, at the user's option (see
+[LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE) and [NOTICE](NOTICE)). Unless you say
+otherwise, any contribution you submit for inclusion is licensed under the same two licences,
+without additional terms or conditions, as the Apache License 2.0 section 5 describes. Only submit
+work you have the right to license this way: your own, or material under a compatible open licence
+that you record in [ATTRIBUTION.md](ATTRIBUTION.md) or [NOTICE](NOTICE). Never submit code copied
+from GPL, LGPL or AGPL projects, or anything taken from Autodesk software (see CLAUDE.md).

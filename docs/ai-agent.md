@@ -13,12 +13,12 @@ work.
 | Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
 | Qwen3 chat format, model-file discovery and checks, generation settings (`crates/llm`) | **Implemented and tested** (7 tests, no model needed) |
 | Assistant conversation state machine: tool list prompt, strict parse, one retry, confirmation, step and history limits (`agent::Assistant`) | **Implemented and tested** with scripted model replies (8 tests) |
-| llama.cpp runtime (`cadcraft-llm` with feature `llama`) | **Builds and runs** (2026-10-12, LLVM 23.1.3 from `winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`, CMake, MSVC). Tests and `clippy -D warnings` pass with the feature. The model loads in about 1 s (memory-mapped) and generates about 17 tokens per second on this machine's CPU (no GPU backend) |
+| llama.cpp runtime (`aad-llm` with feature `llama`) | **Builds and runs** (2026-10-12, LLVM 23.1.3 from `winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`, CMake, MSVC). Tests and `clippy -D warnings` pass with the feature. The model loads in about 1 s (memory-mapped) and generates about 17 tokens per second on this machine's CPU (no GPU backend) |
 | Model on this machine | `Qwen3-1.7B-Q4_K_M.gguf`, 1 107 409 472 bytes, from `unsloth/Qwen3-1.7B-GGUF`, SHA-256 `b139949c...a181897` (equals the hash Hugging Face publishes), in `%APPDATA%\AAD\models`. Not in the repository |
-| Background worker (`cadcraft_llm::worker`): loads on the first request, one request at a time, Stop, panic contained | **Implemented**; a unit test covers the no-model path |
-| `driver` (`cadcraft_agent::driver`): runs the Assistant against a model for hosts that can wait | **Implemented** |
-| `cadcraft-cli ask [--file f \| --sample] [--yes] [--save out.dxf] "request"` (build with `--features assistant`) | **Implemented, run with the real model** (below) |
-| Assistant through the unified command bar (`cadcraft --features assistant`; see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline in the bar, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented, run with the real model** (below); bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend |
+| Background worker (`aad_llm::worker`): loads on the first request, one request at a time, Stop, panic contained | **Implemented**; a unit test covers the no-model path |
+| `driver` (`aad_agent::driver`): runs the Assistant against a model for hosts that can wait | **Implemented** |
+| `aad-cli ask [--file f \| --sample] [--yes] [--save out.dxf] "request"` (build with `--features assistant`) | **Implemented, run with the real model** (below) |
+| Assistant through the unified command bar (`aad --features assistant`; see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline in the bar, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented, run with the real model** (below); bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend |
 | Bundling the model in the installer, and building the installer with the `assistant` feature | **Not done** |
 | Result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
@@ -111,7 +111,7 @@ dependency after installation. The adapter must be replaceable without changing 
 
 ## Tests
 
-`cargo test -p cadcraft-agent` covers: parsing (valid blocks, prose, malformed JSON, extra keys,
+`cargo test -p aad-agent` covers: parsing (valid blocks, prose, malformed JSON, extra keys,
 multiple calls, oversize), schema validation, that only built tools are offered, refusal of unknown
 and planned tools, confirmation before changes and one undo step after, audit with and without
 `fix`, purge, argument rejection, the repeat and call limits, text in a drawing never becoming a

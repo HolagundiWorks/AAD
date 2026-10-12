@@ -259,7 +259,7 @@ pub fn mono() -> FontId {
 pub fn install_fonts(ctx: &egui::Context, preset: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        use cadcraft_fonts::registry::{self, Face};
+        use aad_fonts::registry::{self, Face};
         let candidates: &[&str] = if cfg!(target_os = "macos") {
             &["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf"]
         } else if cfg!(windows) {
@@ -285,7 +285,7 @@ pub fn install_fonts(ctx: &egui::Context, preset: &str) -> bool {
         // The preset's own fonts, where they are installed.
         let p = registry::preset(preset).unwrap_or(&registry::PRESETS[0]);
         let mut load = |face: Face, key: &str| -> bool {
-            let Some(found) = cadcraft_fonts::ttf::find(p.family(face)) else { return false };
+            let Some(found) = aad_fonts::ttf::find(p.family(face)) else { return false };
             let mut data = egui::FontData::from_owned(found.bytes.as_ref().clone());
             data.index = found.index;
             fonts.font_data.insert(key.into(), std::sync::Arc::new(data));

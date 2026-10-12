@@ -2,9 +2,9 @@
 //! (egui's double-click timing is not simulated by the harness, so the test calls the handler the
 //! second click runs.)
 
-use cadcraft_engine::Session;
-use cadcraft_engine::doc::EntityKind;
-use cadcraft_ui_egui::{CadApp, Services};
+use aad_engine::Session;
+use aad_engine::doc::EntityKind;
+use aad_ui_egui::{CadApp, Services};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use serde_json::json;
@@ -37,10 +37,10 @@ fn double_click_on_text_opens_textedit_and_the_edit_updates_the_entity() {
     click(&mut h, at);
     h.run_steps(2);
     // The second click of a double-click calls this with the world point under the pointer.
-    let w = cadcraft_engine::geom::Vec2::new(0.5, 1.0);
-    assert!(cadcraft_ui_egui::canvas::edit_selected_text_at(h.state_mut(), w), "TEXTEDIT starts on the selected text");
+    let w = aad_engine::geom::Vec2::new(0.5, 1.0);
+    assert!(aad_ui_egui::canvas::edit_selected_text_at(h.state_mut(), w), "TEXTEDIT starts on the selected text");
     assert_eq!(h.state().session.running.as_ref().map(|r| r.id.as_str()), Some("textedit"));
-    h.state_mut().session.input(cadcraft_engine::Input::Text("SALON".into())).unwrap();
+    h.state_mut().session.input(aad_engine::Input::Text("SALON".into())).unwrap();
     let d = h.state().session.doc().unwrap();
     assert!(d.model.iter().any(|e| matches!(&e.kind, EntityKind::Text(t) if t.value == "SALON")));
     h.state_mut().session.cancel();

@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use cadcraft_doc::Space;
+use aad_doc::Space;
 
 /// xorshift64*: small, deterministic, no dependency.
 struct Rng(u64);
@@ -136,15 +136,15 @@ fn crash_dir() -> PathBuf {
 /// Everything a reader's output is put through: it must all be safe for any drawing the reader
 /// accepts.
 fn use_drawing(bytes: Vec<u8>, name: String) -> Result<(), String> {
-    match cadcraft_io::read(&bytes, &name) {
+    match aad_io::read(&bytes, &name) {
         Ok(d) => {
             let _ = d.extents(&Space::Model);
-            let _ = cadcraft_render::build(&d, &Space::Model, &cadcraft_render::Options::default());
+            let _ = aad_render::build(&d, &Space::Model, &aad_render::Options::default());
             for l in &d.layouts {
-                let _ = cadcraft_render::build(&d, &Space::Paper(l.name.clone()), &cadcraft_render::Options::default());
+                let _ = aad_render::build(&d, &Space::Paper(l.name.clone()), &aad_render::Options::default());
             }
-            let _ = cadcraft_io::write(&d, "again.dxf");
-            let _ = cadcraft_io::write(&d, "again.svg");
+            let _ = aad_io::write(&d, "again.dxf");
+            let _ = aad_io::write(&d, "again.svg");
             Ok(())
         }
         Err(_) => Ok(()),
@@ -209,7 +209,7 @@ fn run_text_seed(label: &str, seed_text: &str) {
 fn the_example_drawing_survives_text_corruption() {
     let text = include_str!("../../../examples/apartment.dxf");
     // The unmodified file is valid: this is what the mutants are corrupted from.
-    assert!(cadcraft_io::read(text.as_bytes(), "apartment.dxf").is_ok());
+    assert!(aad_io::read(text.as_bytes(), "apartment.dxf").is_ok());
     run_text_seed("apartment", text);
 }
 
@@ -218,10 +218,10 @@ fn a_small_hostile_structure_survives_text_corruption() {
     // Blocks that nest, a hatch, a spline, an insert with attributes, a polyline with bulges.
     let text = "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nA\n10\n0\n20\n0\n0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n0\nENDBLK\n0\nBLOCK\n2\nB\n0\nINSERT\n2\nA\n10\n1\n20\n1\n0\nENDBLK\n0\nENDSEC\n\
 0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nB\n10\n5\n20\n5\n41\n2\n42\n2\n50\n30\n70\n2\n71\n2\n44\n3\n45\n3\n0\nLWPOLYLINE\n90\n3\n70\n1\n10\n0\n20\n0\n42\n0.5\n10\n4\n20\n0\n10\n4\n20\n4\n0\nSPLINE\n70\n8\n71\n3\n72\n8\n73\n4\n40\n0\n40\n0\n40\n0\n40\n0\n40\n1\n40\n1\n40\n1\n40\n1\n10\n0\n20\n0\n10\n1\n20\n2\n10\n2\n20\n2\n10\n3\n20\n0\n0\nCIRCLE\n10\n1\n20\n1\n40\n2\n0\nARC\n10\n0\n20\n0\n40\n3\n50\n0\n51\n90\n0\nTEXT\n10\n0\n20\n0\n40\n1\n1\nHello\n0\nENDSEC\n0\nEOF\n";
-    assert!(cadcraft_io::read(text.as_bytes(), "small.dxf").is_ok());
+    assert!(aad_io::read(text.as_bytes(), "small.dxf").is_ok());
     run_text_seed("small", text);
 }
 
 // DWG is not mutated here: the DWG reader (a third-party library) aborts the whole process on some
 // damaged files, which no in-process test can survive. DWG corruption is tested through the worker
-// process in `apps/cadcraft-cli/tests/dwg_isolation.rs`.
+// process in `apps/aad-cli/tests/dwg_isolation.rs`.

@@ -1,7 +1,7 @@
 //! Hit testing and window/crossing selection.
 
-use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, Prim, Space, entity_bounds};
-use cadcraft_geom::{Bounds2, Line, Polyline, Vec2, point_in_polygon};
+use aad_doc::{Drawing, Entity, EntityKind, Handle, Prim, Space, entity_bounds};
+use aad_geom::{Bounds2, Line, Polyline, Vec2, point_in_polygon};
 
 use crate::spatial::{self, SpatialIndex};
 
@@ -24,11 +24,8 @@ pub fn hit_polylines(d: &Drawing, e: &Entity, tol: f64) -> Vec<Vec<Vec2>> {
             let c = b.corners();
             let mut v = vec![vec![c[0], c[1], c[2], c[3], c[0]]];
             if matches!(e.kind, EntityKind::Dimension(_) | EntityKind::Insert(_) | EntityKind::MLeader(_)) {
-                let list = cadcraft_render::build_entities(
-                    d,
-                    std::iter::once(e),
-                    &cadcraft_render::Options { tolerance: tol, text: false, ..Default::default() },
-                );
+                let list =
+                    aad_render::build_entities(d, std::iter::once(e), &aad_render::Options { tolerance: tol, text: false, ..Default::default() });
                 v = list.prims.iter().map(|p| list.points(p).to_vec()).collect();
                 v.push(vec![c[0], c[1], c[2], c[3], c[0]]);
             }
@@ -72,7 +69,7 @@ fn dist_to_polyline(pts: &[Vec2], p: Vec2) -> f64 {
 /// Whether `p` lies in the filled area of a hatch: odd parity across all loops for the normal
 /// style, inside an outer loop (or the first loop) for the outer and ignore styles. A click
 /// between the lines of a pattern hatch is inside its area even though no line is near.
-fn inside_hatch(h: &cadcraft_doc::Hatch, p: Vec2, tol: f64) -> bool {
+fn inside_hatch(h: &aad_doc::Hatch, p: Vec2, tol: f64) -> bool {
     let rings: Vec<(bool, Vec<Vec2>)> = h
         .loops
         .iter()
@@ -181,7 +178,7 @@ fn seg_hits_box(a: Vec2, b: Vec2, bx: &Bounds2) -> bool {
         return true;
     }
     let c = bx.corners();
-    (0..4).any(|i| cadcraft_geom::line_line(&Line::new(a, b), &Line::new(c[i], c[(i + 1) % 4])).is_some())
+    (0..4).any(|i| aad_geom::line_line(&Line::new(a, b), &Line::new(c[i], c[(i + 1) % 4])).is_some())
 }
 
 /// Window selection (entirely inside) or crossing selection (inside or touching).
@@ -230,7 +227,7 @@ pub(crate) fn in_window(d: &Drawing, e: &Entity, known: Option<Bounds2>, bx: &Bo
     // space around triangular solids).
     if matches!(e.kind, EntityKind::Solid(_) | EntityKind::Trace(_)) && eb.contains_box(bx) {
         return e.kind.prims().iter().any(|prim| match prim {
-            Prim::Fill(poly) => bx.corners().iter().all(|p| cadcraft_geom::point_in_polygon(poly, *p)),
+            Prim::Fill(poly) => bx.corners().iter().all(|p| aad_geom::point_in_polygon(poly, *p)),
             _ => false,
         });
     }
@@ -258,9 +255,9 @@ pub(crate) fn select_fence_with(d: &Drawing, space: &Space, ix: &Option<std::syn
         let hit = fence.windows(2).any(|f| {
             let (Some(a), Some(b)) = (f.first(), f.get(1)) else { return false };
             let fl = Line::new(*a, *b);
-            polys.iter().any(|pl| {
-                pl.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(p, q)| cadcraft_geom::line_line(&fl, &Line::new(*p, *q)).is_some()))
-            })
+            polys
+                .iter()
+                .any(|pl| pl.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(p, q)| aad_geom::line_line(&fl, &Line::new(*p, *q)).is_some())))
         });
         if hit {
             out.push(e.handle);
@@ -272,8 +269,8 @@ pub(crate) fn select_fence_with(d: &Drawing, space: &Space, ix: &Option<std::syn
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cadcraft_doc::{Common, RayLine};
-    use cadcraft_geom::Vec3;
+    use aad_doc::{Common, RayLine};
+    use aad_geom::Vec3;
 
     fn fence_hits(kind: EntityKind, fence: [(f64, f64); 2]) -> usize {
         let mut d = Drawing::new_metric();
@@ -305,7 +302,7 @@ mod solid_interior_tests {
         let b = Vec2::new(10.0, 0.0).to3(0.0);
         let c = Vec2::new(0.0, 10.0).to3(0.0);
         let d = if triangular { c } else { Vec2::new(10.0, 10.0).to3(0.0) };
-        let solid = cadcraft_doc::Solid { corners: [a, b, c, d] };
+        let solid = aad_doc::Solid { corners: [a, b, c, d] };
         Entity::new(Handle(256), if kind { EntityKind::Solid(solid) } else { EntityKind::Trace(solid) })
     }
 

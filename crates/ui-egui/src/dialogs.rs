@@ -49,16 +49,16 @@ fn dsettings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         s.polarang = deg.to_radians();
         ui.separator();
         ui.heading(crate::tl!("Object Snap"));
-        let mut on = s.osmode & cadcraft_engine::snap::mode::OFF == 0;
+        let mut on = s.osmode & aad_engine::snap::mode::OFF == 0;
         if ui.checkbox(&mut on, crate::tl!("Object Snap On (F3)")).changed() {
             if on {
-                s.osmode &= !cadcraft_engine::snap::mode::OFF;
+                s.osmode &= !aad_engine::snap::mode::OFF;
             } else {
-                s.osmode |= cadcraft_engine::snap::mode::OFF;
+                s.osmode |= aad_engine::snap::mode::OFF;
             }
         }
         egui::Grid::new("osnap_grid").num_columns(2).show(ui, |ui| {
-            for (i, (bit, name)) in cadcraft_engine::snap::mode::ALL.iter().enumerate() {
+            for (i, (bit, name)) in aad_engine::snap::mode::ALL.iter().enumerate() {
                 let mut v = s.osmode & bit != 0;
                 if ui.checkbox(&mut v, crate::i18n::t(name)).changed() {
                     if v {
@@ -138,7 +138,7 @@ fn pick(ui: &mut egui::Ui, salt: &str, value: &mut i64, options: &[(i64, String)
 /// Drawing Units (UNITS): edits a copy of LUNITS/LUPREC/AUNITS/AUPREC/INSUNITS and applies it
 /// through the `units` command on OK.
 fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
-    use cadcraft_engine::units::{format_angle, format_distance};
+    use aad_engine::units::{format_angle, format_distance};
     let id = egui::Id::new("units_dialog_values");
     let mut v = ctx.data_mut(|d| d.get_temp::<[i64; 5]>(id)).unwrap_or_else(|| {
         app.session
@@ -250,7 +250,7 @@ fn commands(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
             let f = filter.to_lowercase();
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new("cmdref").striped(true).num_columns(3).show(ui, |ui| {
-                    for c in cadcraft_engine::command_specs() {
+                    for c in aad_engine::command_specs() {
                         if !f.is_empty()
                             && !c.id.contains(&f)
                             && !c.label.to_ascii_lowercase().contains(&f)
@@ -301,7 +301,7 @@ fn insert_block(app: &mut CadApp, name: &str) {
     if app.session.running.as_ref().is_none_or(|r| r.id != "insert") {
         return;
     }
-    if let Err(e) = app.session.input(cadcraft_engine::Input::Text(name.to_string())) {
+    if let Err(e) = app.session.input(aad_engine::Input::Text(name.to_string())) {
         app.session.echo(e.to_string());
     }
 }
@@ -371,10 +371,10 @@ fn mtext_editor(app: &mut CadApp, ctx: &egui::Context) {
         ctx.data_mut(|d| d.remove::<String>(id));
         // The editor holds the whole contents: one input, then Enter ends MTEXT's text entry.
         if !t.is_empty() {
-            let _ = app.session.input(cadcraft_engine::Input::Text(t));
+            let _ = app.session.input(aad_engine::Input::Text(t));
         }
         if app.session.running.as_ref().is_some_and(|r| r.id == "mtext") {
-            let _ = app.session.input(cadcraft_engine::Input::Enter);
+            let _ = app.session.input(aad_engine::Input::Enter);
         }
     } else if cancel {
         ctx.data_mut(|d| d.remove::<String>(id));
@@ -384,9 +384,9 @@ fn mtext_editor(app: &mut CadApp, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
-    use cadcraft_engine::doc::EntityKind;
-    use cadcraft_engine::geom::Vec2;
-    use cadcraft_engine::{Input, Session};
+    use aad_engine::doc::EntityKind;
+    use aad_engine::geom::Vec2;
+    use aad_engine::{Input, Session};
     use serde_json::json;
 
     use crate::{CadApp, Services};

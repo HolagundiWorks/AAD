@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-fonts"
+name = "aad-fonts"
 description = "AAD text: the built-in single-stroke drafting font and TEXT/MTEXT layout"
 version.workspace = true
 edition.workspace = true
@@ -9,5 +9,5 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-cadcraft-geom = { workspace = true }
+aad-geom = { workspace = true }
 skrifa = { workspace = true }

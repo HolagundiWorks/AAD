@@ -289,7 +289,7 @@ pub struct TypographyConfig {
 
 impl Default for TypographyConfig {
     fn default() -> Self {
-        TypographyConfig { preset: cadcraft_fonts::registry::DEFAULT_PRESET.into(), overrides: Vec::new() }
+        TypographyConfig { preset: aad_fonts::registry::DEFAULT_PRESET.into(), overrides: Vec::new() }
     }
 }
 
@@ -303,7 +303,7 @@ pub struct RoleOverride {
 
 impl TypographyConfig {
     pub fn issues(&self) -> Vec<Issue> {
-        use cadcraft_fonts::registry::{Role, preset};
+        use aad_fonts::registry::{Role, preset};
         let mut v = Vec::new();
         if preset(&self.preset).is_none() {
             v.push(Issue::new("typography.preset", format!("`{}` is not a font preset", self.preset)));
@@ -326,8 +326,8 @@ impl TypographyConfig {
     }
 
     /// The registry form (invalid overrides are left out: [`TypographyConfig::issues`] reports them).
-    pub fn to_registry(&self) -> cadcraft_fonts::registry::Typography {
-        use cadcraft_fonts::registry::{Face, Role, Typography};
+    pub fn to_registry(&self) -> aad_fonts::registry::Typography {
+        use aad_fonts::registry::{Face, Role, Typography};
         let overrides = self
             .overrides
             .iter()

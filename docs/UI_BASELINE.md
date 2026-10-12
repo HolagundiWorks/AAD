@@ -11,9 +11,9 @@ One machine, one run each unless stated. These numbers describe this machine onl
 
 ## Test results
 
-`cargo test -p cadcraft-ui-egui`: all pass (no failures, none skipped; two `#[ignore]`d tests are
+`cargo test -p aad-ui-egui`: all pass (no failures, none skipped; two `#[ignore]`d tests are
 the hardware-dependent latency run and the DXF writer used to prepare it). New in this milestone:
-`drawing_workflow` (10 tests), `menu_integrity` (2 tests). `cargo clippy -p cadcraft-ui-egui
+`drawing_workflow` (10 tests), `menu_integrity` (2 tests). `cargo clippy -p aad-ui-egui
 --all-targets -- -D warnings` is clean.
 
 Three of the first draft's assertions failed before they were corrected, and **none was an
@@ -43,7 +43,7 @@ At 100 000 entities the CPU-painted canvas spent about 9.8 ms per frame painting
 
 ## The real application, GPU canvas (control channel)
 
-`cadcraft.exe` with a 100 000-entity DXF (23.6 MB, 233 778 primitives), renderer `gpu`:
+`aad.exe` with a 100 000-entity DXF (23.6 MB, 233 778 primitives), renderer `gpu`:
 
 | Measure | Value |
 |---|---|
@@ -57,7 +57,7 @@ At 100 000 entities the CPU-painted canvas spent about 9.8 ms per frame painting
 GPU's work or presentation, so it is not input-to-photon latency. The single 49.5 ms frame in run 1
 was the first pick after opening and did not recur; fixed (UI-001), see the backlog for the after figures.
 
-## From the command-line performance harness (`cadcraft-cli perf`, from the quality programme)
+## From the command-line performance harness (`aad-cli perf`, from the quality programme)
 
 | Entities | display list | first pick | pick (per call) | DXF read | DXF write |
 |---|---|---|---|---|---|

@@ -1,7 +1,7 @@
 //! Pro and Classic workspaces: what each shows, and that switching changes nothing but visibility.
 
-use cadcraft_engine::Session;
-use cadcraft_ui_egui::{CadApp, Services, WorkspaceMode};
+use aad_engine::Session;
+use aad_ui_egui::{CadApp, Services, WorkspaceMode};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
@@ -117,7 +117,7 @@ fn layout_json(app: &CadApp) -> serde_json::Value {
 
 #[test]
 fn classic_starts_pinned_with_one_tabbed_stack_on_the_right_and_pro_starts_collapsed() {
-    use cadcraft_ui_egui::docking::Panel;
+    use aad_ui_egui::docking::Panel;
     let mut a = CadApp::new(Session::empty(), Services::default());
     assert_eq!(a.ui.workspace, WorkspaceMode::Classic);
     assert!(a.ui.pin_panels, "Classic panels are pinned by default");
@@ -142,12 +142,12 @@ fn each_mode_keeps_its_own_arrangement_and_pin_state() {
     a.run("ui.dock", json!({"operation": "activate", "panel": "properties"})).unwrap();
     a.ui.pin_panels = false;
     let classic = layout_json(&a);
-    assert_ne!(classic, serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap());
+    assert_ne!(classic, serde_json::to_value(aad_ui_egui::docking::Workspace::default()).unwrap());
 
     a.run("ui.workspace.pro", json!({})).unwrap();
     assert_eq!(
         layout_json(&a),
-        serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap(),
+        serde_json::to_value(aad_ui_egui::docking::Workspace::default()).unwrap(),
         "Pro starts from the default, not Classic's arrangement"
     );
     // Change Pro: pin its panels.
@@ -172,7 +172,7 @@ fn reset_restores_the_current_mode_only_and_a_broken_saved_slot_falls_back_to_de
     a.run("ui.workspace.classic", json!({})).unwrap();
     // Reset Classic: default layout and pinned again; the saved Pro slot is untouched.
     a.run("ui.workspace.reset", json!({})).unwrap();
-    assert_eq!(layout_json(&a), serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap());
+    assert_eq!(layout_json(&a), serde_json::to_value(aad_ui_egui::docking::Workspace::default()).unwrap());
     assert!(a.ui.pin_panels && a.ui.show_palettes);
     a.run("ui.workspace.pro", json!({})).unwrap();
     assert_eq!(layout_json(&a), pro, "reset of Classic did not touch Pro");
@@ -180,7 +180,7 @@ fn reset_restores_the_current_mode_only_and_a_broken_saved_slot_falls_back_to_de
     a.run("ui.workspace.classic", json!({})).unwrap();
     a.ui.mode_slots.insert("pro".into(), json!({"docking": {"layout": "nonsense"}, "pin": "x"}));
     a.run("ui.workspace.pro", json!({})).unwrap();
-    assert_eq!(layout_json(&a), serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap());
+    assert_eq!(layout_json(&a), serde_json::to_value(aad_ui_egui::docking::Workspace::default()).unwrap());
     assert!(!a.ui.pin_panels);
 }
 

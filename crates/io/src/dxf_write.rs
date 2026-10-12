@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
-use cadcraft_color::Color;
-use cadcraft_doc::*;
-use cadcraft_dxf::Tag;
-use cadcraft_geom::{Bounds2, Vec2, Vec3};
+use aad_color::Color;
+use aad_doc::*;
+use aad_dxf::Tag;
+use aad_geom::{Bounds2, Vec2, Vec3};
 
 use crate::dxf_ext::{self, DimVal, K};
 
@@ -145,7 +145,7 @@ fn annotative_xdata(w: &mut W) {
     w.s(1002, "}");
 }
 
-/// Override (`ACAD` DSTYLE) and associativity (`CADCRAFT` ASSOC) xdata of a dimension.
+/// Override (`ACAD` DSTYLE) and associativity (`AAD` ASSOC) xdata of a dimension.
 fn dim_xdata(w: &mut W, dm: &Dimension, cx: &Ctx) {
     let mut ov = W { t: Vec::new(), next: 0, pstyles: HashMap::new() };
     let mut sah = false;
@@ -315,7 +315,7 @@ fn layer_and_props(w: &mut W, c: &Common, base: Option<&Common>) {
         Color::ByLayer if write(true, |b| b.color == Color::ByLayer) => w.i(62, 256),
         Color::ByLayer => {}
         Color::True(rgb) => {
-            w.i(62, i64::from(cadcraft_color::nearest_aci(rgb)));
+            w.i(62, i64::from(aad_color::nearest_aci(rgb)));
             w.i(420, i64::from(rgb.to_u32()));
         }
         c => w.i(62, i64::from(c.to_aci())),
@@ -590,7 +590,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             w.s(2, bname);
             w.p(10, dm.defpt);
             let style = d.dim_style(&dm.style).cloned().unwrap_or_default();
-            let g = cadcraft_render::dimension_geometry(dm, &style, d.header.f64("DIMSCALE", 1.0));
+            let g = aad_render::dimension_geometry(dm, &style, d.header.f64("DIMSCALE", 1.0));
             w.p(11, if dm.user_text_pos { dm.text_mid } else { g.text_pos.to3(0.0) });
             let ty: i64 = match dm.kind {
                 DimKind::Linear { .. } => 0,
@@ -680,7 +680,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             for c in t.col_widths.iter().take(cols) {
                 w.f(142, *c);
             }
-            let cov = cadcraft_render::table_covered(t);
+            let cov = aad_render::table_covered(t);
             let span = |v: u32| i64::from(v.min(i16::MAX as u32));
             for r in 0..rows {
                 for c in 0..cols {
@@ -725,7 +725,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 let le = Entity {
                     handle: Handle(u64::from_str_radix(&w.h(), 16).unwrap_or(0)),
                     common: e.common.clone(),
-                    kind: EntityKind::Leader(cadcraft_doc::Leader { vertices, arrow: true, spline: m.spline, style: m.style.clone() }),
+                    kind: EntityKind::Leader(aad_doc::Leader { vertices, arrow: true, spline: m.spline, style: m.style.clone() }),
                 };
                 entity(w, d, &le, owner, paper, cx);
             }
@@ -804,7 +804,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 w.f(52, h.angle.to_degrees());
                 w.f(41, h.scale);
                 w.i(77, 0);
-                let pat = cadcraft_doc::library::pattern(&h.pattern);
+                let pat = aad_doc::library::pattern(&h.pattern);
                 // A pattern the library doesn't define keeps the lines read from its file.
                 let lines = pat.map(|p| p.lines).unwrap_or_else(|| h.pattern_lines.clone());
                 w.i(78, lines.len() as i64);
@@ -895,7 +895,7 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
 /// A hatch's gradient fill (DXF Reference, HATCH group codes 450–470): two-colour gradient
 /// with its rotation (radians), shift (0 = centered, 1 = shifted) and per-colour 463 records
 /// carrying ACI (63) and, for true colours, the RGB value (421). Those groups belong to R2004+
-/// files, so the same gradient also travels as `CADCRAFT` xdata, which survives this R2000
+/// files, so the same gradient also travels as `AAD` xdata, which survives this R2000
 /// file's conversion to DWG (where the native fields don't exist).
 fn gradient(w: &mut W, g: &Gradient) {
     w.i(450, 1);
@@ -909,7 +909,7 @@ fn gradient(w: &mut W, g: &Gradient) {
         w.f(463, k);
         match c {
             Color::True(rgb) => {
-                w.i(63, i64::from(cadcraft_color::nearest_aci(rgb)));
+                w.i(63, i64::from(aad_color::nearest_aci(rgb)));
                 w.i(421, i64::from(rgb.to_u32()));
             }
             c => w.i(63, i64::from(c.to_aci())),
@@ -934,11 +934,11 @@ fn thickness(w: &mut W, e: &Entity) {
     }
 }
 
-/// Hatch origin and background colour as `CADCRAFT` xdata: `1000 HATCH`, the origin as a
+/// Hatch origin and background colour as `AAD` xdata: `1000 HATCH`, the origin as a
 /// world position (`1011`, moved with the hatch by other programs) and the background colour
 /// name (`1000`, empty for none). The DXF Reference has no HATCH groups for either: other
 /// readers get the origin through the pattern lines' base points (43/44), the background isn't
-/// carried. Appended to the gradient's `CADCRAFT` xdata when there is one.
+/// carried. Appended to the gradient's `AAD` xdata when there is one.
 fn hatch_xdata(w: &mut W, h: &Hatch) {
     if h.origin == Vec2::ZERO && h.background.is_none() {
         return;
@@ -955,7 +955,7 @@ fn hatch_xdata(w: &mut W, h: &Hatch) {
 fn dim_block_entities(d: &Drawing, dm: &Dimension, layer: &str) -> Vec<Entity> {
     // The dimension as drawn: its overrides, DIMSCALE (0 = the drawing's) and text font.
     let style = d.dim_style(&dm.style).cloned().unwrap_or_default().with_overrides(&dm.overrides);
-    let g = cadcraft_render::dimension_in(d, dm);
+    let g = aad_render::dimension_in(d, dm);
     let mut out = Vec::new();
     let c = Common { layer: layer.into(), color: Color::ByBlock, ..Common::default() };
     for l in &g.lines {
@@ -1014,7 +1014,7 @@ fn table_block_entities(d: &Drawing, t: &Table, layer: &str) -> Vec<Entity> {
     let x_at = |c: usize| xs.get(c).copied().unwrap_or(0.0);
     let y_at = |r: usize| ys.get(r).copied().unwrap_or(0.0);
     let p = |x: f64, y: f64| Vec3::new(x, -y, 0.0);
-    let cov = cadcraft_render::table_covered(t);
+    let cov = aad_render::table_covered(t);
     let margin = d.table_styles.iter().find(|s| s.name.eq_ignore_ascii_case(&t.style)).map(|s| s.margin).unwrap_or(0.06).max(0.0);
     let c = Common { layer: layer.into(), color: Color::ByBlock, ..Common::default() };
     let mut out = Vec::new();
@@ -1063,8 +1063,8 @@ fn table_block_entities(d: &Drawing, t: &Table, layer: &str) -> Vec<Entity> {
 }
 
 /// Our own geometry for an arrowhead block: unit size, tip at the origin, pointing along +X.
-fn arrow_block_entities(kind: cadcraft_render::Arrowhead) -> Vec<Entity> {
-    let g = cadcraft_render::arrowhead(kind, Vec2::ZERO, Vec2::X, 1.0);
+fn arrow_block_entities(kind: aad_render::Arrowhead) -> Vec<Entity> {
+    let g = aad_render::arrowhead(kind, Vec2::ZERO, Vec2::X, 1.0);
     let c = Common { layer: "0".into(), color: Color::ByBlock, ..Common::default() };
     let mut out = Vec::new();
     for l in &g.lines {
@@ -1147,7 +1147,7 @@ fn paper_views(d: &Drawing) -> HashMap<Handle, usize> {
 /// leaves it implicit again.
 fn paper_view(w: &mut W, d: &Drawing, e: &Entity, owner: &str, cx: &Ctx) {
     let Some(l) = cx.paper_views.get(&e.handle).and_then(|i| d.layouts.get(*i)) else { return };
-    let size = cadcraft_render::paper::sheet(d, &l.name).map(|s| s.size).unwrap_or(Vec2::new(12.0, 9.0));
+    let size = aad_render::paper::sheet(d, &l.name).map(|s| s.size).unwrap_or(Vec2::new(12.0, 9.0));
     let center = size * 0.5;
     let h = w.h();
     w.s(0, "VIEWPORT");
@@ -1324,7 +1324,7 @@ pub fn write(d: &Drawing) -> String {
     }
     // Plot style names used by layers and objects (Normal always), each a placeholder object.
     let pstyle_dict = w.h();
-    let mut pstyle_names: Vec<String> = vec![cadcraft_doc::NORMAL_STYLE.to_string()];
+    let mut pstyle_names: Vec<String> = vec![aad_doc::NORMAL_STYLE.to_string()];
     let named = d.layers.iter().map(|l| l.plot_style.as_str()).chain(every.iter().map(|e| e.common.plot_style.as_str()));
     for n in named {
         let n = n.trim();
@@ -1467,7 +1467,7 @@ pub fn write(d: &Drawing) -> String {
         w.s(2, &l.name);
         w.i(70, i64::from(l.frozen) | if l.vp_freeze_new { 2 } else { 0 } | if l.locked { 4 } else { 0 });
         let aci = match l.color {
-            Color::True(rgb) => i64::from(cadcraft_color::nearest_aci(rgb)),
+            Color::True(rgb) => i64::from(aad_color::nearest_aci(rgb)),
             c => i64::from(c.to_aci()).clamp(1, 255),
         };
         w.i(62, if l.on { aci } else { -aci });
@@ -1479,7 +1479,7 @@ pub fn write(d: &Drawing) -> String {
             w.i(290, 0);
         }
         w.i(370, i64::from(l.lineweight.to_dxf()));
-        let normal = w.pstyles.get(&cadcraft_doc::NORMAL_STYLE.to_ascii_uppercase()).cloned();
+        let normal = w.pstyles.get(&aad_doc::NORMAL_STYLE.to_ascii_uppercase()).cloned();
         if let Some(h) = w.pstyles.get(&l.plot_style.trim().to_ascii_uppercase()).cloned().or(normal) {
             w.s(390, h);
         }
@@ -1517,8 +1517,8 @@ pub fn write(d: &Drawing) -> String {
         w.i(71, if s.backwards { 2 } else { 0 } | if s.upside_down { 4 } else { 0 });
         w.f(42, 0.2);
         // The built-in font goes out as `txt`, which every reader has; AAD's own name
-        // travels in `CADCRAFT` xdata (`1000 FONT`, name) so the style reopens with it.
-        let file = if s.font == cadcraft_fonts_name() { "txt" } else { s.font.as_str() };
+        // travels in `AAD` xdata (`1000 FONT`, name) so the style reopens with it.
+        let file = if s.font == aad_fonts_name() { "txt" } else { s.font.as_str() };
         w.s(3, file);
         w.s(4, &s.big_font);
         if s.annotative {
@@ -1990,7 +1990,7 @@ pub fn write(d: &Drawing) -> String {
         *t = Tag::s(5, seed);
     }
     mark_xrefs(&mut w.t, d);
-    cadcraft_dxf::write_ascii(&w.t)
+    aad_dxf::write_ascii(&w.t)
 }
 
 /// Xref blocks (DXF Reference, BLOCK): bit 4 of group 70 and the external drawing's path in
@@ -2124,6 +2124,6 @@ fn mleader_style_obj(w: &mut W, s: &MLeaderStyle, h: &str, dict: &str, byblock_l
     w.i(273, 9);
 }
 
-fn cadcraft_fonts_name() -> &'static str {
-    "CADCraft Stroke"
+fn aad_fonts_name() -> &'static str {
+    "AAD Stroke"
 }

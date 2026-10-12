@@ -28,7 +28,7 @@ planned ([status.md](status.md)).
   Noto Sans Condensed, Noto Sans Mono), Compact Interface (Roboto, Roboto Condensed, Roboto Mono),
   Drafting Utility (Fira Sans, Fira Sans Condensed, Fira Mono). Licences other than IBM Plex are
   marked "verify": each release's licence files are checked before packaging.
-- **Where fonts are found**: `ttf.rs` searches `CADCRAFT_FONT_DIR`, `<exe folder>\fonts` and
+- **Where fonts are found**: `ttf.rs` searches `AAD_FONT_DIR`, `<exe folder>\fonts` and
   `%APPDATA%\AAD\fonts` before the system folders, so fonts placed by the installer or the user win.
 - **Interface**: `UiState.font_preset` (saved in the workspace file, an unknown value falls back to
   the default). The preset's Sans is the Proportional font, Mono is the Monospace font (command
@@ -49,7 +49,7 @@ planned ([status.md](status.md)).
   fonts and the interface keeps the system font until fonts are added.
 
 Tests: `crates/fonts/src/registry.rs`, `crates/engine/tests/typography.rs`,
-`crates/ui-egui/tests/fonts.rs`, `apps/cadcraft/src/workspace.rs`.
+`crates/ui-egui/tests/fonts.rs`, `apps/aad/src/workspace.rs`.
 
 ## IBM Plex assets (Engineering preset)
 
@@ -66,7 +66,7 @@ Only the upright faces the roles use are kept (Sans Regular, Medium, SemiBold, B
 Regular, Medium, SemiBold; Mono Regular, Medium), with each family's licence (SIL OFL 1.1,
 copyright IBM Corp., Reserved Font Name "Plex") as `OFL-<family>.txt` and a `SOURCES.txt` recording
 the release tags, the archive hashes and each font file's size and SHA-256. `AAD_FONTS_DIR` points
-at that folder. A development run searches `AAD_FONTS_DIR` and `CADCRAFT_FONT_DIR` first, then
+at that folder. A development run searches `AAD_FONTS_DIR` and `AAD_FONT_DIR` first, then
 `<exe folder>\fonts`, `%APPDATA%\AAD\fonts` and the system folders; `package.ps1` copies the files,
 licences and `SOURCES.txt` into the MSI and the portable zip, and refuses a folder with no font
 files or no licence file.
@@ -106,7 +106,7 @@ to include the fonts only when `package.ps1` printed `fonts: N file(s)` for that
   new font and lists text that gets more than 5% wider (`growth`: handle, text, both widths, and the
   neighbours on the same baseline it now reaches). MTEXT, rotated or non-left-aligned text,
   attributes and table cells are not measured.
-- **Round trip**: `apps/cadcraft-cli/tests/typography_project.rs` generates a project, migrates it,
+- **Round trip**: `apps/aad-cli/tests/typography_project.rs` generates a project, migrates it,
   reopens the saved DXF and checks the fonts, then rolls back.
 
 ## Not built yet

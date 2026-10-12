@@ -9,8 +9,8 @@
 
 #![allow(dead_code)]
 
-use cadcraft_doc::{self as d, Common, Drawing, EntityKind, Space};
-use cadcraft_geom::{PolyVertex, Vec2, Vec3};
+use aad_doc::{self as d, Common, Drawing, EntityKind, Space};
+use aad_geom::{PolyVertex, Vec2, Vec3};
 
 pub struct Rng(pub u64);
 

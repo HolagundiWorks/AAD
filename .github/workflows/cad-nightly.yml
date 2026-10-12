@@ -38,12 +38,12 @@ jobs:
         env:
           AAD_MUTATION_ITERS: ${{ github.event.inputs.iterations || '4000' }}
           AAD_MUTATION_SEED: ${{ steps.seed.outputs.seed }}
-        run: cargo test -p cadcraft-io --test mutation_robustness
+        run: cargo test -p aad-io --test mutation_robustness
       - name: DWG reader (through the worker process)
         env:
           AAD_MUTATION_ITERS: "1500"
           AAD_MUTATION_SEED: ${{ steps.seed.outputs.seed }}
-        run: cargo test -p cadcraft-cli --test dwg_isolation corrupted -- --nocapture
+        run: cargo test -p aad-cli --test dwg_isolation corrupted -- --nocapture
       - name: Report
         if: always()
         shell: bash

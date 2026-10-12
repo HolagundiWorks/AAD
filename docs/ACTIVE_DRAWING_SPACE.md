@@ -14,7 +14,7 @@ What was found, what was built, how it behaves, and what is not done. Written ag
 | Floors | Two models: a drawing's `floors` list (heights, project data) and project folders (`project.aad.json`, `floor.activate` opens another file, other floors are locked overlays). No "current floor" for a single drawing; `room` needed `floorPrefix` every time |
 | Project data | `Drawing.project` (string map), saved in the DXF as extension data, part of undo |
 | Workspaces | Classic and Pro, one shared panel layout, one pin setting; Pro hid panels and toolbars (including the layer controls). Toolbars: Draw on the left, Modify on the **right**. Properties docked left, Layers/Blocks right |
-| Top controls | Classic only: a property row (layer-of-selection, colour, linetype, lineweight) |
+| Top controls | Classic only: a property row (layer-of-selection, colour, linetype, lineweight); removed since, see docs/workspaces.md |
 
 ## 2. What was added
 
@@ -87,11 +87,11 @@ them, and none opens a dialog.
 | `src/docking.rs` | Default layout: the drawing, and **one tabbed stack on the right: Layers, Properties, Blocks** |
 | `src/toolbars.rs` | Draw and Modify (with Dimension and Leader tools) as two vertical bars on the **left** |
 | `src/menus.rs` | Per-mode state: `set_workspace` swaps the panel arrangement, pin state and toolbar switch of the mode being left with its own saved slot; `ui.workspace.reset` |
-| `apps/cadcraft/src/workspace.rs` | Saves the inactive mode's slot (`modeSlots`) in the workspace file |
+| `apps/aad/src/workspace.rs` | Saves the inactive mode's slot (`modeSlots`) in the workspace file |
 
 ### Workspace modes
 
-- **Classic:** left toolbars, property row, context bar, right-hand tabbed panels, **pinned by
+- **Classic:** left toolbars, customisable top tool bar, context bar, right-hand tabbed panels, **pinned by
   default**. Unpin them (button in the context bar, or Window > Pin Side Panels) and they auto-collapse
   to an edge strip when the pointer has been away for 1.5 s.
 - **Pro:** no toolbars, panels **collapsed by default** (auto-collapse on, edge strips bring them back),
@@ -111,7 +111,7 @@ them, and none opens a dialog.
 | Layer selector changes the current layer; unsuitable layers refused | Done | `context_bar.rs::the_layer_selector...`, `layer_protection.rs`, `drawing_space.rs` |
 | Floor selector changes the floor, moves nothing | Done | `context_bar.rs::choosing_a_floor...`, `drawing_space.rs::choosing_a_floor...` |
 | Create, edit, save, switch spaces | Done | `drawing_space.rs` (13 tests), `context_bar.rs` |
-| Saved layer states persist after closing and reopening | Done | `apps/cadcraft-cli/tests/drawing_space_file.rs` (real DXF round trip) |
+| Saved layer states persist after closing and reopening | Done | `apps/aad-cli/tests/drawing_space_file.rs` (real DXF round trip) |
 | Locked objects cannot be modified through any supported pathway | Done for model space and layouts, 22 commands, by handle and by selection, programmatic and interactive | `layer_protection.rs`. **Not covered:** objects inside block definitions (see below) |
 | Frozen layers follow the engine's rules | Done: not editable, not offered as current, never thawed as a side effect | `layer_protection.rs`, `drawing_space.rs` |
 | Switching spaces restores states without changing geometry | Done | `drawing_space.rs` (geometry compared before and after, repeated switching) |

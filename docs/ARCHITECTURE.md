@@ -23,9 +23,9 @@ depends on egui, eframe, winit, wgpu or rfd.
 | L5 | `ui-egui` | The egui front end: GPU canvas, menus, command line, palettes, dialogs, icons drawn in code, light/dark theme, interface string catalog |
 | L5 | `mcp` | MCP server (JSON-RPC 2.0 over stdio) on a headless session or bridged to a running app |
 | L5 | `agent` | Tool layer for a local language model: registry, validation, confirmation, loop limits, audit log ([ai-agent.md](ai-agent.md)) |
-| app | `cadcraft` | Desktop app (eframe/wgpu) |
-| app | `cadcraft-cli` | `info`, `convert`, `run` (scripts), `commands`, `sample`, `mcp` |
-| app | `cadcraft-web` | WASM build of the same UI (no DWG) |
+| app | `aad` | Desktop app (eframe/wgpu) |
+| app | `aad-cli` | `info`, `convert`, `run` (scripts), `commands`, `sample`, `mcp` |
+| app | `aad-web` | WASM build of the same UI (no DWG) |
 | tool | `xtask` | `ci`, `layers`, `assets`, `wasm`, `parity`, `version`, `stats` |
 
 ## Data model
@@ -47,7 +47,7 @@ depends on egui, eframe, winit, wgpu or rfd.
 Every user-visible action is a `CommandSpec` (`crates/engine/src/cmd/mod.rs`): id (the command name
 in lower case), label, menu path, shortcut, aliases, a JSON `run`, an `enabled` check and an
 optional interactive prompt machine. There are 351 engine commands (135 with interactive prompts;
-`cadcraft-cli commands` lists them) and 47 UI-only commands in `crates/ui-egui/src/menus.rs`. The
+`aad-cli commands` lists them) and 47 UI-only commands in `crates/ui-egui/src/menus.rs`. The
 command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools all
 reach the same commands. JSON calls never open dialogs.
 
@@ -72,15 +72,15 @@ DXF is the native path: `dxf` parses tags, `io::dxf_read` maps them to the docum
 `io::dxf_write` writes an R2000 (AC1015) DXF. DWG is converted to DXF in memory by `acadrust` and
 read through the same path; saving DWG writes DXF and converts it back. AAD-only data
 (associativity details, layer states, plot style tables, table flags, hatch gradients) travels in
-extension data under the application name `CADCRAFT`. Object types AAD does not model are kept
+extension data under the application name `AAD`. Object types AAD does not model are kept
 as raw data when read and are not written back; saving reports them.
 
 ## Automation
 
-- Control channel: `cadcraft --control PORT` accepts JSON lines (`cmdline.input`, `engine.execute`,
+- Control channel: `aad --control PORT` accepts JSON lines (`cmdline.input`, `engine.execute`,
   `ui.screenshot`, `ui.render`, ...); see [control-protocol.md](control-protocol.md).
-- MCP: `cadcraft-cli mcp` (headless) or `--connect HOST:PORT` (the running app); see [mcp.md](mcp.md).
-- CLI: `cadcraft-cli run --script ... --export out.png` for batch work.
+- MCP: `aad-cli mcp` (headless) or `--connect HOST:PORT` (the running app); see [mcp.md](mcp.md).
+- CLI: `aad-cli run --script ... --export out.png` for batch work.
 - Agent tools: `crates/agent`; see [ai-agent.md](ai-agent.md).
 
 ## Safety
@@ -106,7 +106,7 @@ The UI, the engine and rendering run on the thread that draws the window. Thread
 - `spatial::warm` builds the picking index in the background when the display list is rebuilt
   (`aad-spatial-warm`, one at a time; not on wasm).
 - The DWG worker process and its feeder and reader threads (`dwg/src/isolated.rs`).
-- The control-channel server (one thread per connection, `apps/cadcraft/src/control_server.rs`),
+- The control-channel server (one thread per connection, `apps/aad/src/control_server.rs`),
   which hands requests to the UI thread over a channel.
 
 File open, save and plot run on the UI thread; there is no progress state yet

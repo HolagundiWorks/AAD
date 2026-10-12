@@ -1,7 +1,7 @@
 //! Edit menu: undo/redo, clipboard, selection.
 
-use cadcraft_doc::{Entity, Handle, entity_bounds};
-use cadcraft_geom::{Bounds2, Mat3, Vec2};
+use aad_doc::{Entity, Handle, entity_bounds};
+use aad_geom::{Bounds2, Mat3, Vec2};
 use serde_json::{Value, json};
 
 use super::machines::{SelOutcome, SelectPhase, SelectRun};
@@ -210,7 +210,7 @@ fn run_pasteblock(s: &mut Session, p: &Value) -> Result<Value> {
     let at = point_param(p, "at").unwrap_or(s.clipboard_base);
     let h = clipboard::paste_block(s, at)?;
     let block = match s.doc()?.entity(h).map(|e| &e.kind) {
-        Some(cadcraft_doc::EntityKind::Insert(i)) => i.block.clone(),
+        Some(aad_doc::EntityKind::Insert(i)) => i.block.clone(),
         _ => String::new(),
     };
     Ok(json!({ "handle": h.hex(), "block": block }))
@@ -328,7 +328,7 @@ impl Interactive for PasteM {
             _ => Ok(Step::Continue),
         }
     }
-    fn preview(&self, s: &Session, c: Vec2) -> Vec<cadcraft_doc::EntityKind> {
+    fn preview(&self, s: &Session, c: Vec2) -> Vec<aad_doc::EntityKind> {
         let m = Mat3::translate(c - s.clipboard_base);
         s.clipboard
             .iter()

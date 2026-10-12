@@ -61,7 +61,7 @@ Seen once during development; not reproduced and not in any test.
 ### UI-002: the test harness paints the canvas on the CPU
 `egui_kittest` has no GPU target in this application, so harness frame times are about 40 times
 the GPU app's at 100 000 entities (16 ms against 0.4 ms). Do not use harness numbers as product
-numbers; use the control channel on `cadcraft.exe` (see [UI_BASELINE.md](UI_BASELINE.md)).
+numbers; use the control channel on `aad.exe` (see [UI_BASELINE.md](UI_BASELINE.md)).
 
 ## Fixed
 

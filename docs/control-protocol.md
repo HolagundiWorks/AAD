@@ -1,6 +1,6 @@
 # AAD control protocol
 
-Start the desktop app with `--control PORT` (or `CADCRAFT_CONTROL_PORT=PORT`). It listens on
+Start the desktop app with `--control PORT` (or `AAD_CONTROL_PORT=PORT`). It listens on
 `127.0.0.1:PORT` for JSON lines: one request per line, one reply per line.
 
 ```json
@@ -42,8 +42,8 @@ The server waits up to 60 s for the app to answer a request. After that it repli
 | `ui.render` | `{path?, width?, height?, fit?}` | Headless render. `fit` (default true) frames the whole drawing; `false` uses the current view. Replies `{pngBase64, width, height, bytes, path?}`. |
 | `app.open` / `app.save` / `app.quit` | `{path}` | File operations. |
 
-The MCP server (`cadcraft-cli mcp --connect 127.0.0.1:PORT`) wraps this protocol; headless
-(`cadcraft-cli mcp`) it serves the same methods from an in-process session.
+The MCP server (`aad-cli mcp --connect 127.0.0.1:PORT`) wraps this protocol; headless
+(`aad-cli mcp`) it serves the same methods from an in-process session.
 
 `ui.key` queues real egui key events; its reply acknowledges the queue. Poll `ui.inspect` or
 `ui.elements` for the resulting focus or state before sending the next action. Use Tab and
@@ -55,8 +55,8 @@ The native host restores layout choices from `workspace.json` and saves changes 
 It stores palette/toolset visibility, selected toolset, collapsed groups, command-line history
 height and related chrome choices. It does not store drawings, command buffers, dialogs or the
 current Start tab. The default directory is `~/Library/Application Support/AAD` on macOS,
-`%APPDATA%/AAD` on Windows, and `$XDG_CONFIG_HOME/cadcraft` or `~/.config/cadcraft` elsewhere.
-Set `CADCRAFT_CONFIG_DIR` to a private directory for an isolated profile; an explicitly empty
+`%APPDATA%/AAD` on Windows, and `$XDG_CONFIG_HOME/aad` or `~/.config/aad` elsewhere.
+Set `AAD_CONFIG_DIR` to a private directory for an isolated profile; an explicitly empty
 value disables workspace reads and writes. An invalid, oversized or newer-version file is
 reported and left untouched, with persistence disabled for that launch. Repair or move that
 file before restarting to resume saving workspace choices.

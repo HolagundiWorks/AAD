@@ -1,7 +1,7 @@
 //! The font presets, the inventory of a drawing's text styles and the migration to a preset.
 
-use cadcraft_doc::{Common, EntityKind, Space, Text};
-use cadcraft_engine::Session;
+use aad_doc::{Common, EntityKind, Space, Text};
+use aad_engine::Session;
 use serde_json::json;
 
 fn session() -> Session {
@@ -14,17 +14,11 @@ fn session() -> Session {
         ("Schedule-Text", "romans.shx", 2.5, 15.0),
         ("Misc-Thing", "arial.ttf", 0.0, 0.0),
     ] {
-        d.text_styles.push(cadcraft_doc::TextStyle {
-            name: name.into(),
-            font: font.into(),
-            height: h,
-            oblique,
-            ..cadcraft_doc::TextStyle::default()
-        });
+        d.text_styles.push(aad_doc::TextStyle { name: name.into(), font: font.into(), height: h, oblique, ..aad_doc::TextStyle::default() });
     }
     for style in ["Standard", "Standard", "Schedule-Text"] {
         let t = Text {
-            insert: cadcraft_geom::Vec3::new(0.0, 0.0, 0.0),
+            insert: aad_geom::Vec3::new(0.0, 0.0, 0.0),
             align_pt: None,
             height: 2.5,
             value: "Room 12 m\u{b2}".into(),
@@ -80,7 +74,7 @@ fn migration_previews_first_keeps_geometry_and_never_swaps_in_a_different_font()
         return;
     };
     for name in ["IBM Plex Sans", "IBM Plex Sans Condensed", "IBM Plex Mono"] {
-        cadcraft_fonts::ttf::register(name, bytes.clone());
+        aad_fonts::ttf::register(name, bytes.clone());
     }
     let before = s.doc().unwrap().text_styles.clone();
     let preview = s.execute("fonts.migrate", &json!({"preset": "engineering"})).unwrap();

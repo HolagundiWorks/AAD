@@ -1,6 +1,6 @@
 //! MTEXT: inline-format parsing, word wrap and attachment.
 
-use cadcraft_geom::{Bounds2, Vec2};
+use aad_geom::{Bounds2, Vec2};
 
 use crate::{Shaped, TextFont, shape_line, text_width};
 

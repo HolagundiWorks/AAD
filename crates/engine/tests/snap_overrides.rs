@@ -1,11 +1,11 @@
 //! Object snap overrides typed at a point prompt (#393): `END`, `MID`, `CEN`, `PER` … apply to the
 //! next point only, `NON` turns snapping off for it, and they nest with FROM.
 
-use cadcraft_doc::EntityKind;
-use cadcraft_engine::pointmod::snap_candidates;
-use cadcraft_engine::snap::{self, mode};
-use cadcraft_engine::{Input, Session};
-use cadcraft_geom::Vec2;
+use aad_doc::EntityKind;
+use aad_engine::pointmod::snap_candidates;
+use aad_engine::snap::{self, mode};
+use aad_engine::{Input, Session};
+use aad_geom::Vec2;
 
 /// A session with a line 0,0–10,0, a line 10,0–10,10 and a circle at 20,20 radius 3. The
 /// default view and window put the snap aperture at 0.125 drawing units.

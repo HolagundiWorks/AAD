@@ -2,8 +2,8 @@
 //! each are in the drawing, insertion of the selected definition, selection of its references and
 //! its attribute definitions. It reads the drawing database every frame, so it never goes stale.
 
-use cadcraft_doc::{Drawing, EntityKind, Handle};
-use cadcraft_engine::Input;
+use aad_doc::{Drawing, EntityKind, Handle};
+use aad_engine::Input;
 use egui::{Rect, Sense, Stroke, pos2, vec2};
 use serde_json::json;
 
@@ -27,21 +27,21 @@ fn reference_counts(d: &Drawing) -> std::collections::BTreeMap<String, Vec<Handl
 }
 
 /// A small line drawing of a block definition, fitted into `rect`.
-fn preview(ui: &egui::Ui, rect: Rect, d: &Drawing, block: &cadcraft_doc::Block) {
+fn preview(ui: &egui::Ui, rect: Rect, d: &Drawing, block: &aad_doc::Block) {
     let t = Tokens::get();
     ui.painter().rect_filled(rect, 2.0, t.canvas);
-    let mut lines: Vec<Vec<cadcraft_geom::Vec2>> = Vec::new();
+    let mut lines: Vec<Vec<aad_geom::Vec2>> = Vec::new();
     for e in block.entities.iter().take(400) {
         if matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::AttDef(_) | EntityKind::Insert(_)) {
             continue;
         }
-        lines.extend(cadcraft_engine::select::hit_polylines(d, e, 0.05));
+        lines.extend(aad_engine::select::hit_polylines(d, e, 0.05));
     }
     let pts = lines.iter().flatten();
-    let (mut lo, mut hi) = (cadcraft_geom::Vec2::new(f64::INFINITY, f64::INFINITY), cadcraft_geom::Vec2::new(f64::NEG_INFINITY, f64::NEG_INFINITY));
+    let (mut lo, mut hi) = (aad_geom::Vec2::new(f64::INFINITY, f64::INFINITY), aad_geom::Vec2::new(f64::NEG_INFINITY, f64::NEG_INFINITY));
     for p in pts {
-        lo = cadcraft_geom::Vec2::new(lo.x.min(p.x), lo.y.min(p.y));
-        hi = cadcraft_geom::Vec2::new(hi.x.max(p.x), hi.y.max(p.y));
+        lo = aad_geom::Vec2::new(lo.x.min(p.x), lo.y.min(p.y));
+        hi = aad_geom::Vec2::new(hi.x.max(p.x), hi.y.max(p.y));
     }
     if !(lo.x.is_finite() && hi.x.is_finite()) {
         return;
@@ -49,7 +49,7 @@ fn preview(ui: &egui::Ui, rect: Rect, d: &Drawing, block: &cadcraft_doc::Block) 
     let (w, h) = ((hi.x - lo.x).max(1e-9), (hi.y - lo.y).max(1e-9));
     let k = (f64::from(rect.width() - 6.0) / w).min(f64::from(rect.height() - 6.0) / h);
     let origin = pos2(rect.center().x - (w * k / 2.0) as f32, rect.center().y + (h * k / 2.0) as f32);
-    let map = |p: &cadcraft_geom::Vec2| pos2(origin.x + ((p.x - lo.x) * k) as f32, origin.y - ((p.y - lo.y) * k) as f32);
+    let map = |p: &aad_geom::Vec2| pos2(origin.x + ((p.x - lo.x) * k) as f32, origin.y - ((p.y - lo.y) * k) as f32);
     for l in &lines {
         ui.painter().add(egui::Shape::line(l.iter().map(map).collect(), Stroke::new(1.0, t.text)));
     }
@@ -72,7 +72,7 @@ pub(crate) fn blocks_section(app: &mut CadApp, ui: &mut egui::Ui) {
         return;
     };
     let refs = reference_counts(d);
-    let mut names: Vec<&cadcraft_doc::Block> = d.blocks.values().map(|b| b.as_ref()).filter(|b| !b.anonymous).collect();
+    let mut names: Vec<&aad_doc::Block> = d.blocks.values().map(|b| b.as_ref()).filter(|b| !b.anonymous).collect();
     names.sort_by_key(|b| b.name.to_ascii_lowercase());
     let id = egui::Id::new(SELECTED);
     let mut selected: Option<String> = ui.data(|data| data.get_temp::<String>(id)).filter(|n| d.block(n).is_some());

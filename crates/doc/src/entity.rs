@@ -1,7 +1,7 @@
 //! Entities: the graphical objects of a drawing.
 
-use cadcraft_color::Color;
-use cadcraft_geom::{
+use aad_color::Color;
+use aad_geom::{
     Arc as GArc, Bounds2, Circle as GCircle, Ellipse as GEllipse, Line as GLine, Mat3, PolyVertex, Polyline, Segment, Spline as GSpline, Vec2, Vec3,
 };
 use serde::{Deserialize, Serialize};
@@ -872,9 +872,9 @@ impl EntityKind {
                 t3(&mut e.center);
                 let mj = m.apply_vec(e.major.xy());
                 e.major = mj.to3(0.0);
-                let full = (cadcraft_geom::ccw_sweep(e.start, e.end) - cadcraft_geom::TAU).abs() < 1e-9;
+                let full = (aad_geom::ccw_sweep(e.start, e.end) - aad_geom::TAU).abs() < 1e-9;
                 if !full {
-                    let ge = GEllipse { center: e.center.xy(), major: mj, ratio: e.ratio, start: 0.0, end: cadcraft_geom::TAU };
+                    let ge = GEllipse { center: e.center.xy(), major: mj, ratio: e.ratio, start: 0.0, end: aad_geom::TAU };
                     let (ps, pe) = (ge.param_of(sp), ge.param_of(ep));
                     if mirror {
                         e.start = pe;
@@ -907,17 +907,17 @@ impl EntityKind {
                 t3(&mut t.insert);
                 t.height *= s;
                 t.width *= s;
-                t.rotation = cadcraft_geom::norm_angle(t.rotation + rot);
+                t.rotation = aad_geom::norm_angle(t.rotation + rot);
             }
             EntityKind::Insert(i) => {
                 t3(&mut i.insert);
                 i.scale.x *= s;
                 i.scale.y *= s;
                 i.scale.z *= s;
-                i.rotation = cadcraft_geom::norm_angle(i.rotation + rot);
+                i.rotation = aad_geom::norm_angle(i.rotation + rot);
                 if mirror {
                     i.scale.y = -i.scale.y;
-                    i.rotation = cadcraft_geom::norm_angle(rot - (i.rotation - rot));
+                    i.rotation = aad_geom::norm_angle(rot - (i.rotation - rot));
                 }
                 for a in &mut i.attribs {
                     transform_text(&mut a.text, m, s, rot, false);
@@ -930,7 +930,7 @@ impl EntityKind {
                     t3(p);
                 }
                 if let DimKind::Linear { rotation } = &mut d.kind {
-                    *rotation = cadcraft_geom::norm_angle(*rotation + rot);
+                    *rotation = aad_geom::norm_angle(*rotation + rot);
                 }
                 d.block = None;
             }
@@ -963,7 +963,7 @@ impl EntityKind {
                     }
                 }
                 h.scale *= s;
-                h.angle = cadcraft_geom::norm_angle(h.angle + rot);
+                h.angle = aad_geom::norm_angle(h.angle + rot);
                 h.origin = m.apply(h.origin);
             }
             EntityKind::Solid(so) | EntityKind::Trace(so) => so.corners.iter_mut().for_each(t3),
@@ -1062,5 +1062,5 @@ fn transform_text(t: &mut Text, m: &Mat3, s: f64, rot: f64, mirror: bool) {
     }
     t.height *= s;
     // MIRRTEXT = 0 (the default): mirrored text keeps reading left to right.
-    t.rotation = cadcraft_geom::norm_angle(t.rotation + if mirror { 0.0 } else { rot });
+    t.rotation = aad_geom::norm_angle(t.rotation + if mirror { 0.0 } else { rot });
 }

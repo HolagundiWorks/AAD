@@ -9,8 +9,8 @@
 //! style replaces or keeps the colour, turns it grey and screens it (toward the white paper),
 //! and replaces the linetype and lineweight. Colour 7 prints black, as on paper.
 
-use cadcraft_color::{Rgb, nearest_aci};
-use cadcraft_doc::{Common, Drawing, Linetype, PlotStyle, PlotStyleTable};
+use aad_color::{Rgb, nearest_aci};
+use aad_doc::{Common, Drawing, Linetype, PlotStyle, PlotStyleTable};
 
 use crate::{Ctx, Ink};
 
@@ -34,7 +34,7 @@ impl Styler {
                     return Some(None);
                 }
                 let found = d.linetype(name).cloned().or_else(|| {
-                    let lib = library.get_or_insert_with(|| cadcraft_doc::library::standard_linetypes_for(d));
+                    let lib = library.get_or_insert_with(|| aad_doc::library::standard_linetypes_for(d));
                     lib.iter().find(|l| l.name.eq_ignore_ascii_case(name)).cloned()
                 })?;
                 Some((!found.pattern.is_empty()).then_some(found))
@@ -55,7 +55,7 @@ impl Styler {
         }
         let layer_name = if c.layer == "0" { ctx.block_layer.as_deref().unwrap_or("0") } else { c.layer.as_str() };
         let by_name = |n: &str| self.table.styles.iter().position(|s| s.name.eq_ignore_ascii_case(n.trim()));
-        let normal = || by_name(cadcraft_doc::NORMAL_STYLE);
+        let normal = || by_name(aad_doc::NORMAL_STYLE);
         let p = c.plot_style.trim();
         if p.is_empty() || p.eq_ignore_ascii_case("bylayer") {
             ctx.d.layer(layer_name).and_then(|l| by_name(&l.plot_style)).or_else(normal)

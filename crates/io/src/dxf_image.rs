@@ -7,9 +7,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use cadcraft_doc::{Drawing, EntityKind, EntityStore, Handle, Image};
-use cadcraft_dxf::{Section, Tag};
-use cadcraft_geom::{Vec2, Vec3};
+use aad_doc::{Drawing, EntityKind, EntityStore, Handle, Image};
+use aad_dxf::{Section, Tag};
+use aad_geom::{Vec2, Vec3};
 
 /// Most clip boundary vertices kept per image (hostile files).
 const MAX_CLIP: usize = 100_000;
@@ -211,7 +211,7 @@ fn def_name(i: &Image) -> String {
 }
 
 /// Allocate the IMAGEDEF, IMAGEDEF_REACTOR and dictionary handles for every image entity.
-pub(crate) fn plan<'a>(entities: impl Iterator<Item = &'a cadcraft_doc::Entity>, mut next: impl FnMut() -> String) -> Plan {
+pub(crate) fn plan<'a>(entities: impl Iterator<Item = &'a aad_doc::Entity>, mut next: impl FnMut() -> String) -> Plan {
     let mut p = Plan::default();
     let mut index: HashMap<(String, String), usize> = HashMap::new();
     let mut used: HashSet<String> = HashSet::new();

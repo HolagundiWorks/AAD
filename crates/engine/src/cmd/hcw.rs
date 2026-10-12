@@ -6,9 +6,9 @@
 //! no units set is taken as millimetres, an imperial one as inches), measure in square metres or
 //! square feet, and size label text from 125 mm of real height.
 
-use cadcraft_color::Color;
-use cadcraft_doc::{Drawing, EntityKind, HAlign, Handle, Layer, Lineweight, VAlign};
-use cadcraft_geom::{Polyline, Vec2};
+use aad_color::Color;
+use aad_doc::{Drawing, EntityKind, HAlign, Handle, Layer, Lineweight, VAlign};
+use aad_geom::{Polyline, Vec2};
 use serde_json::{Value, json};
 
 use super::draw::make_text;
@@ -251,7 +251,7 @@ pub(crate) fn ensure_layer(d: &mut Drawing, name: &str, aci: i16, linetype: &str
         return false;
     }
     if d.linetype(linetype).is_none()
-        && let Some(lt) = cadcraft_doc::library::standard_linetypes_for(d).into_iter().find(|l| l.name.eq_ignore_ascii_case(linetype))
+        && let Some(lt) = aad_doc::library::standard_linetypes_for(d).into_iter().find(|l| l.name.eq_ignore_ascii_case(linetype))
     {
         d.linetypes.push(lt);
     }

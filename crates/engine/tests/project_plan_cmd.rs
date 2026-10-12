@@ -1,7 +1,7 @@
 //! `project.plan` and `company.validate` through the engine: the JSON form the wizard review step,
 //! scripts and the assistant use. They write nothing and never panic on hostile input.
 
-use cadcraft_engine::Session;
+use aad_engine::Session;
 use serde_json::json;
 
 fn config() -> serde_json::Value {

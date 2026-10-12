@@ -1,11 +1,11 @@
 //! Hatch drawing: island detection styles, background colour, two-colour gradients and
 //! pattern definitions kept from a file (issues #289, #290).
 
-use cadcraft_color::{Color, Rgb, aci_rgb};
-use cadcraft_doc::library::PatternLine;
-use cadcraft_doc::{Common, Drawing, EntityKind, Gradient, Hatch, HatchLoop, Layer, Space};
-use cadcraft_geom::{PolyVertex, Vec2};
-use cadcraft_render::{DisplayList, Kind, Options, build};
+use aad_color::{Color, Rgb, aci_rgb};
+use aad_doc::library::PatternLine;
+use aad_doc::{Common, Drawing, EntityKind, Gradient, Hatch, HatchLoop, Layer, Space};
+use aad_geom::{PolyVertex, Vec2};
+use aad_render::{DisplayList, Kind, Options, build};
 
 fn square(lo: f64, hi: f64) -> HatchLoop {
     let v = [(lo, lo), (hi, lo), (hi, hi), (lo, hi)].into_iter().map(|(x, y)| PolyVertex::new(Vec2::new(x, y))).collect();

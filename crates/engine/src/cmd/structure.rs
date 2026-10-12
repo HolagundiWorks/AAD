@@ -10,8 +10,8 @@
 //!   concrete quantities from the inputs.
 //! * `lift.shaft` draws a lift shaft in plan; `rail.draw` a handrail with posts along a path.
 
-use cadcraft_doc::{EntityKind, HAlign, VAlign};
-use cadcraft_geom::Vec2;
+use aad_doc::{EntityKind, HAlign, VAlign};
+use aad_geom::Vec2;
 use serde_json::{Value, json};
 
 use super::draw::make_text;
@@ -193,7 +193,7 @@ fn run_lintel(s: &mut Session, p: &Value) -> Result<Value> {
     if !(bearing.is_finite() && bearing >= 0.0) {
         return Err(bad("lintel.draw", "`bearing` must be zero or positive"));
     }
-    let only: Option<Vec<cadcraft_doc::Handle>> = if p.get("handles").is_some() { Some(targets(s, p)?) } else { None };
+    let only: Option<Vec<aad_doc::Handle>> = if p.get("handles").is_some() { Some(targets(s, p)?) } else { None };
     let found: Vec<(Vec2, Vec2)> = {
         let d = s.doc()?;
         d.model
@@ -353,7 +353,7 @@ fn run_rail(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("rail.draw", "`post` and `size` must be positive"));
     }
     ensure_layer(s.doc_mut()?, RAIL, 6, "Continuous", 20, "Handrails");
-    add_on(s, RAIL, lwpoly(pts.iter().map(|p| cadcraft_geom::PolyVertex::new(*p)).collect(), false))?;
+    add_on(s, RAIL, lwpoly(pts.iter().map(|p| aad_geom::PolyVertex::new(*p)).collect(), false))?;
     let mut posts = 0;
     let mut place = |s: &mut Session, c: Vec2| -> Result<()> {
         add_on(s, RAIL, lwpoly(rect_vertices(Vec2::new(c.x - size / 2.0, c.y - size / 2.0), Vec2::new(c.x + size / 2.0, c.y + size / 2.0)), true))?;

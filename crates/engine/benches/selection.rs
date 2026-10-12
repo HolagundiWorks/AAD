@@ -2,7 +2,7 @@
 //! object, window and crossing selection, fence selection and object snaps. These are the
 //! operations that must stay instant while the pointer moves.
 //!
-//! Run: `cargo bench -p cadcraft-engine --bench selection` (the 1M case is skipped unless
+//! Run: `cargo bench -p aad-engine --bench selection` (the 1M case is skipped unless
 //! `AAD_BENCH_LARGE=1`, because building it takes a few seconds per run).
 
 #[path = "../../../tools/quality/synthetic.rs"]
@@ -10,9 +10,9 @@ mod synthetic;
 
 use std::hint::black_box;
 
-use cadcraft_doc::Space;
-use cadcraft_engine::geom::{Bounds2, Vec2};
-use cadcraft_engine::{select, snap};
+use aad_doc::Space;
+use aad_engine::geom::{Bounds2, Vec2};
+use aad_engine::{select, snap};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 
 fn sizes() -> Vec<usize> {

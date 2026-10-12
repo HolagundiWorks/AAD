@@ -1,5 +1,5 @@
 [package]
-name = "cadcraft-engine"
+name = "aad-engine"
 description = "AAD engine: sessions, commands, the command line and prompts, snaps, selection, undo"
 version.workspace = true
 edition.workspace = true
@@ -10,15 +10,15 @@ workspace = true
 
 [features]
 # Keep the AORMS sign-in in the OS credential store (Windows Credential Manager, shared with the other AORMS apps). The desktop app enables it.
-aorms-keyring = ["cadcraft-aorms/keyring-store"]
+aorms-keyring = ["aad-aorms/keyring-store"]
 
 [dependencies]
-cadcraft-geom = { workspace = true }
-cadcraft-color = { workspace = true }
-cadcraft-doc = { workspace = true }
-cadcraft-fonts = { workspace = true }
-cadcraft-render = { workspace = true }
-cadcraft-aorms = { workspace = true }
+aad-geom = { workspace = true }
+aad-color = { workspace = true }
+aad-doc = { workspace = true }
+aad-fonts = { workspace = true }
+aad-render = { workspace = true }
+aad-aorms = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
