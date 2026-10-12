@@ -92,12 +92,29 @@ Copy-Item (Join-Path $Bin 'cadcraft.exe'), (Join-Path $Bin 'cadcraft-cli.exe') $
 
 & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'cadcraft.exe') (Join-Path $Stage 'cadcraft-cli.exe')
 
+# Typography presets: AAD_FONTS_DIR holds the font files (.ttf/.otf) and their licence texts, taken
+# from the upstream releases (nothing is committed to this repository). They are installed in
+# <install folder>\fonts, which the application searches before the system fonts, so the build
+# works offline. Without the variable the installer carries no fonts and the interface uses the
+# system font until the files are added.
+$FontsDefine = @()
+if ($env:AAD_FONTS_DIR) {
+  $Fonts = Join-Path $Stage 'fonts'
+  New-Item -ItemType Directory -Force -Path $Fonts | Out-Null
+  $files = Get-ChildItem -Path $env:AAD_FONTS_DIR -Recurse -File | Where-Object { $_.Extension -in '.ttf', '.otf' -or $_.Name -match '^(OFL|LICEN[CS]E|COPYRIGHT|NOTICE)' }
+  if (-not ($files | Where-Object { $_.Extension -in '.ttf', '.otf' })) { throw "AAD_FONTS_DIR ($env:AAD_FONTS_DIR) has no .ttf or .otf files" }
+  if (-not ($files | Where-Object { $_.Name -match '^(OFL|LICEN[CS]E)' })) { throw "AAD_FONTS_DIR ($env:AAD_FONTS_DIR) has no licence file: every bundled font needs its licence" }
+  foreach ($f in $files) { Copy-Item $f.FullName (Join-Path $Fonts $f.Name) -Force }
+  $FontsDefine = @('-d', "FontsDir=$Fonts")
+  Write-Output "fonts: $(@($files).Count) file(s) from $env:AAD_FONTS_DIR"
+}
+
 # ---- MSI ---------------------------------------------------------------------------------------
 $Msi = Join-Path $Dist "cadcraft-$Version-windows-$Arch.msi"
 Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot 'cadcraft.wxs') -arch $Arch -ext WixToolset.UI.wixext `
     -d "Version=$MsiVersion" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\cadcraft.ico')" `
-    -o $Msi
+    @FontsDefine -o $Msi
 }
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
@@ -108,6 +125,7 @@ $Portable = Join-Path $TargetDir "windows-package\cadcraft-$Version-windows-$Arc
 Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Portable | Out-Null
 Copy-Item (Join-Path $Stage '*.exe') $Portable
+if (Test-Path (Join-Path $Stage 'fonts')) { Copy-Item (Join-Path $Stage 'fonts') $Portable -Recurse }
 foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE') {
   $p = Join-Path $Root $f
   if (Test-Path $p) { Copy-Item $p $Portable }

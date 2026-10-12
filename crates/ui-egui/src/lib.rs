@@ -105,6 +105,8 @@ pub struct UiState {
     pub mode_slots: std::collections::BTreeMap<String, Value>,
     /// The tools on the first line of the top bar ([`topbar`]): command ids, `-` for a separator.
     pub top_bar: Vec<String>,
+    /// The typography preset ([`cadcraft_fonts::registry`]): the interface fonts follow it.
+    pub font_preset: String,
 }
 
 /// The workspace. Pro hides the persistent toolbars and side palettes for a full-screen drafting
@@ -201,6 +203,7 @@ impl Default for UiState {
             auto_collapse_ms: 1500,
             mode_slots: std::collections::BTreeMap::new(),
             top_bar: topbar::default_items(),
+            font_preset: cadcraft_fonts::registry::DEFAULT_PRESET.into(),
         }
     }
 }
@@ -239,6 +242,8 @@ pub struct CadApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub frame_cap: Option<gpu::FrameCap>,
     styled: bool,
+    /// The font preset the interface fonts were built for (a change in `ui.font_preset` rebuilds them).
+    fonts_applied: String,
     /// The theme last installed into egui (`None` until the first frame).
     shown_theme: Option<egui::Theme>,
     pub frame_ms: f64,
@@ -274,6 +279,7 @@ impl CadApp {
             #[cfg(not(target_arch = "wasm32"))]
             frame_cap: None,
             styled: false,
+            fonts_applied: String::new(),
             shown_theme: None,
             frame_ms: 0.0,
             quit_requested: false,
@@ -460,8 +466,13 @@ impl CadApp {
         if ctx.input(|i| i.viewport().close_requested()) && self.request_quit() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
+        if self.styled && self.fonts_applied != self.ui.font_preset {
+            theme::install_fonts(ctx, &self.ui.font_preset);
+            self.fonts_applied = self.ui.font_preset.clone();
+        }
         if !self.styled {
-            theme::install_fonts(ctx);
+            theme::install_fonts(ctx, &self.ui.font_preset);
+            self.fonts_applied = self.ui.font_preset.clone();
             self.styled = true;
             // Classic always starts with its panels open, whatever a saved layout says.
             if self.ui.workspace == WorkspaceMode::Classic {

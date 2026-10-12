@@ -229,14 +229,18 @@ pub fn mono() -> FontId {
     FontId::new(12.0, FontFamily::Monospace)
 }
 
-/// Load a system UI font at run time when one is installed (not bundled), else keep egui's.
-pub fn install_fonts(ctx: &egui::Context) {
+/// Build the interface fonts: the selected typography preset first (Sans for text, Mono for the
+/// command bar and values, Condensed under its own family name), then a system font so characters
+/// the preset lacks still draw. A preset whose fonts are not installed leaves egui's and the system
+/// font as they were.
+pub fn install_fonts(ctx: &egui::Context, preset: &str) {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        use cadcraft_fonts::registry::{self, Face};
         let candidates: &[&str] = if cfg!(target_os = "macos") {
             &["/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf"]
         } else if cfg!(windows) {
-            &["C:\\Windows\\Fonts\\segoeui.ttf", "C:\\Windows\\Fonts\\arial.ttf"]
+            &[r"C:\Windows\Fonts\segoeui.ttf", r"C:\Windows\Fonts\arial.ttf"]
         } else {
             &[
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -255,11 +259,39 @@ pub fn install_fonts(ctx: &egui::Context) {
                 break;
             }
         }
+        // The preset's own fonts, where they are installed.
+        let p = registry::preset(preset).unwrap_or(&registry::PRESETS[0]);
+        let mut load = |face: Face, key: &str| -> bool {
+            let Some(found) = cadcraft_fonts::ttf::find(p.family(face)) else { return false };
+            let mut data = egui::FontData::from_owned(found.bytes.as_ref().clone());
+            data.index = found.index;
+            fonts.font_data.insert(key.into(), std::sync::Arc::new(data));
+            true
+        };
+        if load(Face::Sans, "aad-sans")
+            && let Some(f) = fonts.families.get_mut(&FontFamily::Proportional)
+        {
+            f.insert(0, "aad-sans".into());
+        }
+        if load(Face::Mono, "aad-mono")
+            && let Some(f) = fonts.families.get_mut(&FontFamily::Monospace)
+        {
+            f.insert(0, "aad-mono".into());
+        }
+        if load(Face::Condensed, "aad-condensed") {
+            let mut chain = vec!["aad-condensed".to_string()];
+            chain.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
+            fonts.families.insert(FontFamily::Name(CONDENSED_FAMILY.into()), chain);
+        }
         ctx.set_fonts(fonts);
     }
     #[cfg(target_arch = "wasm32")]
-    let _ = ctx;
+    let _ = (ctx, preset);
 }
+
+/// The egui family name of the preset's Condensed face (toolbar labels, compact metadata). Falls
+/// back to the Proportional chain when the face is not installed.
+pub const CONDENSED_FAMILY: &str = "aad-condensed";
 
 /// egui's visuals for `theme`, from its tokens.
 fn visuals(theme: Theme) -> Visuals {

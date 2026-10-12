@@ -42,6 +42,12 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.theme.light", "Light", &[], None),
     ("ui.theme.dark", "Dark", &[], None),
     ("ui.theme", "Interface Theme", &[], None),
+    ("ui.fonts.engineering", "Engineering", &["View", "Font Preset", "Engineering"], None),
+    ("ui.fonts.editorial", "Architectural Editorial", &["View", "Font Preset", "Architectural Editorial"], None),
+    ("ui.fonts.multilingual", "Multilingual Documentation", &["View", "Font Preset", "Multilingual Documentation"], None),
+    ("ui.fonts.compact", "Compact Interface", &["View", "Font Preset", "Compact Interface"], None),
+    ("ui.fonts.drafting", "Drafting Utility", &["View", "Font Preset", "Drafting Utility"], None),
+    ("ui.fonts", "Interface Font Preset", &[], None),
     ("ui.saveformat.dxf", "DXF", &["File", "Default Save Format", "DXF"], None),
     ("ui.saveformat.dwg", "DWG", &["File", "Default Save Format", "DWG"], None),
     ("ui.saveformat", "Default Save Format", &[], None),
@@ -225,6 +231,14 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             let pref = crate::theme::ThemePref::parse(id.trim_start_matches("ui.theme.")).unwrap_or_default();
             set_theme(app, pref)
         }
+        // `{"preset": id}` sets the typography preset of the interface; without it, reports it.
+        "ui.fonts.engineering" | "ui.fonts.editorial" | "ui.fonts.multilingual" | "ui.fonts.compact" | "ui.fonts.drafting" => {
+            set_font_preset(app, id.trim_start_matches("ui.fonts."))
+        }
+        "ui.fonts" => match params.get("preset").and_then(Value::as_str) {
+            Some(name) => set_font_preset(app, name),
+            None => Ok(fonts_json(app)),
+        },
         // `{"theme": "light"|"dark"}` sets the choice; without it, reports it.
         "ui.theme" => match params.get("theme").and_then(Value::as_str) {
             Some(name) => match crate::theme::ThemePref::parse(name) {
@@ -701,4 +715,25 @@ fn reset_workspace(app: &mut CadApp) -> Value {
     app.ui.dialog = None;
     app.collapse = Default::default();
     json!({ "workspace": mode.as_str(), "reset": true })
+}
+
+fn fonts_json(app: &CadApp) -> Value {
+    let p = cadcraft_fonts::registry::preset(&app.ui.font_preset).unwrap_or(&cadcraft_fonts::registry::PRESETS[0]);
+    let t = cadcraft_fonts::registry::Typography { preset: p.id.into(), overrides: Vec::new() };
+    let roles: Vec<Value> = t
+        .resolve_all()
+        .into_iter()
+        .map(|r| json!({"role": r.role.id(), "family": r.family, "weight": r.weight, "requested": r.requested, "substituted": r.substituted}))
+        .collect();
+    json!({"preset": p.id, "name": p.name, "roles": roles})
+}
+
+/// Select the interface typography preset. The fonts are rebuilt on the next frame; a preset whose
+/// fonts are not installed keeps the system font and the answer says which roles were substituted.
+fn set_font_preset(app: &mut CadApp, id: &str) -> Result<Value, String> {
+    if cadcraft_fonts::registry::preset(id).is_none() {
+        return Err(format!("unknown font preset \"{id}\""));
+    }
+    app.ui.font_preset = id.to_string();
+    Ok(fonts_json(app))
 }

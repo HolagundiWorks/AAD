@@ -14,6 +14,7 @@ craft-ui = { workspace = true }
 cadcraft-geom = { workspace = true }
 cadcraft-color = { workspace = true }
 cadcraft-doc = { workspace = true }
+cadcraft-fonts = { workspace = true }
 cadcraft-render = { workspace = true }
 cadcraft-engine = { workspace = true }
 cadcraft-aorms = { workspace = true }

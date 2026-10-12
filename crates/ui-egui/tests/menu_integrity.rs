@@ -100,6 +100,7 @@ const EXPECTED_SILENT: &[(&str, &str)] = &[
     ("ui.resetpalettes", "the palettes are already at their defaults"),
     ("ui.workspace.reset", "the workspace is already at its defaults (reset with a changed workspace is tested in workspace_modes)"),
     ("resetui", "the interface is already at its defaults (reset of a changed interface is tested in workspace_modes)"),
+    ("ui.fonts.engineering", "Engineering is already the selected font preset (changing it is tested in tests/fonts.rs)"),
 ];
 
 #[test]

@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 mod mtext;
+pub mod registry;
 mod stroke;
 pub mod ttf;
 

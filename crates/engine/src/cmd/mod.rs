@@ -41,6 +41,7 @@ mod structure;
 mod symbols;
 mod takeoff;
 mod trimextend;
+mod typography;
 mod utility;
 mod view;
 mod walls;
@@ -202,6 +203,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(xref::specs());
         v.extend(projfile::specs());
         v.extend(projwizard::specs());
+        v.extend(typography::specs());
         v.extend(sheet::specs());
         v.extend(layout::specs());
         v.extend(props::specs());

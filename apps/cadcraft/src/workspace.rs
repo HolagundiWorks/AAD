@@ -40,6 +40,7 @@ fn snapshot(ui: &UiState) -> Result<Value, String> {
         "docking": ui.docking,
         "modeSlots": ui.mode_slots,
         "topBar": ui.top_bar,
+        "fontPreset": ui.font_preset,
         "showPalettes": ui.show_palettes,
         "showToolbar": ui.show_toolbar,
         "showFileTabs": ui.show_file_tabs,
@@ -84,6 +85,9 @@ fn read(path: &Path) -> Result<Option<UiState>, String> {
     // Old or hand-edited files cannot reopen a dialog or replace the active drawing view.
     ui.dialog = None;
     ui.top_bar = cadcraft_ui_egui::topbar::sanitize(&ui.top_bar);
+    if cadcraft_fonts::registry::preset(&ui.font_preset).is_none() {
+        ui.font_preset = cadcraft_fonts::registry::DEFAULT_PRESET.into();
+    }
     ui.start_tab = false;
     snapshot(&ui).map_err(|error| format!("{}: {error}", path.display()))?;
     Ok(Some(ui))
@@ -287,6 +291,23 @@ mod tests {
         let (_, again, error) = Workspace::at(Some(path));
         assert!(error.is_none(), "{error:?}");
         assert_eq!(again.unwrap().top_bar, ["line"], "the unknown tool and the separator left dangling are dropped");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn the_font_preset_survives_a_restart_and_an_unknown_one_falls_back_to_the_default() {
+        let directory = temp_dir();
+        let path = directory.join("workspace.json");
+        let (mut store, _, _) = Workspace::at(Some(path.clone()));
+        let ui = UiState { font_preset: "drafting".into(), ..UiState::default() };
+        store.save_if_changed(&ui).unwrap();
+        let (_, reloaded, error) = Workspace::at(Some(path.clone()));
+        assert!(error.is_none(), "{error:?}");
+        assert_eq!(reloaded.unwrap().font_preset, "drafting");
+        let text = fs::read_to_string(&path).unwrap().replace("drafting", "no-such-preset");
+        fs::write(&path, text).unwrap();
+        let (_, again, _) = Workspace::at(Some(path));
+        assert_eq!(again.unwrap().font_preset, "engineering");
         fs::remove_dir_all(directory).unwrap();
     }
     #[test]

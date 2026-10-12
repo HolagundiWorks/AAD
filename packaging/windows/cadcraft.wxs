@@ -36,7 +36,11 @@
     <Property Id="ARPHELPLINK" Value="https://github.com/HolagundiWorks/AADT/issues" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="AAD" />
+      <Directory Id="INSTALLFOLDER" Name="AAD">
+        <?ifdef FontsDir?>
+        <Directory Id="AadFontsDir" Name="fonts" />
+        <?endif?>
+      </Directory>
     </StandardDirectory>
     <StandardDirectory Id="ProgramMenuFolder" />
     <!-- Per-machine (ALLUSERS=1), so this is the all-users (Public) desktop, like the Start Menu above. -->
@@ -60,6 +64,9 @@
 
     <Feature Id="Main" Title="AAD" Level="1">
       <ComponentGroupRef Id="CadcraftFiles" />
+      <?ifdef FontsDir?>
+      <ComponentGroupRef Id="CadcraftFonts" />
+      <?endif?>
     </Feature>
   </Package>
 
@@ -164,4 +171,13 @@
 
     <UIRef Id="WixUI_Common" />
   </Fragment>
+
+  <?ifdef FontsDir?>
+  <!-- Typography presets: font files and their licences, searched by the application before the system fonts. -->
+  <Fragment>
+    <ComponentGroup Id="CadcraftFonts" Directory="AadFontsDir">
+      <Files Include="$(var.FontsDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+  <?endif?>
 </Wix>
