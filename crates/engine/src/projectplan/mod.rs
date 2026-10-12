@@ -10,8 +10,10 @@
 //! names or display names.
 
 pub mod company;
+mod generate;
 mod plan;
 
+pub use generate::{GenerateOptions, Report, cleanup, generate, inspect_recovery};
 pub use plan::{Plan, PlannedDrawing, PlannedXref, Preflight, plan, preflight, relative_path, resolve_elevations};
 
 use serde::{Deserialize, Serialize};
@@ -275,6 +277,14 @@ impl Default for Generation {
     }
 }
 
+/// The recorded outcome of generation.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Generated {
+    pub drawings: Vec<PlannedDrawing>,
+    pub xrefs: Vec<PlannedXref>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProjectConfig {
@@ -290,6 +300,9 @@ pub struct ProjectConfig {
     pub folders: Vec<String>,
     /// Whether a master (coordination) drawing is created.
     pub master_drawing: bool,
+    /// What generation actually produced (kept apart from the intent above): the drawings and the
+    /// Xrefs, with the ids the files are known by.
+    pub generated: Generated,
     pub generation: Generation,
 }
 
@@ -306,6 +319,7 @@ impl Default for ProjectConfig {
             naming_rules: NamingRules::default(),
             folders: Vec::new(),
             master_drawing: true,
+            generated: Generated::default(),
             generation: Generation::default(),
         }
     }

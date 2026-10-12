@@ -14,7 +14,7 @@ use super::{
 pub const MANIFEST_FILE: &str = "project.json";
 
 /// One drawing the project will have.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct PlannedDrawing {
     /// Stable: derived from the project, set, floor and kind, so it survives renames and regeneration.
     pub id: String,
@@ -28,7 +28,7 @@ pub struct PlannedDrawing {
 }
 
 /// One Xref from a host drawing to a target drawing.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct PlannedXref {
     pub id: String,
     pub host_id: String,

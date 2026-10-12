@@ -22,7 +22,7 @@ from existing entity types (blocks with attributes are supported by the drawing 
 not); generated drawings are DXF, so the default file extension is `dxf` and `dwg` is accepted in
 the naming rules only for when DWG writing exists.
 
-## What is built (step 1 and 2 of the implementation sequence)
+## What is built (steps 1, 2, 4 and 5 of the implementation sequence)
 
 `crates/engine/src/projectplan/`, tested in `projectplan/tests.rs` and
 `crates/engine/tests/project_plan_cmd.rs`:
@@ -46,7 +46,24 @@ the naming rules only for when DWG writing exists.
 - **Company profiles** (`projectplan::company`): typed profile, validation, `companies/<id>/company.json`
   with atomic writes, listing, load by id (never by name), managed logo asset (PNG, JPEG or SVG up
   to 5 MB), and `nameplate_lines` that leaves empty fields out.
-- **Commands**: `project.plan` (validate and preview, writes nothing) and `company.validate`.
+- **Generator** (`projectplan/generate.rs`, command `project.generate`): creates the folders, one
+  drawing per planned drawing through the engine's own commands (units, project details, floors and
+  an `aadDrawing` record holding the drawing id, number, title, set, floor and elevation), then
+  attaches the Xrefs after all targets exist, then verifies that every file opens and every attached
+  Xref resolves. Lifecycle `Validating → Generating → LinkingXrefs → Verifying → Ready`; any failure
+  ends `Failed` and never `Ready`; the result is recorded in `project.json` (`generated`).
+  Existing files are never overwritten and a kept drawing is never modified to add Xrefs, so
+  regenerating after the user edited a drawing leaves it byte for byte as it was. An invalid
+  configuration, a different project in the folder or a non-empty folder writes nothing. Overlay
+  Xrefs are session-only in this engine, so they are recorded in the manifest and not written into
+  the files. Tested on real files: `apps/cadcraft-cli/tests/project_generate.rs` (generate, verify,
+  move the folder, regenerate, refuse, interrupt, resume, clean up).
+- **Recovery** (`generation.log.json`, command `project.recover`): the log is replaced atomically
+  after every step and records the files this run created with a hash of their content and the
+  files that may be half written. `inspect` reports what an interrupted run left; `cleanup` removes
+  only recorded files that are still unchanged; `project.generate {resume: true}` continues and
+  rewrites only the files the log marks as possibly half written.
+- **Commands**: `project.plan` (validate and preview, writes nothing), `project.generate`, `project.recover` and `company.validate`.
 
 ## Decisions to confirm
 
@@ -63,7 +80,7 @@ the naming rules only for when DWG writing exists.
 | Step | Item |
 |---|---|
 | 3 | Wizard UI (six steps, draft persistence, review tree and floor-by-set matrix), template manager (built-in, company, project snapshot; compare and apply updates) |
-| 5 | `DrawingGenerator` and `XrefService`: creating the files through the engine, attaching Xrefs after the targets exist, reload and verify, the staged lifecycle `Draft → Validating → Generating → Linking Xrefs → Verifying → Ready`, the recovery log and interrupted-creation detection |
+| 5 | Xref maintenance as a service (reload modified references, list the hosts of a file, repath after a move; the generator already attaches and verifies), per-set default layers and styles, DWG output |
 | 6 | Opening schedule types, generated opening blocks, reconciliation of schedule and drawing instances, CSV export |
 | 7 | Nameplate template with named fields, binding to company and project data, update policy (future drawings or linked nameplates), linked, overridden and frozen states |
 | 8 | Xref maintenance (missing, reload, who references what, repath after a move), project packaging with a profile snapshot |
