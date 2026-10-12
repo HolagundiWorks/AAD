@@ -48,3 +48,14 @@ significant lag or important functionality unreliable; P3 minor; P4 optimisation
 ## Open
 
 None confirmed. See the suspected defects and the backlog in [QUALITY_AUDIT.md](QUALITY_AUDIT.md).
+
+## PERF-001 (P3, hypothesis): editing existing objects costs about 40 ms at 100 000 entities
+
+- **Measured** (`cargo bench -p cadcraft-engine --bench drawing_operations`, 1 000 objects selected
+  in a 100 000-entity synthetic drawing, `Session::execute`): move 41.8 ms, rotate 40.3 ms, erase
+  39.2 ms, recolour 40.3 ms; copy of the same objects 2.7 ms; undo of a move 0.62 ms. One machine,
+  one run. See [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
+- **Why it looks suspicious:** four different operations take the same time, so the cost is
+  probably in something they share, not in the geometry. Unverified: no profile has been taken.
+- **Status:** open. Next step is a profile (which function holds the 40 ms); a fix, if any, needs
+  its own regression guard and a before/after run of this benchmark.

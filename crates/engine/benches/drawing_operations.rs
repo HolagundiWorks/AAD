@@ -24,7 +24,7 @@ fn setup() -> (Session, Vec<String>) {
     let d = synthetic::drawing(N);
     let side = synthetic::side(N);
     let c = Vec2::new(side / 2.0, side / 2.0);
-    let half = side * 0.016;
+    let half = side * 0.05;
     let hs: Vec<String> = select::select_window(&d, &Space::Model, Bounds2::new(c - Vec2::new(half, half), c + Vec2::new(half, half)), false)
         .iter()
         .take(1000)
