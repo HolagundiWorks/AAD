@@ -55,7 +55,7 @@ At 100 000 entities the CPU-painted canvas spent about 9.8 ms per frame painting
 
 `frameMs` is the application's own measure of the CPU time of a frame; it does not include the
 GPU's work or presentation, so it is not input-to-photon latency. The single 49.5 ms frame in run 1
-is the first pick after opening and does not recur (UI-001).
+was the first pick after opening and did not recur; fixed (UI-001), see the backlog for the after figures.
 
 ## From the command-line performance harness (`cadcraft-cli perf`, from the quality programme)
 

@@ -236,6 +236,33 @@ pub fn index_store(d: &Drawing, store: &EntityStore) -> Arc<SpatialIndex> {
     ix
 }
 
+/// Build the cached index for `space` on a background thread, so the first pick, snap or window
+/// selection after opening or editing a large drawing does not build it on the thread that draws
+/// the window. At most one warm-up runs at a time (a later request while one runs is dropped: the
+/// next pick builds incrementally from whatever was cached). Does nothing on wasm, which has no
+/// threads, and for spaces too small to index.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn warm(doc: Arc<Drawing>, space: Space) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static RUNNING: AtomicBool = AtomicBool::new(false);
+    if doc.space(&space).is_none_or(|s| s.len() < MIN_INDEXED) || RUNNING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("aad-spatial-warm".into()).spawn({
+        move || {
+            // A panic must not leave the flag set.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| index(&doc, &space)));
+            RUNNING.store(false, Ordering::Release);
+        }
+    });
+    if spawned.is_err() {
+        RUNNING.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn warm(_doc: Arc<Drawing>, _space: Space) {}
+
 /// Drop every cached index (frees memory held by closed drawings).
 pub fn clear_cache() {
     CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
@@ -248,6 +275,27 @@ mod tests {
     use crate::{select, snap};
     use cadcraft_doc::{Common, Insert, Text};
     use cadcraft_geom::{PolyVertex, Vec2, Vec3};
+
+    /// UI-001: the first pick after opening a large drawing used to build the index on the thread
+    /// that draws the window. `warm` builds it ahead, in the background, with no pick involved.
+    #[test]
+    fn warm_builds_the_index_without_a_pick() {
+        let mut d = Drawing::default();
+        for i in 0..2000 {
+            let c = v3(f64::from(i % 50) * 3.0, f64::from(i / 50) * 3.0);
+            d.add(&Space::Model, Common::default(), EntityKind::Circle(cadcraft_doc::Circle { center: c, radius: 1.0 })).unwrap();
+        }
+        let d = Arc::new(d);
+        let store = d.space(&Space::Model).unwrap();
+        let cached = || CACHE.lock().unwrap().iter().any(|ix| ix.matches(&d, store));
+        assert!(!cached(), "nothing has asked for the index yet");
+        warm(d.clone(), Space::Model);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while !cached() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(cached(), "the background warm-up cached the index");
+    }
 
     struct Rng(u64);
     impl Rng {

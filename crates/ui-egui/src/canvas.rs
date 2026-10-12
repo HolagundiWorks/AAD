@@ -193,6 +193,8 @@ fn ensure_list(app: &mut CadApp, px: f64) {
     };
     let opts = cadcraft_render::Options { tolerance: 2f64.powi(band) * 0.5, ..opts };
     let space = st.space.clone();
+    // Picking and snapping need the spatial index: build it off the UI thread, alongside the display list, so the first pick does not.
+    cadcraft_engine::spatial::warm(st.doc.clone(), space.clone());
     app.canvas.list = Some(cadcraft_render::build(&st.doc, &space, &opts));
     app.canvas.key = key;
     app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
