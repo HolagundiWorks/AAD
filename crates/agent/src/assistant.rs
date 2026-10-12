@@ -73,7 +73,7 @@ pub struct Event {
 }
 
 /// Longest user message taken; longer text is cut.
-const MAX_USER_CHARS: usize = 4000;
+const MAX_USER_CHARS: usize = 6000;
 /// Longest tool result handed to the model (a long report is cut and says so).
 const MAX_TOOL_CHARS: usize = 3000;
 /// Characters of conversation kept for the model (about a quarter of its 8K-token window, leaving

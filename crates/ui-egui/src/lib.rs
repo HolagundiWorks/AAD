@@ -223,7 +223,7 @@ pub struct CadApp {
     pub collapse: autocollapse::CollapseState,
     /// The context bar and the drawing space editor ([`contextbar`], [`spaceeditor`]).
     pub ctx_bar: contextbar::State,
-    /// The Assistant window ([`assistant`]).
+    /// What the command bar remembers about the assistant ([`assistant`]).
     pub assistant: assistant::Ui,
     /// State of the Calculator and Pomodoro widgets.
     pub widgets: widgets::WidgetState,
@@ -329,11 +329,13 @@ impl CadApp {
     /// Submit a line of command-line text. A refused line is echoed to the history; the error is
     /// also returned.
     pub fn cmdline(&mut self, text: &str) -> Option<String> {
-        // `/ request` goes to the local assistant (not while a command is waiting for input).
-        if self.session.running.is_none()
-            && let Some(rest) = text.trim_start().strip_prefix('/')
-        {
-            return assistant::ask_from_command_line(self, rest);
+        // The bar takes native commands and requests for the assistant alike: what the first word
+        // resolves to decides (`cmdinput::classify`). Not while a command is waiting for input.
+        if self.session.running.is_none() {
+            let kind = cmdinput::classify(text);
+            if cmdinput::is_ai(kind) && (assistant::available(self) || kind == cmdinput::Kind::Reference) {
+                return assistant::ask(self, text);
+            }
         }
         if self.session.running.is_none() {
             let first = text.split_whitespace().next().unwrap_or("");
@@ -561,7 +563,6 @@ impl CadApp {
         }
         dialogs::show(self, ui.ctx());
         widgets::show(self, ui.ctx());
-        assistant::show(self, ui.ctx());
         closing::prompt(self, ui.ctx());
         self.frame_ms = now_ms() - t0;
     }

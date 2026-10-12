@@ -18,7 +18,7 @@ work.
 | Background worker (`cadcraft_llm::worker`): loads on the first request, one request at a time, Stop, panic contained | **Implemented**; a unit test covers the no-model path |
 | `driver` (`cadcraft_agent::driver`): runs the Assistant against a model for hosts that can wait | **Implemented** |
 | `cadcraft-cli ask [--file f \| --sample] [--yes] [--save out.dxf] "request"` (build with `--features assistant`) | **Implemented, run with the real model** (below) |
-| Desktop Assistant window (Tools > Assistant; `cadcraft --features assistant`): conversation, thinking indicator, Allow and Decline, Stop, New chat; model on the worker thread, tools through the engine on the UI thread | **Implemented, run with the real model** (below); window behaviour covered by `crates/ui-egui/tests/assistant_window.rs` with a fake backend |
+| Assistant through the unified command bar (`cadcraft --features assistant`; see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline in the bar, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented, run with the real model** (below); bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend |
 | Bundling the model in the installer, and building the installer with the `assistant` feature | **Not done** |
 | Result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
@@ -150,12 +150,8 @@ not hold yet: reliability across many requests (not measured), and the summaries
 for details, so the application should show tool results (tables) rather than rely on the model's
 retelling of them (planned).
 
-## Asking from the command line: `/`
+## Asking from the command bar
 
-A command-line entry that starts with `/` is a request for the assistant, not a command:
-`/audit this drawing` opens the Assistant window and asks it. Spaces typed after the `/` are part of
-the request (Space normally submits the command line, as in AutoCAD). It is not taken while a
-command is waiting for input, so a `/` typed as a prompt answer stays an answer. In a build without
-the model, the command line says the assistant is not included. While the assistant is working its
-input box stays usable (the text waits for the answer to finish), so typing never falls through to
-the command line. Tests: `crates/ui-egui/tests/assistant_window.rs`.
+Requests are typed in the same command bar as commands: a leading `/`, a `/reference`, or a
+sentence whose first word is not a command. Rules, keys and references are in
+[COMMAND_BAR.md](COMMAND_BAR.md). Tests: `crates/ui-egui/tests/command_bar.rs`.

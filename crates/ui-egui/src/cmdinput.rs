@@ -31,7 +31,7 @@ pub fn command_known(word: &str) -> bool {
 }
 
 /// A whole word of the form `/letters` (trailing punctuation allowed): a reference, not a path.
-fn is_reference_word(w: &str) -> bool {
+pub fn is_reference_word(w: &str) -> bool {
     let w = w.trim_end_matches([',', '.', ';', ':', '!', '?', ')']);
     w.strip_prefix('/').is_some_and(|r| !r.is_empty() && r.chars().all(|c| c.is_ascii_alphabetic()))
 }

@@ -1,8 +1,10 @@
-//! The floating command line: history, the active prompt with clickable keywords, typed input
-//! (keyboard focus stays on the drawing — typing anywhere goes here) and AutoComplete.
+//! The command bar: one floating input for native CAD commands and for requests to the assistant,
+//! with the history, the active prompt (clickable keywords), suggestions and `/reference` menu.
+//! Typing anywhere goes here (keyboard focus stays on the drawing). The rules for what Space, Enter,
+//! Tab, Escape and the arrows do are in [`keyboard`] and [`crate::cmdinput`].
 
 use cadcraft_engine::Input;
-use egui::{Key, Pos2, Rect, Sense, Stroke, pos2, vec2};
+use egui::{Color32, Key, Pos2, Rect, Sense, Stroke, pos2, vec2};
 
 use crate::CadApp;
 use crate::theme::Tokens;
@@ -20,6 +22,21 @@ pub struct CmdLine {
     pub expanded: bool,
     /// Dragging the history's top edge: (pointer y, line count) when the drag started.
     resize_from: Option<(f32, usize)>,
+    /// The highlighted row of the suggestion menu (arrow keys), if one was chosen.
+    pub sug_sel: Option<usize>,
+    /// Escape closed the suggestion menu for the text now in the bar.
+    sug_hidden: bool,
+    /// The text the two fields above belong to; typing something else resets them.
+    sug_buf: String,
+    /// An input method is composing text: Enter and Space belong to it, not to the bar.
+    ime_composing: bool,
+    /// Which references have nothing to read in the open drawing, with the reason: (document,
+    /// revision, selection size) it was worked out for.
+    ref_cache: Option<((u64, u64, usize), Vec<(String, String)>)>,
+    /// How many rows the suggestion menu has this frame (the bar's hit zones keep clear of them).
+    menu_rows: usize,
+    /// Where the bar was drawn this frame, in screen points (for tests and hit-testing).
+    pub bar: Option<Rect>,
 }
 
 /// The most history lines the command line shows above its bar.
@@ -70,25 +87,59 @@ fn tab(app: &mut CadApp) {
         && let Some(sep) = crate::dyninput::tab_separator(&app.cmd.buffer, &f)
     {
         app.cmd.buffer.push(sep);
-    } else if let Some((id, _)) = suggestions(&app.cmd.buffer).first() {
-        app.cmd.buffer = id.clone();
+    } else if let Some(e) = {
+        let m = menu(app);
+        let i = app.cmd.sug_sel.unwrap_or(0).min(m.len().saturating_sub(1));
+        m.get(i).cloned()
+    } {
+        accept_entry(app, &e);
     }
 }
 
-/// Matching command names/aliases for AutoComplete.
-fn suggestions(prefix: &str) -> Vec<(String, &'static str)> {
-    if prefix.is_empty() || prefix.contains(' ') {
+/// The references that have nothing to read in the open drawing, with the reason. Worked out again
+/// only when the document, its revision or the selection size changes (it reads the whole drawing).
+fn unavailable_refs(app: &mut CadApp) -> Vec<(String, String)> {
+    let Ok(st) = app.session.state() else { return Vec::new() };
+    let key = (st.uid, st.revision, st.selection.len());
+    if let Some((k, v)) = &app.cmd.ref_cache
+        && *k == key
+    {
+        return v.clone();
+    }
+    let mut out = Vec::new();
+    for p in cadcraft_engine::cmd::context::PROVIDERS {
+        if let Err(cadcraft_engine::cmd::context::RefError::Unavailable { reason, .. }) = cadcraft_engine::cmd::context::resolve(&app.session, p.name)
+        {
+            out.push((p.name.to_string(), reason));
+        }
+    }
+    app.cmd.ref_cache = Some((key, out.clone()));
+    out
+}
+
+/// The rows of the suggestion menu for the text in the bar: references while a `/word` is being
+/// typed (only when there is an assistant to give them to), command names otherwise. Empty when
+/// none applies: a command is waiting for input, Escape closed the menu, or nothing matches.
+pub fn menu(app: &mut CadApp) -> Vec<crate::cmdinput::Entry> {
+    if app.session.running.is_some() || app.cmd.sug_hidden || app.canvas.hot_grip.is_some() {
         return Vec::new();
     }
-    let p = prefix.to_ascii_lowercase();
-    let mut v: Vec<(String, &'static str)> = cadcraft_engine::command_specs()
-        .iter()
-        .filter(|c| !c.id.contains('.') && (c.id.starts_with(&p) || c.aliases.iter().any(|a| *a == p)))
-        .map(|c| (c.id.to_ascii_uppercase(), c.label))
-        .collect();
-    v.sort_by_key(|(id, _)| (id.len(), id.clone()));
-    v.truncate(8);
-    v
+    let buffer = app.cmd.buffer.clone();
+    if crate::cmdinput::typing_reference(&buffer) {
+        if !crate::assistant::available(app) {
+            return Vec::new();
+        }
+        let un = unavailable_refs(app);
+        crate::cmdinput::reference_entries(&buffer, &|n| un.iter().find(|(k, _)| k == n).map(|(_, r)| r.clone()))
+    } else {
+        crate::cmdinput::command_entries(&buffer)
+    }
+}
+
+/// Put a suggestion in the bar without executing it (a reference gets a space after it).
+fn accept_entry(app: &mut CadApp, e: &crate::cmdinput::Entry) {
+    app.cmd.buffer = if e.reference { crate::cmdinput::accept_reference(&app.cmd.buffer, &e.insert) } else { e.insert.clone() };
+    app.cmd.sug_sel = None;
 }
 
 impl CmdLine {
@@ -171,22 +222,71 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         return;
     }
     let text_prompt = app.session.current_prompt().is_some_and(|p| p.accept.text && !p.accept.point && !p.accept.number);
+    let assistant = crate::assistant::state(app);
+    // The assistant is asking Allow or Decline: the bar's prompt is that question until it is answered.
+    if matches!(assistant, crate::assistant::State::Confirm { .. }) {
+        for ev in events {
+            let answer = match ev {
+                egui::Event::Text(t) if t.eq_ignore_ascii_case("y") => Some(true),
+                egui::Event::Text(t) if t.eq_ignore_ascii_case("n") => Some(false),
+                // Enter takes the default, which is No; Escape declines.
+                egui::Event::Key { key: Key::Enter | Key::Escape, pressed: true, .. } => Some(false),
+                _ => None,
+            };
+            if let Some(yes) = answer {
+                crate::assistant::answer(app, yes);
+                break;
+            }
+        }
+        return;
+    }
+    let sync_menu = |app: &mut CadApp| {
+        if app.cmd.sug_buf != app.cmd.buffer {
+            app.cmd.sug_buf = app.cmd.buffer.clone();
+            app.cmd.sug_sel = None;
+            app.cmd.sug_hidden = false;
+        }
+    };
     for ev in events {
+        sync_menu(app);
         match ev {
+            // Text from an input method: it is typed text, never a command trigger.
+            egui::Event::Ime(egui::ImeEvent::Commit(t)) => {
+                app.cmd.ime_composing = false;
+                app.cmd.buffer.push_str(&t);
+            }
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => app.cmd.ime_composing = !text.is_empty(),
             egui::Event::Text(t) => {
                 if t == "\t" {
                     tab(app);
-                } else if t == " " && !text_prompt && !app.cmd.buffer.starts_with('/') {
-                    submit(app);
+                } else if t == " " && !text_prompt && !app.cmd.ime_composing {
+                    space(app);
                 } else {
                     app.cmd.buffer.push_str(&t);
                 }
             }
+            // Keys the input method is using while composing are not the bar's.
+            egui::Event::Key { pressed: true, .. } if app.cmd.ime_composing => {}
             egui::Event::Key { key, pressed: true, repeat, modifiers, .. } => match key {
-                Key::Enter => submit(app),
+                Key::Enter => enter(app),
+                Key::Space if modifiers.ctrl || modifiers.command => {
+                    // Ctrl+Space: open the suggestions (an empty bar opens the references).
+                    app.cmd.sug_hidden = false;
+                    if app.cmd.buffer.is_empty() && app.session.running.is_none() && crate::assistant::available(app) {
+                        app.cmd.buffer.push('/');
+                    }
+                }
                 Key::Escape => {
-                    app.cmd.buffer.clear();
-                    app.session.cancel();
+                    // First the menu closes, then a working assistant stops, then the usual cancel.
+                    if !menu(app).is_empty() {
+                        app.cmd.sug_hidden = true;
+                        app.cmd.sug_sel = None;
+                    } else if matches!(assistant, crate::assistant::State::Loading | crate::assistant::State::Thinking) {
+                        crate::assistant::stop(app);
+                    } else {
+                        app.cmd.buffer.clear();
+                        app.session.cancel();
+                    }
                 }
                 Key::Backspace => {
                     let press = KeyPress { repeat, plain: !(modifiers.alt || modifiers.ctrl || modifiers.command) };
@@ -203,6 +303,16 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                     } else {
                         app.cmd.buffer.pop();
                     }
+                }
+                // Up and Down move through the suggestions while a menu is open, else through the history.
+                Key::ArrowUp | Key::ArrowDown if !modifiers.any() && !menu(app).is_empty() => {
+                    let n = menu(app).len();
+                    app.cmd.sug_sel = Some(match (app.cmd.sug_sel, key) {
+                        (None, Key::ArrowUp) => n - 1,
+                        (None, _) => 0,
+                        (Some(i), Key::ArrowUp) => (i + n - 1) % n,
+                        (Some(i), _) => (i + 1) % n,
+                    });
                 }
                 Key::ArrowUp if !modifiers.any() && !app.cmd.history.is_empty() => {
                     let n = app.cmd.history.len();
@@ -232,6 +342,52 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         }
         app.cmd.note_typing();
     }
+}
+
+/// Space. While a command is running it is Enter (the classic CAD habit). Otherwise it executes only
+/// a whole resolved command (name or alias) or a suggestion that was chosen with the arrow keys, and
+/// is an ordinary space in everything else: a request for the assistant keeps its spaces, and a half
+/// typed word is never executed. An empty bar repeats the last command, as before.
+fn space(app: &mut CadApp) {
+    if app.session.running.is_some() || app.cmd.buffer.is_empty() {
+        submit(app);
+        return;
+    }
+    let chosen = app.cmd.sug_sel.and_then(|i| menu(app).get(i).cloned()).filter(|e| !e.reference);
+    if let Some(e) = chosen {
+        app.cmd.buffer = e.insert;
+        submit(app);
+    } else if crate::cmdinput::space_executes(&app.cmd.buffer, false) {
+        submit(app);
+    } else {
+        app.cmd.buffer.push(' ');
+    }
+}
+
+/// Enter. A chosen reference is put in the bar; a chosen command suggestion runs; otherwise the text
+/// is submitted: a command to the engine, a request to the assistant. A request is kept in the bar
+/// while the assistant is still busy with the last one.
+fn enter(app: &mut CadApp) {
+    if app.session.running.is_none()
+        && let Some(e) = app.cmd.sug_sel.and_then(|i| menu(app).get(i).cloned())
+    {
+        if e.reference {
+            accept_entry(app, &e);
+        } else {
+            app.cmd.buffer = e.insert;
+            submit(app);
+        }
+        return;
+    }
+    if app.session.running.is_none()
+        && crate::cmdinput::is_ai(crate::cmdinput::classify(&app.cmd.buffer))
+        && crate::assistant::available(app)
+        && crate::assistant::state(app) != crate::assistant::State::Idle
+    {
+        app.session.echo(crate::tl!("The assistant is busy: wait, or press Escape to stop it."));
+        return;
+    }
+    submit(app);
 }
 
 pub fn submit(app: &mut CadApp) {
@@ -267,12 +423,50 @@ fn visible_lines(app: &CadApp, canvas: Rect, bar: Rect) -> usize {
     app.ui.history_lines.min(MAX_LINES).min(available)
 }
 
+/// The text in the bar with its meaning shown without a second field: a resolved command word and
+/// `/references` in the accent colour (references underlined), everything else in the text colour.
+fn coloured(buffer: &str, kind: crate::cmdinput::Kind, font: egui::FontId, t: &Tokens) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let mut job = LayoutJob::default();
+    let mut first = true;
+    let mut rest = buffer;
+    while !rest.is_empty() {
+        let space = rest.starts_with(char::is_whitespace);
+        let end = rest.find(|c: char| c.is_whitespace() != space).unwrap_or(rest.len());
+        let (tok, tail) = rest.split_at(end);
+        let mut fmt = TextFormat { font_id: font.clone(), color: t.text, ..Default::default() };
+        if !space {
+            if crate::cmdinput::is_reference_word(tok) || (first && kind == crate::cmdinput::Kind::Native) {
+                fmt.color = t.cmd_keyword;
+            }
+            if crate::cmdinput::is_reference_word(tok) {
+                fmt.underline = Stroke::new(1.0, t.cmd_keyword);
+            }
+            first = false;
+        }
+        job.append(tok, 0.0, fmt);
+        rest = tail;
+    }
+    job
+}
+
 pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     let t = Tokens::get();
     keyboard(app, ui.ctx());
+    let entries = menu(app);
+    app.cmd.menu_rows = entries.len();
+    if app.cmd.sug_sel.is_some_and(|i| i >= entries.len()) {
+        app.cmd.sug_sel = None;
+    }
+    let assistant = crate::assistant::state(app);
+    let busy_or_asking = assistant != crate::assistant::State::Idle;
+    let kind = if app.session.running.is_none() { crate::cmdinput::classify(&app.cmd.buffer) } else { crate::cmdinput::Kind::Empty };
+    // The same bar, two kinds of input: the mark at its left says which one is being typed.
+    let ai_mode = crate::assistant::available(app) && (crate::cmdinput::is_ai(kind) || busy_or_asking);
     let w = (canvas.width() * 0.48).clamp(360.0, 760.0).min((canvas.width() - 8.0).max(0.0));
     let h = 24.0;
     let bar = Rect::from_min_size(pos2(canvas.center().x - w / 2.0, canvas.bottom() - h - 10.0), vec2(w, h));
+    app.cmd.bar = Some(bar);
     let p = ui.painter_at(canvas);
     history(app, ui, canvas, bar);
     // History lines above the bar (the expanded window replaces them).
@@ -286,10 +480,25 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             p.text(pos2(hr.left() + 8.0, hr.top() + 1.0 + lh * i as f32), egui::Align2::LEFT_TOP, l, crate::theme::small(), t.text_dim);
         }
     }
-    p.rect_filled(bar, 3.0, t.cmd_bg);
-    p.rect_stroke(bar, 3.0, Stroke::new(1.0, t.cmd_border), egui::StrokeKind::Inside);
-    // Prompt glyph.
-    p.text(pos2(bar.left() + 8.0, bar.center().y), egui::Align2::LEFT_CENTER, ">_", crate::theme::mono(), t.text_dim);
+    // The bar floats over the drawing: a soft shadow lifts it, and the accent outline shows it has input.
+    let active = !app.cmd.buffer.is_empty() || app.session.running.is_some() || busy_or_asking;
+    p.add(egui::epaint::Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha(80) }.as_shape(bar, 4.0));
+    p.rect_filled(bar, 4.0, t.cmd_bg);
+    p.rect_stroke(bar, 4.0, Stroke::new(if active { 1.5 } else { 1.0 }, if active { t.accent } else { t.cmd_border }), egui::StrokeKind::Inside);
+    // Mode mark: `>_` for commands, an AI chip for requests to the assistant.
+    if ai_mode {
+        let chip = Rect::from_min_size(pos2(bar.left() + 5.0, bar.top() + 4.0), vec2(22.0, h - 8.0));
+        p.rect_filled(chip, 3.0, t.accent);
+        p.text(chip.center(), egui::Align2::CENTER_CENTER, "AI", crate::theme::small(), Color32::WHITE);
+    } else {
+        p.text(
+            pos2(bar.left() + 8.0, bar.center().y),
+            egui::Align2::LEFT_CENTER,
+            ">_",
+            crate::theme::mono(),
+            if kind == crate::cmdinput::Kind::Native { t.accent } else { t.text_dim },
+        );
+    }
     let mut x = bar.left() + 30.0;
     let prompt = app.session.current_prompt();
     let font = crate::theme::body();
@@ -298,6 +507,42 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         let gw = gl.size().x;
         p.galley(pos2(x, bar.center().y - gl.size().y / 2.0), gl, t.text);
         x += gw + 6.0;
+    } else if busy_or_asking {
+        // The assistant's state is the prompt: a question for the user, or "working" with its way out.
+        let dots = ".".repeat(((ui.input(|i| i.time) * 2.0) as usize % 3) + 1);
+        match &assistant {
+            crate::assistant::State::Confirm { tool, risk, summary } => {
+                let lead = format!("{tool} ({risk}): {summary}  ");
+                let g = p.layout_no_wrap(lead, font.clone(), t.text);
+                let gw = g.size().x.min((bar.right() - x - 130.0).max(60.0));
+                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
+                x += gw;
+                for (i, (label, yes)) in [(crate::tl!("Yes"), true), (crate::tl!("No"), false)].into_iter().enumerate() {
+                    let g = p.layout_no_wrap(label.to_string(), font.clone(), t.cmd_keyword);
+                    let r = Rect::from_min_size(pos2(x, bar.top() + 3.0), vec2(g.size().x + 4.0, h - 6.0));
+                    let resp = ui.interact(r, ui.id().with(("ai_confirm", i)), Sense::click());
+                    if resp.hovered() {
+                        p.rect_filled(r, 2.0, t.cmd_keyword_hover);
+                    }
+                    p.galley(pos2(x + 2.0, bar.center().y - g.size().y / 2.0), g.clone(), t.cmd_keyword);
+                    x += g.size().x + 10.0;
+                    if resp.clicked() {
+                        crate::assistant::answer(app, yes);
+                    }
+                }
+                let g = p.layout_no_wrap(crate::tl!("<No>: ").to_string(), font.clone(), t.text_dim);
+                let gw = g.size().x;
+                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_dim);
+                x += gw;
+            }
+            other => {
+                let what = if matches!(other, crate::assistant::State::Loading) { crate::tl!("Loading the model") } else { crate::tl!("Thinking") };
+                let g = p.layout_no_wrap(format!("{what}{dots} {} ", crate::tl!("(Esc to stop)")), font.clone(), t.text_dim);
+                let gw = g.size().x;
+                p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_dim);
+                x += gw;
+            }
+        }
     } else {
         match &prompt {
             Some(pr) => {
@@ -357,7 +602,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
                     p.text(
                         pos2(x, bar.center().y),
                         egui::Align2::LEFT_CENTER,
-                        crate::tl!("Type a command"),
+                        if crate::assistant::available(app) {
+                            crate::tl!("Type a command, or / to ask the assistant")
+                        } else {
+                            crate::tl!("Type a command")
+                        },
                         egui::FontId::proportional(12.5),
                         t.text_faint,
                     );
@@ -365,7 +614,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             }
         }
     }
-    let g = p.layout_no_wrap(app.cmd.buffer.clone(), font, t.text);
+    let g = p.layout_job(coloured(&app.cmd.buffer, kind, font, &t));
     let gw = g.size().x;
     p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text);
     // Caret.
@@ -380,37 +629,38 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
         if app.cmd.expanded { crate::icons::Icon::ChevronDown } else { crate::icons::Icon::ChevronUp },
         false,
     );
-    // AutoComplete list.
-    if app.session.running.is_none() {
-        let sug = suggestions(&app.cmd.buffer);
-        if !sug.is_empty() {
-            let rh = 20.0;
-            let lr = Rect::from_min_size(
-                pos2(
-                    bar.left() + 24.0,
-                    bar.top() - 6.0 - rh * sug.len() as f32 - (if lines.is_empty() { 0.0 } else { 16.0 * lines.len() as f32 + 6.0 }),
-                ),
-                vec2((bar.width() - 24.0).max(0.0), rh * sug.len() as f32),
-            );
-            p.rect_filled(lr, 3.0, t.list_bg);
-            p.rect_stroke(lr, 3.0, Stroke::new(1.0, t.cmd_border), egui::StrokeKind::Inside);
-            for (i, (id, label)) in sug.iter().enumerate() {
-                let r = Rect::from_min_size(pos2(lr.left(), lr.top() + rh * i as f32), vec2(lr.width(), rh));
-                let resp = ui.interact(r, ui.id().with(("sug", i)), Sense::click());
-                if resp.hovered() || i == 0 {
-                    p.rect_filled(r.shrink(1.0), 2.0, if resp.hovered() { t.cmd_keyword_hover } else { t.list_row });
-                }
-                p.text(Pos2::new(r.left() + 8.0, r.center().y), egui::Align2::LEFT_CENTER, id, crate::theme::body(), t.text);
-                p.text(
-                    Pos2::new(r.right() - 8.0, r.center().y),
-                    egui::Align2::RIGHT_CENTER,
-                    crate::i18n::t(label),
-                    crate::theme::small(),
-                    t.text_faint,
-                );
-                if resp.clicked() {
+    // Suggestions: command names, or the `/references` with what each has to read in this drawing.
+    if !entries.is_empty() {
+        let rh = 22.0;
+        let above = if lines.is_empty() { 0.0 } else { 16.0 * lines.len() as f32 + 6.0 };
+        let lr = Rect::from_min_size(
+            pos2(bar.left() + 24.0, bar.top() - 6.0 - rh * entries.len() as f32 - above),
+            vec2((bar.width() - 24.0).max(0.0), rh * entries.len() as f32),
+        );
+        p.add(egui::epaint::Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha(80) }.as_shape(lr, 4.0));
+        p.rect_filled(lr, 4.0, t.list_bg);
+        p.rect_stroke(lr, 4.0, Stroke::new(1.0, t.cmd_border), egui::StrokeKind::Inside);
+        let chosen = app.cmd.sug_sel;
+        for (i, e) in entries.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(lr.left(), lr.top() + rh * i as f32), vec2(lr.width(), rh));
+            let resp = ui.interact(r, ui.id().with(("sug", i)), Sense::click());
+            if chosen == Some(i) {
+                p.rect_filled(r.shrink(1.0), 3.0, t.select_bg);
+                p.rect_filled(Rect::from_min_size(r.min + vec2(1.0, 3.0), vec2(2.0, rh - 6.0)), 1.0, t.accent);
+            } else if resp.hovered() || (chosen.is_none() && i == 0) {
+                p.rect_filled(r.shrink(1.0), 3.0, if resp.hovered() { t.cmd_keyword_hover } else { t.list_row });
+            }
+            let ink = if e.dim { t.text_faint } else { t.text };
+            p.text(Pos2::new(r.left() + 10.0, r.center().y), egui::Align2::LEFT_CENTER, &e.insert, crate::theme::body(), ink);
+            // A reference with nothing to read says why, in words (not only dimmed).
+            let right = if e.dim { e.note.clone() } else { crate::i18n::t(&e.label).to_string() };
+            p.text(Pos2::new(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, right, crate::theme::small(), t.text_faint);
+            if resp.clicked() {
+                if e.reference {
+                    accept_entry(app, e);
+                } else {
                     app.cmd.buffer.clear();
-                    app.start(&id.to_ascii_lowercase());
+                    app.start(&e.insert.to_ascii_lowercase());
                 }
             }
         }
@@ -443,11 +693,12 @@ fn zones(app: &CadApp, canvas: Rect, bar: Rect) -> Zones {
     let top = window.or(lines).map_or(bar.top(), |r| r.top());
     let grip = Rect::from_min_max(pos2(bar.left(), top - 3.0), pos2(bar.right(), top + 3.0));
     let mut all = bar.union(grip);
-    if app.session.running.is_none() {
-        let k = suggestions(&app.cmd.buffer).len();
+    {
+        let k = app.cmd.menu_rows;
+
         if k > 0 {
             let above = if n == 0 { 0.0 } else { LINE_H * n as f32 + 6.0 };
-            all = all.union(Rect::from_min_size(pos2(bar.left(), bar.top() - 6.0 - 20.0 * k as f32 - above), vec2(bar.width(), 1.0)));
+            all = all.union(Rect::from_min_size(pos2(bar.left(), bar.top() - 6.0 - 22.0 * k as f32 - above), vec2(bar.width(), 1.0)));
         }
     }
     Zones { lines, window, chevron: Rect::from_center_size(pos2(bar.right() - 14.0, bar.center().y), vec2(24.0, 22.0)), grip, all }

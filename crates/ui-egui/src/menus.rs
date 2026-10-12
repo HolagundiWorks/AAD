@@ -27,7 +27,6 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.toggle.ucsicon", "UCS Icon", &["View", "UCS Icon", "On"], None),
     ("ui.toggle.calculator", "Calculator", &["Tools", "Calculator"], None),
     ("ui.toggle.pomodoro", "Pomodoro Timer", &["Tools", "Pomodoro Timer"], None),
-    ("ui.toggle.assistant", "Assistant", &["Tools", "Assistant"], None),
     ("ui.calculator", "Calculator Keys", &[], None),
     ("ui.pomodoro", "Pomodoro Control", &[], None),
     ("ui.theme.toggle", "Toggle Light/Dark Theme", &["View", "Toggle Light/Dark Theme"], None),
@@ -275,10 +274,6 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         }
         "ui.topbar.set" => crate::topbar::command(app, params, true),
         "ui.topbar.get" => crate::topbar::command(app, params, false),
-        "ui.toggle.assistant" => {
-            crate::assistant::toggle(app);
-            Ok(json!({ "open": app.assistant.open }))
-        }
         "ui.dialog.layers"
         | "ui.dialog.blocks"
         | "ui.dialog.dsettings"
