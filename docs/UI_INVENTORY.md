@@ -27,7 +27,7 @@ covers today.
 | Canvas | `canvas.rs` | drawing, selection, snaps, crosshair, grips, selection window | `drawing_workflow` |
 | Properties panel | `palettes.rs` | context-sensitive properties; left in Classic | `workspace_modes` (presence) |
 | Layers / Blocks panel | `layers.rs`, `blocks.rs` | right in Classic | presence only |
-| Layout panel, Plot window | `layoutpanel.rs`, `plotwindow.rs` | sheets, title blocks, plot | `docs/sheets.md`; engine tests; no UI test |
+| Plot window | `plotwindow.rs` | batch plot (the Layout panel was removed) | `docs/sheets.md`; engine tests; no UI test |
 | Command line and history | `cmdline.rs` | typed commands, prompts, history window (F2) | `control_cmdline*` |
 | Dynamic input | `dyninput.rs` | prompts near the cursor | none |
 | Status bar | `chrome.rs` | toggles, coordinates, messages | `chrome_geometry` |

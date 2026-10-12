@@ -25,6 +25,8 @@ pub struct CollapseState {
     pub last_active: f64,
     /// The panels were hidden by auto-collapse (not by the user), so the edge strips show.
     pub auto_collapsed: bool,
+    /// The first frame has been seen (the clock starts then, not at zero).
+    pub started: bool,
 }
 
 /// What the pointer, focus and popups say this frame.
@@ -45,6 +47,11 @@ pub enum Change {
 
 /// Advance the state machine one frame. `shown` is whether the side panels are currently visible.
 pub fn step(pinned: bool, delay_ms: f64, st: &mut CollapseState, shown: bool, a: Activity, now: f64) -> Option<Change> {
+    // The clock starts at the first frame, not at zero: panels must not collapse the moment the app opens.
+    if !st.started {
+        st.started = true;
+        st.last_active = now;
+    }
     if shown {
         // The user (or a pin) opened them: they are no longer "auto-collapsed".
         let was_auto = st.auto_collapsed;
@@ -155,6 +162,7 @@ mod tests {
     #[test]
     fn the_edge_strip_brings_them_back_without_a_collapse_loop() {
         let mut st = CollapseState::default();
+        assert_eq!(step(false, DELAY, &mut st, true, idle(), 0.0), None);
         assert_eq!(step(false, DELAY, &mut st, true, idle(), 1000.0), Some(Change::Collapse));
         // Hovering elsewhere does nothing; the strip expands them.
         assert_eq!(step(false, DELAY, &mut st, false, idle(), 1100.0), None);
@@ -174,5 +182,18 @@ mod tests {
         assert_eq!(step(false, DELAY, &mut st, false, edge, 0.0), None, "hidden by the user: no strip, no expansion");
         st.auto_collapsed = true;
         assert_eq!(step(true, DELAY, &mut st, false, idle(), 10.0), Some(Change::Expand), "pinning brings them back");
+    }
+}
+
+#[cfg(test)]
+mod first_frame_tests {
+    use super::*;
+
+    #[test]
+    fn panels_do_not_collapse_on_the_first_frame() {
+        let mut st = CollapseState::default();
+        assert_eq!(step(false, 1500.0, &mut st, true, Activity::default(), 987_654.0), None, "first frame");
+        assert_eq!(step(false, 1500.0, &mut st, true, Activity::default(), 987_654.0 + 1000.0), None, "before the delay");
+        assert_eq!(step(false, 1500.0, &mut st, true, Activity::default(), 987_654.0 + 1600.0), Some(Change::Collapse), "after the delay");
     }
 }

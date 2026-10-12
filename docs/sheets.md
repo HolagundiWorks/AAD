@@ -1,7 +1,9 @@
-# Sheets, the Layout panel and batch plotting
+# Sheets and batch plotting
 
 A layout tab is a sheet. The commands are in `crates/engine/src/cmd/sheet.rs` (and `projfile.rs`
-for the project-aware ones); the Layout panel and the Plot window only call them.
+for the project-aware ones); the Plot window only calls them. There is no separate Layout panel: it
+was removed, and a saved panel layout that still names it is read as unusable and the default panel
+arrangement is used (other preferences are kept). Sheet setup is done with the commands below.
 
 ## Live viewports
 
@@ -10,17 +12,16 @@ redrawn at once. (Before, that change was applied without telling the canvas to 
 viewport could show stale content until another edit.) Regression test:
 `crates/engine/tests/viewport_live.rs`.
 
-## The Layout panel
+## Sheet commands
 
-A dockable tab beside Layers and Blocks (a saved panel layout from an older version gains the tab
-once; closing it keeps it closed). In the Model tab it asks you to open a layout. In a layout:
+Used from the command line, menus, scripts and the control channel:
 
-| Section | What it does | Commands |
-|---|---|---|
-| Sheet | Paper size and orientation | `pagesetup` |
-| Viewports | Scale (typed as `1:100`), lock, remove, add; in a project, which floors and layouts each viewport shows | `viewport.list`, `viewport.set`, `viewport.add`, `viewport.remove`, `floor.viewport` |
-| Title block | The title block's fields, edited in place; adds a title block when there is none | `sheet.fields`, `sheet.titleblock` |
-| Saved layouts | Apply a saved layout as the sheet's title card, delete, or save the current sheet (for this drawing or for you) | `sheet.template.*` |
+| What | Commands |
+|---|---|
+| Paper size and orientation | `pagesetup` |
+| Viewports: scale (typed as `1:100`), lock, remove, add; in a project, which floors and layouts each shows | `viewport.list`, `viewport.set`, `viewport.add`, `viewport.remove`, `floor.viewport` |
+| Title block fields, adding a title block | `sheet.fields`, `sheet.titleblock` |
+| Saved layouts (apply as the sheet's title card, delete, save) | `sheet.template.*` |
 
 ## Title block
 

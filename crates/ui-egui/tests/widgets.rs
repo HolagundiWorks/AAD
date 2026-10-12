@@ -169,52 +169,15 @@ fn menu_commands_that_need_input_open_their_dialog() {
 }
 
 #[test]
-fn the_layout_panel_designs_the_sheet_through_commands() {
-    let mut h = harness();
-    h.state_mut().run("ui.dock", json!({"operation": "activate", "panel": "layout"})).unwrap();
-    h.run_steps(4);
-    assert!(has(&h, "Open a layout tab to design a sheet."), "in the Model tab it says what to do");
-
-    h.state_mut().run("layout.set", json!({"name": "Layout1"})).unwrap();
-    h.run_steps(5);
-    assert!(has(&h, "Viewports") && has(&h, "Title block") && has(&h, "Saved layouts") && has(&h, "Sheet"));
-    assert!(has(&h, "This sheet has no title block."));
-
-    // Add a title block, a viewport, and save the sheet; every button is a command.
-    h.query_all_by_label("Add title block").last().unwrap().click();
-    h.run_steps(4);
-    assert!(has(&h, "Drawing title") && !has(&h, "This sheet has no title block."));
-    h.query_all_by_label("Add viewport").last().unwrap().click();
-    h.run_steps(4);
-    let vps = h.state_mut().run("viewport.list", json!({})).unwrap();
-    assert_eq!(vps["viewports"].as_array().unwrap().len(), 1);
-    assert_eq!(vps["viewports"][0]["scaleText"], "1:100");
-    assert!(!has(&h, "No viewports on this sheet."));
-    assert_eq!(h.state_mut().run("sheet.fields", json!({})).unwrap()["fields"]["SCALE"], "1:100");
-
-    // Saving needs a name; with one, the layout appears in the list.
-    h.state_mut().widgets.layout_panel.template_name = "Office".into();
-    h.run_steps(3);
-    h.query_all_by_label("Save").last().unwrap().click();
-    h.run_steps(4);
-    let l = h.state_mut().run("sheet.template.list", json!({})).unwrap();
-    assert_eq!(l["templates"][0]["name"], "Office");
-    assert!(has(&h, "Office"));
-}
-
-#[test]
-fn a_saved_panel_layout_gains_the_layout_tab_once_and_a_closed_tab_stays_closed() {
-    use cadcraft_ui_egui::docking::{Panel, Workspace};
-    // A layout saved before the Layout panel existed.
-    let mut w = Workspace::default();
-    w.set_visible(Panel::Layout, false).unwrap();
-    w.hidden.clear();
-    assert!(!w.layout.contains(&Panel::Layout));
-    w.ensure_layout_panel();
-    assert!(w.layout.contains(&Panel::Layout), "added beside Blocks");
-    w.validate().unwrap();
-    // The user closes it: it stays closed.
-    w.set_visible(Panel::Layout, false).unwrap();
-    w.ensure_layout_panel();
-    assert!(!w.layout.contains(&Panel::Layout));
+fn a_saved_panel_layout_from_before_the_layout_panel_was_removed_is_refused_not_a_crash() {
+    use cadcraft_ui_egui::docking::Workspace;
+    // The default layout has no Layout tab and a saved one that names it cannot be read as a
+    // layout: the loader (`apps/cadcraft/src/workspace.rs`) then keeps the other preferences and
+    // uses the default panel arrangement.
+    let mut saved = serde_json::to_value(Workspace::default()).unwrap();
+    assert!(!saved.to_string().contains("\"layout\":\"layout\"") && !saved.to_string().contains("\"layout\"]"));
+    let text = saved.to_string().replace("\"blocks\"", "\"blocks\",\"layout\"");
+    saved = serde_json::from_str(&text).unwrap();
+    assert!(serde_json::from_value::<Workspace>(saved).is_err(), "an unknown panel name is an error");
+    Workspace::default().validate().unwrap();
 }

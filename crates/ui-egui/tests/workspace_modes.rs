@@ -110,3 +110,20 @@ fn unpinned_panels_collapse_away_from_the_pointer_and_return_at_the_edge_strip()
     }
     assert!(h.state().ui.show_palettes);
 }
+
+#[test]
+fn side_panels_auto_collapse_by_default_and_the_old_pinned_setting_is_ignored() {
+    let a = CadApp::new(Session::empty(), Services::default());
+    assert!(!a.ui.pin_panels, "auto-collapse is on unless the user pins the panels");
+    // Preferences saved by earlier builds said `pinPanels: true` (the old default): ignored.
+    let mut b = CadApp::new(Session::empty(), Services::default());
+    b.load_prefs(r#"{"pinPanels": true}"#);
+    assert!(!b.ui.pin_panels);
+    // A choice made now is saved under the new key and restored.
+    let mut c = CadApp::new(Session::empty(), Services::default());
+    c.run("ui.toggle.pinpanels", json!({})).unwrap();
+    assert!(c.ui.pin_panels);
+    let mut d = CadApp::new(Session::empty(), Services::default());
+    d.load_prefs(&c.prefs_json());
+    assert!(d.ui.pin_panels);
+}

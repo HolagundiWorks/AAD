@@ -13,19 +13,16 @@ pub enum Panel {
     Layers,
     Properties,
     Blocks,
-    /// The sheet designer ([`crate::layoutpanel`]).
-    Layout,
 }
 
 impl Panel {
-    pub const ALL: &[Self] = &[Self::Canvas, Self::Layers, Self::Properties, Self::Blocks, Self::Layout];
+    pub const ALL: &[Self] = &[Self::Canvas, Self::Layers, Self::Properties, Self::Blocks];
     pub fn id(self) -> &'static str {
         match self {
             Self::Canvas => "canvas",
             Self::Layers => "layers",
             Self::Properties => "properties",
             Self::Blocks => "blocks",
-            Self::Layout => "layout",
         }
     }
     fn label(self) -> &'static str {
@@ -34,7 +31,6 @@ impl Panel {
             Self::Layers => "Layers",
             Self::Properties => "Properties",
             Self::Blocks => "Blocks",
-            Self::Layout => "Layout",
         }
     }
     fn default_side(self) -> Zone {
@@ -43,7 +39,6 @@ impl Panel {
             Self::Layers => Zone::Right,
             Self::Properties => Zone::Left,
             Self::Blocks => Zone::Right,
-            Self::Layout => Zone::Right,
         }
     }
     fn parse(id: &str) -> Result<Self, String> {
@@ -83,7 +78,7 @@ impl Default for Workspace {
                         SplitAxis::Horizontal,
                         SplitSize::FixedSecond(300.0),
                         tabs(Panel::Canvas),
-                        Node::Tabs { panels: vec![Panel::Layers, Panel::Blocks, Panel::Layout], active: 0 },
+                        Node::Tabs { panels: vec![Panel::Layers, Panel::Blocks], active: 0 },
                     ),
                 )),
                 floating: Vec::new(),
@@ -160,25 +155,6 @@ impl Workspace {
         next.apply(Action::Activate { panel })?;
         *self = next;
         Ok(())
-    }
-
-    /// Layouts saved before the Layout panel existed gain it as a tab beside Blocks, once: a panel the
-    /// user closed is in `hidden` and stays closed.
-    pub fn ensure_layout_panel(&mut self) {
-        if self.layout.contains(&Panel::Layout) || self.hidden.iter().any(|(p, _)| *p == Panel::Layout) || !self.layout.contains(&Panel::Blocks) {
-            return;
-        }
-        let mut next = self.clone();
-        let opened = next
-            .layout
-            .apply_with_permissions(
-                Action::OpenAt { panel: Panel::Layout, anchor: Panel::Blocks, placement: Placement::Split(Zone::Center) },
-                permissions,
-            )
-            .is_ok();
-        if opened && next.validate().is_ok() {
-            *self = next;
-        }
     }
 
     pub fn set_visible(&mut self, panel: Panel, visible: bool) -> Result<(), String> {
@@ -293,7 +269,6 @@ impl Workspace {
 }
 
 fn sync(workspace: &mut Workspace, app: &crate::CadApp) -> Result<(), String> {
-    workspace.ensure_layout_panel();
     let panels = [Panel::Properties, Panel::Layers, Panel::Blocks];
     if !app.ui.show_palettes {
         for p in panels {
@@ -367,9 +342,6 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
             Panel::Blocks => {
                 egui::ScrollArea::vertical().id_salt("dock-blocks").auto_shrink([false, false]).show(ui, |ui| crate::blocks::blocks_section(app, ui));
             }
-            Panel::Layout => {
-                egui::ScrollArea::vertical().id_salt("dock-layout").auto_shrink([false, false]).show(ui, |ui| crate::layoutpanel::section(app, ui));
-            }
             Panel::Properties => {
                 egui::ScrollArea::vertical()
                     .id_salt("dock-properties")
@@ -403,7 +375,7 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
 fn panel_limits(panel: &Panel) -> PanelLimits {
     let (min, max_width) = match panel {
         Panel::Canvas => (egui::vec2(300.0, 180.0), 1_000_000.0),
-        Panel::Layers | Panel::Properties | Panel::Blocks | Panel::Layout => (egui::vec2(220.0, 100.0), 720.0),
+        Panel::Layers | Panel::Properties | Panel::Blocks => (egui::vec2(220.0, 100.0), 720.0),
     };
     PanelLimits { min, max: egui::vec2(max_width, 1_000_000.0) }
 }

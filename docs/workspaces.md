@@ -65,8 +65,8 @@ be tabbed, floated, resized, closed and reset; the layout is saved with the work
 
 ### Pinning and auto-collapse
 
-`autocollapse.rs`. `UiState::pin_panels` (default on) keeps the panels open. Unpinned (menu: Window
-> Pin Side Panels), they collapse when, for `auto_collapse_ms` (default 1500 ms), the pointer has
+`autocollapse.rs`. Auto-collapse is on by default: `UiState::pin_panels` (default off, saved as `pinSidePanels`; the earlier `pinPanels` key is ignored so existing installations get auto-collapse once) keeps the panels open when on (menu: Window > Pin Side Panels). Unpinned (menu: Window
+> Pin Side Panels), they collapse when, for `auto_collapse_ms` (default 1500 ms, counted from the first frame), the pointer has
 not been over a side panel and nothing is busy. Busy means: a drag in progress over a panel, a
 popup or dropdown open, or keyboard focus in a widget that lies in a side panel. A thin strip at
 each side of the drawing area then brings them back when the pointer enters it; so does opening a

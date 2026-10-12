@@ -1,6 +1,6 @@
 //! Sheets: the paper-space side of a drawing. A layout is a sheet; this module gives it a title
 //! block with fields, lets a finished sheet be saved as a reusable template, and lists and edits
-//! its viewports. The Layout panel in the UI is a face on these commands.
+//! its viewports. There is no Layout panel; sheet setup is done through these commands.
 //!
 //! - **Title block** (`sheet.titleblock`): the block `AAD-TITLEBLOCK`, drawn in millimetres of real
 //!   paper size and inserted at the lower right of the printable area, with a border around it. Its

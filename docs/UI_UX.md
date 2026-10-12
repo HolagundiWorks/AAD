@@ -12,7 +12,7 @@ and [UI_BASELINE.md](UI_BASELINE.md); workspace details in [workspaces.md](works
 | Toolbars | Classic workspace only |
 | File tabs and layout tabs | Drawings along the top; Model and layout tabs along the bottom, with New layout and a layout list |
 | Canvas | GPU-drawn; crosshair, snap markers, grips, selection window |
-| Panels | Properties (left in Classic), Layers and Blocks (right), Layout panel, Plot window; docked, floatable, closable, pin and auto-collapse |
+| Panels | Properties (left in Classic), Layers and Blocks (right), Plot window; docked, floatable, closable, pin and auto-collapse |
 | Command line and history | Typed commands with prompts; F2 opens the history |
 | Status bar | Toggles (snap, ortho, polar, tracking, dynamic input), coordinates, units popup, messages |
 | Widgets | Architect calculator and Pomodoro timer as floating overlays |
@@ -61,7 +61,7 @@ window size is defined or documented.
 
 - Opening, saving and plotting run on the UI thread and have no progress display.
 - Files are opened through a platform file dialog supplied by the app; there is none in headless runs.
-- The Layout panel, Plot window and dynamic input have no automated UI test.
+- The Plot window and dynamic input have no automated UI test.
 - No screenshot baselines are approved, so visual regressions are not detected automatically.
 
 ## Automation coverage

@@ -27,7 +27,6 @@ pub mod gpu;
 pub mod i18n;
 pub mod icons;
 pub mod layers;
-pub mod layoutpanel;
 pub mod managers;
 pub mod menus;
 pub mod palettes;
@@ -87,7 +86,10 @@ pub struct UiState {
     pub workspace: WorkspaceMode,
     /// Whether the palettes were open when Pro was entered, restored when Classic returns.
     pub classic_palettes: bool,
-    /// Keep the side panels open. Unpinned, they collapse after `auto_collapse_ms` away from the pointer.
+    /// Keep the side panels open. Unpinned (the default), they collapse after `auto_collapse_ms` away
+    /// from the pointer. Saved as `pinSidePanels`: the earlier key `pinPanels` defaulted to pinned, and
+    /// is ignored so that existing installations get auto-collapse once.
+    #[serde(rename = "pinSidePanels")]
     pub pin_panels: bool,
     /// Milliseconds before unpinned panels collapse.
     pub auto_collapse_ms: u32,
@@ -184,7 +186,7 @@ impl Default for UiState {
             save_format: SaveFormat::default(),
             workspace: WorkspaceMode::default(),
             classic_palettes: true,
-            pin_panels: true,
+            pin_panels: false,
             auto_collapse_ms: 1500,
         }
     }
@@ -339,7 +341,7 @@ impl CadApp {
             "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
             "workspace": self.ui.workspace.as_str(),
-            "pinPanels": self.ui.pin_panels,
+            "pinSidePanels": self.ui.pin_panels,
             "autoCollapseMs": self.ui.auto_collapse_ms,
             "classicPalettes": self.ui.classic_palettes,
         })
@@ -349,7 +351,7 @@ impl CadApp {
     /// Restore preferences saved by [`Self::prefs_json`]; unknown or malformed values are ignored.
     pub fn load_prefs(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
-        if let Some(p) = v.get("pinPanels").and_then(Value::as_bool) {
+        if let Some(p) = v.get("pinSidePanels").and_then(Value::as_bool) {
             self.ui.pin_panels = p;
         }
         if let Some(ms) = v.get("autoCollapseMs").and_then(Value::as_u64) {

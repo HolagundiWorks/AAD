@@ -22,8 +22,6 @@ pub struct WidgetState {
     pub bridge: Option<BridgePending>,
     /// The open input dialog of a command ([`crate::formdialog`]).
     pub form: Option<crate::formdialog::State>,
-    /// What the Layout panel remembers ([`crate::layoutpanel`]).
-    pub layout_panel: crate::layoutpanel::PanelState,
     /// The open Batch Plot window ([`crate::plotwindow`]).
     pub plot: crate::plotwindow::PlotState,
     /// Put the cursor in the calculator field on the next frame (it was just opened).
