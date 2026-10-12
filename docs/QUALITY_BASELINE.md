@@ -46,7 +46,7 @@ disabled or weakened to get that result.
   `egui_kittest`; rendering on a GPU through `wgpu` was checked by taking screenshots of a running
   build during development, not by an automated test.
 - **The installer:** at the time of this baseline the MSI had been built (17.8 MB) but not installed; it was installed, run and uninstalled on 2026-10-12 (see [RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md)).
-- **The language-model runtime:** the `llama` feature of `cadcraft-llm` has never been compiled
+- **The language-model runtime:** at the time of this baseline the `llama` feature had never been compiled (it has since: see [ai-agent.md](ai-agent.md))
   here (it needs LLVM's `libclang.dll`) and no model has been loaded.
 - **DWG:** reading goes through a third-party library; its behaviour on real-world DWG files from
   other programs is only as tested as the fixtures we have (see BUG-001 in

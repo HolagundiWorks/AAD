@@ -13,7 +13,7 @@ work.
 | Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
 | Qwen3 chat format, model-file discovery and checks, generation settings (`crates/llm`) | **Implemented and tested** (7 tests, no model needed) |
 | Assistant conversation state machine: tool list prompt, strict parse, one retry, confirmation, step and history limits (`agent::Assistant`) | **Implemented and tested** with scripted model replies (8 tests) |
-| llama.cpp runtime (`cadcraft-llm` with feature `llama`) | **Written, not yet built or run.** It needs `libclang.dll` (LLVM), CMake and a C++ toolchain, and a model file; without the feature every call returns "this build does not include the language model runtime". Not exercised against a real model |
+| llama.cpp runtime (`cadcraft-llm` with feature `llama`) | **Builds** (verified 2026-10-12 with LLVM 23.1.3 installed through `winget install LLVM.LLVM`, CMake and the MSVC toolchain; `LIBCLANG_PATH=C:Program Fileslvmbin`): tests and `clippy -d warnings` pass with the feature. **no model has been loaded or run yet.** |
 | Desktop wiring (worker thread, Assistant window) and bundling the model in the installer | **Planned** |
 | Chat UI, result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |

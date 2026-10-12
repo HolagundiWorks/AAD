@@ -12,7 +12,7 @@ commands marked **untested** are taken from the scripts and not run in this audi
 | Visual Studio Build Tools (MSVC linker) | any recent | Installed with the Rust MSVC toolchain |
 | `wasm32-unknown-unknown` target | for `cargo xtask wasm` | `rustup target add wasm32-unknown-unknown` |
 | WiX v5 and `WixToolset.UI.wixext` 5.0.2, Windows SDK (`rc.exe`, `signtool.exe`) | installer only | see [RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md) |
-| CMake, a C++ toolchain, LLVM `libclang.dll` | only for the optional `llama` feature of `cadcraft-llm` | **untested** on this machine: it has never been built here |
+| CMake, a C++ toolchain, LLVM `libclang.dll` (`winget install LLVM.LLVM`, then set `LIBCLANG_PATH` to its `bin` folder) | only for the optional `llama` feature of `cadcraft-llm` | **verified**: `cargo build -p cadcraft-llm --features llama` builds in about 2.5 minutes |
 
 No fonts, models or other downloads are needed to build or test. A GPU adapter is needed to run
 the application; the headless UI tests render without a window.
