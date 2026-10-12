@@ -16,6 +16,7 @@ pub mod clipboard;
 pub mod closing;
 pub mod cmdline;
 pub mod context_menu;
+pub mod contextbar;
 pub mod control;
 pub mod credits;
 pub mod dialogs;
@@ -33,6 +34,7 @@ pub mod palettes;
 pub mod plotstyles;
 pub mod plotwindow;
 pub mod quick;
+pub mod spaceeditor;
 pub mod theme;
 pub mod toolbars;
 pub mod ucsicon;
@@ -86,13 +88,18 @@ pub struct UiState {
     pub workspace: WorkspaceMode,
     /// Whether the palettes were open when Pro was entered, restored when Classic returns.
     pub classic_palettes: bool,
-    /// Keep the side panels open. Unpinned (the default), they collapse after `auto_collapse_ms` away
-    /// from the pointer. Saved as `pinSidePanels`: the earlier key `pinPanels` defaulted to pinned, and
-    /// is ignored so that existing installations get auto-collapse once.
-    #[serde(rename = "pinSidePanels")]
+    /// Keep the side panels open. Unpinned, they collapse after `auto_collapse_ms` away
+    /// from the pointer. This is the live value for the current workspace mode: Classic starts pinned,
+    /// Pro starts unpinned (collapsed, with the edge strips), and each mode keeps its own ([`UiState::mode_slots`]).
     pub pin_panels: bool,
     /// Milliseconds before unpinned panels collapse.
     pub auto_collapse_ms: u32,
+    /// The panel arrangement and pin state of the workspace mode that is *not* active, as saved when
+    /// the mode was left (`{"docking": ..., "pin": bool}`), keyed by mode name. Kept as raw JSON so a
+    /// layout that no longer reads (an older panel set) is dropped on its own and never invalidates
+    /// the rest of the saved workspace. Switching modes swaps the live layout with this slot, so one
+    /// mode never overwrites the other's arrangement.
+    pub mode_slots: std::collections::BTreeMap<String, Value>,
 }
 
 /// The workspace. Pro hides the persistent toolbars and side palettes for a full-screen drafting
@@ -186,8 +193,9 @@ impl Default for UiState {
             save_format: SaveFormat::default(),
             workspace: WorkspaceMode::default(),
             classic_palettes: true,
-            pin_panels: false,
+            pin_panels: true,
             auto_collapse_ms: 1500,
+            mode_slots: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -207,6 +215,8 @@ pub struct CadApp {
     pub canvas: canvas::CanvasState,
     /// Pin and auto-collapse state of the side panels.
     pub collapse: autocollapse::CollapseState,
+    /// The context bar and the drawing space editor ([`contextbar`], [`spaceeditor`]).
+    pub ctx_bar: contextbar::State,
     /// State of the Calculator and Pomodoro widgets.
     pub widgets: widgets::WidgetState,
     pub cmd: cmdline::CmdLine,
@@ -241,6 +251,7 @@ impl CadApp {
             services,
             canvas: canvas::CanvasState::default(),
             collapse: autocollapse::CollapseState::default(),
+            ctx_bar: contextbar::State::default(),
             widgets: widgets::WidgetState::default(),
             cmd: cmdline::CmdLine::default(),
             status: None,
@@ -341,7 +352,7 @@ impl CadApp {
             "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
             "workspace": self.ui.workspace.as_str(),
-            "pinSidePanels": self.ui.pin_panels,
+            "pinPanels": self.ui.pin_panels,
             "autoCollapseMs": self.ui.auto_collapse_ms,
             "classicPalettes": self.ui.classic_palettes,
         })
@@ -351,7 +362,7 @@ impl CadApp {
     /// Restore preferences saved by [`Self::prefs_json`]; unknown or malformed values are ignored.
     pub fn load_prefs(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
-        if let Some(p) = v.get("pinSidePanels").and_then(Value::as_bool) {
+        if let Some(p) = v.get("pinPanels").and_then(Value::as_bool) {
             self.ui.pin_panels = p;
         }
         if let Some(ms) = v.get("autoCollapseMs").and_then(Value::as_u64) {
@@ -506,10 +517,14 @@ impl CadApp {
         if self.ui.show_status_bar {
             chrome::status_bar(self, ui);
         }
+        let has_doc = !self.session.docs.is_empty() && !self.ui.start_tab;
         if self.ui.show_file_tabs {
             chrome::file_tabs(self, ui);
         }
-        let has_doc = !self.session.docs.is_empty() && !self.ui.start_tab;
+        if has_doc {
+            contextbar::show(self, ui);
+        }
+
         if has_doc && self.toolbars_shown() {
             toolbars::draw_toolbar(self, ui);
             toolbars::modify_toolbar(self, ui);

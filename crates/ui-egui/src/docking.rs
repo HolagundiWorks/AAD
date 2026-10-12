@@ -68,18 +68,15 @@ pub struct Workspace {
 
 impl Default for Workspace {
     fn default() -> Self {
+        // The drawing on the left, one tabbed stack on the right: Layers, Properties, Blocks. Only the
+        // selected tab shows its contents; switching tabs changes nothing in the drawing.
         Self {
             layout: Layout {
                 root: Some(split(
                     SplitAxis::Horizontal,
-                    SplitSize::FixedFirst(260.0),
-                    tabs(Panel::Properties),
-                    split(
-                        SplitAxis::Horizontal,
-                        SplitSize::FixedSecond(300.0),
-                        tabs(Panel::Canvas),
-                        Node::Tabs { panels: vec![Panel::Layers, Panel::Blocks], active: 0 },
-                    ),
+                    SplitSize::FixedSecond(300.0),
+                    tabs(Panel::Canvas),
+                    Node::Tabs { panels: vec![Panel::Layers, Panel::Properties, Panel::Blocks], active: 0 },
                 )),
                 floating: Vec::new(),
             },

@@ -10,9 +10,9 @@ covers today.
 
 | | |
 |---|---|
-| Commands in the registry | 385: 339 engine commands (135 interactive with prompts) and 46 UI-only commands; 282 have a menu entry and 27 a shortcut |
+| Commands in the registry | 398: 351 engine commands (135 interactive with prompts) and 47 UI-only commands; 286 have a menu entry (checked by `menu_integrity`) and 27 a shortcut |
 | Commands with neither a menu entry nor an alias | 89 (reachable only by id on the command line, a toolbar, a tool set or the agent) |
-| Menu entries | 282 in 12 menus: File 17, Edit 13, View 24, Insert 7, Format 25, Tools 17, Draw 45, Dimension 19, Modify 34, Architecture 59, Window 19, Help 3 |
+| Menu entries | 286 now (282 when the per-menu counts below were taken) in 12 menus: File 17, Edit 13, View 24, Insert 7, Format 25, Tools 17, Draw 45, Dimension 19, Modify 34, Architecture 59, Window 19, Help 3 |
 | Controls visible at launch (`ui.elements`) | 66: 61 buttons and 5 tabs; every one has a label |
 | UI-only commands | `crates/ui-egui/src/menus.rs::UI_COMMANDS` |
 

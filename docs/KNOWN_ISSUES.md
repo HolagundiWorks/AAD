@@ -34,3 +34,14 @@ first pick after opening a large drawing), PERF-001 (editing 1 000 objects took 
 Anything listed under "Planned" in [status.md](status.md): macOS, Linux and web builds, the local
 language-model runtime in the apps, the remaining hcwCAD-KIT tools, the floor-project wizard,
 user coordinate systems, SHX fonts.
+
+## Layer protection and drawing spaces (added with the context bar)
+
+- **Confirmed gap:** objects inside **block definitions** are not covered by the lock and freeze
+  check; editing a block's content can change objects on a locked layer inside it
+  ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md), section 4). Workaround: lock by not editing blocks
+  while a protective drawing space is active.
+- Layers are referenced by name in drawing spaces. A layer renamed by hand-editing the DXF shows as
+  `missing` in the space.
+- A saved panel arrangement from builds before the Layout panel was removed or Properties moved is
+  not migrated; it falls back to the default arrangement (other preferences are kept).

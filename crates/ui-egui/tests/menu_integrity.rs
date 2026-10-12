@@ -98,6 +98,7 @@ const EXPECTED_SILENT: &[(&str, &str)] = &[
     ("properties", "shows the Properties panel that Classic already shows"),
     ("ui.workspace.classic", "the workspace is already Classic"),
     ("ui.resetpalettes", "the palettes are already at their defaults"),
+    ("ui.workspace.reset", "the workspace is already at its defaults (reset with a changed workspace is tested in workspace_modes)"),
 ];
 
 #[test]

@@ -1,5 +1,5 @@
-//! Classic docked toolbars: Draw on the left, Modify on the right, and a row under the menu with
-//! the Layers combo, Dimension and Architecture buttons. The Standard toolbar is in
+//! Classic docked toolbars: Draw and Modify side by side on the left edge, and a row under the menu with
+//! the Layers button, the property controls and the Architecture buttons. The Standard toolbar is in
 //! [`crate::chrome::title_and_toolbar`]. Every button starts the command it names, exactly like the
 //! menu item or the command line.
 
@@ -50,14 +50,14 @@ pub fn draw_toolbar(app: &mut CadApp, ui: &mut egui::Ui) {
     egui::Panel::left("aad_tb_draw").exact_size(BAR).frame(egui::Frame::NONE.fill(t.chrome)).show(ui, |ui| vertical(app, ui, "draw_tb", &list));
 }
 
-/// The Modify toolbar (right edge).
+/// The Modify toolbar, beside the Draw toolbar on the left edge: Modify, Dimension and Leader tools.
 pub fn modify_toolbar(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
-    let list = tools(&["Modify"]);
-    egui::Panel::right("aad_tb_modify").exact_size(BAR).frame(egui::Frame::NONE.fill(t.chrome)).show(ui, |ui| vertical(app, ui, "modify_tb", &list));
+    let list = tools(&["Modify", "Dimension", "Leader"]);
+    egui::Panel::left("aad_tb_modify").exact_size(BAR).frame(egui::Frame::NONE.fill(t.chrome)).show(ui, |ui| vertical(app, ui, "modify_tb", &list));
 }
 
-/// The row under the menu: Layers, Dimension, Architecture.
+/// The row under the menu: the Layers button, the property controls and the Architecture tools.
 pub fn top_row(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     egui::Panel::top("aad_tb_row").exact_size(34.0).frame(egui::Frame::NONE.fill(t.chrome)).show(ui, |ui| {
@@ -67,8 +67,6 @@ pub fn top_row(app: &mut CadApp, ui: &mut egui::Ui) {
                 app.start("layer");
             }
             property_controls(app, ui);
-            ui.separator();
-            button_row(app, ui, &tools(&["Dimension", "Leader"]));
             ui.separator();
             button_row(app, ui, ARCHITECTURE);
         });

@@ -28,6 +28,8 @@ marks, isometric drafting).
 | AQC bridge | `bridge.export` and `bridge.import`: project, floors, beam depths, schedule and measured quantities to and from the AQC estimation program ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Xrefs and floor projects | `xref.attach`, `xref.reload`, `xref.detach`, `xref.bind`, `xref.list`; `project.setup`, `project.open`, `floor.list`, `floor.activate`, `floor.set`: a project of floor and layout drawings joined by relative Xrefs, with per-floor visibility, locking and print flags ([projects.md](projects.md)) |
 | Sheets and printing | Live viewports; `sheet.titleblock`, `sheet.fields`, `sheet.template.*`, `viewport.list/add/remove`, `floor.viewport`; `plot.batch` and the Plot window ([sheets.md](sheets.md)) |
+| Drawing spaces and layer protection | Saved layer-state configurations (`space.*`): visible, frozen and locked per layer, current layer, per-floor scope, preview, status (modified marker), recover; stored in the drawing and applied as one undo step. The engine refuses any change to objects on a locked or frozen layer (model space and layouts), and `layer.current` refuses locked and frozen layers ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)) |
+| Context bar and workspaces | Current layer, floor and drawing space selectors in both workspaces; Classic: left toolbars, tabbed right-hand panels pinned; Pro: collapsed panels; each mode keeps its own layout, pin state and toolbars; `floor.current` ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)) |
 | Widgets | Architect calculator (`cal`, `ui.toggle.calculator`) and Pomodoro timer (`ui.toggle.pomodoro`) ([widgets.md](widgets.md)) |
 | Input forms | Dialogs and command-line prompts for the architecture commands ([input-forms.md](input-forms.md)) |
 | Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
@@ -44,5 +46,6 @@ marks, isometric drafting).
 | Remaining hcwCAD-KIT tools | Text and drawing tools (`FIXTXT`, `TXTALIGN`, `INCARRAY`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Agent tools for take-off and schedules | The engine commands exist; the agent registry does not expose them yet ([ai-agent.md](ai-agent.md)) |
 | Xref and floor-project interface | Floor selector in the toolbar, setup wizard dialog, Floor View Manager, opening-block generation and reconciliation ([projects.md](projects.md)) |
+| Panels for Opening Schedule, Drawing Explorer, Xrefs, Measurement and Project Navigator; guarding block-definition edits against locked layers; export and import of drawing spaces | [ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md), section 4 |
 | Conversion of 3D solids, surfaces and meshes | They are kept as raw data and reported on import, not converted |
 | User coordinate systems, SHX fonts, DWG on the web | Not available |

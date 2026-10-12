@@ -9,10 +9,11 @@ and [UI_BASELINE.md](UI_BASELINE.md); workspace details in [workspaces.md](works
 | Region | Notes |
 |---|---|
 | Menu bar | 12 menus: File, Edit, View, Insert, Format, Tools, Draw, Dimension, Modify, Architecture, Window, Help (282 entries) |
-| Toolbars | Classic workspace only |
+| Toolbars | Classic only: Draw and Modify (with Dimension and Leader) as two vertical bars on the left, and a property row under the menu |
+| Context bar | Both workspaces: current layer (searchable), floor, drawing space, panel pin/auto-hide ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)) |
 | File tabs and layout tabs | Drawings along the top; Model and layout tabs along the bottom, with New layout and a layout list |
 | Canvas | GPU-drawn; crosshair, snap markers, grips, selection window |
-| Panels | Properties (left in Classic), Layers and Blocks (right), Plot window; docked, floatable, closable, pin and auto-collapse |
+| Panels | Layers, Properties and Blocks (one tabbed stack on the right), Plot window; docked, floatable, closable, pin and auto-collapse |
 | Command line and history | Typed commands with prompts; F2 opens the history |
 | Status bar | Toggles (snap, ortho, polar, tracking, dynamic input), coordinates, units popup, messages |
 | Widgets | Architect calculator and Pomodoro timer as floating overlays |

@@ -32,6 +32,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.workspace", "Workspace", &[], None),
     ("ui.workspace.classic", "Classic Workspace", &["Window", "Workspace", "Classic"], None),
     ("ui.workspace.pro", "Pro Workspace", &["Window", "Workspace", "Pro"], None),
+    ("ui.workspace.reset", "Reset Workspace", &["Window", "Workspace", "Reset This Workspace"], None),
     ("ui.workspace.toggle", "Toggle Pro/Classic Workspace", &["Window", "Toggle Pro/Classic Workspace"], Some("Ctrl+F11")),
     ("ui.theme.light", "Light", &[], None),
     ("ui.theme.dark", "Dark", &[], None),
@@ -207,6 +208,7 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         }
         "ui.workspace.classic" => Ok(set_workspace(app, crate::WorkspaceMode::Classic)),
         "ui.workspace.pro" => Ok(set_workspace(app, crate::WorkspaceMode::Pro)),
+        "ui.workspace.reset" => Ok(reset_workspace(app)),
         "ui.workspace.toggle" => {
             let next = if app.ui.workspace == crate::WorkspaceMode::Pro { crate::WorkspaceMode::Classic } else { crate::WorkspaceMode::Pro };
             Ok(set_workspace(app, next))
@@ -630,6 +632,15 @@ mod units_dialog_tests {
 /// remembers whether the palettes were open), Classic brings them back.
 fn set_workspace(app: &mut CadApp, mode: crate::WorkspaceMode) -> Value {
     if app.ui.workspace != mode {
+        // Leaving a mode saves its arrangement and pin state; entering one restores its own (or the
+        // defaults of that mode). The two never share or overwrite each other's.
+        let old = app.ui.workspace;
+        let slot = json!({"docking": app.ui.docking, "pin": app.ui.pin_panels, "toolbar": app.ui.show_toolbar});
+        app.ui.mode_slots.insert(old.as_str().to_string(), slot);
+        let (docking, pin, toolbar) = restore_slot(app, mode);
+        app.ui.docking = docking;
+        app.ui.show_toolbar = toolbar;
+        app.ui.pin_panels = pin;
         match mode {
             crate::WorkspaceMode::Pro => {
                 app.ui.classic_palettes = app.ui.show_palettes;
@@ -640,4 +651,36 @@ fn set_workspace(app: &mut CadApp, mode: crate::WorkspaceMode) -> Value {
         app.ui.workspace = mode;
     }
     json!({ "workspace": app.ui.workspace.as_str() })
+}
+
+/// The panel arrangement and pin state a mode starts with: Classic is pinned, Pro is collapsed.
+fn mode_defaults(mode: crate::WorkspaceMode) -> (crate::docking::Workspace, bool) {
+    (crate::docking::Workspace::default(), mode == crate::WorkspaceMode::Classic)
+}
+
+/// The saved slot of `mode`, or its defaults when there is none or it no longer reads.
+fn restore_slot(app: &mut CadApp, mode: crate::WorkspaceMode) -> (crate::docking::Workspace, bool, bool) {
+    let (default_docking, default_pin) = mode_defaults(mode);
+    let Some(slot) = app.ui.mode_slots.remove(mode.as_str()) else { return (default_docking, default_pin, true) };
+    let docking =
+        slot.get("docking").and_then(|d| serde_json::from_value::<crate::docking::Workspace>(d.clone()).ok()).filter(|d| d.validate().is_ok());
+    let pin = slot.get("pin").and_then(Value::as_bool).unwrap_or(default_pin);
+    let toolbar = slot.get("toolbar").and_then(Value::as_bool).unwrap_or(true);
+    (docking.unwrap_or(default_docking), pin, toolbar)
+}
+
+/// `ui.workspace.reset`: the current mode's panels, pin state and toolbars back to its defaults.
+/// The other mode's saved arrangement is not touched.
+fn reset_workspace(app: &mut CadApp) -> Value {
+    let mode = app.ui.workspace;
+    let (docking, pin) = mode_defaults(mode);
+    app.ui.docking = docking;
+    app.ui.pin_panels = pin;
+    app.ui.show_palettes = mode == crate::WorkspaceMode::Classic;
+    app.ui.show_toolbar = true;
+    app.ui.show_command_line = true;
+    app.ui.show_status_bar = true;
+    app.ui.show_file_tabs = true;
+    app.collapse = Default::default();
+    json!({ "workspace": mode.as_str(), "reset": true })
 }

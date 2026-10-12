@@ -6,7 +6,7 @@ unless stated.
 ## Workspaces
 
 `UiState::workspace` (`WorkspaceMode`, `lib.rs`) is `Classic` (default) or `Pro`. Commands:
-`ui.workspace.classic`, `ui.workspace.pro`, `ui.workspace.toggle` (Ctrl+F11), and `ui.workspace`
+`ui.workspace.classic`, `ui.workspace.pro`, `ui.workspace.toggle` (Ctrl+F11), `ui.workspace.reset` and `ui.workspace`
 with `{mode}` (reports the mode when called without one). The status bar has a `Pro | Classic`
 selector. The choice is saved with the other preferences (`prefs_json`: `workspace`,
 `classicPalettes`).
@@ -14,13 +14,20 @@ selector. The choice is saved with the other preferences (`prefs_json`: `workspa
 | | Classic | Pro |
 |---|---|---|
 | Menu bar, status bar, command line | shown | shown |
-| Standard toolbar, property row, Draw (left) and Modify (right) toolbars | shown | hidden |
-| Side panels: Properties (left), Layers and Blocks (right, tabs) | shown | hidden unless opened from the menu |
+| Standard toolbar, property row, Draw and Modify toolbars (both on the left) | shown | hidden |
+| Side panels: Layers, Properties, Blocks (one tabbed stack on the right) | shown, pinned by default | collapsed by default |
+| Context bar (current layer, floor, drawing space, panel pin) | shown | shown |
 | Drawing area | between the toolbars and panels | the whole window |
 
 Switching changes visibility only (`menus::set_workspace`). The drawing, selection, view and
 command history are not touched, and no panel state is lost: entering Pro remembers whether the
 panels were open and Classic restores that. Test: `tests/workspace_modes.rs`.
+
+Each mode also keeps **its own** panel arrangement, pin state and toolbar switch: leaving a mode saves
+them as that mode's slot (`UiState::mode_slots`, saved in the workspace file as `modeSlots`) and entering
+a mode restores its slot or, the first time, its defaults (Classic pinned with toolbars; Pro unpinned,
+collapsed). `ui.workspace.reset` (Window > Workspace > Reset This Workspace) resets the current mode only.
+See [ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md).
 
 ## Bottom status bar
 
@@ -52,7 +59,7 @@ Tests: `crates/engine/tests/properties_set.rs`, `toolbars::tests`.
 
 ## Panels
 
-- **Properties** (left): `palettes::properties_section`. Shows the selection's properties and
+- **Properties** (right tab): `palettes::properties_section`. Shows the selection's properties and
   edits them through `properties.set`; geometry fields depend on the object type.
 - **Layers** (right tab): `palettes::layers_section`, the layer table with the state toggles.
 - **Blocks** (right tab): `blocks.rs`. Block definitions with a line preview, object and reference

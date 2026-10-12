@@ -111,19 +111,108 @@ fn unpinned_panels_collapse_away_from_the_pointer_and_return_at_the_edge_strip()
     assert!(h.state().ui.show_palettes);
 }
 
+fn layout_json(app: &CadApp) -> serde_json::Value {
+    serde_json::to_value(&app.ui.docking).unwrap()
+}
+
 #[test]
-fn side_panels_auto_collapse_by_default_and_the_old_pinned_setting_is_ignored() {
-    let a = CadApp::new(Session::empty(), Services::default());
-    assert!(!a.ui.pin_panels, "auto-collapse is on unless the user pins the panels");
-    // Preferences saved by earlier builds said `pinPanels: true` (the old default): ignored.
+fn classic_starts_pinned_with_one_tabbed_stack_on_the_right_and_pro_starts_collapsed() {
+    use cadcraft_ui_egui::docking::Panel;
+    let mut a = CadApp::new(Session::empty(), Services::default());
+    assert_eq!(a.ui.workspace, WorkspaceMode::Classic);
+    assert!(a.ui.pin_panels, "Classic panels are pinned by default");
+    let panels = a.ui.docking.layout.panels();
+    for p in [Panel::Canvas, Panel::Layers, Panel::Properties, Panel::Blocks] {
+        assert!(panels.contains(&&p), "{p:?} is in the default layout");
+    }
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    assert!(!a.ui.pin_panels, "Pro panels collapse and come back at the edge strip");
+    assert!(!a.ui.show_palettes, "Pro opens with all panels collapsed");
+    // Preferences saved by earlier builds (which pinned everywhere) still load.
     let mut b = CadApp::new(Session::empty(), Services::default());
-    b.load_prefs(r#"{"pinPanels": true}"#);
+    b.load_prefs(r#"{"pinPanels": false}"#);
     assert!(!b.ui.pin_panels);
-    // A choice made now is saved under the new key and restored.
-    let mut c = CadApp::new(Session::empty(), Services::default());
-    c.run("ui.toggle.pinpanels", json!({})).unwrap();
-    assert!(c.ui.pin_panels);
-    let mut d = CadApp::new(Session::empty(), Services::default());
-    d.load_prefs(&c.prefs_json());
-    assert!(d.ui.pin_panels);
+}
+
+#[test]
+fn each_mode_keeps_its_own_arrangement_and_pin_state() {
+    let mut a = CadApp::new(Session::empty(), Services::default());
+    // Make Classic different from the default: float the Blocks panel and unpin.
+    a.run("ui.dock", json!({"operation": "float", "panel": "blocks", "rect": [100, 100, 300, 300]})).unwrap();
+    a.run("ui.dock", json!({"operation": "activate", "panel": "properties"})).unwrap();
+    a.ui.pin_panels = false;
+    let classic = layout_json(&a);
+    assert_ne!(classic, serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap());
+
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    assert_eq!(
+        layout_json(&a),
+        serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap(),
+        "Pro starts from the default, not Classic's arrangement"
+    );
+    // Change Pro: pin its panels.
+    a.ui.pin_panels = true;
+    let pro = layout_json(&a);
+
+    a.run("ui.workspace.classic", json!({})).unwrap();
+    assert_eq!(layout_json(&a), classic, "Classic's arrangement came back untouched, including the selected tab");
+    assert!(!a.ui.pin_panels, "and its own pin state");
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    assert_eq!(layout_json(&a), pro, "Pro's arrangement is what Pro left");
+    assert!(a.ui.pin_panels);
+}
+
+#[test]
+fn reset_restores_the_current_mode_only_and_a_broken_saved_slot_falls_back_to_defaults() {
+    let mut a = CadApp::new(Session::empty(), Services::default());
+    a.run("ui.dock", json!({"operation": "float", "panel": "blocks", "rect": [100, 100, 300, 300]})).unwrap();
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    a.ui.pin_panels = true;
+    let pro = layout_json(&a);
+    a.run("ui.workspace.classic", json!({})).unwrap();
+    // Reset Classic: default layout and pinned again; the saved Pro slot is untouched.
+    a.run("ui.workspace.reset", json!({})).unwrap();
+    assert_eq!(layout_json(&a), serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap());
+    assert!(a.ui.pin_panels && a.ui.show_palettes);
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    assert_eq!(layout_json(&a), pro, "reset of Classic did not touch Pro");
+    // A slot that no longer reads is dropped on its own.
+    a.run("ui.workspace.classic", json!({})).unwrap();
+    a.ui.mode_slots.insert("pro".into(), json!({"docking": {"layout": "nonsense"}, "pin": "x"}));
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    assert_eq!(layout_json(&a), serde_json::to_value(cadcraft_ui_egui::docking::Workspace::default()).unwrap());
+    assert!(!a.ui.pin_panels);
+}
+
+#[test]
+fn switching_panel_tabs_changes_neither_the_selection_nor_the_command_state() {
+    let mut h = harness();
+    let circle = h.state().session.doc().unwrap().model.iter().nth(1).unwrap().handle;
+    h.state_mut().session.set_selection(vec![circle]);
+    h.state_mut().start("line");
+    h.run_steps(2);
+    let running = h.state().session.running.as_ref().map(|r| r.id.clone());
+    let doc = h.state().session.doc().unwrap().clone();
+    for panel in ["properties", "blocks", "layers", "properties"] {
+        h.state_mut().run("ui.dock", json!({"operation": "activate", "panel": panel})).unwrap();
+        h.run_steps(3);
+        assert_eq!(h.state().session.selection(), vec![circle], "{panel}: selection");
+        assert_eq!(h.state().session.running.as_ref().map(|r| r.id.clone()), running, "{panel}: command state");
+        assert_eq!(h.state().session.doc().unwrap(), &doc, "{panel}: drawing");
+    }
+}
+
+#[test]
+fn classic_gets_its_toolbars_back_when_entered_and_each_mode_remembers_the_toolbar_switch() {
+    let mut a = CadApp::new(Session::empty(), Services::default());
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    a.ui.show_toolbar = false; // an old saved preference, loaded while the app starts in Pro
+    a.run("ui.workspace.classic", json!({})).unwrap();
+    assert!(a.ui.show_toolbar && a.toolbars_shown(), "Classic shows its toolbars unless the user switched them off in Classic");
+    a.ui.show_toolbar = false;
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    a.run("ui.workspace.classic", json!({})).unwrap();
+    assert!(!a.ui.show_toolbar, "a choice made in Classic is remembered for Classic");
+    a.run("ui.workspace.reset", json!({})).unwrap();
+    assert!(a.ui.show_toolbar, "reset turns them back on");
 }

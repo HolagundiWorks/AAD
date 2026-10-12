@@ -116,6 +116,7 @@ tool layer and the runtime crate (`cadcraft-llm`, llama.cpp behind an off-by-def
 | [docs/RELEASE_AND_PACKAGING.md](docs/RELEASE_AND_PACKAGING.md) | Release build, installer, validation, artifact retention |
 | [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md) | Confirmed issues, hypotheses, limits |
 | [docs/REPOSITORY_AUDIT.md](docs/REPOSITORY_AUDIT.md), [docs/CLEANUP_REPORT.md](docs/CLEANUP_REPORT.md) | Repository inventory and the cleanup that followed |
+| [docs/ACTIVE_DRAWING_SPACE.md](docs/ACTIVE_DRAWING_SPACE.md) | Drawing spaces, layer protection, context bar, Classic and Pro workspaces: design, commands, acceptance status |
 | [docs/units-annotation.md](docs/units-annotation.md) | Drawing and display units, plot scale, annotation sizing and layout |
 | [docs/workspaces.md](docs/workspaces.md) | Pro and Classic workspaces, panels, property toolbar, text editing, hatch selection |
 | [docs/maintenance.md](docs/maintenance.md) | Flatten on import, `PURGE`, `AUDIT`, `RECOVER`, backups, DWG worker |

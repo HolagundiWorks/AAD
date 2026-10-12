@@ -38,6 +38,7 @@ fn snapshot(ui: &UiState) -> Result<Value, String> {
     }
     Ok(json!({
         "docking": ui.docking,
+        "modeSlots": ui.mode_slots,
         "showPalettes": ui.show_palettes,
         "showToolbar": ui.show_toolbar,
         "showFileTabs": ui.show_file_tabs,
@@ -245,6 +246,28 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    #[test]
+    fn each_workspace_modes_arrangement_survives_a_restart_independently() {
+        let directory = temp_dir();
+        let path = directory.join("workspace.json");
+        let (mut store, _, _) = Workspace::at(Some(path.clone()));
+        let mut app = cadcraft_ui_egui::CadApp::new(cadcraft_engine::Session::default(), Default::default());
+        // Classic arrangement: Blocks floating. Switch to Pro, so Classic is saved as the other slot.
+        app.run("ui.dock", json!({"operation":"float", "panel":"blocks", "rect":[100,100,300,300]})).unwrap();
+        app.run("ui.workspace.pro", json!({})).unwrap();
+        app.ui.pin_panels = true;
+        store.save_if_changed(&app.ui).unwrap();
+        let (_, reloaded, error) = Workspace::at(Some(path));
+        assert!(error.is_none(), "{error:?}");
+        let mut again = cadcraft_ui_egui::CadApp::new(cadcraft_engine::Session::default(), Default::default());
+        again.ui = reloaded.unwrap();
+        again.ui.workspace = cadcraft_ui_egui::WorkspaceMode::Pro; // the mode itself is a separate preference
+        assert!(again.ui.mode_slots.contains_key("classic"), "Classic's arrangement was saved while Pro was active");
+        again.run("ui.workspace.classic", json!({})).unwrap();
+        assert_eq!(again.ui.docking.layout.floating.len(), 1, "Classic's floating Blocks panel came back after the restart");
+        assert!(again.ui.pin_panels, "Classic is pinned unless the user changed it");
+        fs::remove_dir_all(directory).unwrap();
+    }
     #[test]
     fn malformed_oversized_and_newer_state_are_reported_and_preserved() {
         let directory = temp_dir();

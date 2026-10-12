@@ -1200,3 +1200,78 @@
 	Also plot hidden, frozen and unmarked items that are ticked	Друкувати також позначені приховані, заморожені та не призначені для друку елементи
 	Folder	Тека
 	Exports in the project folder	Exports у теці проєкту
+	Apply drawing space	Застосувати робочий простір
+	Apply saved space	Застосувати збережений простір
+	Apply to the selected rows (or all shown):	Застосувати до вибраних рядків (або до всіх показаних):
+	Changes here edit the saved drawing space. The drawing changes only when you apply it.	Тут змінюється збережений робочий простір. Креслення змінюється лише після його застосування.
+	Current floor: choosing it moves no object	Поточний поверх: вибір поверху не переміщує жодного об'єкта
+	Current layer: new objects are drawn on it	Поточний шар: нові об'єкти будуються на ньому
+	Current layers	Поточні шари
+	Drawing now	У кресленні зараз
+	Drawing space	Робочий простір
+	Drawing space: a saved set of visible, frozen and locked layers	Робочий простір: збережений набір видимих, заморожених і заблокованих шарів
+	Duplicate drawing space	Дублювати робочий простір
+	Duplicate…	Дублювати…
+	Edit this drawing space	Редагувати цей робочий простір
+	Editable	Редагований
+	Edit…	Редагувати…
+	Every floor	Усі поверхи
+	Frozen	Заморожений
+	Frozen: thaw it first	Заморожений: спершу розморозьте його
+	Hide them	Приховати їх
+	In space	У просторі
+	Keep the current one	Залишити поточний
+	Layers not in the space	Шари поза простором
+	Leave them as they are	Залишити як є
+	Lock them	Заблокувати їх
+	Locked	Заблокований
+	Locked: unlock it first	Заблокований: спершу розблокуйте його
+	No floors defined: Architecture > Project > Floors	Поверхи не задано: Архітектура > Проєкт > Поверхи
+	No saved drawing spaces	Немає збережених робочих просторів
+	Rename drawing space	Перейменувати робочий простір
+	Rename…	Перейменувати…
+	Save and apply to the drawing	Зберегти й застосувати до креслення
+	Save changes	Зберегти зміни
+	Save current layers as a new space…	Зберегти поточні шари як новий простір…
+	Save drawing space	Зберегти робочий простір
+	Saved.	Збережено.
+	Saves this space, then sets the layers of the drawing to it	Зберігає цей простір, а потім виставляє шари креслення за ним
+	Search layers	Пошук шарів
+	Select shown	Вибрати показані
+	Sets the layers of the drawing to the saved space	Виставляє шари креслення за збереженим простором
+	Show spaces of every floor	Показати простори всіх поверхів
+	Show, thaw and unlock all layers	Показати, розморозити й розблокувати всі шари
+	Thaw	Розморозити
+	The layers differ from the saved drawing space	Шари відрізняються від збереженого робочого простору
+	The way out of a configuration that hides or locks too much	Вихід із конфігурації, що приховує або блокує забагато
+	Unlock	Розблокувати
+	Update the space from the current layers	Оновити простір за поточними шарами
+	Visible	Видимий
+	layer settings will change. Objects are not changed.	налаштувань шарів зміниться. Об'єкти не змінюються.
+	locked	заблокований
+	missing	відсутній
+	unsaved changes	незбережені зміни
+	In the space	У просторі
+	Not in the space	Поза простором
+	Hidden	Прихований
+	Differs from the drawing	Відрізняється від креслення
+	Activate Drawing Space	Активувати робочий простір
+	Current Floor	Поточний поверх
+	Delete Drawing Space	Видалити робочий простір
+	Drawing Space	Робочий простір
+	Drawing Space Details	Відомості про робочий простір
+	Drawing Space Status	Стан робочого простору
+	Drawing Spaces	Робочі простори
+	Duplicate Drawing Space	Дублювати робочий простір
+	Edit Drawing Space	Редагувати робочий простір
+	Preview Drawing Space	Попередній перегляд робочого простору
+	Save Drawing Space	Зберегти робочий простір
+	Show, Thaw and Unlock All	Показати, розморозити й розблокувати все
+	Show, Thaw and Unlock All Layers	Показати, розморозити й розблокувати всі шари
+	Update Drawing Space from Layers	Оновити робочий простір за шарами
+	Panels: pinned	Панелі: закріплено
+	Panels: auto-hide	Панелі: автоприховування
+	The side panels stay open. Click to let them collapse when the pointer is away	Бічні панелі залишаються відкритими. Натисніть, щоб вони згортались, коли вказівник осторонь
+	The side panels collapse when the pointer is away; the edge strip brings them back. Click to pin them open	Бічні панелі згортаються, коли вказівник осторонь; смужка біля краю повертає їх. Натисніть, щоб закріпити
+	Reset Workspace	Скинути робочу область
+	Reset This Workspace	Скинути цю робочу область
