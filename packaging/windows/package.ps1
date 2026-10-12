@@ -69,10 +69,14 @@ if (-not $SkipBuild) {
   $env:AAD_REQUIRE_WINRES = '1'
   $Features = @()
   if ($Assistant) {
-    $Features = @("--features", "aad/assistant,aad-cli/assistant")
-    if (-not $env:LIBCLANG_PATH -and (Test-Path "C:Program Fileslvmbin")) { $env:libclang_path = "c:program fileslvmbin" }
+    $Features = @('--features', 'aad/assistant,aad-cli/assistant')
+    $Llvm = 'C:\Program Files\LLVM\bin'
+    if (-not $env:LIBCLANG_PATH -and (Test-Path $Llvm)) { $env:LIBCLANG_PATH = $Llvm }
+    # llama.cpp must use the same static C runtime as the rest of the program (+crt-static above).
+    $env:LLAMA_STATIC_CRT = '1'
+    $env:CMAKE_MSVC_RUNTIME_LIBRARY = 'MultiThreaded'
   }
-  invoke-native "cargo build ($target)" { cargo build --release --locked -p aad -p aad-cli --target $target @features }
+  Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p aad -p aad-cli --target $Target @Features }
 }
 
 $Bin = Join-Path $TargetDir "$Target\release"

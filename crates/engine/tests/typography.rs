@@ -64,11 +64,14 @@ fn scan_finds_styles_their_use_a_likely_role_and_what_cannot_be_told() {
 #[test]
 fn migration_previews_first_keeps_geometry_and_never_swaps_in_a_different_font() {
     let mut s = session();
-    // With no preset font installed, nothing is changed and every style says why.
-    let r = s.execute("fonts.migrate", &json!({"preset": "engineering"})).unwrap();
-    assert_eq!(r["changes"], json!([]));
-    assert!(r["skipped"].as_array().unwrap().iter().any(|x| x["reason"].as_str().unwrap_or("").contains("not installed")));
-    assert_eq!(r["applied"], false);
+    // With no font of the preset installed, nothing is changed and every style says why. (The
+    // Drafting preset is used: the machine running the tests may have IBM Plex installed.)
+    if !aad_fonts::registry::installed("Fira Sans") && !aad_fonts::registry::installed("Fira Mono") {
+        let r = s.execute("fonts.migrate", &json!({"preset": "drafting"})).unwrap();
+        assert_eq!(r["changes"], json!([]));
+        assert!(r["skipped"].as_array().unwrap().iter().any(|x| x["reason"].as_str().unwrap_or("").contains("not installed")));
+        assert_eq!(r["applied"], false);
+    }
     // Install stand-ins for the preset's fonts (the system's own font under the preset's names).
     let Ok(bytes) = std::fs::read(r"C:\Windows\Fonts\arial.ttf").or_else(|_| std::fs::read("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")) else {
         return;

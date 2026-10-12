@@ -6,6 +6,7 @@
 mod assets;
 mod ico;
 mod layers;
+mod licenses;
 mod logo;
 mod parity;
 mod stats;
@@ -20,8 +21,10 @@ usage: cargo xtask <command>
 commands:
   assets          check that every icon/image/font/asset is attributed in ATTRIBUTION.md
   layers          enforce the crate dependency layering (docs/ARCHITECTURE.md)
+  licenses [--check]
+                  list every dependency licence in THIRD_PARTY_LICENSES.md; fails on a licence not on the allow list (--check: also fails when the file is out of date)
   wasm            cargo check --target wasm32-unknown-unknown for the wasm-safe crates
-  ci              fmt --check, clippy -D warnings, test, assets, layers, wasm (stops at first failure)
+  ci              fmt --check, clippy -D warnings, test, assets, layers, licenses, wasm (stops at first failure)
   corpus [--download]
                   show where test corpora live; --download fetches PngSuite into corpus/pngsuite
   stats [--exact] count tests and lines per crate (--exact: ask the test harness via `-- --list`)
@@ -37,6 +40,7 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("assets") => assets::run(&root()),
         Some("layers") => cmd_layers(),
+        Some("licenses") => licenses::run(&root(), rest.contains(&"--check")),
         Some("wasm") => cmd_wasm(),
         Some("ci") => cmd_ci(),
         Some("corpus") => cmd_corpus(rest.contains(&"--download")),
@@ -180,6 +184,7 @@ fn cmd_ci() -> Result<(), String> {
         ),
         ("assets", Box::new(|| assets::run(&root()))),
         ("layers", Box::new(cmd_layers)),
+        ("licenses", Box::new(|| licenses::run(&root(), true))),
         ("wasm", Box::new(cmd_wasm)),
     ];
     let mut done = Vec::new();

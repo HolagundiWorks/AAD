@@ -26,7 +26,7 @@ log = { workspace = true }
 
 [features]
 # The local language model runtime (llama.cpp; needs CMake, a C++ toolchain and LLVM libclang).
-# Without it the Assistant window says the build has no model. Build with
+# Without it the command bar says the build has no model. Build with
 # `cargo build -p aad --features assistant`.
 assistant = ["aad-llm/llama"]
 
