@@ -35,6 +35,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.workspace.classic", "Classic Workspace", &["Window", "Workspace", "Classic"], None),
     ("ui.workspace.pro", "Pro Workspace", &["Window", "Workspace", "Pro"], None),
     ("ui.workspace.reset", "Reset Workspace", &["Window", "Workspace", "Reset This Workspace"], None),
+    ("resetui", "Reset Toolbars and Menus", &["View", "Reset Toolbars and Menus"], Some("Cmd+Shift+F11")),
     ("ui.workspace.toggle", "Toggle Pro/Classic Workspace", &["Window", "Toggle Pro/Classic Workspace"], Some("Ctrl+F11")),
     ("ui.theme.light", "Light", &[], None),
     ("ui.theme.dark", "Dark", &[], None),
@@ -204,7 +205,7 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         }
         "ui.workspace.classic" => Ok(set_workspace(app, crate::WorkspaceMode::Classic)),
         "ui.workspace.pro" => Ok(set_workspace(app, crate::WorkspaceMode::Pro)),
-        "ui.workspace.reset" => Ok(reset_workspace(app)),
+        "ui.workspace.reset" | "resetui" => Ok(reset_workspace(app)),
         "ui.workspace.toggle" => {
             let next = if app.ui.workspace == crate::WorkspaceMode::Pro { crate::WorkspaceMode::Classic } else { crate::WorkspaceMode::Pro };
             Ok(set_workspace(app, next))
@@ -477,6 +478,7 @@ pub fn shortcuts(app: &mut CadApp, ctx: &egui::Context) {
         (sc(cmd, Key::V), "pasteclip"),
         (sc(cmd, Key::Num1), "ui.panel.properties"),
         (sc(cmd, Key::Num9), "ui.toggle.cmdline"),
+        (sc(cmd_shift, Key::F11), "resetui"),
         (sc(Modifiers::NONE, Key::F1), "ui.dialog.commands"),
         (sc(Modifiers::NONE, Key::F2), "ui.toggle.history"),
         (sc(Modifiers::NONE, Key::F3), "osnap"),
@@ -669,7 +671,8 @@ fn restore_slot(app: &mut CadApp, mode: crate::WorkspaceMode) -> (crate::docking
     (docking.unwrap_or(default_docking), pin, toolbar)
 }
 
-/// `ui.workspace.reset`: the current mode's panels, pin state and toolbars back to its defaults.
+/// `ui.workspace.reset` and `resetui` (typed at the command line, or View > Reset Toolbars and Menus):
+/// the current mode's panels, pin state, toolbars, menu bar, status bar, file tabs and command line back to their defaults.
 /// The other mode's saved arrangement is not touched.
 fn reset_workspace(app: &mut CadApp) -> Value {
     let mode = app.ui.workspace;
@@ -681,6 +684,12 @@ fn reset_workspace(app: &mut CadApp) -> Value {
     app.ui.show_command_line = true;
     app.ui.show_status_bar = true;
     app.ui.show_file_tabs = true;
+    // The menu bar too: with it switched off there would be no menu to find this command in.
+    app.ui.in_window_menu = !cfg!(target_os = "macos");
+    app.ui.show_ucs_icon = true;
+    app.ui.properties_all = true;
+    app.ui.history_lines = 3;
+    app.ui.dialog = None;
     app.collapse = Default::default();
     json!({ "workspace": mode.as_str(), "reset": true })
 }

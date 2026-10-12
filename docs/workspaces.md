@@ -6,7 +6,7 @@ unless stated.
 ## Workspaces
 
 `UiState::workspace` (`WorkspaceMode`, `lib.rs`) is `Classic` (default) or `Pro`. Commands:
-`ui.workspace.classic`, `ui.workspace.pro`, `ui.workspace.toggle` (Ctrl+F11), `ui.workspace.reset` and `ui.workspace`
+`ui.workspace.classic`, `ui.workspace.pro`, `ui.workspace.toggle` (Ctrl+F11), `ui.workspace.reset`, `resetui` and `ui.workspace`
 with `{mode}` (reports the mode when called without one). The status bar has a `Pro | Classic`
 selector. The choice is saved with the other preferences (`prefs_json`: `workspace`,
 `classicPalettes`).
@@ -142,3 +142,12 @@ pass after, boundary click selects the boundary, outside selects nothing).
 - **Reference attributes:** selecting one block reference shows its attribute values in the Blocks
   panel; editing one runs `attedit`.
 - **Colour:** the `…` button beside the colour dropdown opens a grid of the 255 indexed colours.
+
+## Resetting toolbars and menus
+
+`resetui` (View > Reset Toolbars and Menus, **Ctrl+Shift+F11**, or type `resetui` at the command line;
+`ui.workspace.reset` does the same) puts the current mode back to its defaults: the in-window menu
+bar, toolbars, status bar, file tabs, command line, UCS icon, command history length, the panel
+arrangement and the pin state. It works when those are switched off: the shortcut and the typed
+command do not need the menu. It keeps the theme, the default save format, the workspace mode and
+the **other** mode's saved arrangement. Tests: `tests/workspace_modes.rs`.

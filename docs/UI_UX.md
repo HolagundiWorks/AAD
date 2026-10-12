@@ -42,7 +42,7 @@ double-click on text edits it; grips on a selected object edit it; Tab cycles sn
 
 `Ctrl+N`, `Ctrl+O`, `Ctrl+W`, `Ctrl+S`, `Ctrl+Shift+S`, `Ctrl+P`, `Ctrl+Z`, `Ctrl+Shift+Z` / `Ctrl+Y`,
 `Ctrl+X/C/V`, `Ctrl+Shift+C/V`, `Ctrl+A`, `Delete`, `Ctrl+1` Properties, `Ctrl+9` command line,
-`Ctrl+Q`, `Ctrl+F11` workspace, `F1` command reference, `F2` history, `F3` object snap, `F8` ortho,
+`Ctrl+Q`, `Ctrl+F11` workspace, `Ctrl+Shift+F11` reset toolbars and menus, `F1` command reference, `F2` history, `F3` object snap, `F8` ortho,
 `F10` polar, `F11` object snap tracking, `F12` dynamic input (from the command registry; complete
 list in [UI_INVENTORY.md](UI_INVENTORY.md)). Shortcuts do not fire while a text field has focus.
 

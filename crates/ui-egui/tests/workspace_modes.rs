@@ -216,3 +216,51 @@ fn classic_gets_its_toolbars_back_when_entered_and_each_mode_remembers_the_toolb
     a.run("ui.workspace.reset", json!({})).unwrap();
     assert!(a.ui.show_toolbar, "reset turns them back on");
 }
+
+#[test]
+fn resetui_typed_at_the_command_line_brings_back_menus_and_toolbars_and_keeps_theme_and_the_other_mode() {
+    let mut a = CadApp::new(Session::empty(), Services::default());
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    a.ui.pin_panels = true;
+    let pro = serde_json::to_value(&a.ui.docking).unwrap();
+    a.run("ui.workspace.classic", json!({})).unwrap();
+    // Switch everything off, including the menu bar the reset could otherwise be found in.
+    for id in ["ui.toggle.toolbar", "ui.toggle.menubar", "ui.toggle.statusbar", "ui.toggle.filetabs", "ui.toggle.cmdline"] {
+        a.run(id, json!({})).unwrap();
+    }
+    a.run("ui.theme", json!({"theme": "light"})).ok();
+    let theme = a.ui.theme;
+    assert!(!a.ui.show_toolbar && !a.ui.in_window_menu && !a.ui.show_status_bar && !a.ui.show_file_tabs && !a.ui.show_command_line);
+    a.ui.pin_panels = false;
+    assert_eq!(a.cmdline("resetui"), None, "the command line accepts it");
+    assert!(a.ui.show_toolbar && a.ui.in_window_menu && a.ui.show_status_bar && a.ui.show_file_tabs && a.ui.show_command_line, "all of it is back");
+    assert!(a.ui.pin_panels && a.ui.show_palettes, "Classic's panels are pinned and open again");
+    assert_eq!(a.ui.theme, theme, "the theme is a preference, not part of the layout");
+    a.run("ui.workspace.pro", json!({})).unwrap();
+    assert_eq!(serde_json::to_value(&a.ui.docking).unwrap(), pro, "the other mode's arrangement was not touched");
+    assert!(a.ui.pin_panels);
+}
+
+#[test]
+fn the_reset_shortcut_works_with_the_menu_bar_and_command_line_hidden() {
+    use egui::{Event, Key, Modifiers};
+    let mut app = CadApp::new(Session::default(), Services::default());
+    app.ui.in_window_menu = false;
+    app.ui.show_toolbar = false;
+    app.ui.show_command_line = false;
+    let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+        |ui, app: &mut CadApp| {
+            app.logic(&ui.ctx().clone());
+            app.ui(ui);
+        },
+        app,
+    );
+    h.run_steps(4);
+    let mods = Modifiers { command: true, ctrl: true, shift: true, ..Modifiers::NONE };
+    for pressed in [true, false] {
+        h.event(Event::Key { key: Key::F11, physical_key: Some(Key::F11), pressed, repeat: false, modifiers: mods });
+        h.run_steps(2);
+    }
+    assert!(h.state().ui.in_window_menu && h.state().ui.show_toolbar && h.state().ui.show_command_line, "Ctrl+Shift+F11 restored them");
+    assert_eq!(h.state().ui.workspace, WorkspaceMode::Classic, "and it did not also flip the workspace (Ctrl+F11)");
+}
