@@ -51,14 +51,70 @@ planned ([status.md](status.md)).
 Tests: `crates/fonts/src/registry.rs`, `crates/engine/tests/typography.rs`,
 `crates/ui-egui/tests/fonts.rs`, `apps/cadcraft/src/workspace.rs`.
 
+## IBM Plex assets (Engineering preset)
+
+The font files are obtained from the official IBM Plex releases and kept outside the repository
+(CLAUDE.md: fonts are never committed). They were fetched with `gh release download -R IBM/plex`:
+
+| Release | File |
+|---|---|
+| `@ibm/plex-sans@1.1.0` | `ibm-plex-sans.zip` |
+| `@ibm/plex-sans-condensed@2.0.0` | `ibm-plex-sans-condensed.zip` |
+| `@ibm/plex-mono@2.5.0` | `ibm-plex-mono.zip` |
+
+Only the upright faces the roles use are kept (Sans Regular, Medium, SemiBold, Bold; Sans Condensed
+Regular, Medium, SemiBold; Mono Regular, Medium), with each family's licence (SIL OFL 1.1,
+copyright IBM Corp., Reserved Font Name "Plex") as `OFL-<family>.txt` and a `SOURCES.txt` recording
+the release tags, the archive hashes and each font file's size and SHA-256. `AAD_FONTS_DIR` points
+at that folder. A development run searches `AAD_FONTS_DIR` and `CADCRAFT_FONT_DIR` first, then
+`<exe folder>\fonts`, `%APPDATA%\AAD\fonts` and the system folders; `package.ps1` copies the files,
+licences and `SOURCES.txt` into the MSI and the portable zip, and refuses a folder with no font
+files or no licence file.
+
+Verified: with the fonts, `fonts.resolve engineering` gives IBM Plex Sans, Sans Condensed and Mono
+with nothing substituted and every weight installed, and the interface renders IBM Plex in Classic
+and Pro; without them every role reports `substituted: true` and `weightInstalled: false` and the
+interface keeps the system font. The MSI built with fonts lists the 9 font files and 3 licences in
+its File table, and the one built without lists neither; the portable zip built with fonts, run from
+an empty environment, resolves the Engineering preset to its own `fonts` folder. A release is said
+to include the fonts only when `package.ps1` printed `fonts: N file(s)` for that build.
+
+## Added after the first version
+
+- **Weights**: `registry::find_weighted` finds Medium, SemiBold and Bold as their own faces
+  (`IBM Plex Sans SemiBold`, `IBMPlexSans-SemiBold`); `Resolved.weight_installed` says whether the
+  role's weight exists, and a role whose weight is missing is drawn at Regular and reported. The
+  interface Heading family (`theme::HEADING_FAMILY`) uses the Sans face at the Heading weight.
+- **Role use in the interface**: `theme::small()` (compact text: toolbar labels, metadata) uses the
+  Condensed family and `egui::TextStyle::Heading` uses the Heading family. They are switched on the
+  frame after the fonts are installed (egui applies a new font set at the start of the next frame),
+  and the named families always exist, falling back to the Proportional chain.
+- **Project typography**: `ProjectConfig.typography { preset, overrides: [{role, face, weight}] }`
+  (validated: known preset and roles, face sans/condensed/mono, weight 400 to 700). A generated
+  drawing gets one text style per role (`AAD-Primary`, `AAD-Heading`, `AAD-Monospace` ...) naming the
+  preset's family at the role's weight (the intended font, whether or not it is installed here),
+  `Standard` and the leader styles on the Primary font and dimension styles on the Dimension style.
+  A project copies the typography when it is created; changing the application default later does
+  not change it. The application-wide default is the interface preset (`ui.fonts`, View > Font
+  Preset), which new project configurations start from.
+- **Project-wide migration**: `fonts.migrate {preset, root, apply}` previews and applies over the
+  project's drawings (from `project.json`). Applying backs each changed drawing up to
+  `backups/fonts-NNN/`, saves it, and writes `report.json` with the hash of what was written.
+  `fonts.rollback {root, id}` restores those drawings byte for byte and leaves alone any drawing
+  edited since. The styles AAD creates for roles are recognised by name.
+- **Clipping and overlap**: for single-line text the migration measures the width in the old and the
+  new font and lists text that gets more than 5% wider (`growth`: handle, text, both widths, and the
+  neighbours on the same baseline it now reaches). MTEXT, rotated or non-left-aligned text,
+  attributes and table cells are not measured.
+- **Round trip**: `apps/cadcraft-cli/tests/typography_project.rs` generates a project, migrates it,
+  reopens the saved DXF and checks the fonts, then rolls back.
+
 ## Not built yet
 
 | Item | State |
 |---|---|
-| The font files themselves | Not in the repository (by rule) and not downloaded: obtaining them from the upstream releases and recording version and hash is a step of the packaging process |
-| Font weights as separate faces | The interface uses Regular; Medium and Semibold are not loaded, so heading and nameplate weights are recorded but not yet drawn |
-| Role use across the interface | Sans and Mono follow the preset everywhere through egui's families; Condensed is available (`theme::CONDENSED_FAMILY`) but toolbar labels and compact metadata do not use it yet |
-| Drawing templates and project snapshots | The typography is not yet part of the project template or manifest, and new drawings still start with the built-in font |
-| Migration scope | One open drawing, with undo. Not yet: migrating the project's selected drawings, an application-wide default for new projects, a saved migration report, text-bounds recalculation and overlap detection, block attributes and dimension text beyond the style's font |
-| DWG/DXF round trip | Not tested with the new fonts; no check of how other CAD software substitutes them |
-| Presets other than Engineering | Defined and selectable, but their fonts are unverified until the files are obtained |
+| Other presets (Source, Noto, Roboto, Fira) | Defined and selectable; their files and licences are unverified until obtained the same way |
+| Measuring more text | MTEXT wrapping, rotated or centred text, block attributes, dimension text and table cells are not measured for growth |
+| DWG | Not tested: this build writes DXF. External CAD software may substitute the fonts; the migration only reports what AAD itself can see |
+| Saved migration report beyond JSON | The report is a JSON file; there is no report viewer |
+| Template editor | Typography is part of the project configuration; there is no template editor UI for drawing-set font roles yet |

@@ -18,6 +18,9 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("project.recover", "Recover Project Generation", run_recover)
             .params("{root: folder, action?: inspect|cleanup} → inspect: {recovery}; cleanup: {removed, left} (removes only files the generation log recorded and that are unchanged)")
             .noundo(),
+        CommandSpec::new("project.check", "Check Project", run_check)
+            .params("{root: folder} → {valid, issues: [{path, message}], status} (project.json against the drawings on disk and against the compatibility manifest project.aad.json: missing drawings, stale or damaged compatibility data)")
+            .noundo(),
         CommandSpec::new("company.validate", "Check Company Profile", run_company)
             .params("{profile: company profile} → {valid, issues: [{path, message}], nameplate: [lines]}")
             .noundo(),
@@ -73,4 +76,25 @@ fn run_recover(_s: &mut Session, p: &Value) -> Result<Value> {
         }
         other => Err(bad("project.recover", format!("unknown action `{other}`: use inspect or cleanup (resume is project.generate with resume)"))),
     }
+}
+
+fn run_check(_s: &mut Session, p: &Value) -> Result<Value> {
+    let root = std::path::PathBuf::from(
+        p.get("root").and_then(Value::as_str).ok_or_else(|| bad("project.check", "`root` (the project folder) is required"))?,
+    );
+    let text = std::fs::read_to_string(root.join("project.json"))
+        .map_err(|e| bad("project.check", format!("no project.json in {}: {e}", root.display())))?;
+    let cfg = ProjectConfig::from_json(&text).map_err(|e| bad("project.check", e))?;
+    let pl = match plan(&cfg) {
+        Ok(pl) => pl,
+        Err(issues) => return Ok(json!({"valid": false, "issues": issues})),
+    };
+    let mut issues = Vec::new();
+    for d in &pl.drawings {
+        if !d.rel_path.split('/').fold(root.clone(), |p, s| p.join(s)).is_file() {
+            issues.push(crate::projectplan::Issue::new(&d.rel_path, "the drawing is missing"));
+        }
+    }
+    issues.extend(crate::projectplan::compat::check(&root, &cfg, &pl));
+    Ok(json!({"valid": issues.is_empty(), "issues": issues, "status": cfg.generation.status}))
 }

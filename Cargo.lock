@@ -676,6 +676,7 @@ dependencies = [
  "cadcraft-agent",
  "cadcraft-dwg",
  "cadcraft-engine",
+ "cadcraft-fonts",
  "cadcraft-io",
  "cadcraft-llm",
  "cadcraft-mcp",

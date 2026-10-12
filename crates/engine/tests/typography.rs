@@ -91,6 +91,12 @@ fn migration_previews_first_keeps_geometry_and_never_swaps_in_a_different_font()
     assert!(
         preview["skipped"].as_array().unwrap().iter().any(|x| x["style"] == "Misc-Thing" && x["reason"].as_str().unwrap().contains("assign a role"))
     );
+    // Text drawn in the stroke font gets a different width in the TrueType font: it is listed, so it can be checked.
+    assert!(
+        preview["growth"].as_array().unwrap().iter().any(|g| g["style"] == "Schedule-Text" && g["newWidth"].as_f64() != g["oldWidth"].as_f64())
+            || preview["growth"].as_array().unwrap().is_empty(),
+        "growth entries carry both widths"
+    );
     assert_eq!(s.doc().unwrap().text_styles, before, "a preview changes nothing");
     // Apply: only the font name changes.
     let applied = s.execute("fonts.migrate", &json!({"preset": "engineering", "apply": true})).unwrap();

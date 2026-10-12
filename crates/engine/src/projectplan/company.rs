@@ -198,3 +198,19 @@ pub fn set_logo(base: &Path, profile: &mut CompanyProfile, source: &Path) -> Res
     profile.logo.relative_path = rel;
     Ok(())
 }
+
+/// Problems with the profile's files on disk: a logo that is recorded but not there. The logo is
+/// stored as a managed asset and a nameplate template may refer to it, but nothing draws it until the
+/// drawing model has an image entity; the nameplate text does not depend on it.
+pub fn validate_assets(base: &Path, profile: &CompanyProfile) -> Vec<Issue> {
+    let mut v = Vec::new();
+    let rel = &profile.logo.relative_path;
+    if !rel.is_empty() {
+        match profile_dir(base, &profile.id) {
+            Ok(dir) if super::plan::safe_rel(rel) && dir.join(rel).is_file() => {}
+            Ok(_) => v.push(Issue::new("logo.relative_path", format!("the logo `{rel}` is recorded but the file is not in the profile folder"))),
+            Err(e) => v.push(Issue::new("id", e)),
+        }
+    }
+    v
+}

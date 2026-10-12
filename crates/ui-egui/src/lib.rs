@@ -244,6 +244,8 @@ pub struct CadApp {
     styled: bool,
     /// The font preset the interface fonts were built for (a change in `ui.font_preset` rebuilds them).
     fonts_applied: String,
+    /// The last font install defined the named families (condensed, heading).
+    fonts_named: bool,
     /// The theme last installed into egui (`None` until the first frame).
     shown_theme: Option<egui::Theme>,
     pub frame_ms: f64,
@@ -280,6 +282,7 @@ impl CadApp {
             frame_cap: None,
             styled: false,
             fonts_applied: String::new(),
+            fonts_named: false,
             shown_theme: None,
             frame_ms: 0.0,
             quit_requested: false,
@@ -466,12 +469,15 @@ impl CadApp {
         if ctx.input(|i| i.viewport().close_requested()) && self.request_quit() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
+        let mut installed_now = false;
         if self.styled && self.fonts_applied != self.ui.font_preset {
-            theme::install_fonts(ctx, &self.ui.font_preset);
+            self.fonts_named = theme::install_fonts(ctx, &self.ui.font_preset);
+            installed_now = true;
             self.fonts_applied = self.ui.font_preset.clone();
         }
         if !self.styled {
-            theme::install_fonts(ctx, &self.ui.font_preset);
+            self.fonts_named = theme::install_fonts(ctx, &self.ui.font_preset);
+            installed_now = true;
             self.fonts_applied = self.ui.font_preset.clone();
             self.styled = true;
             // Classic always starts with its panels open, whatever a saved layout says.
@@ -479,6 +485,22 @@ impl CadApp {
                 self.ui.show_palettes = true;
             }
         }
+        // The named font families are usable from the frame after the fonts were installed.
+        // Whether this context has the named families is remembered in the context itself, so a
+        // different context (tests make several) never uses a family it does not have.
+        let installed_id = egui::Id::new("aad_fonts_installed");
+        let ready_id = egui::Id::new("aad_named_fonts_ready");
+        if installed_now && self.fonts_named {
+            ctx.data_mut(|d| d.insert_temp(installed_id, true));
+        }
+        let installed_here = ctx.data(|d| d.get_temp::<bool>(installed_id)).unwrap_or(false);
+        let mut ready_here = ctx.data(|d| d.get_temp::<bool>(ready_id)).unwrap_or(false);
+        if installed_here && !installed_now && !ready_here {
+            ctx.data_mut(|d| d.insert_temp(ready_id, true));
+            ready_here = true;
+            self.shown_theme = None; // re-apply the styles that use them
+        }
+        theme::set_named_ready(ready_here);
         let shown = self.ui.theme.resolve();
         theme::set_active(shown);
         if self.shown_theme != Some(shown) {

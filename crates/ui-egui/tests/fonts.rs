@@ -48,3 +48,15 @@ fn a_preset_whose_fonts_are_not_installed_does_not_break_or_move_the_interface()
     }
     assert_eq!(h.state().canvas.rect, before, "the drawing area does not move when the font preset changes");
 }
+
+#[test]
+fn compact_text_and_headings_use_the_condensed_and_heading_families_once_installed() {
+    let mut h = harness();
+    h.run_steps(5);
+    assert!(cadcraft_ui_egui::theme::named_ready(), "the named families are used from the frame after the fonts were installed");
+    assert_eq!(cadcraft_ui_egui::theme::small().family, egui::FontFamily::Name(cadcraft_ui_egui::theme::CONDENSED_FAMILY.into()));
+    assert_eq!(cadcraft_ui_egui::theme::heading().family, egui::FontFamily::Name(cadcraft_ui_egui::theme::HEADING_FAMILY.into()));
+    // Changing the preset keeps the families defined, so nothing drawn can ask for a missing one.
+    h.state_mut().run("ui.fonts", json!({"preset": "multilingual"})).unwrap();
+    h.run_steps(5);
+}

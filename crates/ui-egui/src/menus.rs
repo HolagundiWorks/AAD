@@ -723,7 +723,7 @@ fn fonts_json(app: &CadApp) -> Value {
     let roles: Vec<Value> = t
         .resolve_all()
         .into_iter()
-        .map(|r| json!({"role": r.role.id(), "family": r.family, "weight": r.weight, "requested": r.requested, "substituted": r.substituted}))
+        .map(|r| json!({"role": r.role.id(), "family": r.family, "weight": r.weight, "requested": r.requested, "substituted": r.substituted, "weightInstalled": r.weight_installed}))
         .collect();
     json!({"preset": p.id, "name": p.name, "roles": roles})
 }

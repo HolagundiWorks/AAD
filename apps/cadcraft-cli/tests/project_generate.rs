@@ -206,3 +206,60 @@ fn an_interrupted_run_is_found_and_can_be_resumed_or_cleaned_up() {
     assert!(std::fs::read(root.join(model_rel)).unwrap().len() > 100, "the half-written file was rewritten");
     assert_eq!(std::fs::read_to_string(root.join("drawings/Architectural/PRJ-001_AR_GROUND.dxf.bak")).unwrap(), "keep me");
 }
+
+#[test]
+fn project_json_stays_the_source_and_the_legacy_manifest_is_a_checked_projection() {
+    let root = temp("compat");
+    let mut s = session();
+    assert_eq!(generate_in(&mut s, &root, json!({}))["status"], "ready");
+    let legacy_path = root.join("project.aad.json");
+    let legacy: Value = serde_json::from_str(&std::fs::read_to_string(&legacy_path).unwrap()).unwrap();
+    assert_eq!(legacy["compat"]["source"], "project.json", "it says what it is made from");
+    assert_eq!(legacy["format"], "aad-project");
+    assert_eq!(legacy["floors"][0]["key"], "GROUND", "the floor code is the legacy key");
+    assert_eq!(legacy["floors"][0]["kind"], "ground");
+    assert_eq!(legacy["floors"][0]["file"], "drawings/Architectural/PRJ-001_AR_GROUND.dxf");
+    assert_eq!(legacy["floors"][1]["elevation"], 3.3, "metres, from the millimetres of project.json");
+    assert_eq!(legacy["floors"][1]["height"], 3.0);
+    assert_eq!(legacy["floors"][0]["layouts"][0]["id"], "st", "the other sets are layouts");
+    assert_eq!(legacy["main"], "drawings/00_Master/PRJ-001_MASTER.dxf");
+    // The existing floor commands work from a generated drawing through the compatibility file.
+    let ground = root.join("drawings/Architectural/PRJ-001_AR_GROUND.dxf");
+    let i = s.execute("open", &json!({"path": ground.to_str().unwrap()})).unwrap()["index"].as_u64().unwrap();
+    let list = s.execute("floor.list", &json!({})).unwrap();
+    assert_eq!(list["floors"].as_array().unwrap().len(), 2, "{list}");
+    s.execute("close", &json!({"index": i})).unwrap();
+    // The check passes, then finds a stale copy and a damaged one.
+    let ok = s.execute("project.check", &json!({"root": root.to_str().unwrap()})).unwrap();
+    assert_eq!(ok["valid"], true, "{ok}");
+    let mut stale = legacy.clone();
+    stale["floors"][1]["name"] = json!("Level One");
+    std::fs::write(&legacy_path, stale.to_string()).unwrap();
+    let r = s.execute("project.check", &json!({"root": root.to_str().unwrap()})).unwrap();
+    assert_eq!(r["valid"], false);
+    assert!(r["issues"][0]["message"].as_str().unwrap().contains("stale"), "{r}");
+    std::fs::write(&legacy_path, "{ not json").unwrap();
+    let r = s.execute("project.check", &json!({"root": root.to_str().unwrap()})).unwrap();
+    assert!(r["issues"][0]["message"].as_str().unwrap().contains("not valid JSON"));
+    // A copy somebody wrote by hand (no compat block) is refused as a source of truth.
+    let mut hand = legacy.clone();
+    hand.as_object_mut().unwrap().remove("compat");
+    std::fs::write(&legacy_path, hand.to_string()).unwrap();
+    let r = s.execute("project.check", &json!({"root": root.to_str().unwrap()})).unwrap();
+    assert!(r["issues"][0]["message"].as_str().unwrap().contains("kept by hand"));
+    // Regenerating refreshes it and keeps the state the floor commands saved.
+    std::fs::write(&legacy_path, legacy.to_string()).unwrap();
+    s.execute("open", &json!({"path": ground.to_str().unwrap()})).unwrap();
+    s.execute("floor.set", &json!({"name": "First Floor", "visible": false})).unwrap();
+    let i = s.active;
+    s.execute("close", &json!({"index": i})).unwrap();
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&legacy_path).unwrap()).unwrap();
+    assert_eq!(saved["floors"][1]["visible"], false);
+    let mut c = config();
+    c["floors"][1]["floor_to_floor"] = json!(3200.0);
+    let r = s.execute("project.generate", &json!({"config": c, "root": root.to_str().unwrap()})).unwrap();
+    assert_eq!(r["status"], "ready", "{r}");
+    let after: Value = serde_json::from_str(&std::fs::read_to_string(&legacy_path).unwrap()).unwrap();
+    assert_eq!(after["floors"][1]["height"], 3.2, "the change in project.json reached the projection");
+    assert_eq!(after["floors"][1]["visible"], false, "the saved run-time state survived the refresh");
+}

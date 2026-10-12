@@ -265,3 +265,24 @@ fn profile_validation_logo_handling_and_nameplate_lines_skip_empty_fields() {
     assert!(p.validate().iter().any(|i| i.path == "logo.relative_path"));
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn a_recorded_logo_must_exist_and_the_nameplate_text_does_not_need_it() {
+    let base = temp_base();
+    let mut p = CompanyProfile::new("Studio");
+    p.architect.name = "A. Architect".into();
+    company::save(&base, &p).unwrap();
+    assert!(company::validate_assets(&base, &p).is_empty(), "no logo recorded: nothing to check");
+    p.logo.relative_path = "assets/logo.png".into();
+    let issues = company::validate_assets(&base, &p);
+    assert!(issues.iter().any(|i| i.path == "logo.relative_path" && i.message.contains("not in the profile folder")), "{issues:?}");
+    // The nameplate lines are text only: complete with or without a logo.
+    assert_eq!(p.nameplate_lines(), ["Studio", "A. Architect"]);
+    let png = base.join("mark.png");
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::write(&png, [0x89, b'P', b'N', b'G']).unwrap();
+    company::set_logo(&base, &mut p, &png).unwrap();
+    assert!(company::validate_assets(&base, &p).is_empty());
+    assert_eq!(p.nameplate_lines(), ["Studio", "A. Architect"], "storing the logo changes no text line");
+    let _ = std::fs::remove_dir_all(&base);
+}

@@ -63,17 +63,33 @@ the naming rules only for when DWG writing exists.
   files that may be half written. `inspect` reports what an interrupted run left; `cleanup` removes
   only recorded files that are still unchanged; `project.generate {resume: true}` continues and
   rewrites only the files the log marks as possibly half written.
-- **Commands**: `project.plan` (validate and preview, writes nothing), `project.generate`, `project.recover` and `company.validate`.
+- **Commands**: `project.plan` (validate and preview, writes nothing), `project.generate`, `project.check`, `project.recover` and `company.validate`.
 
-## Decisions to confirm
+## Decisions (approved)
 
-1. **Two manifests.** `project.json` (this schema) and `project.aad.json` (the existing floor
-   manifest) describe overlapping things. The proposal is to make `project.json` authoritative and
-   have the generator write `project.aad.json` from it for the existing floor commands, then migrate
-   those commands to ids.
-2. **File format.** DXF now; DWG when the engine can write it.
-3. **Nameplate without images.** The logo can be a managed asset and a path in the title block
-   attributes, but cannot be drawn in the sheet until the drawing model has an image entity.
+1. **One manifest.** `project.json` is the single source of truth. `project.aad.json` is generated
+   from it by `project.generate` (`projectplan/compat.rs`) for the floor commands, carries a `compat`
+   block (`source: project.json`, a hash of what it was made from), and is never edited by hand.
+   The mapping from the ID-based model is in the header of `compat.rs`: floor `code` is the legacy
+   `key`, the plan set (code `AR`, else the first per-floor set) gives each floor's `file`, the other
+   per-floor sets become `layouts`, the master drawing is `main`, and lengths are written in metres.
+   The only state kept in the legacy file is what the floor commands change at run time (`visible`,
+   `frozen`, `locked`, `print`, `active`); regenerating keeps it for every floor and layout that still
+   exists. `project.check {root}` compares the file with `project.json` and reports a missing, damaged,
+   hand-kept or stale copy. Generated drawings carry a `projectManifest` pointer so `floor.list`,
+   `floor.set` and `floor.activate` work on them. Tested in
+   `apps/cadcraft-cli/tests/project_generate.rs`. Still to do, as its own step: move the floor
+   commands to ID-based references; only then remove `project.aad.json` (the schema versions are
+   `schema_version` 1 in `project.json` and `version` 1 plus `compat.version` 1 in the legacy file).
+2. **File format.** DXF now. Generation goes through the engine's own commands and file writer, and
+   the tests reopen the generated files. `project.json`, the ids, naming rules, floor relationships,
+   schedules and company links do not depend on the format, so DWG can be added later by changing the
+   extension and the writer. DWG writing is not claimed.
+3. **Logo.** The logo is a managed asset of the company profile (`assets/logo.<ext>`, relative path
+   recorded, `company::validate_assets` checks it exists) and a nameplate template may refer to it.
+   Nothing draws it until the drawing model has an image entity (a separate engine capability:
+   serialisation, rendering, relative paths, export). The nameplate text (`nameplate_lines`) is
+   complete without it, and storing a logo changes none of its lines.
 
 ## Not built yet
 

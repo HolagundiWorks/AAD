@@ -10,10 +10,11 @@
 //! names or display names.
 
 pub mod company;
+pub mod compat;
 mod generate;
 mod plan;
 
-pub use generate::{GenerateOptions, Report, cleanup, generate, inspect_recovery};
+pub use generate::{GenerateOptions, Report, apply_typography, cleanup, generate, inspect_recovery};
 pub use plan::{Plan, PlannedDrawing, PlannedXref, Preflight, plan, preflight, relative_path, resolve_elevations};
 
 use serde::{Deserialize, Serialize};
@@ -277,6 +278,73 @@ impl Default for Generation {
     }
 }
 
+/// A project's typography: the font preset and any per-role changes. A project copies it when it
+/// is created, so changing the application default later does not change an existing project.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TypographyConfig {
+    pub preset: String,
+    pub overrides: Vec<RoleOverride>,
+}
+
+impl Default for TypographyConfig {
+    fn default() -> Self {
+        TypographyConfig { preset: cadcraft_fonts::registry::DEFAULT_PRESET.into(), overrides: Vec::new() }
+    }
+}
+
+/// One role changed from its default face and weight (`face`: sans, condensed or mono).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RoleOverride {
+    pub role: String,
+    pub face: String,
+    pub weight: u16,
+}
+
+impl TypographyConfig {
+    pub fn issues(&self) -> Vec<Issue> {
+        use cadcraft_fonts::registry::{Role, preset};
+        let mut v = Vec::new();
+        if preset(&self.preset).is_none() {
+            v.push(Issue::new("typography.preset", format!("`{}` is not a font preset", self.preset)));
+        }
+        for (i, o) in self.overrides.iter().enumerate() {
+            if Role::from_id(&o.role).is_none() {
+                v.push(Issue::new(format!("typography.overrides[{i}].role"), format!("`{}` is not a font role", o.role)));
+            }
+            if !matches!(o.face.as_str(), "sans" | "condensed" | "mono") {
+                v.push(Issue::new(format!("typography.overrides[{i}].face"), "must be sans, condensed or mono"));
+            }
+            if !(400..=700).contains(&o.weight) {
+                v.push(Issue::new(
+                    format!("typography.overrides[{i}].weight"),
+                    "must be between 400 and 700 (nothing lighter than Regular for small CAD text)",
+                ));
+            }
+        }
+        v
+    }
+
+    /// The registry form (invalid overrides are left out: [`TypographyConfig::issues`] reports them).
+    pub fn to_registry(&self) -> cadcraft_fonts::registry::Typography {
+        use cadcraft_fonts::registry::{Face, Role, Typography};
+        let overrides = self
+            .overrides
+            .iter()
+            .filter_map(|o| {
+                let face = match o.face.as_str() {
+                    "sans" => Face::Sans,
+                    "condensed" => Face::Condensed,
+                    "mono" => Face::Mono,
+                    _ => return None,
+                };
+                Some((Role::from_id(&o.role)?, face, o.weight.clamp(400, 700)))
+            })
+            .collect();
+        Typography { preset: self.preset.clone(), overrides }
+    }
+}
+
 /// The recorded outcome of generation.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -300,6 +368,8 @@ pub struct ProjectConfig {
     pub folders: Vec<String>,
     /// Whether a master (coordination) drawing is created.
     pub master_drawing: bool,
+    /// The font preset and role changes new drawings are created with.
+    pub typography: TypographyConfig,
     /// What generation actually produced (kept apart from the intent above): the drawings and the
     /// Xrefs, with the ids the files are known by.
     pub generated: Generated,
@@ -319,6 +389,7 @@ impl Default for ProjectConfig {
             naming_rules: NamingRules::default(),
             folders: Vec::new(),
             master_drawing: true,
+            typography: TypographyConfig::default(),
             generated: Generated::default(),
             generation: Generation::default(),
         }

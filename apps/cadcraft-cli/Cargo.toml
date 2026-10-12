@@ -13,6 +13,7 @@ workspace = true
 cadcraft-engine = { workspace = true }
 cadcraft-dwg = { workspace = true }
 cadcraft-io = { workspace = true }
+cadcraft-fonts = { workspace = true }
 cadcraft-mcp = { workspace = true }
 serde_json = { workspace = true }
 cadcraft-agent = { workspace = true }

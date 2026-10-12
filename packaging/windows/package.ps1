@@ -101,7 +101,7 @@ $FontsDefine = @()
 if ($env:AAD_FONTS_DIR) {
   $Fonts = Join-Path $Stage 'fonts'
   New-Item -ItemType Directory -Force -Path $Fonts | Out-Null
-  $files = Get-ChildItem -Path $env:AAD_FONTS_DIR -Recurse -File | Where-Object { $_.Extension -in '.ttf', '.otf' -or $_.Name -match '^(OFL|LICEN[CS]E|COPYRIGHT|NOTICE)' }
+  $files = Get-ChildItem -Path $env:AAD_FONTS_DIR -Recurse -File | Where-Object { $_.Extension -in '.ttf', '.otf' -or $_.Name -match '^(OFL|LICEN[CS]E|COPYRIGHT|NOTICE|SOURCES)' }
   if (-not ($files | Where-Object { $_.Extension -in '.ttf', '.otf' })) { throw "AAD_FONTS_DIR ($env:AAD_FONTS_DIR) has no .ttf or .otf files" }
   if (-not ($files | Where-Object { $_.Name -match '^(OFL|LICEN[CS]E)' })) { throw "AAD_FONTS_DIR ($env:AAD_FONTS_DIR) has no licence file: every bundled font needs its licence" }
   foreach ($f in $files) { Copy-Item $f.FullName (Join-Path $Fonts $f.Name) -Force }

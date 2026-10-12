@@ -123,7 +123,7 @@ fn close(s: &mut Session, i: usize) {
 
 /// The data every generated drawing carries: its identity and number, the project, the floor.
 fn init_drawing(s: &mut Session, cfg: &ProjectConfig, plan: &Plan, d: &PlannedDrawing) -> crate::Result<()> {
-    let to_m = if cfg.project.units.length == "m" { 1.0 } else { 0.001 };
+    let per_m = if cfg.project.units.length == "m" { 1.0 } else { 1000.0 };
     s.execute("drawing.units", &json!({ "units": cfg.project.units.length, "mode": "metadata" }))?;
     let floor = d.floor_id.as_ref().and_then(|id| cfg.floors.iter().find(|f| &f.id == id));
     let elevation = d.floor_id.as_ref().and_then(|id| plan.elevations.iter().find(|(f, _)| f == id)).map(|(_, z)| *z);
@@ -135,7 +135,7 @@ fn init_drawing(s: &mut Session, cfg: &ProjectConfig, plan: &Plan, d: &PlannedDr
         .floors_in_order()
         .iter()
         .map(|f| match f.floor_to_floor {
-            Some(h) => json!({"name": f.name, "floorToFloor": h * to_m}),
+            Some(h) => json!({"name": f.name, "floorToFloor": h / per_m}),
             None => json!({"name": f.name}),
         })
         .collect();
@@ -147,7 +147,43 @@ fn init_drawing(s: &mut Session, cfg: &ProjectConfig, plan: &Plan, d: &PlannedDr
     project::set(doc, "details", &details);
     project::set(doc, "floors", &serde_json::Value::Array(floors));
     project::set(doc, "aadDrawing", &meta);
+    // The floor commands find the compatibility manifest through this pointer, relative to the drawing.
+    project::set(doc, "projectManifest", &json!(super::relative_path(&d.rel_path, super::compat::FILE)));
+    apply_typography(doc, &cfg.typography.to_registry());
     Ok(())
+}
+
+/// Give a drawing the text styles of a typography: one `AAD-<Role>` style per role, naming the
+/// preset's family at the role's weight (the intended font, whether or not it is installed on this
+/// machine), `Standard` and the leader styles on the Primary font, dimension styles on the
+/// Dimension font. Heights, widths and every other style property stay as they are.
+pub fn apply_typography(d: &mut Drawing, t: &cadcraft_fonts::registry::Typography) {
+    use cadcraft_fonts::registry::{ROLES, Role, family_at, style_name};
+    let preset = t.preset();
+    let font_of = |role: Role| {
+        let r = t.resolve(role);
+        let face = t.overrides.iter().find(|(o, _, _)| *o == role).map_or_else(|| role.default_face().0, |(_, f, _)| *f);
+        family_at(preset.family(face), r.weight)
+    };
+    for role in ROLES {
+        let name = style_name(role);
+        let font = font_of(role);
+        match d.text_styles.iter_mut().find(|s| s.name == name) {
+            Some(s) => s.font = font,
+            None => d.text_styles.push(cadcraft_doc::TextStyle { name, font, ..cadcraft_doc::TextStyle::default() }),
+        }
+    }
+    let primary = font_of(Role::Primary);
+    if let Some(s) = d.text_styles.iter_mut().find(|s| s.name.eq_ignore_ascii_case("Standard")) {
+        s.font = primary;
+    }
+    let (dim, lead) = (style_name(Role::Dimension), style_name(Role::Primary));
+    for ds in &mut d.dim_styles {
+        ds.text_style = dim.clone();
+    }
+    for ms in &mut d.mleader_styles {
+        ms.text_style = lead.clone();
+    }
 }
 
 /// A name for each Xref target that is unique in the project.
@@ -351,6 +387,11 @@ pub fn generate(s: &mut Session, root: &Path, mut cfg: ProjectConfig, opts: Gene
             Ok(v) => report.issues.extend(v),
             Err(e) => report.issues.push(Issue::new(&d.rel_path, e)),
         }
+    }
+    // The compatibility manifest for the floor commands, made from project.json and checked against it.
+    match super::compat::write(root, &cfg, &pl) {
+        Ok(()) => report.issues.extend(super::compat::check(root, &cfg, &pl)),
+        Err(e) => report.issues.extend(e),
     }
     cfg.generated.drawings = pl.drawings.clone();
     cfg.generated.xrefs = pl.xrefs.clone();

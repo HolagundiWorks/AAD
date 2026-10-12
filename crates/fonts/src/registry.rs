@@ -190,6 +190,9 @@ pub struct Resolved {
     pub requested: String,
     /// The requested family was not found, so another was substituted (report it, do not hide it).
     pub substituted: bool,
+    /// The weight exists as its own face (always true for Regular). When false the Regular face is
+    /// drawn and the role is not at its intended weight.
+    pub weight_installed: bool,
 }
 
 /// Whether a family can be found (installed, in the application font folder, or registered).
@@ -217,16 +220,53 @@ impl Typography {
         for f in chain {
             let fam = p.family(f);
             if installed(fam) {
-                return Resolved { role, family: fam.to_string(), weight, substituted: fam != requested, requested };
+                let weight_installed = weight_name(weight).is_none() || find_weighted(fam, weight).is_some();
+                return Resolved { role, family: fam.to_string(), weight, substituted: fam != requested, weight_installed, requested };
             }
         }
-        Resolved { role, family: crate::BUILTIN_FONT.to_string(), weight, substituted: true, requested }
+        Resolved { role, family: crate::BUILTIN_FONT.to_string(), weight, substituted: true, weight_installed: false, requested }
     }
 
     /// Every role resolved: what the UI and the drawing styles will use.
     pub fn resolve_all(&self) -> Vec<Resolved> {
         ROLES.iter().map(|r| self.resolve(*r)).collect()
     }
+}
+
+/// The style name a weight goes by in font file names (`None`: regular or lighter).
+pub fn weight_name(weight: u16) -> Option<&'static str> {
+    match weight {
+        500 => Some("Medium"),
+        600 => Some("SemiBold"),
+        700.. => Some("Bold"),
+        _ => None,
+    }
+}
+
+/// The face of `family` at `weight`, when that weight is installed as its own face (Medium,
+/// SemiBold, Bold). Regular weights are the family itself. A missing weight is `None`: the caller
+/// decides whether to use Regular, it is never assumed.
+pub fn find_weighted(family: &str, weight: u16) -> Option<ttf::Face> {
+    let Some(name) = weight_name(weight) else { return ttf::find(family) };
+    [format!("{family} {name}"), format!("{}-{name}", family.replace(' ', "")), format!("{} {name}", family.replace(' ', ""))]
+        .iter()
+        .find_map(|c| ttf::find(c))
+}
+
+/// The family name to put in a text style for `family` at `weight`: `IBM Plex Sans SemiBold` for
+/// 600, the plain family for Regular. The style then asks for that face by name; if it is not
+/// installed the drawing falls back as any missing font does.
+pub fn family_at(family: &str, weight: u16) -> String {
+    match weight_name(weight) {
+        Some(n) => format!("{family} {n}"),
+        None => family.to_string(),
+    }
+}
+
+/// The text style a role uses in a drawing: `AAD-Primary`, `AAD-Dimension` and so on.
+pub fn style_name(role: Role) -> String {
+    let id = role.id();
+    format!("AAD-{}{}", id.get(..1).unwrap_or("").to_ascii_uppercase(), id.get(1..).unwrap_or(""))
 }
 
 /// Characters of `text` that `family` has no glyph for (empty when it covers them all, or when the

@@ -175,8 +175,12 @@ fn scan() -> HashMap<String, PathBuf> {
     // Fonts shipped with the application (and any folder the user names) are searched before the
     // system folders: this is where the installer puts the typography presets. The stack is last in,
     // first out and the first file with a name wins, so these are pushed last.
-    if let Some(list) = std::env::var_os("CADCRAFT_FONT_DIR") {
-        dirs.extend(std::env::split_paths(&list));
+    // AAD_FONTS_DIR is the packaging input (the licensed font files); honouring it here lets a
+    // development run use the same fonts without installing them.
+    for var in ["AAD_FONTS_DIR", "CADCRAFT_FONT_DIR"] {
+        if let Some(list) = std::env::var_os(var) {
+            dirs.extend(std::env::split_paths(&list));
+        }
     }
     if let Some(exe) = std::env::current_exe().ok().and_then(|p| p.parent().map(std::path::Path::to_path_buf)) {
         dirs.push(exe.join("fonts"));

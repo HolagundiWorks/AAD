@@ -491,6 +491,7 @@ fn check_plan(plan: &Plan) -> Vec<Issue> {
 /// Everything wrong with the configuration; empty when [`plan`] will succeed.
 pub fn validate(cfg: &ProjectConfig) -> Vec<Issue> {
     let mut v = check_config(cfg);
+    v.extend(cfg.typography.issues());
     if let Err(e) = resolve_elevations(cfg) {
         v.extend(e);
     }

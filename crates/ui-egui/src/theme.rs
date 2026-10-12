@@ -219,8 +219,31 @@ impl Tokens {
     }
 }
 
+// Whether the named font families (condensed, heading) exist in the font set the context is
+// using. They are installed with the fonts and egui applies a new font set at the start of the
+// next frame, so styles may use them only from the frame after [`install_fonts`].
+thread_local! {
+    static NAMED_READY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Set for the interface thread only (the thread that owns the egui context).
+pub fn set_named_ready(ready: bool) {
+    NAMED_READY.with(|c| c.set(ready));
+}
+
+pub fn named_ready() -> bool {
+    NAMED_READY.with(std::cell::Cell::get)
+}
+
+/// Compact text (toolbar labels, metadata): the preset's Condensed face once it is available.
 pub fn small() -> FontId {
-    FontId::new(11.5, FontFamily::Proportional)
+    let family = if named_ready() { FontFamily::Name(CONDENSED_FAMILY.into()) } else { FontFamily::Proportional };
+    FontId::new(11.5, family)
+}
+/// Headings: the preset's heading weight (Semibold where installed) once it is available.
+pub fn heading() -> FontId {
+    let family = if named_ready() { FontFamily::Name(HEADING_FAMILY.into()) } else { FontFamily::Proportional };
+    FontId::new(15.0, family)
 }
 pub fn body() -> FontId {
     FontId::new(12.5, FontFamily::Proportional)
@@ -233,7 +256,7 @@ pub fn mono() -> FontId {
 /// command bar and values, Condensed under its own family name), then a system font so characters
 /// the preset lacks still draw. A preset whose fonts are not installed leaves egui's and the system
 /// font as they were.
-pub fn install_fonts(ctx: &egui::Context, preset: &str) {
+pub fn install_fonts(ctx: &egui::Context, preset: &str) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         use cadcraft_fonts::registry::{self, Face};
@@ -278,16 +301,37 @@ pub fn install_fonts(ctx: &egui::Context, preset: &str) {
         {
             f.insert(0, "aad-mono".into());
         }
+        // The named families always exist (the interface styles use them): the preset's face when it
+        // is installed, else the Proportional chain.
+        let proportional = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
+        let mut condensed = Vec::new();
         if load(Face::Condensed, "aad-condensed") {
-            let mut chain = vec!["aad-condensed".to_string()];
-            chain.extend(fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default());
-            fonts.families.insert(FontFamily::Name(CONDENSED_FAMILY.into()), chain);
+            condensed.push("aad-condensed".to_string());
         }
+        condensed.extend(proportional.iter().cloned());
+        fonts.families.insert(FontFamily::Name(CONDENSED_FAMILY.into()), condensed);
+        let (_, weight) = registry::Role::Heading.default_face();
+        let mut heading = Vec::new();
+        if let Some(found) = registry::find_weighted(p.family(Face::Sans), weight) {
+            let mut data = egui::FontData::from_owned(found.bytes.as_ref().clone());
+            data.index = found.index;
+            fonts.font_data.insert("aad-heading".into(), std::sync::Arc::new(data));
+            heading.push("aad-heading".to_string());
+        }
+        heading.extend(proportional);
+        fonts.families.insert(FontFamily::Name(HEADING_FAMILY.into()), heading);
         ctx.set_fonts(fonts);
+        true
     }
     #[cfg(target_arch = "wasm32")]
-    let _ = (ctx, preset);
+    {
+        let _ = (ctx, preset);
+        false
+    }
 }
+
+/// The egui family name of the preset's heading weight (Semibold when installed).
+pub const HEADING_FAMILY: &str = "aad-heading";
 
 /// The egui family name of the preset's Condensed face (toolbar labels, compact metadata). Falls
 /// back to the Proportional chain when the face is not installed.
@@ -338,6 +382,7 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
         s.text_styles.insert(egui::TextStyle::Body, body());
         s.text_styles.insert(egui::TextStyle::Button, body());
         s.text_styles.insert(egui::TextStyle::Small, small());
+        s.text_styles.insert(egui::TextStyle::Heading, heading());
         s.text_styles.insert(egui::TextStyle::Monospace, mono());
     });
 }
