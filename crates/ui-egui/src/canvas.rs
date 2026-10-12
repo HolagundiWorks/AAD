@@ -78,7 +78,9 @@ pub fn apply_hot_grip(app: &mut CadApp, to: Vec2) {
 #[derive(Default)]
 pub struct CanvasState {
     pub list: Option<DisplayList>,
-    key: (u64, u64, i32, bool, usize),
+    key: ListKey,
+    /// A display list for a new zoom band being built on a worker thread.
+    pending: Option<PendingList>,
     /// Bumped whenever `list` is rebuilt (identifies it for [`PrimIndex`]).
     list_gen: u64,
     prim_index: PrimIndex,
@@ -173,26 +175,85 @@ fn color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
 }
 
-fn ensure_list(app: &mut CadApp, px: f64) {
-    let Ok(st) = app.session.state() else { return };
-    // Rebuild when the drawing changes or the zoom moves by more than 2x (tessellation band).
-    let band = px.max(1e-300).log2().floor() as i32;
-    let key = (st.uid, st.revision, band, app.session.settings.lwdisplay, std::sync::Arc::as_ptr(&st.doc) as usize);
-    if app.canvas.list.is_some() && app.canvas.key == key {
-        return;
-    }
-    let t0 = crate::now_ms();
-    let opts = cadcraft_render::Options {
-        tolerance: px * 0.5 * 2f64.powi(band) / px.max(1e-300) * px.min(1.0e300),
+/// The state a display list was built for: document id, revision, zoom band, line weight display,
+/// document identity.
+type ListKey = (u64, u64, i32, bool, usize);
+
+/// A display list being rebuilt on a worker thread for a new zoom band.
+pub struct PendingList {
+    key: ListKey,
+    rx: std::sync::mpsc::Receiver<DisplayList>,
+    t0: f64,
+}
+
+fn list_options(app: &CadApp, st: &cadcraft_engine::DocState, band: i32, px: f64) -> cadcraft_render::Options {
+    cadcraft_render::Options {
+        tolerance: 2f64.powi(band) * 0.5,
         min_dash: px * 2.0,
         text: true,
         fill: true,
         lineweights: app.session.settings.lwdisplay,
         view_height: st.paper_view().height,
         plot_style_table: None,
-    };
-    let opts = cadcraft_render::Options { tolerance: 2f64.powi(band) * 0.5, ..opts };
+    }
+}
+
+/// Make `app.canvas.list` match the drawing and the zoom. A change to the drawing rebuilds at once
+/// (the picture must show the edit). Crossing into another zoom band only refines tessellation, so
+/// on a big drawing it is built on a worker thread while the current list stays on screen: the
+/// build of a 25,000-entity drawing takes over a second and used to freeze every band change.
+fn ensure_list(app: &mut CadApp, ctx: &egui::Context, px: f64) {
+    let Ok(st) = app.session.state() else { return };
+    // Take a finished background build first.
+    if let Some(p) = &app.canvas.pending {
+        match p.rx.try_recv() {
+            Ok(list) => {
+                if let Some(p) = app.canvas.pending.take() {
+                    // Still the same drawing? A list built for an older revision is dropped.
+                    if (p.key.0, p.key.1, p.key.3, p.key.4)
+                        == (st.uid, st.revision, app.session.settings.lwdisplay, std::sync::Arc::as_ptr(&st.doc) as usize)
+                    {
+                        app.canvas.list = Some(list);
+                        app.canvas.key = p.key;
+                        app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
+                        app.canvas.build_ms = crate::now_ms() - p.t0;
+                    }
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(30)),
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => app.canvas.pending = None,
+        }
+    }
+    // Rebuild when the drawing changes or the zoom moves by more than 2x (tessellation band).
+    let band = px.max(1e-300).log2().floor() as i32;
+    let key: ListKey = (st.uid, st.revision, band, app.session.settings.lwdisplay, std::sync::Arc::as_ptr(&st.doc) as usize);
+    if app.canvas.list.is_some() && app.canvas.key == key {
+        return;
+    }
     let space = st.space.clone();
+    let same_drawing = (app.canvas.key.0, app.canvas.key.1, app.canvas.key.3, app.canvas.key.4) == (key.0, key.1, key.3, key.4);
+    #[cfg(not(target_arch = "wasm32"))]
+    if app.canvas.list.is_some() && same_drawing {
+        if app.canvas.pending.is_none() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (doc, opts, repaint, space) = (st.doc.clone(), list_options(app, st, band, px), ctx.clone(), space.clone());
+            let spawned = std::thread::Builder::new().name("aad-display-list".into()).spawn(move || {
+                let _ = tx.send(cadcraft_render::build(&doc, &space, &opts));
+                repaint.request_repaint();
+            });
+            if spawned.is_ok() {
+                app.canvas.pending = Some(PendingList { key, rx, t0: crate::now_ms() });
+                ctx.request_repaint_after(std::time::Duration::from_millis(30));
+                return;
+            }
+        } else {
+            return; // one background build at a time; the next band is started when it lands
+        }
+    }
+    let _ = same_drawing;
+    app.canvas.pending = None;
+    let t0 = crate::now_ms();
+    let opts = list_options(app, st, band, px);
     // Picking and snapping need the spatial index: build it off the UI thread, alongside the display list, so the first pick does not.
     cadcraft_engine::spatial::warm(st.doc.clone(), space.clone());
     app.canvas.list = Some(cadcraft_render::build(&st.doc, &space, &opts));
@@ -763,7 +824,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // ---------- paint ----------
     painter.rect_filled(rect, 0.0, t.canvas);
     let t0 = crate::now_ms();
-    ensure_list(app, 1.0 / xf_paper.scale);
+    ensure_list(app, &painter.ctx().clone(), 1.0 / xf_paper.scale);
     let sheet = app.canvas.list.as_ref().and_then(|l| l.sheet);
     let bg = match sheet {
         Some(sh) => {
