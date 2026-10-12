@@ -4,17 +4,14 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use cadcraft_ui_egui::CadApp;
 use cadcraft_ui_egui::menus::{self, Entry};
-use cadcraft_ui_egui::{CadApp, i18n};
 use muda::accelerator::Accelerator;
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 
 pub struct NativeMenu {
     _menu: Menu,
     items: HashMap<String, (String, String, MenuItem)>,
-    submenus: Vec<(String, Submenu)>,
-    predefined: Vec<(&'static str, PredefinedMenuItem)>,
-    language: &'static str,
     last_refresh: f64,
 }
 
@@ -30,18 +27,16 @@ impl NativeMenu {
     pub fn install(app: &mut CadApp) -> Self {
         let menu = Menu::new();
         let mut items = HashMap::new();
-        let language = app.language();
-        let mut submenus = Vec::new();
         let mut counter = 0usize;
         let app_menu = Submenu::new("AAD", true);
-        let about = MenuItem::with_id("cc-about", i18n::tr(language, "About AAD"), true, None);
-        let discord = MenuItem::with_id("cc-discord", i18n::tr(language, "Join the ArtCraft Discord…"), true, None);
+        let about = MenuItem::with_id("cc-about", "About AAD", true, None);
+        let discord = MenuItem::with_id("cc-discord", "Join the ArtCraft Discord…", true, None);
         let predefined = vec![
-            ("Services", PredefinedMenuItem::services(Some(i18n::tr(language, "Services")))),
-            ("Hide AAD", PredefinedMenuItem::hide(Some(i18n::tr(language, "Hide AAD")))),
-            ("Hide Others", PredefinedMenuItem::hide_others(Some(i18n::tr(language, "Hide Others")))),
-            ("Show All", PredefinedMenuItem::show_all(Some(i18n::tr(language, "Show All")))),
-            ("Quit AAD", PredefinedMenuItem::quit(Some(i18n::tr(language, "Quit AAD")))),
+            ("Services", PredefinedMenuItem::services(Some("Services"))),
+            ("Hide AAD", PredefinedMenuItem::hide(Some("Hide AAD"))),
+            ("Hide Others", PredefinedMenuItem::hide_others(Some("Hide Others"))),
+            ("Show All", PredefinedMenuItem::show_all(Some("Show All"))),
+            ("Quit AAD", PredefinedMenuItem::quit(Some("Quit AAD"))),
         ];
         let _ = app_menu.append_items(&[&about, &discord, &PredefinedMenuItem::separator()]);
         for (label, item) in &predefined {
@@ -54,13 +49,12 @@ impl NativeMenu {
         items.insert("cc-discord".into(), ("ui.discord".into(), "Join the ArtCraft Discord…".into(), discord));
         let _ = menu.append(&app_menu);
         for (title, entries) in menus::tree(app) {
-            let sub = Submenu::new(i18n::tr(language, &title), true);
-            build(&sub, &entries, &mut items, &mut submenus, &mut counter, language);
+            let sub = Submenu::new(&title, true);
+            build(&sub, &entries, &mut items, &mut counter);
             let _ = menu.append(&sub);
-            submenus.push((title, sub));
         }
         menu.init_for_nsapp();
-        Self { _menu: menu, items, submenus, predefined, language, last_refresh: 0.0 }
+        Self { _menu: menu, items, last_refresh: 0.0 }
     }
 
     pub fn poll(&mut self, app: &mut CadApp, ctx: &egui::Context) {
@@ -72,19 +66,6 @@ impl NativeMenu {
                     menus::activate(app, &cmd.clone());
                 }
                 ctx.request_repaint();
-            }
-        }
-        let language = app.language();
-        if self.language != language {
-            self.language = language;
-            for (_, label, item) in self.items.values() {
-                item.set_text(i18n::tr(language, label));
-            }
-            for (label, item) in &self.predefined {
-                item.set_text(i18n::tr(language, label));
-            }
-            for (label, submenu) in &self.submenus {
-                submenu.set_text(i18n::tr(language, label));
             }
         }
         let now = cadcraft_ui_egui::now_ms();
@@ -99,26 +80,18 @@ impl NativeMenu {
     }
 }
 
-fn build(
-    parent: &Submenu,
-    entries: &[Entry],
-    items: &mut HashMap<String, (String, String, MenuItem)>,
-    submenus: &mut Vec<(String, Submenu)>,
-    counter: &mut usize,
-    language: &str,
-) {
+fn build(parent: &Submenu, entries: &[Entry], items: &mut HashMap<String, (String, String, MenuItem)>, counter: &mut usize) {
     for e in entries {
         match e {
             Entry::Sub { label, children } => {
-                let sub = Submenu::new(i18n::tr(language, label), true);
-                build(&sub, children, items, submenus, counter, language);
+                let sub = Submenu::new(label.as_str(), true);
+                build(&sub, children, items, counter);
                 let _ = parent.append(&sub);
-                submenus.push((label.clone(), sub));
             }
             Entry::Item { label, id, shortcut, enabled } => {
                 *counter += 1;
                 let mid = format!("cc{counter}");
-                let i = MenuItem::with_id(mid.clone(), i18n::tr(language, label), *enabled, shortcut.as_deref().and_then(accel));
+                let i = MenuItem::with_id(mid.clone(), label.as_str(), *enabled, shortcut.as_deref().and_then(accel));
                 let _ = parent.append(&i);
                 items.insert(mid, (id.clone(), label.clone(), i));
             }

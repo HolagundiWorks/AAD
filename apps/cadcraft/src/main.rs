@@ -260,7 +260,6 @@ fn main() -> eframe::Result {
                 eprintln!("AAD workspace: {error}");
                 app.set_status(error);
             }
-            app.system_languages = std::env::var("CADCRAFT_LOCALE").map(|s| vec![s]).unwrap_or_else(|_| sys_locale::get_locales().collect());
             if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::PREFS_KEY)) {
                 app.load_prefs(&prefs);
             }

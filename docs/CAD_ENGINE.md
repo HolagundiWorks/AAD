@@ -49,7 +49,7 @@ pick-box setting and the zoom.
 ## Text, dimensions and hatches
 
 - Text and multiline text are laid out with TrueType/OpenType fonts from the system, or the built-in
-  single-stroke font for SHX styles ([localization.md](localization.md), README, `crates/fonts`).
+  single-stroke font for SHX styles (README, `crates/fonts`).
   SHX files are not read.
 - Dimensions: linear, aligned, radius, diameter, angular, baseline, continue, quick dimension and
   multileaders, with dimension styles and associativity ([status.md](status.md)).

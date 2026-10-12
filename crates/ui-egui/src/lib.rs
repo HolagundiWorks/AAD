@@ -60,7 +60,6 @@ pub const PREFS_KEY: &str = "cadcraft.prefs";
 pub struct UiState {
     pub docking: docking::Workspace,
 
-    pub interface_language: i18n::Preference,
     pub show_palettes: bool,
     pub show_toolbar: bool,
     pub show_file_tabs: bool,
@@ -175,7 +174,6 @@ impl Default for UiState {
         UiState {
             docking: docking::Workspace::default(),
 
-            interface_language: i18n::Preference::default(),
             show_palettes: true,
             show_toolbar: true,
             show_file_tabs: true,
@@ -212,7 +210,6 @@ pub struct Services {
 }
 
 pub struct CadApp {
-    pub system_languages: Vec<String>,
     pub session: Session,
     pub ui: UiState,
     pub services: Services,
@@ -253,7 +250,6 @@ pub struct CadApp {
 impl CadApp {
     pub fn new(session: Session, services: Services) -> Self {
         CadApp {
-            system_languages: Vec::new(),
             session,
             ui: UiState::default(),
             services,
@@ -280,10 +276,6 @@ impl CadApp {
             closing: None,
             aorms: aorms_ui::AormsUi::default(),
         }
-    }
-
-    pub fn language(&self) -> &'static str {
-        self.ui.interface_language.resolve(&self.system_languages)
     }
 
     /// Draw the canvas on the GPU with the app's wgpu render state (eframe's
@@ -332,6 +324,12 @@ impl CadApp {
     /// Submit a line of command-line text. A refused line is echoed to the history; the error is
     /// also returned.
     pub fn cmdline(&mut self, text: &str) -> Option<String> {
+        // `/ request` goes to the local assistant (not while a command is waiting for input).
+        if self.session.running.is_none()
+            && let Some(rest) = text.trim_start().strip_prefix('/')
+        {
+            return assistant::ask_from_command_line(self, rest);
+        }
         if self.session.running.is_none() {
             let first = text.split_whitespace().next().unwrap_or("");
             // `cmd {json}` is a programmatic call: the engine runs it with those parameters.
@@ -359,7 +357,6 @@ impl CadApp {
     pub fn prefs_json(&self) -> String {
         let mut prefs = json!({
             "theme": self.ui.theme.as_str(),
-            "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
             "workspace": self.ui.workspace.as_str(),
             "pinPanels": self.ui.pin_panels,
@@ -394,9 +391,6 @@ impl CadApp {
         }
         if let Some(t) = v.get("theme").and_then(Value::as_str).and_then(theme::ThemePref::parse) {
             self.ui.theme = t;
-        }
-        if let Some(l) = v.get("interfaceLanguage").and_then(Value::as_str).and_then(i18n::Preference::parse) {
-            self.ui.interface_language = l;
         }
         if let Some(f) = v.get("saveFormat").and_then(Value::as_str).and_then(SaveFormat::parse) {
             self.ui.save_format = f;
@@ -513,7 +507,7 @@ impl CadApp {
 
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        i18n::with_language(self.language(), || self.draw(ui));
+        self.draw(ui);
     }
 
     fn draw(&mut self, ui: &mut egui::Ui) {

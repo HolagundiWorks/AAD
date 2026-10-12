@@ -99,7 +99,7 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
   rotates the previous log; the file stops growing at 16 MiB.
 - Theme: one light/dark toggle (View menu, status bar). Dark has a black drawing area, light a
   white one. There is no other colour customisation.
-- Interface language: English or Ukrainian, see [docs/localization.md](docs/localization.md).
+- Interface language: English only.
 
 ## Documentation
 
@@ -126,7 +126,6 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/control-protocol.md](docs/control-protocol.md) | JSON control channel |
 | [docs/mcp.md](docs/mcp.md) | MCP server |
 | [docs/plot-styles.md](docs/plot-styles.md) | Plot styles and plotting |
-| [docs/localization.md](docs/localization.md) | Interface languages |
 | [docs/contributors.md](docs/contributors.md) | Contributor credits in the About window |
 | [docs/releasing.md](docs/releasing.md) | Versioning, release workflow, signing |
 | [docs/QUALITY_BASELINE.md](docs/QUALITY_BASELINE.md), [docs/BUG_BACKLOG.md](docs/BUG_BACKLOG.md), [docs/UI_BASELINE.md](docs/UI_BASELINE.md), [docs/UI_BUG_BACKLOG.md](docs/UI_BUG_BACKLOG.md) | Quality programme records |

@@ -32,7 +32,7 @@ marks, isometric drafting).
 | Context bar and workspaces | Current layer, floor and drawing space selectors in both workspaces; Classic: left toolbars, tabbed right-hand panels pinned; Pro: collapsed panels; each mode keeps its own layout, pin state and toolbars; `floor.current` ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)) |
 | Widgets | Architect calculator (`cal`, `ui.toggle.calculator`) and Pomodoro timer (`ui.toggle.pomodoro`) ([widgets.md](widgets.md)) |
 | Input forms | Dialogs and command-line prompts for the architecture commands ([input-forms.md](input-forms.md)) |
-| Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
+| Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), |
 | AORMS connection | Optional sign-in to AORMS (shared login, one session per app), project list, pulling project details and floors into a drawing, drawing list ([aorms.md](aorms.md)). AORMS menu, sign-in/projects dialog and status-bar chip; network calls run off the UI thread |
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
 | Units and annotation | Drawing and display units, plot scale and paper, annotation sizing, collision analysis and text layout ([units-annotation.md](units-annotation.md)) |
@@ -50,3 +50,4 @@ marks, isometric drafting).
 | Panels for Opening Schedule, Drawing Explorer, Xrefs, Measurement and Project Navigator; guarding block-definition edits against locked layers; export and import of drawing spaces | [ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md), section 4 |
 | Conversion of 3D solids, surfaces and meshes | They are kept as raw data and reported on import, not converted |
 | User coordinate systems, SHX fonts, DWG on the web | Not available |
+| Other interface languages | Removed: the interface is English only |

@@ -20,8 +20,8 @@ and [UI_BASELINE.md](UI_BASELINE.md); workspace details in [workspaces.md](works
 
 Two workspaces: **Classic** (toolbars and side panels) and **Pro** (full-screen drawing area with
 command line and status bar), switched with `Ctrl+F11`. Switching changes visibility only. Two
-themes, light (white drawing area) and dark (black), with no other colour customisation. English
-and Ukrainian interface.
+themes, light (white drawing area) and dark (black), with no other colour customisation. The interface is English only.
+
 
 ## Working with commands
 

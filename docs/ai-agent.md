@@ -149,3 +149,13 @@ confirmation gate and the "model never changes the drawing itself" rule work. Co
 not hold yet: reliability across many requests (not measured), and the summaries cannot be trusted
 for details, so the application should show tool results (tables) rather than rely on the model's
 retelling of them (planned).
+
+## Asking from the command line: `/`
+
+A command-line entry that starts with `/` is a request for the assistant, not a command:
+`/audit this drawing` opens the Assistant window and asks it. Spaces typed after the `/` are part of
+the request (Space normally submits the command line, as in AutoCAD). It is not taken while a
+command is waiting for input, so a `/` typed as a prompt answer stays an answer. In a build without
+the model, the command line says the assistant is not included. While the assistant is working its
+input box stays usable (the text waits for the answer to finish), so typing never falls through to
+the command line. Tests: `crates/ui-egui/tests/assistant_window.rs`.

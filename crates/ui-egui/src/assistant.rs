@@ -71,6 +71,9 @@ pub struct Ui {
     pub open: bool,
     pub input: String,
     focus: bool,
+    /// The assistant was busy last frame: when it stops, the input box takes the keyboard back (a
+    /// disabled box loses it, and typing would then go to the command line).
+    was_busy: bool,
 }
 
 /// Called every frame before drawing: lets the backend work.
@@ -101,6 +104,10 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         ui.label(RichText::new(backend.model_status()).small().weak());
         ui.separator();
         let busy = !matches!(state, State::Idle | State::Confirm { .. });
+        if app.assistant.was_busy && !busy {
+            app.assistant.focus = true;
+        }
+        app.assistant.was_busy = busy;
         // Room kept under the conversation for the input row and, when a tool waits for a yes or no, its box.
         let bottom = if matches!(state, State::Confirm { .. }) { 190.0 } else { 56.0 };
         egui::ScrollArea::vertical().max_height((ui.available_height() - bottom).max(80.0)).stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
@@ -162,7 +169,7 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
         let mut stop = false;
         let mut new_chat = false;
         ui.horizontal(|ui| {
-            let edit = ui.add_enabled(!busy && answer.is_none() && !matches!(state, State::Confirm { .. }), egui::TextEdit::singleline(&mut app.assistant.input).hint_text(crate::tl!("Ask about the drawing…")).desired_width((ui.available_width() - 230.0).max(120.0)));
+            let edit = ui.add(egui::TextEdit::singleline(&mut app.assistant.input).hint_text(crate::tl!("Ask about the drawing…")).desired_width((ui.available_width() - 230.0).max(120.0)));
             if app.assistant.focus {
                 edit.request_focus();
                 app.assistant.focus = false;
@@ -196,4 +203,30 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     if !open {
         app.assistant.open = false;
     }
+}
+
+/// A command-line entry that starts with `/`: the rest is a request for the assistant, so
+/// `/audit this drawing` asks it instead of looking for a command called `/audit`. Opens the
+/// Assistant window so the answer (and a confirmation, if a tool needs one) is visible. Returns the
+/// message to show on the command line when it could not be asked.
+pub fn ask_from_command_line(app: &mut CadApp, request: &str) -> Option<String> {
+    let request = request.trim();
+    let msg = match app.services.assistant.as_mut().filter(|b| b.available()) {
+        None => Some(crate::tl!("The assistant is not included in this build.").to_string()),
+        Some(b) if b.state() != State::Idle => Some(crate::tl!("The assistant is busy: wait, or stop it first.").to_string()),
+        Some(b) => {
+            if !request.is_empty() {
+                b.submit(&mut app.session, request);
+            }
+            None
+        }
+    };
+    if msg.is_none() {
+        app.assistant.open = true;
+        app.assistant.focus = request.is_empty();
+    }
+    if let Some(m) = &msg {
+        app.session.echo(m.clone());
+    }
+    msg
 }

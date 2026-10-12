@@ -144,3 +144,64 @@ fn the_window_does_not_grow_by_itself() {
     assert!((width(&h) - first).abs() < 1.0, "the window width changed from {first} to {} with nothing happening", width(&h));
     assert!(first <= 900.0);
 }
+
+fn type_text(h: &mut Harness<'static, CadApp>, text: &str) {
+    for c in text.chars() {
+        h.event(egui::Event::Text(c.to_string()));
+        h.run_steps(1);
+    }
+}
+
+fn press(h: &mut Harness<'static, CadApp>, key: egui::Key) {
+    for pressed in [true, false] {
+        h.event(egui::Event::Key { key, physical_key: Some(key), pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+    }
+}
+
+#[test]
+fn a_slash_on_the_command_line_asks_the_assistant() {
+    let (mut h, log) = harness_in(true, State::Idle);
+    h.state_mut().ui.dialog = None;
+    h.state_mut().assistant.open = false;
+    h.state_mut().cmdline("/audit this drawing");
+    assert_eq!(log.borrow().0, ["submit:audit this drawing"]);
+    assert!(h.state().assistant.open, "the window opens so the answer and any confirmation are seen");
+    // A command that is waiting for input is not hijacked: "/x" is its input, not a request.
+    let (mut h, log) = harness_in(true, State::Idle);
+    h.state_mut().start("line");
+    h.state_mut().cmdline("/x");
+    assert!(log.borrow().0.is_empty());
+    // Without a model it says so on the command line instead of looking for a command called "/x".
+    let (mut h, _) = harness(false);
+    let msg = h.state_mut().cmdline("/hello");
+    assert_eq!(msg.as_deref(), Some("The assistant is not included in this build."));
+}
+
+#[test]
+fn spaces_typed_after_a_slash_are_part_of_the_request_and_do_not_submit() {
+    let (mut h, log) = harness_in(true, State::Idle);
+    h.state_mut().assistant.open = false;
+    h.run_steps(2);
+    // Typed on the drawing, with no text box focused: the usual command-line path.
+    type_text(&mut h, "/what is in this drawing");
+    assert!(log.borrow().0.is_empty(), "nothing is sent while the request is being typed");
+    assert_eq!(h.state().cmd.buffer, "/what is in this drawing", "the spaces were typed, they did not submit");
+    press(&mut h, egui::Key::Enter);
+    assert_eq!(log.borrow().0, ["submit:what is in this drawing"]);
+}
+
+#[test]
+fn typing_in_the_assistant_while_it_works_stays_in_its_box_and_never_reaches_the_command_line() {
+    // Thinking: the box stays usable, so a space is a space and does not submit anything to the command line.
+    let (mut h, log) = harness_in(true, State::Thinking);
+    h.query_all_by_role(Role::TextInput).last().unwrap().click();
+    h.run_steps(2);
+    type_text(&mut h, "and how many entities");
+    assert_eq!(h.state().assistant.input, "and how many entities");
+    assert_eq!(h.state().cmd.buffer, "", "nothing leaked to the command line");
+    assert!(log.borrow().0.is_empty(), "and nothing was sent while it is busy");
+    press(&mut h, egui::Key::Enter);
+    assert!(log.borrow().0.is_empty(), "Enter does not send while the assistant is busy");
+    assert_eq!(h.state().assistant.input, "and how many entities", "the text waits for the answer to finish");
+}

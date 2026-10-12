@@ -99,5 +99,4 @@ Do not clean as part of the normal loop.
 | `cargo xtask layers` fails | A crate depends on a crate from a higher layer; see `xtask/src/layers.rs` |
 | `llama-cpp-sys-2` fails with "Unable to find libclang" | You enabled the `llama` feature without LLVM; install LLVM and set `LIBCLANG_PATH`, or build without the feature (the default) |
 | A UI test cannot start a gesture at the canvas edge | The press lands on the docked panel's resize area; use a point inside the canvas ([UI_TESTING_STRATEGY.md](UI_TESTING_STRATEGY.md)) |
-| Duplicate key error from the i18n test | Each English label needs one row in `crates/ui-egui/src/i18n/uk.tsv` |
 | `cargo bench` runs for many minutes | The benches build large drawings; run one at a time with `-- --warm-up-time 1 --measurement-time 3` |

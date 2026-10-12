@@ -105,15 +105,3 @@ A refused line still replies `"ok": true`, because the text was typed. Check `er
 
 `app.open` without a string `path` fails with `"missing path"` before any command runs.
 
-## Interface language
-
-Select a language with `engine.execute` and the UI command `ui.language`:
-
-```json
-{"id":1,"method":"engine.execute","params":{"command":"ui.language","params":{"lang":"uk"}}}
-```
-
-Supported values are `auto`, `en` and `uk`. `ui.set` also accepts
-`{"interfaceLanguage":"uk"}`; `ui.inspect` reports the saved choice in its UI state.
-Invalid choices leave the current language unchanged. Menus, command labels and prompt text
-returned by the control channel retain their English source text. See [localization.md](localization.md).

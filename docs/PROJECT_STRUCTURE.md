@@ -40,7 +40,7 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 | `io` | `dxf_read.rs`, `dxf_write.rs`, `dxf_ext.rs`, PDF/SVG/PNG export; `tests/` (18 files, includes `mutation_robustness.rs`); `benches/dxf.rs` |
 | `dwg` | `lib.rs` (bridge to `acadrust`), `isolated.rs` (worker process) |
 | `engine` | `src/lib.rs` (`Session`), `cmd/` (commands, 48 files plus subfolders `blocks/`, `layer/`, `layout/`, `props/`), `snap.rs` and `snap/`, `select.rs`, `spatial.rs`, `finite.rs`, `guard.rs`, `flatten.rs`, `audit.rs`, `assoc.rs`; `tests/` (81 files); `benches/` |
-| `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code), `i18n/` (string catalogue, `uk.tsv`); `tests/` (17 files) |
+| `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code); `tests/` (17 files) |
 | `mcp`, `agent`, `llm` | MCP server, allow-listed tool layer, model runtime facade |
 
 ## Entry points
@@ -55,8 +55,8 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 ## Resources loaded at run time
 
 None are read from the install folder. Icons are drawn in code; hatch patterns, linetypes and the
-drafting font are compiled in; the interface strings (`crates/ui-egui/src/i18n/uk.tsv`) are
-embedded at build time. System fonts are read from the operating system if present. The optional
+drafting font are compiled in; the interface is English only (strings are in the code). System fonts are
+read from the operating system if present. The optional
 language model file is looked up in `AAD_MODEL`, the settings folder's `models`, and a `models` folder beside the program (`crates/llm/src/files.rs`) and is never
 committed.
 

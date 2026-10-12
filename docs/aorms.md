@@ -10,7 +10,6 @@ AAD can sign in to AORMS (the office-management web portal) and pull project inf
 * **No freezing:** every network call runs on a worker thread (`crates/ui-egui/src/aorms_ui.rs`): the job takes the client out of the session, runs, and hands it back with the result; the drawing is only touched on the UI thread, through the `aorms.apply` command, so a pull is **one undo step** and changes only project details and floors, never geometry.
 * **Preferences** save the e-mail and server only. The password is cleared from the text field the moment the sign-in starts and is never stored, logged or saved; no token is ever in the preferences (the refresh token lives in the OS credential store).
 * **Start-up:** the desktop app silently restores the shared sign-in once (`CADCRAFT_NO_AORMS=1` turns that off). It never takes a session over.
-* Strings are translated to Ukrainian (`i18n/uk.tsv`); the i18n test requires every command label and menu entry to have a translation.
 
 ## Commands
 

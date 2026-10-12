@@ -14,7 +14,6 @@ pub fn show(app: &mut CadApp, ctx: &egui::Context) {
     let Some(d) = app.ui.dialog.clone() else { return };
     let mut open = true;
     match d.as_str() {
-        "language" => language(app, ctx, &mut open),
         "layers" => crate::layers::dialog(app, ctx, &mut open),
         "qselect" => crate::quick::qselect_dialog(app, ctx, &mut open),
         "dsettings" => dsettings(app, ctx, &mut open),
@@ -380,19 +379,6 @@ fn mtext_editor(app: &mut CadApp, ctx: &egui::Context) {
         ctx.data_mut(|d| d.remove::<String>(id));
         app.session.cancel();
     }
-}
-
-fn language(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
-    egui::Window::new(crate::tl!("Interface Language")).id(egui::Id::new("interface_language")).open(open).resizable(false).show(ctx, |ui| {
-        egui::ComboBox::from_id_salt("interface_language_choice").selected_text(app.ui.interface_language.name()).show_ui(ui, |ui| {
-            for preference in crate::i18n::Preference::ALL {
-                if ui.selectable_label(app.ui.interface_language == preference, preference.name()).clicked() {
-                    let _ = app.run("ui.language", serde_json::json!({"lang": preference.code()}));
-                    ui.ctx().request_repaint();
-                }
-            }
-        });
-    });
 }
 
 #[cfg(test)]

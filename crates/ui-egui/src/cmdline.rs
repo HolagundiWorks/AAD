@@ -176,7 +176,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
             egui::Event::Text(t) => {
                 if t == "\t" {
                     tab(app);
-                } else if t == " " && !text_prompt {
+                } else if t == " " && !text_prompt && !app.cmd.buffer.starts_with('/') {
                     submit(app);
                 } else {
                     app.cmd.buffer.push_str(&t);

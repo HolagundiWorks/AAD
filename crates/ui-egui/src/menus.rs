@@ -55,8 +55,6 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.dialog.commands", "Command Reference", &["Help", "AAD Help"], Some("F1")),
     ("ui.toggle.history", "Command History", &["Window", "Command History"], Some("F2")),
     ("ui.cmdline.lines", "Command Line History Lines", &[], None),
-    ("ui.dialog.language", "Interface Language", &["Edit", "Interface Language"], None),
-    ("ui.language", "Language", &[], None),
     ("ui.noop", "", &[], None),
     ("ui.quit", "Quit AAD", &[], Some("Cmd+Q")),
 ];
@@ -67,7 +65,7 @@ pub fn is_ui_command(id: &str) -> bool {
 
 /// Run a UI-only command. `None` if `id` isn't one.
 pub fn run_ui_command(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
-    crate::i18n::with_language(app.language(), || run_ui_command_inner(app, id, params))
+    run_ui_command_inner(app, id, params)
 }
 
 fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
@@ -99,13 +97,6 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
     let no_path =
         if id.starts_with("ui.") { params.is_null() || (params.get("path").is_none() && params.get("data").is_none()) } else { params.is_null() };
     let r = match id {
-        "ui.language" => {
-            let Some(preference) = params.get("lang").and_then(Value::as_str).and_then(crate::i18n::Preference::parse) else {
-                return Some(Err("language must be auto, en or uk".into()));
-            };
-            app.ui.interface_language = preference;
-            Ok(json!({"interfaceLanguage": preference.code()}))
-        }
         "ui.open" | "open" if no_path => {
             let picked = app.services.pick_open.as_ref().and_then(|f| f());
             if let Some(p) = picked {
@@ -257,8 +248,8 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "ui.resetpalettes" => {
-            let (menu, theme, interface_language, save_format) = (app.ui.in_window_menu, app.ui.theme, app.ui.interface_language, app.ui.save_format);
-            app.ui = crate::UiState { in_window_menu: menu, theme, interface_language, save_format, ..Default::default() };
+            let (menu, theme, save_format) = (app.ui.in_window_menu, app.ui.theme, app.ui.save_format);
+            app.ui = crate::UiState { in_window_menu: menu, theme, save_format, ..Default::default() };
             Ok(Value::Null)
         }
         "ui.start" => {
@@ -282,8 +273,7 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             crate::assistant::toggle(app);
             Ok(json!({ "open": app.assistant.open }))
         }
-        "ui.dialog.language"
-        | "ui.dialog.layers"
+        "ui.dialog.layers"
         | "ui.dialog.blocks"
         | "ui.dialog.dsettings"
         | "ui.dialog.about"
