@@ -6,7 +6,6 @@
 //! was. Only objects the command changed are checked: every number in their serialized fields, and
 //! their extents.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use cadcraft_doc::{Drawing, Entity, EntityStore, Handle, entity_bounds};
@@ -51,19 +50,16 @@ fn changed_non_finite(d: &Drawing, before: Option<&EntityStore>, after: &EntityS
     if before.is_some_and(|b| b.same_as(after)) {
         return None;
     }
-    // Chunks shared with `before` hold only unchanged objects.
-    let shared: HashSet<usize> = before.map(|b| b.chunk_slices().map(|(key, _)| key).collect()).unwrap_or_default();
     let finite = |e: &Entity| {
         let b = entity_bounds(d, e, 0);
         is_finite(e) && (b.is_empty() || (b.min.is_finite() && b.max.is_finite()))
     };
-    after
-        .chunk_slices()
-        .filter(|(key, _)| !shared.contains(key))
-        .flat_map(|(_, items)| items.iter())
-        .filter(|e| before.and_then(|b| b.get(e.handle)).is_none_or(|old| !Arc::ptr_eq(old, e)))
-        .find(|e| !finite(e))
-        .map(|e| e.handle)
+    // Only the objects the command replaced or added (chunks shared with `before` hold only
+    // unchanged objects).
+    match before {
+        Some(b) => after.changed_since(b).into_iter().find(|e| !finite(e)).map(|e| e.handle),
+        None => after.iter().find(|e| !finite(e)).map(|e| e.handle),
+    }
 }
 
 /// Whether every number in `v` is finite.

@@ -109,3 +109,20 @@ snapping with many active snap modes, and any machine other than this one.
 cargo bench -p cadcraft-engine --bench selection -- --warm-up-time 1 --measurement-time 3
 AAD_BENCH_LARGE=1 cargo bench -p cadcraft-engine --bench selection     # adds 1 000 000 entities
 ```
+
+## Update: PERF-001 fixed
+
+The 40 ms edits were the non-finite-result check, not the edits (profile and fix in
+[BUG_BACKLOG.md](BUG_BACKLOG.md)). Same benchmark after the fix, one run:
+
+| Command (about 1 000 objects, 100 000 entities) | Before | After |
+|---|---|---|
+| move | 41.8 ms | 5.30 ms |
+| rotate | 40.3 ms | 5.36 ms |
+| erase | 39.2 ms | 5.64 ms |
+| recolour | 40.3 ms | 5.61 ms |
+| copy | 2.67 ms | 2.43 ms |
+| undo of a move | 0.62 ms | 0.48 ms |
+| add one line | 386 us | 192 us |
+
+The "finding" paragraph above describes the state before the fix.

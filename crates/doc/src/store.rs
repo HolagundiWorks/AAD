@@ -200,6 +200,37 @@ impl EntityStore {
     pub fn chunk_slices(&self) -> impl Iterator<Item = (usize, &[Arc<Entity>])> + '_ {
         self.chunks.iter().map(|c| (Arc::as_ptr(c) as usize, c.items.as_slice()))
     }
+    /// The entities of `self` that are not (by identity) in `before`: the ones an edit replaced or
+    /// added. Chunks shared with `before` are skipped without looking inside; a changed chunk is
+    /// compared with the chunk of the same id in `before`, position by position, falling back to
+    /// that chunk's set of entities when positions have shifted. Never misses a changed entity
+    /// (it may report one that only moved between chunks), and costs one pointer comparison per
+    /// entity of a changed chunk instead of a handle lookup per entity.
+    pub fn changed_since<'a>(&'a self, before: &EntityStore) -> Vec<&'a Arc<Entity>> {
+        let old: HashMap<u32, &Chunk> = before.chunks.iter().map(|c| (c.id, c.as_ref())).collect();
+        let shared: std::collections::HashSet<*const Chunk> = before.chunks.iter().map(Arc::as_ptr).collect();
+        let mut out = Vec::new();
+        for c in &self.chunks {
+            if shared.contains(&Arc::as_ptr(c)) {
+                continue;
+            }
+            let Some(prev) = old.get(&c.id) else {
+                out.extend(c.items.iter());
+                continue;
+            };
+            let mut set: Option<std::collections::HashSet<*const Entity>> = None;
+            for (i, e) in c.items.iter().enumerate() {
+                if prev.items.get(i).is_some_and(|p| Arc::ptr_eq(p, e)) {
+                    continue;
+                }
+                let set = set.get_or_insert_with(|| prev.items.iter().map(Arc::as_ptr).collect());
+                if !set.contains(&Arc::as_ptr(e)) {
+                    out.push(e);
+                }
+            }
+        }
+        out
+    }
     /// The last entity in draw order (AutoCAD's "Last" selection).
     pub fn last(&self) -> Option<&Arc<Entity>> {
         self.chunks.last().and_then(|c| c.items.last())
@@ -228,6 +259,43 @@ mod tests {
         assert!(s.get(Handle(1500)).is_none());
         assert_eq!(s.len(), 2999);
         assert_eq!(s.iter().count(), 2999);
+    }
+
+    /// PERF-001: `changed_since` finds exactly the entities the old per-handle check found, across
+    /// edits that replace, remove (shifting positions inside a chunk) and add entities.
+    #[test]
+    fn changed_since_matches_the_handle_lookup_definition() {
+        let mut s = EntityStore::new();
+        for h in 1..=5000 {
+            s.push(ent(h));
+        }
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for round in 0..30 {
+            let before = s.clone();
+            for _ in 0..(1 + next(40)) {
+                let h = Handle(1 + next(6000));
+                match next(3) {
+                    0 => {
+                        s.modify(h, |e| e.common.layer = format!("L{round}"));
+                    }
+                    1 => {
+                        s.remove(h);
+                    }
+                    _ => s.push(ent(6000 + round * 100 + next(100))),
+                }
+            }
+            let mut want: Vec<Handle> = s.iter().filter(|e| before.get(e.handle).is_none_or(|old| !Arc::ptr_eq(old, e))).map(|e| e.handle).collect();
+            let mut got: Vec<Handle> = s.changed_since(&before).iter().map(|e| e.handle).collect();
+            want.sort_unstable_by_key(|h| h.0);
+            got.sort_unstable_by_key(|h| h.0);
+            assert_eq!(got, want, "round {round}");
+        }
     }
 
     #[test]

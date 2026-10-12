@@ -49,13 +49,29 @@ significant lag or important functionality unreliable; P3 minor; P4 optimisation
 
 None confirmed. See the suspected defects and the backlog in [QUALITY_AUDIT.md](QUALITY_AUDIT.md).
 
-## PERF-001 (P3, hypothesis): editing existing objects costs about 40 ms at 100 000 entities
+## PERF-001 (P3): editing existing objects cost about 40 ms at 100 000 entities - FIXED
 
-- **Measured** (`cargo bench -p cadcraft-engine --bench drawing_operations`, 1 000 objects selected
+- **Measured before** (`cargo bench -p cadcraft-engine --bench drawing_operations`, 1 000 objects
   in a 100 000-entity synthetic drawing, `Session::execute`): move 41.8 ms, rotate 40.3 ms, erase
-  39.2 ms, recolour 40.3 ms; copy of the same objects 2.7 ms; undo of a move 0.62 ms. One machine,
-  one run. See [PERFORMANCE_BASELINE.md](PERFORMANCE_BASELINE.md).
-- **Why it looks suspicious:** four different operations take the same time, so the cost is
-  probably in something they share, not in the geometry. Unverified: no profile has been taken.
-- **Status:** open. Next step is a profile (which function holds the 40 ms); a fix, if any, needs
-  its own regression guard and a before/after run of this benchmark.
+  39.2 ms, recolour 40.3 ms; copy 2.7 ms; undo of a move 0.62 ms.
+- **Profile** (temporary timers around each stage of `Session::execute`, since removed; five move
+  samples): command body 2.2 to 2.7 ms, group fix-up 0.0005 ms, association fix-up 0.5 to 0.6 ms,
+  **`refuse_non_finite` 35.3 to 37.5 ms**. So 90% of the time was the check that refuses edits
+  producing NaN or infinite coordinates, not the edit.
+- **Root cause (confirmed):** `finite::changed_non_finite` skips chunks shared with the previous
+  version, but 1 000 scattered objects dirty nearly every chunk, and for every entity in a dirty
+  chunk it called `EntityStore::get(handle)`, which scans the chunk linearly (up to 1 024 entities)
+  to find the old version: about 100 000 lookups of roughly 500 comparisons each.
+- **Fix:** `EntityStore::changed_since(&before)` compares each changed chunk with the chunk of the
+  same id in `before` by pointer, position by position (falling back to that chunk's pointer set if
+  positions shifted), and returns only the changed entities; `changed_non_finite` checks just
+  those. It can report an entity that merely moved between chunks, never miss a changed one, so
+  the check is as strict as before.
+- **Regression tests:** `store::tests::changed_since_matches_the_handle_lookup_definition` (30
+  rounds of random modify, remove and add, compared with the old definition) and the existing
+  `crates/engine/tests/non_finite_edits.rs` (huge results are still refused), both passing.
+- **Measured after** (same benchmark, same machine, one run): move 5.30 ms, rotate 5.36 ms, erase
+  5.64 ms, recolour 5.61 ms (about 7.5 times faster); copy 2.43 ms and undo 0.48 ms unchanged
+  within noise. The non-finite stage alone fell from about 36 ms to 1.6 to 2.8 ms.
+- **Left:** about 5 ms of an edit is now the command body (2.3 ms) plus association fix-up
+  (0.5 to 0.8 ms) plus the check; none has been profiled further.
