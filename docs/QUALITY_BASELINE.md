@@ -45,7 +45,7 @@ disabled or weakened to get that result.
 - **UI behaviour on real displays:** the UI tests drive the egui interface headlessly with
   `egui_kittest`; rendering on a GPU through `wgpu` was checked by taking screenshots of a running
   build during development, not by an automated test.
-- **The installer:** the MSI was built (17.8 MB) but not installed and run on a clean machine.
+- **The installer:** at the time of this baseline the MSI had been built (17.8 MB) but not installed; it was installed, run and uninstalled on 2026-10-12 (see [RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md)).
 - **The language-model runtime:** the `llama` feature of `cadcraft-llm` has never been compiled
   here (it needs LLVM's `libclang.dll`) and no model has been loaded.
 - **DWG:** reading goes through a third-party library; its behaviour on real-world DWG files from

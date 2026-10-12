@@ -88,7 +88,7 @@ was not edited.
 | Application launch | `cadcraft.exe --control 47125 --sample` started on the GPU canvas; a line was added through the control channel, a screenshot was written and read (the sample drawing with panels rendered), and `app.quit` closed it |
 | CLI | `cadcraft-cli info examples/apartment.dxf` and `run --sample --script ... --save --export` wrote a DXF and a PNG; the DXF was read back |
 | UI tests | the 17 test files of `cadcraft-ui-egui` pass inside the gate |
-| Packaging | **not re-run**; the existing `dist/release` files were deliberately kept and are not re-validated |
+| Packaging | not re-run during the cleanup itself; rebuilt and tested afterwards, see [RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md) |
 | CI workflows | not run on GitHub (unverified, as before) |
 
 Compared with the baseline there are no new failures. No test was disabled or changed.
@@ -97,8 +97,8 @@ Compared with the baseline there are no new failures. No test was disabled or ch
 
 - Decide whether to keep `packaging/macos/dmg/generate.py` (Python) given the "Rust only" rule.
 - Decide on a smaller debug profile (for example less debug info) if the 25 GB rebuild size matters.
-- Rebuild and re-validate the installer (`package.ps1`) before the next release, and install it
-  on a clean machine; the audit did not do this.
+- Done afterwards (2026-10-12): installer rebuilt, installed, run and uninstalled. Still open: a clean-machine install with the wizard, and
+  the missing `NOTICE` in the packages.
 - Run the benchmarks again if the raw logs are wanted.
 - Re-verify the feature documents (`hcw-kit-port.md`, `projects.md`, `sheets.md`, ...) against the code.
 - Optional: `git gc` (587 loose objects); not done because it rewrites repository internals.

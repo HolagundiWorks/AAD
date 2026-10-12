@@ -24,7 +24,8 @@ first pick after opening a large drawing), PERF-001 (editing 1 000 objects took 
 - UI-004: `Ctrl+O` is declared by two commands; no misbehaviour seen.
 - UI-005: an overly wide Properties panel in a layout tab, seen once, not reproduced.
 - The GitHub workflows `cad-ci.yml` and `cad-nightly.yml` have not run on GitHub yet.
-- The release installer has not been installed on a clean machine.
+- The release installer was installed, run and uninstalled silently on the development machine, but not on a clean machine, and the wizard pages were not exercised ([RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md)).
+- Neither package ships `NOTICE` (third-party notices); both are unsigned.
 - Dependencies are not audited for advisories on this machine (`cargo audit` is run by the nightly
   workflow only).
 

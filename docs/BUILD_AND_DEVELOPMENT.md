@@ -54,13 +54,16 @@ benchmarks: [TESTING.md](TESTING.md).
 ## Packaging
 
 ```text
-pwsh packaging/windows/package.ps1 -Arch x64     # builds, then writes dist/release/*.msi and *-portable.zip
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\package.ps1 -Arch x64
 ```
 
-The script builds with `cargo build --release --locked --target x86_64-pc-windows-msvc` and a
-static C runtime. It was run for version 0.6.0; it was **not** re-run in this audit (the
-audit deliberately keeps the existing `dist/release` files). More in
-[RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md).
+**Verified** on 2026-10-12 with Windows PowerShell 5.1 (PowerShell 7, `pwsh`, is not installed on
+the development machine; the script's own examples use it and were not run). It needs WiX 5.0.2
+with `WixToolset.UI.wixext` and the Windows SDK. It builds with
+`cargo build --release --locked --target x86_64-pc-windows-msvc` and a static C runtime, then writes
+`*.msi` and `*-portable.zip` to `dist/release` (set `DIST` to write elsewhere, for example
+`$env:DIST = 'dist\candidate'`, to avoid overwriting an existing build). The result was installed,
+run and uninstalled: [RELEASE_AND_PACKAGING.md](RELEASE_AND_PACKAGING.md).
 
 ## Development workflow
 
