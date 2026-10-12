@@ -81,6 +81,8 @@ pub struct CanvasState {
     key: ListKey,
     /// A display list for a new zoom band being built on a worker thread.
     pending: Option<PendingList>,
+    /// The drawing `list` was built from (the next edit updates the list from it, see `cadcraft_render::rebuild`).
+    list_doc: Option<std::sync::Arc<cadcraft_doc::Drawing>>,
     /// Bumped whenever `list` is rebuilt (identifies it for [`PrimIndex`]).
     list_gen: u64,
     prim_index: PrimIndex,
@@ -215,6 +217,7 @@ fn ensure_list(app: &mut CadApp, ctx: &egui::Context, px: f64) {
                     {
                         app.canvas.list = Some(list);
                         app.canvas.key = p.key;
+                        app.canvas.list_doc = Some(st.doc.clone());
                         app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
                         app.canvas.build_ms = crate::now_ms() - p.t0;
                     }
@@ -256,8 +259,18 @@ fn ensure_list(app: &mut CadApp, ctx: &egui::Context, px: f64) {
     let opts = list_options(app, st, band, px);
     // Picking and snapping need the spatial index: build it off the UI thread, alongside the display list, so the first pick does not.
     cadcraft_engine::spatial::warm(st.doc.clone(), space.clone());
-    app.canvas.list = Some(cadcraft_render::build(&st.doc, &space, &opts));
+    // An edit at the same zoom: keep what did not change and draw only the changed entities.
+    let incremental = match (&app.canvas.list, &app.canvas.list_doc) {
+        (Some(old), Some(old_doc))
+            if matches!(space, cadcraft_doc::Space::Model) && (app.canvas.key.0, app.canvas.key.2, app.canvas.key.3) == (key.0, key.2, key.3) =>
+        {
+            cadcraft_render::rebuild(old, old_doc, &st.doc, &opts)
+        }
+        _ => None,
+    };
+    app.canvas.list = Some(incremental.unwrap_or_else(|| cadcraft_render::build(&st.doc, &space, &opts)));
     app.canvas.key = key;
+    app.canvas.list_doc = Some(st.doc.clone());
     app.canvas.list_gen = app.canvas.list_gen.wrapping_add(1);
     app.canvas.build_ms = crate::now_ms() - t0;
 }

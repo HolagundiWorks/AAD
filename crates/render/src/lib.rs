@@ -384,6 +384,132 @@ fn append(dst: &mut DisplayList, part: DisplayList) {
     dst.expanded = dst.expanded.saturating_add(part.expanded);
 }
 
+/// Whether everything an entity's drawing depends on, other than the entity itself, is the same in
+/// both drawings (header, tables, styles, block definitions).
+fn same_environment(a: &Drawing, b: &Drawing) -> bool {
+    a.header == b.header
+        && a.layers == b.layers
+        && a.linetypes == b.linetypes
+        && a.text_styles == b.text_styles
+        && a.dim_styles == b.dim_styles
+        && a.mleader_styles == b.mleader_styles
+        && a.table_styles == b.table_styles
+        && a.plot_style_tables == b.plot_style_tables
+        && a.blocks.len() == b.blocks.len()
+        && a.blocks.iter().zip(b.blocks.iter()).all(|((ka, va), (kb, vb))| ka == kb && (std::sync::Arc::ptr_eq(va, vb) || va == vb))
+}
+
+/// One stretch of the new list: primitives taken from the old list, or entities to draw afresh.
+enum Segment<'a> {
+    Keep(usize, usize),
+    Draw(Vec<&'a Entity>),
+}
+
+/// Update the model-space display `old` (built from `old_doc` with the same `opts`) to match
+/// `new_doc`: entities that are the same objects as before keep their primitives, only changed or
+/// new ones are drawn. `None` when that is not safe or not worth it (the tables, styles or blocks
+/// differ, points are sized to the view, most entities changed): build the list from scratch then.
+pub fn rebuild(old: &DisplayList, old_doc: &Drawing, new_doc: &Drawing, opts: &Options) -> Option<DisplayList> {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    if old.sheet.is_some() || old.expanded >= MAX_BLOCK_EXPANSION / 2 || !same_environment(old_doc, new_doc) {
+        return None;
+    }
+    // Points sized to the view depend on the extents of everything.
+    if new_doc.header.f64("PDSIZE", 0.0) <= 0.0 && point::sized(new_doc.header.i64("PDMODE", 0)) {
+        return None;
+    }
+    // Where each entity's primitives are in the old list (an entity's are one contiguous run).
+    let mut ranges: HashMap<Handle, (usize, usize)> = HashMap::new();
+    let mut i = 0;
+    while i < old.prims.len() {
+        let h = old.prims.get(i)?.handle;
+        let mut j = i + 1;
+        while old.prims.get(j).is_some_and(|p| p.handle == h) {
+            j += 1;
+        }
+        if ranges.insert(h, (i, j)).is_some() {
+            return None;
+        }
+        i = j;
+    }
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut fresh = 0usize;
+    for e in new_doc.model.iter() {
+        let same = old_doc.model.get(e.handle).is_some_and(|o| Arc::ptr_eq(o, e));
+        if same {
+            if let Some(&(a, b)) = ranges.get(&e.handle) {
+                match segments.last_mut() {
+                    Some(Segment::Keep(_, end)) if *end == a => *end = b,
+                    _ => segments.push(Segment::Keep(a, b)),
+                }
+            }
+        } else {
+            fresh += 1;
+            match segments.last_mut() {
+                Some(Segment::Draw(v)) => v.push(e),
+                _ => segments.push(Segment::Draw(vec![e])),
+            }
+        }
+    }
+    if fresh > new_doc.model.len() / 4 + 64 {
+        return None;
+    }
+    let mut out = DisplayList { expanded: old.expanded, ..DisplayList::default() };
+    out.prims.reserve(old.prims.len() + 64);
+    out.verts.reserve(old.verts.len() + 256);
+    out.tris.reserve(old.tris.len() + 256);
+    for seg in segments {
+        match seg {
+            Segment::Keep(a, b) => {
+                let prims = old.prims.get(a..b)?;
+                let is_tris = |p: &DPrim| matches!(p.kind, Kind::Tris | Kind::Mask);
+                let span = |tris: bool| {
+                    let mut it = prims.iter().filter(|p| is_tris(p) == tris);
+                    let first = it.next()?.start;
+                    let end = prims.iter().filter(|p| is_tris(p) == tris).map(|p| p.start + p.len).max()?;
+                    Some((first, end))
+                };
+                let (vo, to) = (out.verts.len() as i64, out.tris.len() as i64);
+                let vspan = span(false);
+                let tspan = span(true);
+                if let Some((s, e)) = vspan {
+                    out.verts.extend_from_slice(old.verts.get(s as usize..e as usize)?);
+                }
+                if let Some((s, e)) = tspan {
+                    out.tris.extend_from_slice(old.tris.get(s as usize..e as usize)?);
+                }
+                for p in prims {
+                    let mut p = *p;
+                    let (base, off) = if is_tris(&p) { (tspan?.0, to) } else { (vspan?.0, vo) };
+                    p.start = u32::try_from(i64::from(p.start) - i64::from(base) + off).ok()?;
+                    out.prims.push(p);
+                }
+            }
+            Segment::Draw(ents) => {
+                let mut b = Builder { list: DisplayList::default(), opts, plotting: false, styles: None, named: None, budget: None };
+                for e in ents {
+                    entity(&mut b, &top_ctx(new_doc, Mat3::IDENTITY, e.handle, &[], &[]), e);
+                }
+                append(&mut out, b.list);
+            }
+        }
+    }
+    let mut bounds = Bounds2::default();
+    for p in &out.prims {
+        let pts = match p.kind {
+            Kind::Infinite { .. } => continue,
+            Kind::Tris | Kind::Mask => out.tris.get(p.start as usize..(p.start + p.len) as usize),
+            _ => out.verts.get(p.start as usize..(p.start + p.len) as usize),
+        };
+        for q in pts.unwrap_or(&[]) {
+            bounds.add(*q);
+        }
+    }
+    out.bounds = bounds;
+    Some(out)
+}
+
 /// `opts` with a view height for relative point sizes: the extents height when none is given
 /// and points draw as figures sized relative to the view.
 fn with_point_view(d: &Drawing, space: &Space, opts: &Options) -> Options {
