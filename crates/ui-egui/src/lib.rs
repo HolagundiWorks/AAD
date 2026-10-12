@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
+pub mod aorms_ui;
 pub mod autocollapse;
 pub mod blocks;
 pub mod canvas;
@@ -240,6 +241,8 @@ pub struct CadApp {
     pub quit_confirmed: bool,
     /// A close request waiting for "Save changes?" answers ([`closing`]).
     pub closing: Option<closing::Closing>,
+    /// The AORMS connection's interface state (sign-in dialog, chip, background job). Optional: AAD works fully without it.
+    pub aorms: aorms_ui::AormsUi,
 }
 
 impl CadApp {
@@ -269,6 +272,7 @@ impl CadApp {
             quit_requested: false,
             quit_confirmed: false,
             closing: None,
+            aorms: aorms_ui::AormsUi::default(),
         }
     }
 
@@ -347,7 +351,7 @@ impl CadApp {
 
     /// Preferences kept across restarts, as JSON for the host's storage ([`PREFS_KEY`]).
     pub fn prefs_json(&self) -> String {
-        json!({
+        let mut prefs = json!({
             "theme": self.ui.theme.as_str(),
             "interfaceLanguage": self.ui.interface_language.code(),
             "saveFormat": self.ui.save_format.as_str(),
@@ -355,13 +359,18 @@ impl CadApp {
             "pinPanels": self.ui.pin_panels,
             "autoCollapseMs": self.ui.auto_collapse_ms,
             "classicPalettes": self.ui.classic_palettes,
-        })
-        .to_string()
+        });
+        // The AORMS e-mail and server only — never a password or token.
+        if let (Some(o), Some(extra)) = (prefs.as_object_mut(), self.aorms.prefs().as_object()) {
+            o.extend(extra.clone());
+        }
+        prefs.to_string()
     }
 
     /// Restore preferences saved by [`Self::prefs_json`]; unknown or malformed values are ignored.
     pub fn load_prefs(&mut self, json: &str) {
         let Ok(v) = serde_json::from_str::<Value>(json) else { return };
+        self.aorms.load_prefs(&v);
         if let Some(p) = v.get("pinPanels").and_then(Value::as_bool) {
             self.ui.pin_panels = p;
         }
@@ -459,6 +468,7 @@ impl CadApp {
             self.shown_theme = Some(shown);
         }
         self.drain_control(ctx);
+        aorms_ui::poll(self, ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
         }

@@ -33,6 +33,7 @@ marks, isometric drafting).
 | Widgets | Architect calculator (`cal`, `ui.toggle.calculator`) and Pomodoro timer (`ui.toggle.pomodoro`) ([widgets.md](widgets.md)) |
 | Input forms | Dialogs and command-line prompts for the architecture commands ([input-forms.md](input-forms.md)) |
 | Interface | Pro and Classic workspaces ([workspaces.md](workspaces.md)), property toolbar, Blocks panel, pin and auto-collapse; command line with prompts, object snaps, polar and ortho tracking, grips, dynamic input, quick properties, light/dark theme toggle (black or white drawing area), English and Ukrainian interface |
+| AORMS connection | Optional sign-in to AORMS (shared login, one session per app), project list, pulling project details and floors into a drawing, drawing list ([aorms.md](aorms.md)). AORMS menu, sign-in/projects dialog and status-bar chip; network calls run off the UI thread |
 | Automation | JSON control channel, MCP server, command-line tool, scripts ([control-protocol.md](control-protocol.md), [mcp.md](mcp.md)) |
 | Units and annotation | Drawing and display units, plot scale and paper, annotation sizing, collision analysis and text layout ([units-annotation.md](units-annotation.md)) |
 | AI agent tool layer | Allow-listed, validated tools for flatten, audit, purge, recover, summary, units, plot configuration and annotation layout ([ai-agent.md](ai-agent.md)) |

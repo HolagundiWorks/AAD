@@ -8,12 +8,17 @@ license.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Keep the AORMS sign-in in the OS credential store (Windows Credential Manager, shared with the other AORMS apps). The desktop app enables it.
+aorms-keyring = ["cadcraft-aorms/keyring-store"]
+
 [dependencies]
 cadcraft-geom = { workspace = true }
 cadcraft-color = { workspace = true }
 cadcraft-doc = { workspace = true }
 cadcraft-fonts = { workspace = true }
 cadcraft-render = { workspace = true }
+cadcraft-aorms = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

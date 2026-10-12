@@ -3,6 +3,7 @@
 
 mod annot;
 mod annotate;
+pub mod aorms;
 mod array;
 mod audit;
 mod blocks;
@@ -188,6 +189,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(annot::specs());
         v.extend(project::specs());
         v.extend(space::specs());
+        v.extend(aorms::specs());
         v.extend(takeoff::specs());
         v.extend(schedule::specs());
         v.extend(electrical::specs());

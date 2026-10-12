@@ -493,6 +493,8 @@ pub struct Session {
     pub last_used: LastUsed,
     /// Where `clipboard` came from and the layers, styles and blocks its objects need.
     pub clipboard_source: Option<cmd::clipboard::ClipSource>,
+    /// The AORMS connection (sign-in, session); `None` until the first sign-in. Optional: AAD works fully without it.
+    pub aorms: cmd::aorms::AormsState,
 }
 
 impl Default for Session {
@@ -531,6 +533,7 @@ impl Session {
             last_dim: None,
             last_used: LastUsed::default(),
             clipboard_source: None,
+            aorms: cmd::aorms::AormsState::default(),
         }
     }
     pub fn new_drawing(&mut self, metric: bool) -> usize {

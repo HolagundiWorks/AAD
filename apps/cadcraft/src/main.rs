@@ -262,6 +262,8 @@ fn main() -> eframe::Result {
             if let Some(prefs) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::PREFS_KEY)) {
                 app.load_prefs(&prefs);
             }
+            // Pick up the AORMS sign-in shared with the other AORMS apps on this computer (silent; never takes a session over).
+            app.aorms.auto_restore = std::env::var_os("CADCRAFT_NO_AORMS").is_none();
             app.integrated_titlebar = cfg!(target_os = "macos");
             if surface.present_mode == eframe::wgpu::PresentMode::AutoNoVsync {
                 app.frame_cap = Some(cadcraft_ui_egui::gpu::FrameCap::new(240));

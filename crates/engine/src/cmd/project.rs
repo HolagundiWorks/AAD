@@ -62,7 +62,7 @@ fn num(v: &Value, key: &str, default: f64) -> f64 {
     v.get(key).and_then(Value::as_f64).filter(|x| x.is_finite()).unwrap_or(default)
 }
 
-fn run_project(s: &mut Session, p: &Value) -> Result<Value> {
+pub(super) fn run_project(s: &mut Session, p: &Value) -> Result<Value> {
     const KEYS: [&str; 11] = ["title", "owner", "architect", "engineer", "pid", "siteArea", "plotUse", "address", "authority", "date", "location"];
     let mut cur = match get(s.doc()?, "details") {
         Value::Object(o) => o,
@@ -88,7 +88,7 @@ fn run_project(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "details": cur }))
 }
 
-fn run_floors(s: &mut Session, p: &Value) -> Result<Value> {
+pub(super) fn run_floors(s: &mut Session, p: &Value) -> Result<Value> {
     let mut fl = floors(s.doc()?);
     let mut changed = false;
     if let Some(Value::Array(given)) = p.get("floors") {
