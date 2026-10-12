@@ -82,6 +82,10 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("floor.viewport", "Viewport Floors", run_viewport)
             .menu(&["Architecture", "Floors", "Viewport Floors"])
             .params("{handle: viewport, floors?: [floor names] (default all), categories?: [layout ids], plans?: bool (default true)} → {shown, frozen}"),
+        CommandSpec::new("floor.current", "Current Floor", run_current)
+            .menu(&["Architecture", "Floors", "Current Floor"])
+            .params("{name?: floor to make current} → {mode: project|drawing, floor, floors}")
+            .noundo(),
         CommandSpec::new("floor.set", "Floor Visibility", run_set)
             .menu(&["Architecture", "Floors", "Floor Visibility"])
             .params("{name: floor, category?: layout id, visible?: bool, frozen?: bool, locked?: bool, print?: bool} → {entry}")
@@ -925,4 +929,34 @@ fn run_plot_batch(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let message = format!("Plotted {} file(s) to {} ({} skipped)", files.len(), out_dir.display(), skipped.len());
     Ok(json!({ "files": files, "skipped": skipped, "warnings": warnings, "folder": out_dir.display().to_string(), "message": message }))
+}
+
+/// `floor.current`: the floor new objects belong to. In a project it is the manifest's active floor
+/// (changing it opens that floor's drawing, `floor.activate`); in a single drawing it is a stored
+/// choice among the drawing's floors. Choosing a floor never moves or edits an object and never
+/// changes a layer's state or the active drawing space.
+fn run_current(s: &mut Session, p: &Value) -> Result<Value> {
+    if find_manifest(s).is_ok() {
+        if str_param(p, "name").is_some() {
+            return s.execute("floor.activate", p);
+        }
+        let (path, m) = find_manifest(s)?;
+        let mut v = summary(&m, path.parent().unwrap_or(Path::new("")));
+        v["mode"] = json!("project");
+        v["floor"] = v["active"].clone();
+        return Ok(v);
+    }
+    let d = s.doc()?;
+    let names: Vec<String> = project::floors(d).iter().filter_map(|f| f.get("name").and_then(Value::as_str).map(str::to_string)).collect();
+    if let Some(n) = str_param(p, "name") {
+        let found = names
+            .iter()
+            .find(|x| x.eq_ignore_ascii_case(n))
+            .cloned()
+            .ok_or_else(|| bad("floor.current", format!("no floor `{n}`; the floors are {}", names.join(", "))))?;
+        project::set(s.doc_mut()?, "activeFloor", &json!(found));
+    }
+    let d = s.doc()?;
+    let (_, active) = project::active_floor(d).unwrap_or((0, names.first().cloned().unwrap_or_default()));
+    Ok(json!({"mode": "drawing", "floor": active, "floors": names}))
 }

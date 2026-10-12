@@ -250,6 +250,7 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
         if cur.eq_ignore_ascii_case(&old) {
             d.header.set_str("CLAYER", &nn);
         }
+        super::space::follow_rename(d, &old, &nn);
     }
     ok()
 }
@@ -265,7 +266,14 @@ fn run_current(s: &mut Session, p: &Value) -> Result<Value> {
     let name = str_param(p, "name").ok_or_else(|| bad("layer.current", "`name` is required"))?.to_string();
     let d = s.doc_mut()?;
     let l = d.layer_mut(&name).ok_or_else(|| bad("layer.current", format!("no layer `{name}`")))?;
-    l.frozen = false;
+    // A layer nothing can be drawn on is not offered as the current one, and choosing a layer never
+    // thaws or unlocks it as a side effect.
+    if l.frozen {
+        return Err(bad("layer.current", format!("layer `{}` is frozen: thaw it first", l.name)));
+    }
+    if l.locked {
+        return Err(bad("layer.current", format!("layer `{}` is locked: unlock it first", l.name)));
+    }
     let n = l.name.clone();
     prev_push(d);
     d.header.set_str("CLAYER", &n);

@@ -32,6 +32,7 @@ mod qselect;
 mod schedule;
 mod settings;
 mod sheet;
+mod space;
 mod spline_opts;
 mod structure;
 mod symbols;
@@ -186,6 +187,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(hcw::specs());
         v.extend(annot::specs());
         v.extend(project::specs());
+        v.extend(space::specs());
         v.extend(takeoff::specs());
         v.extend(schedule::specs());
         v.extend(electrical::specs());

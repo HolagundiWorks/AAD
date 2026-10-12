@@ -21,6 +21,7 @@ mod guard;
 pub mod pointmod;
 pub mod pomodoro;
 pub mod prompt;
+mod protect;
 pub mod sample;
 pub mod select;
 pub mod snap;
@@ -657,7 +658,9 @@ impl Session {
         cmd::groups::after_command(self, before.as_ref().map(|b| &b.0));
         assoc::after_command(self, before.as_ref().map(|b| &b.0), before.as_ref().map(|b| b.2));
         let result = match (result, &before) {
-            (Ok(v), Some((doc, sel, uid))) if spec.undoable => self.refuse_non_finite(Some(*uid), doc, sel, spec.id).map(|()| v),
+            (Ok(v), Some((doc, sel, uid))) if spec.undoable => {
+                self.refuse_non_finite(Some(*uid), doc, sel, spec.id).and_then(|()| self.refuse_protected(Some(*uid), doc, sel, spec.id)).map(|()| v)
+            }
             (r, _) => r,
         };
         if spec.undoable
@@ -889,10 +892,13 @@ impl Session {
     }
 
     fn finish(&mut self, run: Running, cancelled: bool) {
-        if find_command(&run.id).is_some_and(|c| c.undoable)
-            && let Err(e) = self.refuse_non_finite(None, &run.before, &run.selection_before, &run.id)
-        {
-            self.echo(e.to_string());
+        if find_command(&run.id).is_some_and(|c| c.undoable) {
+            let refused = self
+                .refuse_non_finite(None, &run.before, &run.selection_before, &run.id)
+                .and_then(|()| self.refuse_protected(None, &run.before, &run.selection_before, &run.id));
+            if let Err(e) = refused {
+                self.echo(e.to_string());
+            }
         }
         // A command outside undo that changed the drawing (UNDO, which swapped it for an earlier
         // one) records no undo step, as in `execute`.

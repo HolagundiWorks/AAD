@@ -351,7 +351,8 @@ fn run_room(s: &mut Session, p: &Value) -> Result<Value> {
     let p1 = point_req("room", p, "p1")?;
     let p2 = point_req("room", p, "p2")?;
     let name = str_param(p, "name").ok_or_else(|| bad("room", "`name` is required"))?;
-    let r = make_room(s, p1, p2, name, str_param(p, "floorPrefix").unwrap_or(""), bool_or(p, "rectangle", true), p)?;
+    let default_prefix = super::project::active_floor_prefix(s.doc()?);
+    let r = make_room(s, p1, p2, name, str_param(p, "floorPrefix").unwrap_or(&default_prefix), bool_or(p, "rectangle", true), p)?;
     Ok(json!({
         "name": r.name.to_uppercase(),
         "width": r.width,

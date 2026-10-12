@@ -81,3 +81,13 @@ the original drawing and that a failed command changes nothing.
   not fixed (BUG-001 in [BUG_BACKLOG.md](BUG_BACKLOG.md)). No representative architectural DWG was
   available for testing ([workspaces.md](workspaces.md)).
 - No UCS, no SHX fonts, no 3D, no DWG on the web ([status.md](status.md)).
+
+## Layer protection
+
+Objects on a locked or frozen layer cannot be changed: after every undoable command the engine
+compares the drawing with what it was (`crates/engine/src/protect.rs`) and, if the command replaced
+or removed such an object, or added one on such a layer, restores the drawing and reports an error
+naming the layer. This holds for every command, by handle, by selection and interactively. Selecting a
+locked object is not an edit and is allowed. `layer.current` refuses locked and frozen layers. Not
+covered: objects inside block definitions. Layer-state configurations (`space.*`) sit on top of this:
+they set the flags, the engine enforces them ([ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md)).

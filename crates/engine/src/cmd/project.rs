@@ -173,3 +173,30 @@ fn run_levels(s: &mut Session, _p: &Value) -> Result<Value> {
     }
     Ok(json!({ "levels": out }))
 }
+
+/// The two-letter code of a floor, as used in room names (`GF`, `FF`, `SF`, `TF`, then `F4`...).
+pub(crate) fn floor_code(name: &str, index: usize) -> String {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "ground" | "ground floor" => "GF".into(),
+        "first" | "first floor" => "FF".into(),
+        "second" | "second floor" => "SF".into(),
+        "third" | "third floor" => "TF".into(),
+        _ => format!("F{index}"),
+    }
+}
+
+/// The name of the active floor of a single drawing: the stored choice when it is still one of the
+/// floors, else the first floor. `None` when the drawing has no floors defined.
+pub(crate) fn active_floor(d: &Drawing) -> Option<(usize, String)> {
+    let Value::Array(list) = get(d, "floors") else { return None };
+    let names: Vec<String> = list.iter().filter_map(|f| f.get("name").and_then(Value::as_str).map(str::to_string)).collect();
+    let chosen = get(d, "activeFloor");
+    let want = chosen.as_str().unwrap_or("");
+    let i = names.iter().position(|n| n == want).or(if names.is_empty() { None } else { Some(0) })?;
+    Some((i, names[i].clone()))
+}
+
+/// Room-name prefix for the active floor, or empty when floors are not defined for this drawing.
+pub(crate) fn active_floor_prefix(d: &Drawing) -> String {
+    active_floor(d).map(|(i, n)| floor_code(&n, i)).unwrap_or_default()
+}
