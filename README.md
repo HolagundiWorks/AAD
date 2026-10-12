@@ -83,7 +83,7 @@ widgets under Tools ([docs/widgets.md](docs/widgets.md)).
 
 ## Local AI assistant
 
-An offline assistant can call a fixed set of validated tools (summary, flatten, audit, purge, recover, units, plot configuration). It runs a local Qwen3-1.7B model through llama.cpp and is **not part of the default build**: build with `--features assistant` (`cargo build --release -p cadcraft --features assistant`; needs CMake, a C++ toolchain and LLVM) and put the model file in `%APPDATA%AADmodels`. Open it from Tools > Assistant, or use `cadcraft-cli ask "request"`. A tool that changes the drawing asks first. The model file is not bundled with the installer yet. See
+An offline assistant can call a fixed set of validated tools (summary, flatten, audit, purge, recover, units, plot configuration). It runs a local Qwen3-1.7B model through llama.cpp and is **not part of the default build**: build with `--features assistant` (`cargo build --release -p cadcraft --features assistant`; needs CMake, a C++ toolchain and LLVM) and put the model file in `%APPDATA%AADmodels`. Open it from Tools > Assistant, type `/ your request` at the command line, or use `cadcraft-cli ask "request"`. A tool that changes the drawing asks first. The model file is not bundled with the installer yet. See
 [docs/ai-agent.md](docs/ai-agent.md), including what was observed with the real model.
 
 ## Configuration
