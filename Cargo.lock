@@ -792,6 +792,7 @@ dependencies = [
  "cadcraft-fonts",
  "cadcraft-geom",
  "criterion",
+ "rayon",
  "serde_json",
  "tiny-skia",
 ]

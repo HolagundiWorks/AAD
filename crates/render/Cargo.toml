@@ -14,6 +14,7 @@ cadcraft-color = { workspace = true }
 cadcraft-doc = { workspace = true }
 cadcraft-fonts = { workspace = true }
 tiny-skia = { workspace = true }
+rayon = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
