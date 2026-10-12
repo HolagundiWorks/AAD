@@ -509,6 +509,9 @@ impl CadApp {
             theme::apply(ctx, shown);
             self.shown_theme = Some(shown);
         }
+        if let Some(req) = self.session.take_plot_request() {
+            menus::finish_plot(self, req);
+        }
         self.drain_control(ctx);
         aorms_ui::poll(self, ctx);
         assistant::poll(self, ctx);

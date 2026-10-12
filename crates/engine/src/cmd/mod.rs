@@ -36,6 +36,7 @@ mod schedule;
 mod settings;
 mod sheet;
 mod space;
+mod spatialq;
 mod spline_opts;
 mod structure;
 mod symbols;
@@ -204,6 +205,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(projfile::specs());
         v.extend(projwizard::specs());
         v.extend(typography::specs());
+        v.extend(spatialq::specs());
         v.extend(sheet::specs());
         v.extend(layout::specs());
         v.extend(props::specs());

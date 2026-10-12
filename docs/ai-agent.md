@@ -10,7 +10,7 @@ work.
 | Part | State |
 |---|---|
 | Tool registry, strict parsing, schema validation, confirmation policy, loop limits, audit log (`crates/agent`) | **Implemented and tested** (13 unit tests) |
-| Tools: `get_drawing_summary`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
+| Tools: `get_drawing_summary`, `get_spatial_overview`, `find_objects_in_window`, `find_nearest_objects`, `describe_objects`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
 | Qwen3 chat format, model-file discovery and checks, generation settings (`crates/llm`) | **Implemented and tested** (7 tests, no model needed) |
 | Assistant conversation state machine: tool list prompt, strict parse, one retry, confirmation, step and history limits (`agent::Assistant`) | **Implemented and tested** with scripted model replies (8 tests) |
 | llama.cpp runtime (`aad-llm` with feature `llama`) | **Builds and runs** (2026-10-12, LLVM 23.1.3 from `winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`, CMake, MSVC). Tests and `clippy -D warnings` pass with the feature. The model loads in about 1 s (memory-mapped) and generates about 17 tokens per second on this machine's CPU (no GPU backend) |
@@ -155,3 +155,24 @@ retelling of them (planned).
 Requests are typed in the same command bar as commands: a leading `/`, a `/reference`, or a
 sentence whose first word is not a command. Rules, keys and references are in
 [COMMAND_BAR.md](COMMAND_BAR.md). Tests: `crates/ui-egui/tests/command_bar.rs`.
+
+## Spatial knowledge
+
+The model has no sense of space on its own: a drawing is lists of numbers. It is given the layout
+by read-only, bounded engine queries (`crates/engine/src/cmd/spatialq.rs`, tested in
+`crates/engine/tests/spatial_query.rs`), exposed as tools that need no confirmation:
+
+| Tool | Engine command | What it answers |
+|---|---|---|
+| `get_spatial_overview {cols?, rows?}` | `spatial.overview` | Extents, the part on screen, and a grid (row 0 at the bottom, column 0 at the left) of how many objects of which types and layers lie where |
+| `find_objects_in_window {window, mode?, layers?, types?, limit?}` | `spatial.query` | The objects touching or inside a rectangle: handle, type, layer, bounds, centre and key geometry; `matched` and `truncated` say when the list was cut |
+| `find_nearest_objects {point, count?, layers?, types?}` | `spatial.nearest` | The objects closest to a point, with the distance to their bounds |
+| `describe_objects {handles}` | `spatial.describe` | Details by handle: a line's ends and length, a circle's centre and radius, a text's words and position, a block's name |
+
+The references add positions too: `/view` (the visible window and the objects in it), `/selection`
+(each object's bounds), `/rooms` (each label's position) and `/drawing` (extents and view).
+Coordinates are drawing units with Y up, in the space being edited. Positions come from object
+bounds, so a block reference is located by what it draws. Every result has a size limit, nothing
+here changes the drawing, and the model still never calculates: distances and counts come from the
+tools. What it cannot do: it does not see the picture, and it does not know what a room *is* beyond
+the labels the ROOM command made.

@@ -101,6 +101,8 @@ $Stage = Join-Path $TargetDir "windows-package\$Arch"
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
 Copy-Item (Join-Path $Bin 'aad.exe'), (Join-Path $Bin 'aad-cli.exe') $Stage
+# Licence texts and notices, installed beside the program (the licence page of the wizard shows LICENSE-MIT).
+foreach ($n in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD_PARTY_LICENSES.md', 'ATTRIBUTION.md') { Copy-Item (Join-Path $Root $n) $Stage }
 
 & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'aad.exe') (Join-Path $Stage 'aad-cli.exe')
 
@@ -136,10 +138,15 @@ if ($Assistant) {
 }
 
 # ---- MSI ---------------------------------------------------------------------------------------
-$Msi = Join-Path $Dist "aad-$Version-windows-$Arch.msi"
+# Two editions: aad-<version> (the drafting application) and aad-ai-<version> (also the local
+# assistant and its model). They are alternatives of one product: installing either replaces the
+# other in the same folder.
+$Edition = if ($Assistant) { "aad-ai" } else { "aad" }
+$ProductName = if ($Assistant) { "AAD with AI assistant" } else { "AAD" }
+$Msi = Join-Path $Dist "$Edition-$Version-windows-$Arch.msi"
 Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot 'aad.wxs') -arch $Arch -ext WixToolset.UI.wixext `
-    -d "Version=$MsiVersion" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\aad.ico')" `
+    -d "Version=$MsiVersion" -d "ProductName=$ProductName" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\aad.ico')" `
     @FontsDefine @ModelDefine -o $Msi
 }
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
@@ -147,13 +154,13 @@ Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Ms
 & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
 
 # ---- portable zip ------------------------------------------------------------------------------
-$Portable = Join-Path $TargetDir "windows-package\aad-$Version-windows-$Arch-portable"
+$Portable = Join-Path $TargetDir "windows-package\$Edition-$Version-windows-$Arch-portable"
 Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Portable | Out-Null
 Copy-Item (Join-Path $Stage '*.exe') $Portable
 if (Test-Path (Join-Path $Stage 'fonts')) { Copy-Item (Join-Path $Stage 'fonts') $Portable -Recurse }
 if (Test-Path (Join-Path $Stage 'models')) { Copy-Item (Join-Path $Stage 'models') $Portable -Recurse }
-foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE') {
+foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD_PARTY_LICENSES.md', 'ATTRIBUTION.md') {
   $p = Join-Path $Root $f
   if (Test-Path $p) { Copy-Item $p $Portable }
 }
@@ -163,7 +170,7 @@ if ($env:CRAFT_FONTS_DIR) {
     Copy-Item $ofl.FullName (Join-Path $Portable "OFL-$($ofl.Directory.Name).txt")
   }
 }
-$Zip = Join-Path $Dist "aad-$Version-windows-$Arch-portable.zip"
+$Zip = Join-Path $Dist "$Edition-$Version-windows-$Arch-portable.zip"
 Remove-Item -Force $Zip -ErrorAction SilentlyContinue
 Compress-Archive -Path $Portable -DestinationPath $Zip
 

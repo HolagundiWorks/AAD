@@ -496,6 +496,9 @@ pub struct Session {
     pub clipboard_source: Option<cmd::clipboard::ClipSource>,
     /// The AORMS connection (sign-in, session); `None` until the first sign-in. Optional: AAD works fully without it.
     pub aorms: cmd::aorms::AormsState,
+    /// A plot window chosen by `plot.window` for the application to finish (it asks where to save,
+    /// then calls `plot`). Taken with [`Session::take_plot_request`].
+    pub plot_request: Option<PlotRequest>,
 }
 
 impl Default for Session {
@@ -535,6 +538,7 @@ impl Session {
             last_used: LastUsed::default(),
             clipboard_source: None,
             aorms: cmd::aorms::AormsState::default(),
+            plot_request: None,
         }
     }
     pub fn new_drawing(&mut self, metric: bool) -> usize {
@@ -1260,4 +1264,18 @@ mod tests;
 fn form_factory(s: &Session) -> Result<Box<dyn Interactive>> {
     let (form, preset) = s.form_preset.clone().ok_or_else(|| EngineError::UnknownCommand("form".into()))?;
     Ok(Box::new(forms::FormRun::new(form, &preset)))
+}
+
+/// What `plot.window` asked for: the whole drawing (`window` None) or a model-space rectangle
+/// `[x0, y0, x1, y1]`. The application turns it into a file dialog and a `plot` call.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlotRequest {
+    pub window: Option<[f64; 4]>,
+}
+
+impl Session {
+    /// The plot request waiting for the application, if any (cleared by taking it).
+    pub fn take_plot_request(&mut self) -> Option<PlotRequest> {
+        self.plot_request.take()
+    }
 }

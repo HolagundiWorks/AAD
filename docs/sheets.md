@@ -49,6 +49,21 @@ in one viewport only, so the main drawing carries one sheet per floor, or a floo
 beam layout over it. The layer's global visibility (`floor.set`) still applies: a layout drawing
 must be shown to appear in any viewport.
 
+## Plotting a window (File > Print, Export to PDF)
+
+In model space, `plot` and `exportpdf` first ask what to plot: **Specify first corner of the plot
+window** (then the opposite corner), or **Extents** (Enter) for the whole drawing, or **Display**
+for what is on screen. A rubber-band rectangle shows the window. Only then does the file dialog ask
+where to save, and the PDF contains only that window, fitted to the printable area. Cancelling at
+either step plots nothing. In a layout there is nothing to ask: the sheet is plotted as it is.
+
+`plot` and `exportpdf` take `window: [x0, y0, x1, y1]` (model space, any corner order) for scripts,
+the control channel and MCP; they never open a dialog. A window that is not four finite numbers
+with an area is an error, not a silent whole-drawing plot. `plot.window` is the question itself;
+with `window` it only checks and returns the rectangle. Tests: `crates/ui-egui/src/menus.rs`
+(`print_in_model_space_asks_for_the_window_first...`), `apps/aad-cli/tests/plot_window.rs`.
+Batch plotting (`plot.batch`) still plots whole drawings.
+
 ## Batch plot (File > Batch Plot)
 
 `plot.batch {items?, sheets?, includeHidden?, folder?}` writes one PDF per item into the project's

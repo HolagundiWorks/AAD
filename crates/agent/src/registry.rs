@@ -74,6 +74,79 @@ pub fn registry() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "get_spatial_overview",
+            description: "Where things are: the drawing's extents, the part on screen, and a grid showing how many objects of which types and layers lie in each part. Row 0 is the bottom (smallest Y), column 0 the left (smallest X). Use it first to find out where to look.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "cols": { "type": "integer", "minimum": 1, "maximum": 12, "description": "grid columns (default 6)" },
+                        "rows": { "type": "integer", "minimum": 1, "maximum": 12, "description": "grid rows (default 4)" }
+                    },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Read where objects are in the drawing".into(),
+            run: |s, a| exec(s, "spatial.overview", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "find_objects_in_window",
+            description: "List the objects in a rectangle of the drawing (drawing units, Y up): handle, type, layer, bounds, centre and key geometry. Use it to answer what is at, near or inside a place.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "window": { "type": "array", "items": { "type": "number" }, "maxItems": 4, "description": "[x0, y0, x1, y1]: two opposite corners" },
+                        "mode": { "type": "string", "enum": ["crossing", "inside"], "description": "crossing: touching the window (default); inside: wholly within it" },
+                        "layers": { "type": "array", "items": { "type": "string", "maxLength": 64 }, "maxItems": 20, "description": "only these layers" },
+                        "types": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 10, "description": "only these object types, e.g. Line, Circle, Text, Block Reference" },
+                        "limit": { "type": "integer", "minimum": 1, "maximum": 50, "description": "most objects to list (default 25)" }
+                    },
+                    "required": ["window"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Read the objects in a window of the drawing".into(),
+            run: |s, a| exec(s, "spatial.query", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "find_nearest_objects",
+            description: "The objects nearest a point (drawing units, Y up), closest first, with their distance to the point.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "point": { "type": "array", "items": { "type": "number" }, "maxItems": 2, "description": "[x, y]" },
+                        "count": { "type": "integer", "minimum": 1, "maximum": 20, "description": "how many (default 5)" },
+                        "layers": { "type": "array", "items": { "type": "string", "maxLength": 64 }, "maxItems": 20 },
+                        "types": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 10 }
+                    },
+                    "required": ["point"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Read the objects nearest a point".into(),
+            run: |s, a| exec(s, "spatial.nearest", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "describe_objects",
+            description: "Details of objects by handle: type, layer, bounds, centre, and their geometry (ends of a line, radius of a circle, words of a text, name of a block).",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "handles": { "type": "array", "items": { "type": "string", "maxLength": 16 }, "maxItems": 20, "description": "handles as returned by the other tools" } },
+                    "required": ["handles"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Read details of objects".into(),
+            run: |s, a| exec(s, "spatial.describe", Value::Object(a.clone())),
+        },
+        ToolDef {
             name: "flatten_drawing",
             description: "Flatten the whole open drawing to 2D (elevations, thickness and z values removed). Reports 3D objects that cannot be flattened. One undo step.",
             schema: empty_schema,

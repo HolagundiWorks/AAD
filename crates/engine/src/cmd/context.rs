@@ -22,7 +22,8 @@ pub struct Provider {
 /// Only providers that return real data are listed.
 pub const PROVIDERS: &[Provider] = &[
     Provider { name: "drawing", summary: "The open drawing: units, space, object counts, extents, layouts" },
-    Provider { name: "selection", summary: "The selected objects and their properties" },
+    Provider { name: "view", summary: "What is on screen now: the visible window and the objects in it, with positions" },
+    Provider { name: "selection", summary: "The selected objects: type, layer and where each is" },
     Provider { name: "layers", summary: "Layers with visibility, lock state and colour; the active drawing space" },
     Provider { name: "rooms", summary: "Room labels made by the ROOM command: name, size, area" },
     Provider { name: "floor", summary: "The current floor and the floors of this drawing" },
@@ -103,6 +104,7 @@ pub fn resolve(s: &Session, name: &str) -> Result<Value, RefError> {
     let d = s.doc().map_err(|_| unavailable(&n, "no drawing is open"))?;
     let v = match n.as_str() {
         "drawing" => drawing(s, d),
+        "view" => view(s, d),
         "selection" => selection(s, d),
         "layers" => layers(d),
         "rooms" => rooms(d)?,
@@ -168,6 +170,7 @@ fn drawing(s: &Session, d: &Drawing) -> Value {
         "objectsInSpace": total,
         "objectsByType": counts,
         "extents": if ext.is_empty() { Value::Null } else { json!({"min": [ext.min.x, ext.min.y], "max": [ext.max.x, ext.max.y]}) },
+        "view": super::spatialq::view_json(s),
         "layerCount": d.layers.len(),
         "currentLayer": d.header.str("CLAYER", "0"),
         "layouts": d.layouts.iter().map(|l| l.name.clone()).collect::<Vec<_>>(),
@@ -219,7 +222,7 @@ fn rooms(d: &Drawing) -> Result<Value, RefError> {
     for c in texts.chunks(3) {
         match c {
             [name, size, area] if area.value.starts_with("Area:") => {
-                rooms.push(json!({"name": name.value, "size": size.value, "area": area.value.trim_start_matches("Area:").trim()}));
+                rooms.push(json!({"name": name.value, "size": size.value, "area": area.value.trim_start_matches("Area:").trim(), "at": [(name.insert.x * 1000.0).round() / 1000.0, (name.insert.y * 1000.0).round() / 1000.0]}));
             }
             other => rooms.push(json!({"name": other.first().map(|t| t.value.clone()), "note": "label not in the usual three-line form"})),
         }
@@ -257,4 +260,30 @@ fn project(d: &Drawing) -> Result<Value, RefError> {
         _ => Value::Null,
     };
     Ok(json!({"details": details, "floorCount": floors}))
+}
+
+/// What is on screen: the visible window and the objects in it (at most 15, with positions), so a
+/// question about "here" or "this part" has somewhere to point.
+fn view(s: &Session, d: &Drawing) -> Value {
+    let v = super::spatialq::view_json(s);
+    let w = match (v["min"].as_array(), v["max"].as_array()) {
+        (Some(a), Some(b)) => [a.first(), a.get(1), b.first(), b.get(1)].map(|x| x.and_then(Value::as_f64).unwrap_or(0.0)),
+        _ => return json!({"view": v}),
+    };
+    let win = aad_geom::Bounds2::new(aad_geom::Vec2::new(w[0], w[1]), aad_geom::Vec2::new(w[2], w[3]));
+    let (mut by_type, mut shown, mut total): (std::collections::BTreeMap<&'static str, usize>, Vec<Value>, usize) = Default::default();
+    if let Some(store) = d.space(&s.space()) {
+        for e in store.iter().take(2_000_000) {
+            let b = aad_doc::entity_bounds(d, e, 0);
+            if b.is_empty() || !b.intersects(&win) {
+                continue;
+            }
+            total += 1;
+            *by_type.entry(e.kind.type_name()).or_default() += 1;
+            if shown.len() < 15 {
+                shown.push(super::spatialq::describe(d, e));
+            }
+        }
+    }
+    json!({"view": v, "objectsInView": total, "byType": by_type, "objects": shown, "note": "use the spatial tools to look elsewhere"})
 }

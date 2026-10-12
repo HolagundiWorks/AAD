@@ -34,7 +34,7 @@ included in this build.
 
 ## References
 
-`/drawing /selection /layers /rooms /floor /schedule /project` are resolved from the live document
+`/drawing /view /selection /layers /rooms /floor /schedule /project` are resolved from the live document
 when the request is sent (`cmd::context::resolve_text`). Results are structured, read-only, bounded
 (40 items, 3000 characters, `truncated` flagged) and scoped to the active project and floor.
 A reference with nothing to read (no selection, no room labels) is dimmed in the menu with the

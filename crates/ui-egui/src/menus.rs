@@ -155,6 +155,14 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         "qsave" if no_path && app.session.state().is_ok_and(|s| s.path.is_none()) => return run_ui_command(app, "ui.saveas", &Value::Null),
         // Menu, toolbar, Cmd+P or typed: ask where to save the PDF. JSON calls (scripts, control
         // channel, MCP) always carry params, never get here and never open a dialog.
+        // In model space it first asks what to plot: two corners of a window (or Extents, or
+        // Display); `finish_plot` then asks where to save. A layout is plotted as it is.
+        "plot" | "print" | "exportpdf"
+            if params.is_null() && app.session.running.is_none() && app.session.state().is_ok_and(|s| matches!(s.space, aad_doc::Space::Model)) =>
+        {
+            app.start("plot.window");
+            Ok(Value::Null)
+        }
         "plot" | "print" | "exportpdf" if params.is_null() && app.session.state().is_ok() => {
             let pick = app.services.pick_save.as_ref()?;
             let title = app.session.state().map(|s| s.title.clone()).unwrap_or_default();
@@ -546,8 +554,8 @@ mod tests {
 
     use crate::{CadApp, Services};
 
-    fn fake_plot(_: &aad_doc::Drawing, _: &aad_doc::Space, _: &Value) -> Result<Vec<u8>, String> {
-        Ok(b"%PDF-1.4 test".to_vec())
+    fn fake_plot(_: &aad_doc::Drawing, _: &aad_doc::Space, opts: &Value) -> Result<Vec<u8>, String> {
+        Ok(format!("%PDF-1.4 test {}", opts.get("window").map(|w| w.to_string()).unwrap_or_default()).into_bytes())
     }
 
     /// An app whose save dialog records the suggested name and answers `answer`.
@@ -565,42 +573,110 @@ mod tests {
         (CadApp::new(Session::new(), services), asked)
     }
 
-    #[test]
-    fn print_asks_where_to_save_the_pdf() {
+    /// The application's half of PLOT: take what `plot.window` chose and finish it (the frame loop
+    /// does this every frame).
+    fn finish(app: &mut CadApp) {
+        if let Some(req) = app.session.take_plot_request() {
+            super::finish_plot(app, req);
+        }
+    }
+
+    fn install_fake_plotter() -> bool {
         set_io(IoHooks { read: |_, _| Err("no reader in tests".into()), write: |_, _| Err("no writer in tests".into()), plot: Some(fake_plot) });
-        if io().and_then(|h| h.plot).is_none() {
-            return; // another test installed hooks without a plotter first
+        io().and_then(|h| h.plot).is_some() // false when another test installed hooks without a plotter first
+    }
+
+    #[test]
+    fn print_in_model_space_asks_for_the_window_first_and_then_where_to_save() {
+        if !install_fake_plotter() {
+            return;
         }
         let path = std::env::temp_dir().join(format!("aad-print-test-{}.pdf", std::process::id()));
         let ps = path.to_string_lossy().to_string();
         let _ = std::fs::remove_file(&path);
         let (mut app, asked) = app_with_picker(Some(ps.clone()));
 
-        // Toolbar, menu and Cmd+P all start the command by name.
+        // Toolbar, menu, Cmd+P and the typed name all start the same thing: the window question.
         app.start("plot");
-        assert_eq!(*asked.borrow(), vec!["Drawing1.pdf".to_string()]);
-        assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF"));
-        assert!(app.session.log.iter().any(|l| l.contains(&ps)));
+        assert!(app.session.running.as_ref().is_some_and(|r| r.id == "plot.window"), "it asks what to plot first");
+        assert!(asked.borrow().is_empty(), "no file dialog yet");
+        app.cmdline("10,20");
+        assert!(app.session.running.is_some(), "the opposite corner is still to come");
+        app.cmdline("110,70");
+        assert!(app.session.running.is_none());
+        finish(&mut app);
+        assert_eq!(*asked.borrow(), vec!["Drawing1.pdf".to_string()], "now it asks where to save");
+        let pdf = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+        assert!(pdf.starts_with("%PDF") && pdf.contains("[10.0,20.0,110.0,70.0]"), "only the window is plotted: {pdf}");
+        assert!(app.session.log.iter().any(|l| l.contains("the window") && l.contains(&ps)));
         let _ = std::fs::remove_file(&path);
 
+        // Corners in any order give the same rectangle; Extents plots the whole drawing.
         app.cmdline("print");
+        app.cmdline("110,70");
+        app.cmdline("10,20");
+        finish(&mut app);
+        let pdf = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+        assert!(pdf.contains("[10.0,20.0,110.0,70.0]"));
         app.start("exportpdf");
+        app.cmdline("Extents");
+        finish(&mut app);
+        let pdf = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
+        assert!(!pdf.contains("window") && !pdf.contains("[10.0"), "no window: the whole drawing: {pdf}");
+        assert!(app.session.log.iter().any(|l| l.contains("the whole drawing")));
         assert_eq!(asked.borrow().len(), 3);
-        assert!(path.exists());
         let _ = std::fs::remove_file(&path);
 
-        // Programmatic calls never open a dialog.
+        // Display plots what is on screen.
+        app.start("plot");
+        app.cmdline("Display");
+        let req = app.session.take_plot_request().expect("a request");
+        let w = req.window.expect("the visible area");
+        assert!(w[2] > w[0] && w[3] > w[1]);
+
+        // Programmatic calls never ask anything.
         let r = app.run("plot", json!({})).unwrap();
         assert!(r["data"].is_string());
+        let r = app.run("plot", json!({"window": [0, 0, 5, 5]})).unwrap();
+        assert!(r["data"].is_string());
         assert_eq!(asked.borrow().len(), 3);
+        assert!(app.run("plot", json!({"window": [0, 0, 0, 5]})).is_err(), "a window needs an area");
+        assert!(app.run("plot", json!({"window": "everything"})).is_err());
     }
 
     #[test]
-    fn cancelled_print_writes_nothing() {
+    fn cancelling_the_window_or_the_file_dialog_plots_nothing() {
+        if !install_fake_plotter() {
+            return;
+        }
         let (mut app, asked) = app_with_picker(None);
         app.start("plot");
-        assert_eq!(asked.borrow().len(), 1);
-        assert!(app.session.running.is_none());
+        app.session.cancel();
+        finish(&mut app);
+        assert!(app.session.running.is_none() && asked.borrow().is_empty(), "no window, no dialog");
+        app.start("plot");
+        app.cmdline("0,0");
+        app.cmdline("0,5");
+        assert!(app.session.running.is_some(), "a rectangle with no width is asked for again");
+        app.cmdline("4,5");
+        finish(&mut app);
+        assert_eq!(asked.borrow().len(), 1, "the dialog was cancelled: nothing is written");
+    }
+
+    #[test]
+    fn a_layout_is_plotted_as_it_is_without_asking_for_a_window() {
+        if !install_fake_plotter() {
+            return;
+        }
+        let path = std::env::temp_dir().join(format!("aad-print-layout-{}.pdf", std::process::id()));
+        let ps = path.to_string_lossy().to_string();
+        let (mut app, asked) = app_with_picker(Some(ps));
+        let name = app.run("layout.new", json!({})).unwrap()["name"].as_str().unwrap().to_string();
+        app.run("layout", json!({"option": "set", "name": name})).unwrap();
+        app.start("plot");
+        assert!(app.session.running.is_none(), "no window question in paper space");
+        assert_eq!(asked.borrow().len(), 1, "it goes straight to where to save");
+        let _ = std::fs::remove_file(&path);
     }
 }
 
@@ -736,4 +812,25 @@ fn set_font_preset(app: &mut CadApp, id: &str) -> Result<Value, String> {
     }
     app.ui.font_preset = id.to_string();
     Ok(fonts_json(app))
+}
+
+/// The second half of PLOT in model space: the window (or the whole drawing) has been chosen, so ask
+/// where to save and plot it. Cancelling the file dialog plots nothing.
+pub(crate) fn finish_plot(app: &mut CadApp, req: aad_engine::PlotRequest) {
+    let Some(pick) = app.services.pick_save.as_ref() else { return };
+    let title = app.session.state().map(|s| s.title.clone()).unwrap_or_default();
+    let stem = std::path::Path::new(&title).file_stem().map(|s| s.to_string_lossy().to_string()).filter(|s| !s.is_empty());
+    let Some(path) = pick(&format!("{}.pdf", stem.unwrap_or_else(|| "Drawing".into()))) else {
+        app.session.echo("*Cancel*");
+        return;
+    };
+    let mut params = json!({ "path": path });
+    if let (Some(w), Some(o)) = (req.window, params.as_object_mut()) {
+        o.insert("window".into(), json!(w));
+    }
+    let r = app.session.execute("plot", &params).map_err(|e| e.to_string());
+    app.session.echo(match &r {
+        Ok(_) => format!("Plotted {} to {path}", if req.window.is_some() { "the window" } else { "the whole drawing" }),
+        Err(e) => e.clone(),
+    });
 }

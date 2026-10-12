@@ -3,7 +3,7 @@
   AAD MSI (WiX Toolset v5: `dotnet tool install -g wix`, plus the WixUI extension:
   `wix extension add -g WixToolset.UI.wixext/5.0.2`). Built by package.ps1:
 
-    wix build aad.wxs -arch x64 -ext WixToolset.UI.wixext -d Version=1.2.3 -d BinDir=... -d IconPath=... -o out.msi
+    wix build aad.wxs -arch x64 -ext WixToolset.UI.wixext -d Version=1.2.3 -d ProductName=AAD -d BinDir=... -d IconPath=... -o out.msi
 
   Per-machine install into Program Files, a Start Menu shortcut, an optional desktop shortcut, and
   AAD offered under "Open with" for .dxf and .dwg drawings (without taking over the user's
@@ -15,7 +15,7 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package
-      Name="AAD"
+      Name="$(var.ProductName)"
       Manufacturer="Human Centric Works"
       Version="$(var.Version)"
       UpgradeCode="3367E365-EB66-4992-9056-C7E2E72E3548"
@@ -94,6 +94,14 @@
 
       <Component Id="AadCli">
         <File Id="AadCliExe" Source="$(var.BinDir)\aad-cli.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="AadNotices" Guid="B7C3E1A2-5D4F-4A86-9E21-3F7A8C0D6B15">
+        <File Id="LicenseMit" Source="$(var.BinDir)\LICENSE-MIT" KeyPath="yes" />
+        <File Id="LicenseApache" Source="$(var.BinDir)\LICENSE-APACHE" />
+        <File Id="NoticeFile" Source="$(var.BinDir)\NOTICE" />
+        <File Id="ThirdPartyLicenses" Source="$(var.BinDir)\THIRD_PARTY_LICENSES.md" />
+        <File Id="AttributionFile" Source="$(var.BinDir)\ATTRIBUTION.md" />
       </Component>
 
       <!-- Optional desktop shortcut, removed on uninstall. A non-advertised shortcut needs a registry

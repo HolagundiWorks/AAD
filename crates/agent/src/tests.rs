@@ -66,6 +66,10 @@ fn schemas_are_offered_in_function_calling_format_and_only_for_built_tools() {
         names,
         [
             "get_drawing_summary",
+            "get_spatial_overview",
+            "find_objects_in_window",
+            "find_nearest_objects",
+            "describe_objects",
             "flatten_drawing",
             "audit_drawing",
             "purge_unused",
@@ -300,4 +304,34 @@ fn units_and_layout_tools_need_confirmation_where_they_change_the_drawing() {
     assert!(matches!(a.propose(&mut s, &call("validate_plot_layout", json!({})), false), Outcome::Done { .. }));
     assert!(matches!(a.propose(&mut s, &call("set_plot_configuration", json!({"scale": "1:100", "paper": "B9"})), true), Outcome::Rejected { .. }));
     assert!(matches!(a.propose(&mut s, &call("set_display_units", json!({"units": "m"})), true), Outcome::Done { .. }));
+}
+
+#[test]
+fn the_spatial_tools_only_read_need_no_confirmation_and_reject_bad_arguments() {
+    let mut s = Session::new();
+    s.cmdline("line 0,0 10,0").unwrap();
+    s.cmdline("").unwrap();
+    for (name, args) in [
+        ("get_spatial_overview", json!({"cols": 3})),
+        ("find_objects_in_window", json!({"window": [-1, -1, 11, 1]})),
+        ("find_nearest_objects", json!({"point": [5, 5], "count": 1})),
+    ] {
+        let mut a = Agent::default();
+        a.begin_request();
+        match a.propose(&mut s, &call(name, args), false) {
+            Outcome::Done { .. } => {}
+            o => panic!("{name}: {o:?}"),
+        }
+    }
+    let mut a = Agent::default();
+    a.begin_request();
+    for bad in [
+        call("find_objects_in_window", json!({})),
+        call("find_objects_in_window", json!({"window": [0, 0, 1, 1], "limit": 5000})),
+        call("find_nearest_objects", json!({"point": [1, 2], "surprise": true})),
+        call("get_spatial_overview", json!({"cols": 99})),
+    ] {
+        assert!(matches!(a.propose(&mut s, &bad, false), Outcome::Rejected { .. }), "{bad:?}");
+    }
+    assert_eq!(s.doc().unwrap().model.len(), 1, "nothing was changed");
 }

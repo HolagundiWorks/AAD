@@ -47,7 +47,7 @@ pub struct PdfOptions {
 }
 
 impl PdfOptions {
-    /// Parse `{paper?, width?, height?, landscape?, fit?, scale?, lineweights?, compress?, title?}`.
+    /// Parse `{paper?, width?, height?, landscape?, fit?, scale?, lineweights?, compress?, title?, window?}`.
     pub fn from_json(v: &Value) -> PdfOptions {
         let num = |k: &str| v.get(k).and_then(Value::as_f64).filter(|x| x.is_finite());
         let paper_mm = match (num("width"), num("height")) {
@@ -64,7 +64,7 @@ impl PdfOptions {
             lineweights: v.get("lineweights").and_then(Value::as_bool),
             compress: v.get("compress").and_then(Value::as_bool).unwrap_or(true),
             title: v.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
-            window: None,
+            window: window_from_json(v),
         }
     }
 }
@@ -384,4 +384,16 @@ fn assemble(media: Vec2, content: &[u8], compress: bool, title: &str) -> Vec<u8>
     let _ = write!(x, "trailer\n<< /Size {} /Root 1 0 R /Info 5 0 R >>\nstartxref\n{xref}\n%%EOF\n", offsets.len() + 1);
     out.extend_from_slice(x.as_bytes());
     out
+}
+
+/// `window: [x0, y0, x1, y1]` as a rectangle (any corner order); `None` when absent or not four
+/// finite numbers with an area.
+fn window_from_json(v: &Value) -> Option<Bounds2> {
+    let a: Vec<f64> = v.get("window")?.as_array()?.iter().filter_map(Value::as_f64).collect();
+    match a[..] {
+        [x0, y0, x1, y1] if a.iter().all(|n| n.is_finite() && n.abs() < 1e12) && x0 != x1 && y0 != y1 => {
+            Some(Bounds2::new(Vec2::new(x0.min(x1), y0.min(y1)), Vec2::new(x0.max(x1), y0.max(y1))))
+        }
+        _ => None,
+    }
 }
