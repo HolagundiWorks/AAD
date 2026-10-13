@@ -85,6 +85,10 @@ fn read(path: &Path) -> Result<Option<UiState>, String> {
     // Old or hand-edited files cannot reopen a dialog or replace the active drawing view.
     ui.dialog = None;
     ui.top_bar = aad_ui_egui::topbar::sanitize(&ui.top_bar);
+    // Three lines was the old default; the command bar now shows two. A saved 3 is taken to be the default, not a choice.
+    if ui.history_lines == 3 {
+        ui.history_lines = 2;
+    }
     if aad_fonts::registry::preset(&ui.font_preset).is_none() {
         ui.font_preset = aad_fonts::registry::DEFAULT_PRESET.into();
     }

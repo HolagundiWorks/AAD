@@ -203,6 +203,9 @@ fn units(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
     }
 }
 
+/// The notices shipped with the program (NOTICE), shown in About ▸ Licences.
+const NOTICE: &str = include_str!("../../../NOTICE");
+
 fn about(ctx: &egui::Context, open: &mut bool) {
     let t = Tokens::get();
     let tab_id = egui::Id::new("about_tab");
@@ -211,7 +214,7 @@ fn about(ctx: &egui::Context, open: &mut bool) {
         |ui| {
             let mut tab = ui.data_mut(|d| d.get_temp::<u8>(tab_id)).unwrap_or(0);
             ui.horizontal(|ui| {
-                for (i, l) in ["About", "Contributors", "Models"].iter().enumerate() {
+                for (i, l) in ["About", "Licences"].iter().enumerate() {
                     if ui.selectable_label(tab == i as u8, crate::i18n::t(l)).clicked() {
                         tab = i as u8;
                     }
@@ -220,8 +223,17 @@ fn about(ctx: &egui::Context, open: &mut bool) {
             ui.data_mut(|d| d.insert_temp(tab_id, tab));
             ui.separator();
             match tab {
-                1 => crate::credits::contributors_ui(ui),
-                2 => crate::credits::models_ui(ui),
+                1 => {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                        ui.label(RichText::new(NOTICE).monospace().size(12.0));
+                        ui.add_space(6.0);
+                        ui.label(
+                            RichText::new(crate::tl!("The licence of every dependency is in THIRD_PARTY_LICENSES.md, installed with the program."))
+                                .small()
+                                .color(t.text_faint),
+                        );
+                    });
+                }
                 _ => {
                     ui.heading("AAD");
                     ui.label("Accelerated Architecture Drafting");

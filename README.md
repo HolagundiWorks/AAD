@@ -125,7 +125,6 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/control-protocol.md](docs/control-protocol.md) | JSON control channel |
 | [docs/mcp.md](docs/mcp.md) | MCP server |
 | [docs/plot-styles.md](docs/plot-styles.md) | Plot styles and plotting |
-| [docs/contributors.md](docs/contributors.md) | Contributor credits in the About window |
 | [docs/releasing.md](docs/releasing.md) | Versioning, release workflow, signing |
 | [docs/QUALITY_BASELINE.md](docs/QUALITY_BASELINE.md), [docs/BUG_BACKLOG.md](docs/BUG_BACKLOG.md), [docs/UI_BASELINE.md](docs/UI_BASELINE.md), [docs/UI_BUG_BACKLOG.md](docs/UI_BUG_BACKLOG.md) | Quality programme records |
 | [docs/UI_TESTING_STRATEGY.md](docs/UI_TESTING_STRATEGY.md), [docs/UI_INVENTORY.md](docs/UI_INVENTORY.md), [docs/UI_TEST_MATRIX.md](docs/UI_TEST_MATRIX.md) | UI test tooling, control inventory, coverage |

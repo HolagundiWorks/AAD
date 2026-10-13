@@ -63,6 +63,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.dialog.about", "About AAD", &["Help", "About AAD"], None),
     ("ui.dialog.commands", "Command Reference", &["Help", "AAD Help"], Some("F1")),
     ("ui.toggle.history", "Command History", &["Window", "Command History"], Some("F2")),
+    ("ui.history.clear", "Clear Command History", &["Window", "Clear Command History"], None),
     ("ui.cmdline.lines", "Command Line History Lines", &[], None),
     ("ui.noop", "", &[], None),
     ("ui.quit", "Quit AAD", &[], Some("Cmd+Q")),
@@ -286,6 +287,13 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             let open = json!({"on": true});
             toggle(&mut app.cmd.expanded, if id == "textscr" { &open } else { params });
             Ok(json!({ "on": app.cmd.expanded }))
+        }
+        // Forget the command log shown above the bar and the commands typed so far (Up/Down).
+        "ui.history.clear" => {
+            app.session.log.clear();
+            app.cmd.history.clear();
+            app.cmd.history_pos = None;
+            Ok(Value::Null)
         }
         // `{"lines": n}`: how many history lines show above the command line (0–12); without it, reports it.
         "ui.cmdline.lines" => {
@@ -787,7 +795,7 @@ fn reset_workspace(app: &mut CadApp) -> Value {
     app.ui.in_window_menu = !cfg!(target_os = "macos");
     app.ui.show_ucs_icon = true;
     app.ui.properties_all = true;
-    app.ui.history_lines = 3;
+    app.ui.history_lines = 2;
     app.ui.dialog = None;
     app.collapse = Default::default();
     json!({ "workspace": mode.as_str(), "reset": true })

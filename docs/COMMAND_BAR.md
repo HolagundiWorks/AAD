@@ -14,8 +14,8 @@ Tests: `crates/ui-egui/tests/command_bar.rs`, `crates/engine/tests/context_refs.
 
 | Key | Behaviour |
 | --- | --- |
-| Space | Runs only a whole command name or alias, or a suggestion chosen with the arrows; otherwise an ordinary space. While a command waits for input it acts as Enter. |
-| Enter | Accepts a chosen reference into the bar; runs a chosen command suggestion; otherwise submits: a native command to the engine, a request to the assistant. A request typed while the assistant is busy stays in the bar. |
+| Space | A half-typed command name (one word): starts the first command in the list under the bar, or the one chosen with the arrows (AutoCAD style). A whole name or alias runs. On an empty bar it repeats the previous command. Otherwise an ordinary space: a sentence keeps its spaces, and `/` starts a request for the assistant. While a command waits for input it acts as Enter; when that prompt offers a list (the room types) it picks the first match. |
+| Enter | The same as Space for a half-typed name (the first listed command) and, on an empty bar, repeats the previous command, so Enter then Enter runs a command and runs it again. Accepts a chosen reference into the bar; otherwise submits: a native command to the engine, a request to the assistant. A request typed while the assistant is busy stays in the bar. |
 | Tab | Accepts the highlighted (or first) suggestion without executing it. |
 | Up / Down | Move through the suggestions while a menu is open; otherwise through the history. |
 | Ctrl+Space | Opens the suggestions (an empty bar starts a `/` reference). |
@@ -58,3 +58,9 @@ with pan, zoom or window size (tested in Classic and Pro).
 
 - Suggestions do not rank by usage.
 - Before/after screenshots and a run with the real model through the bar are not recorded here.
+
+## History above the bar
+
+Two lines of earlier output show above the bar by default (`ui.cmdline.lines`, 0 to 12; drag the
+top edge, or F2 or the chevron for the whole log). **Clear** in the expanded history, or Window >
+Clear Command History (`ui.history.clear`), forgets the log and the commands recalled with Up.

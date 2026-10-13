@@ -118,9 +118,29 @@ fn unavailable_refs(app: &mut CadApp) -> Vec<(String, String)> {
 
 /// The rows of the suggestion menu for the text in the bar: references while a `/word` is being
 /// typed (only when there is an assistant to give them to), command names otherwise. Empty when
+/// The choices a running command's prompt offers (a room type, say) that match what is typed: the
+/// text anywhere in the name or the note, case-insensitively, at most [`MAX_OPTION_ROWS`].
+fn prompt_options(app: &CadApp) -> Vec<crate::cmdinput::Entry> {
+    let Some(p) = app.session.current_prompt() else { return Vec::new() };
+    let t = app.cmd.buffer.trim().to_lowercase();
+    p.options
+        .iter()
+        .filter(|(name, note)| t.is_empty() || name.to_lowercase().contains(&t) || note.to_lowercase() == t)
+        .take(MAX_OPTION_ROWS)
+        .map(|(name, note)| crate::cmdinput::Entry { insert: name.clone(), label: note.clone(), dim: false, note: String::new(), reference: false })
+        .collect()
+}
+
+/// Most rows of a prompt's choice list shown at once (typing narrows it).
+const MAX_OPTION_ROWS: usize = 12;
+
 /// none applies: a command is waiting for input, Escape closed the menu, or nothing matches.
 pub fn menu(app: &mut CadApp) -> Vec<crate::cmdinput::Entry> {
-    if app.session.running.is_some() || app.cmd.sug_hidden || app.canvas.hot_grip.is_some() {
+    if app.session.running.is_some() {
+        // A command waiting for a choice from a list shows the list.
+        return if app.cmd.sug_hidden || app.canvas.hot_grip.is_some() { Vec::new() } else { prompt_options(app) };
+    }
+    if app.cmd.sug_hidden || app.canvas.hot_grip.is_some() {
         return Vec::new();
     }
     let buffer = app.cmd.buffer.clone();
@@ -220,7 +240,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
         }
         return;
     }
-    let text_prompt = app.session.current_prompt().is_some_and(|p| p.accept.text && !p.accept.point && !p.accept.number);
+    let text_prompt = app.session.current_prompt().is_some_and(|p| p.accept.text && !p.accept.point && !p.accept.number && p.options.is_empty());
     let assistant = crate::assistant::state(app);
     // The assistant is asking Allow or Decline: the bar's prompt is that question until it is answered.
     if matches!(assistant, crate::assistant::State::Confirm { .. }) {
@@ -343,11 +363,46 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     }
 }
 
+/// What Space or Enter picks from a running command's choice list: the row chosen with the arrows,
+/// else (with text typed) the first match, unless the text already is one of the choices. `None`:
+/// the text goes to the command as typed.
+fn option_pick(app: &mut CadApp) -> Option<String> {
+    app.session.running.as_ref()?;
+    let m = menu(app);
+    if m.is_empty() {
+        return None;
+    }
+    if let Some(i) = app.cmd.sug_sel {
+        return m.get(i).map(|e| e.insert.clone());
+    }
+    let t = app.cmd.buffer.trim().to_string();
+    if t.is_empty() || m.iter().any(|e| e.insert.eq_ignore_ascii_case(&t)) {
+        return None;
+    }
+    m.first().map(|e| e.insert.clone())
+}
+
+/// The command Space or Enter would start for a half-typed command name: the first suggestion in the
+/// list under the bar (AutoCAD's habit). Only for a single word: a sentence is not a command, and an
+/// assistant request starts with `/`. Not when the list was closed with Escape.
+fn first_suggestion(app: &CadApp) -> Option<String> {
+    let t = app.cmd.buffer.trim();
+    if app.session.running.is_some() || app.cmd.sug_hidden || t.is_empty() || t.starts_with('/') || t.contains(char::is_whitespace) {
+        return None;
+    }
+    crate::cmdinput::command_entries(t).into_iter().next().map(|e| e.insert)
+}
+
 /// Space. While a command is running it is Enter (the classic CAD habit). Otherwise it executes only
 /// a whole resolved command (name or alias) or a suggestion that was chosen with the arrow keys, and
 /// is an ordinary space in everything else: a request for the assistant keeps its spaces, and a half
 /// typed word is never executed. An empty bar repeats the last command, as before.
 fn space(app: &mut CadApp) {
+    if let Some(pick) = option_pick(app) {
+        app.cmd.buffer = pick;
+        submit(app);
+        return;
+    }
     if app.session.running.is_some() || app.cmd.buffer.is_empty() {
         submit(app);
         return;
@@ -358,6 +413,10 @@ fn space(app: &mut CadApp) {
         submit(app);
     } else if crate::cmdinput::space_executes(&app.cmd.buffer, false) {
         submit(app);
+    } else if let Some(first) = first_suggestion(app) {
+        // A half-typed name: Space starts the first command in the list.
+        app.cmd.buffer = first;
+        submit(app);
     } else {
         app.cmd.buffer.push(' ');
     }
@@ -367,6 +426,11 @@ fn space(app: &mut CadApp) {
 /// is submitted: a command to the engine, a request to the assistant. A request is kept in the bar
 /// while the assistant is still busy with the last one.
 fn enter(app: &mut CadApp) {
+    if let Some(pick) = option_pick(app) {
+        app.cmd.buffer = pick;
+        submit(app);
+        return;
+    }
     if app.session.running.is_none()
         && let Some(e) = app.cmd.sug_sel.and_then(|i| menu(app).get(i).cloned())
     {
@@ -376,6 +440,12 @@ fn enter(app: &mut CadApp) {
             app.cmd.buffer = e.insert;
             submit(app);
         }
+        return;
+    }
+    // A half-typed command name: Enter starts the first command in the list.
+    if let Some(first) = first_suggestion(app) {
+        app.cmd.buffer = first;
+        submit(app);
         return;
     }
     if app.session.running.is_none()
@@ -655,7 +725,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
             let right = if e.dim { e.note.clone() } else { crate::i18n::t(&e.label).to_string() };
             p.text(Pos2::new(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, right, crate::theme::small(), t.text_faint);
             if resp.clicked() {
-                if e.reference {
+                if app.session.running.is_some() {
+                    // A choice for the running command (a room type): enter it.
+                    app.cmd.buffer = e.insert.clone();
+                    submit(app);
+                } else if e.reference {
                     accept_entry(app, e);
                 } else {
                     app.cmd.buffer.clear();
@@ -737,13 +811,16 @@ fn history(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect, bar: Rect) {
     if resp.clicked() && resp.interact_pointer_pos().is_some_and(on_toggle) {
         let _ = app.run("ui.toggle.history", serde_json::json!({}));
     }
-    if let Some(r) = zones(app, canvas, bar).window {
-        history_window(app, ui, r);
+    if let Some(r) = zones(app, canvas, bar).window
+        && history_window(app, ui, r)
+    {
+        let _ = app.run("ui.history.clear", serde_json::json!({}));
     }
 }
 
 /// The expanded history: the whole command log, scrollable, newest at the bottom.
-fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) {
+/// Draws it; returns true when its Clear button was clicked.
+fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) -> bool {
     let t = Tokens::get();
     ui.painter().rect_filled(r, 3.0, t.cmd_bg);
     ui.painter().rect_stroke(r, 3.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
@@ -763,6 +840,13 @@ fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) {
             }
         },
     );
+    // A small Clear button in the corner: forgets the command log and the typed commands.
+    let clear = Rect::from_min_size(pos2(r.right() - 58.0, r.top() + 4.0), vec2(52.0, 18.0));
+    let resp = ui.interact(clear, ui.id().with("cmd_history_clear"), Sense::click());
+    let hot = resp.hovered();
+    ui.painter().rect_filled(clear, 3.0, if hot { t.control_hover } else { t.control });
+    ui.painter().text(clear.center(), egui::Align2::CENTER_CENTER, crate::tl!("Clear"), crate::theme::small(), t.text);
+    resp.on_hover_text(crate::tl!("Clear the command history")).clicked()
 }
 
 #[cfg(test)]
@@ -848,7 +932,7 @@ mod tests {
         }
         press(&mut app, &ctx, top - vec2(0.0, 2.0 * LINE_H), false);
         frame(&mut app, &ctx, Vec::new());
-        assert_eq!(app.ui.history_lines, 5);
+        assert_eq!(app.ui.history_lines, 4, "two lines by default, two more by the drag");
         assert!(!app.cmd.expanded, "a drag isn't a click");
         assert!(app.session.pending_window.is_none());
         assert_eq!(app.run("ui.cmdline.lines", serde_json::json!({"lines": 99})), Ok(serde_json::json!({"lines": MAX_LINES})));

@@ -41,11 +41,15 @@ pub struct Prompt {
     /// prompt (a point with no base yet, e.g. the first point of a line). Elsewhere a deferred
     /// pick arrives as the plain point it was picked at.
     pub deferred: bool,
+    /// Choices the prompt offers as a list to pick from: (what is entered, a short note such as a
+    /// code). Typing filters them; the first is what Space or Enter picks. Free text is still
+    /// accepted when nothing matches.
+    pub options: Vec<(String, String)>,
 }
 
 impl Prompt {
     pub fn new(message: impl Into<String>, accept: Accept) -> Self {
-        Prompt { message: message.into(), keywords: Vec::new(), default: None, accept, base: None, deferred: false }
+        Prompt { message: message.into(), keywords: Vec::new(), default: None, accept, base: None, deferred: false, options: Vec::new() }
     }
     pub fn kw(mut self, k: &[&str]) -> Self {
         self.keywords = k.iter().map(|s| s.to_string()).collect();
@@ -57,6 +61,11 @@ impl Prompt {
     }
     pub fn base_opt(mut self, p: Option<Vec2>) -> Self {
         self.base = p;
+        self
+    }
+    /// Offer `choices` ((entered text, note)) as a list to pick from (the `options` field).
+    pub fn options(mut self, choices: Vec<(String, String)>) -> Self {
+        self.options = choices;
         self
     }
     /// Accept deferred tangent/perpendicular snaps (the `deferred` field).

@@ -21,7 +21,6 @@ pub mod cmdline;
 pub mod context_menu;
 pub mod contextbar;
 pub mod control;
-pub mod credits;
 pub mod dialogs;
 pub mod docking;
 
@@ -196,7 +195,7 @@ impl Default for UiState {
             in_window_menu: !cfg!(target_os = "macos"),
             start_tab: false,
             dialog: None,
-            history_lines: 3,
+            history_lines: 2,
             theme: theme::ThemePref::default(),
             save_format: SaveFormat::default(),
             workspace: WorkspaceMode::default(),

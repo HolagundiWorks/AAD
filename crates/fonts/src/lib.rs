@@ -586,3 +586,16 @@ mod ttf_tests {
         assert!((crate::line_width("AB\u{4E2D}\u{6587}", 1.0, 1.0) - sh.width).abs() < 1e-9);
     }
 }
+
+#[cfg(test)]
+mod family_tests {
+    #[test]
+    fn the_installed_family_list_is_sorted_without_repeats() {
+        let f = crate::ttf::installed_families();
+        let mut sorted = f.clone();
+        sorted.sort_by_key(|s| s.to_lowercase());
+        sorted.dedup_by_key(|s| s.to_lowercase());
+        assert_eq!(f, sorted);
+        assert!(f.iter().all(|n| !n.is_empty()));
+    }
+}

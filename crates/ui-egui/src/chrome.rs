@@ -19,15 +19,9 @@ const TOOLBAR: &[&[(Icon, &str, &str, Option<&str>)]] = &[
         (Icon::Plot, "plot", "Print", None),
         (Icon::Publish, "publish", "Batch Publish", None),
         (Icon::PageSetup, "pagesetup", "Page Setup Manager", None),
-        (Icon::Preview, "preview", "Plot Preview", None),
     ],
-    &[
-        (Icon::Import, "import", "Import", None),
-        (Icon::Export, "export", "Export", None),
-        (Icon::Attach, "attach", "Attach", None),
-        (Icon::Share, "share", "Share", None),
-    ],
-    &[(Icon::ZoomWindow, "zoom.window", "Zoom Window", None), (Icon::Pan, "pan", "Pan", None), (Icon::Orbit, "3dorbit", "Orbit", None)],
+    &[(Icon::Import, "import", "Import", None), (Icon::Export, "export", "Export", None), (Icon::Attach, "attach", "Attach", None)],
+    &[(Icon::ZoomWindow, "zoom.window", "Zoom Window", None), (Icon::Pan, "pan", "Pan", None)],
     &[
         (Icon::ZoomExtents, "zoom.extents", "Zoom Extents", None),
         (Icon::Properties, "ui.toggle.palettes", "Properties", None),
@@ -35,7 +29,6 @@ const TOOLBAR: &[&[(Icon, &str, &str, Option<&str>)]] = &[
         (Icon::Blocks, "ui.dialog.blocks", "Blocks", None),
     ],
     &[(Icon::Measure, "dist", "Measure Distance", None), (Icon::List, "list", "List", None), (Icon::Area, "area", "Area", None)],
-    &[(Icon::Help, "ui.dialog.about", "Help", None)],
 ];
 
 /// Height of the macOS integrated title row (#161). AppKit draws the traffic lights itself,
@@ -352,13 +345,40 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             (g.size().x + 18.0).clamp(54.0, 190.0)
         };
         let mut rx = r.right() - 8.0 - 60.0 - 128.0 - 200.0 - toggles.len() as f32 * (size + 4.0) - chip_w - 8.0 - (58.0 + 6.0 + 40.0 + 8.0);
-        // Light/dark theme toggle at the far right: it shows the theme it switches to.
-        let theme_br = Rect::from_min_max(pos2(r.right() - 8.0 - 52.0, r.center().y - 9.0), pos2(r.right() - 8.0, r.center().y + 9.0));
-        let theme_label = if app.ui.theme == crate::theme::ThemePref::Dark { "Light" } else { "Dark" };
+        // Light/dark theme: a switch with a sun and a moon. The knob sits on the side of the theme
+        // in use (moon, right: dark; sun, left: light); clicking it switches to the other theme.
+        let theme_br = Rect::from_min_max(pos2(r.right() - 8.0 - 46.0, r.center().y - 10.0), pos2(r.right() - 8.0, r.center().y + 10.0));
+        let dark = app.ui.theme == crate::theme::ThemePref::Dark;
         let theme_resp = ui.interact(theme_br, ui.id().with("theme_toggle"), Sense::click());
-        p.rect_filled(theme_br, 3.0, if theme_resp.hovered() { t.control_hover } else { t.control });
-        p.text(theme_br.center(), egui::Align2::CENTER_CENTER, crate::i18n::t(theme_label), crate::theme::small(), t.text);
-        if theme_resp.on_hover_text(crate::tl!("Switch between the light and dark theme")).clicked() {
+        p.rect_filled(theme_br, 10.0, if theme_resp.hovered() { t.control_hover } else { t.control });
+        p.rect_stroke(theme_br, 10.0, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+        let (sun_c, moon_c) = (pos2(theme_br.left() + 12.0, theme_br.center().y), pos2(theme_br.right() - 12.0, theme_br.center().y));
+        let knob = if dark { moon_c } else { sun_c };
+        p.circle_filled(knob, 8.0, t.accent);
+        // Sun: a disc with rays. Moon: a disc with a bite out of it.
+        let ink = |on: bool| if on { egui::Color32::WHITE } else { t.text_dim };
+        let sc = ink(!dark);
+        p.circle_filled(sun_c, 3.0, sc);
+        for k in 0..8 {
+            let a = k as f32 * std::f32::consts::FRAC_PI_4;
+            let (dx, dy) = (a.cos(), a.sin());
+            p.line_segment([sun_c + vec2(dx * 4.8, dy * 4.8), sun_c + vec2(dx * 6.2, dy * 6.2)], Stroke::new(1.2, sc));
+        }
+        let mc = ink(dark);
+        p.circle_filled(moon_c, 5.0, mc);
+        p.circle_filled(
+            moon_c + vec2(2.6, -2.0),
+            4.3,
+            if dark {
+                t.accent
+            } else if theme_resp.hovered() {
+                t.control_hover
+            } else {
+                t.control
+            },
+        );
+        let tip = if dark { crate::tl!("Dark theme: switch to light") } else { crate::tl!("Light theme: switch to dark") };
+        if theme_resp.on_hover_text(tip).clicked() {
             let _ = app.run("ui.theme.toggle", json!({}));
         }
         // Workspace selector `Pro | Classic` left of the theme toggle; the active side is lit.

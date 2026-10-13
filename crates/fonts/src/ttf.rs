@@ -53,6 +53,15 @@ impl Face {
     pub fn has_glyph(&self, c: char) -> bool {
         self.font().is_some_and(|f| f.charmap().map(c).is_some())
     }
+    /// The family name as the font spells it (typographic family first), for display.
+    fn family_display(&self) -> Option<String> {
+        let f = self.font()?;
+        [skrifa::string::StringId::TYPOGRAPHIC_FAMILY_NAME, skrifa::string::StringId::FAMILY_NAME]
+            .into_iter()
+            .find_map(|id| f.localized_strings(id).next().map(|s| s.to_string()))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty() && s.len() < 80)
+    }
     fn names(&self) -> Vec<String> {
         let Some(f) = self.font() else { return Vec::new() };
         [skrifa::string::StringId::FAMILY_NAME, skrifa::string::StringId::TYPOGRAPHIC_FAMILY_NAME, skrifa::string::StringId::FULL_NAME]
@@ -60,6 +69,42 @@ impl Face {
             .flat_map(|id| f.localized_strings(id).map(|s| norm(&s.to_string())).collect::<Vec<_>>())
             .collect()
     }
+}
+
+/// The family names of the installed fonts (the application and system font folders), sorted and
+/// without repeats, for a font picker. Reads each font file once, on the first call, and keeps the
+/// answer; bounded in files and size, so a machine with thousands of fonts is cut, not stalled.
+pub fn installed_families() -> Vec<String> {
+    static CACHE: OnceLock<Vec<String>> = OnceLock::new();
+    CACHE.get_or_init(scan_families).clone()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn scan_families() -> Vec<String> {
+    const MAX_FILES: usize = 1500;
+    let paths: Vec<PathBuf> = {
+        let g = lock();
+        let mut v: Vec<PathBuf> = g.paths.values().cloned().collect();
+        v.sort();
+        v.dedup();
+        v.truncate(MAX_FILES);
+        v
+    };
+    let mut seen = std::collections::BTreeMap::new();
+    for p in paths {
+        let Some(bytes) = read_file(&p) else { continue };
+        for face in faces(&Arc::new(bytes)) {
+            if let Some(name) = face.family_display() {
+                seen.entry(name.to_lowercase()).or_insert(name);
+            }
+        }
+    }
+    seen.into_values().collect()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn scan_families() -> Vec<String> {
+    Vec::new()
 }
 
 /// Faces of a font file: every face of a collection (capped), or the single font.

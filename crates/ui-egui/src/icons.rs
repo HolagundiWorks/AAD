@@ -19,19 +19,15 @@ pub enum Icon {
     Plot,
     Publish,
     PageSetup,
-    Preview,
     Import,
     Export,
     Attach,
-    Share,
     ZoomWindow,
     Pan,
-    Orbit,
     ZoomExtents,
     Properties,
     Blocks,
     Layers,
-    Help,
     Line,
     Polyline,
     Circle,
@@ -232,14 +228,10 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             pen.arc(12.0, 13.0, 7.0, 30.0, 220.0, b);
             pen.arrow_tip(19.0, 9.0, 1.0, 2.5, b);
         }
-        Plot | Preview => {
+        Plot => {
             pen.rect(4.0, 9.0, 16.0, 8.0, b);
             pen.rect(7.0, 4.0, 10.0, 5.0, b);
             pen.rect(7.0, 14.0, 10.0, 7.0, b);
-            if icon == Preview {
-                pen.c(17.0, 17.0, 3.0, a);
-                pen.la(19.0, 19.0, 22.0, 22.0);
-            }
         }
         Publish => {
             pen.rect(3.0, 10.0, 13.0, 7.0, b);
@@ -265,10 +257,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
             pen.rect(4.0, 5.0, 16.0, 14.0, b);
             pen.poly(&[(6.0, 17.0), (10.0, 11.0), (13.0, 15.0), (15.0, 13.0), (18.0, 17.0)], false, a);
             pen.c(15.0, 9.0, 1.5, a);
-        }
-        Share => {
-            pen.poly(&[(4.0, 12.0), (20.0, 4.0), (14.0, 20.0), (11.0, 13.0)], true, a);
-            pen.l(11.0, 13.0, 20.0, 4.0);
         }
         ZoomWindow => {
             pen.rect(3.0, 3.0, 12.0, 12.0, b);
@@ -306,12 +294,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
                 b,
             );
         }
-        Orbit => {
-            pen.c(12.0, 12.0, 4.0, b);
-            pen.arc(12.0, 12.0, 9.0, 20.0, 160.0, a);
-            pen.arc(12.0, 12.0, 9.0, 200.0, 340.0, a);
-            pen.arrow_tip(3.5, 9.5, -0.4, 1.0, a);
-        }
         Properties => {
             pen.rect(4.0, 3.0, 16.0, 18.0, b);
             for y in [8.0, 12.0, 16.0] {
@@ -329,10 +311,6 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, dim: bool) {
                 let c = if k == 0 { a } else { b };
                 pen.poly(&[(3.0, y + 2.0), (12.0, *y - 2.0), (21.0, y + 2.0), (12.0, y + 6.0)], true, c);
             }
-        }
-        Help => {
-            pen.c(12.0, 12.0, 9.0, b);
-            pen.text(12.0, 12.5, "?", 12.0, b);
         }
         Line => {
             pen.la(4.0, 20.0, 20.0, 4.0);

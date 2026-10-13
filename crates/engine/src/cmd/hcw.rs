@@ -151,6 +151,9 @@ pub fn specs() -> Vec<CommandSpec> {
                 "{p1, p2, name (room name or two-letter code), floorPrefix?, textHeight? (drawing units), rectangle?: bool, units?: mm|cm|m|ft|in}",
             )
             .interactive(|_| Ok(Box::new(RoomM::default()))),
+        CommandSpec::new("room.settings", "Room Label Settings...", run_room_settings)
+            .menu(&["Architecture", "Rooms and Areas", "Room Label Settings..."])
+            .params("{units?: mm|cm|m|ft|in (\"\": the drawing's), box?: bool (draw the room rectangle), textHeight?: drawing units (null: default), font?: family (\"\": the current text style)} → the settings (saved with the drawing; the ROOM command uses them; typed or from the menu it opens the dialog)"),
         CommandSpec::new("rarea", "Room Area", run_rarea)
             .menu(&["Architecture", "Rooms and Areas", "Room Area"])
             .alias(&["hcwroomarea"])
@@ -301,6 +304,103 @@ fn ensure_room_layers(s: &mut Session) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Room label settings
+
+const SETTINGS_KEY: &str = "roomSettings";
+/// The text style the room labels use when a font is chosen for them.
+const LABEL_STYLE: &str = "ROOM-LABELS";
+
+/// Units of the size text, box, text height and font of the room labels. Saved with the drawing
+/// (project data), so every room made in it follows them; a parameter of the ROOM call wins.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct RoomSettings {
+    /// mm, cm, m, ft or in; empty: the drawing's units.
+    pub units: String,
+    pub boxed: bool,
+    /// Drawing units; `None`: the default height.
+    pub text_height: Option<f64>,
+    /// A font family; empty: the current text style.
+    pub font: String,
+}
+
+pub(crate) fn room_settings(d: &Drawing) -> RoomSettings {
+    let v = super::project::get(d, SETTINGS_KEY);
+    RoomSettings {
+        units: v["units"].as_str().filter(|u| Units::parse(u).is_some()).unwrap_or("").to_string(),
+        boxed: v["box"].as_bool().unwrap_or(true),
+        text_height: v["textHeight"].as_f64().filter(|h| h.is_finite() && *h > 0.0),
+        font: v["font"].as_str().unwrap_or("").chars().take(120).collect(),
+    }
+}
+
+fn settings_json(r: &RoomSettings) -> Value {
+    json!({"units": r.units, "box": r.boxed, "textHeight": r.text_height, "font": r.font})
+}
+
+/// `room.settings {units?, box?, textHeight?, font?}`: the settings (changed first when given). A
+/// `textHeight` of null (or 0) goes back to the default; `units` or `font` of "" likewise.
+fn run_room_settings(s: &mut Session, p: &Value) -> Result<Value> {
+    let mut r = room_settings(s.doc()?);
+    let mut changed = false;
+    if let Some(u) = p.get("units") {
+        let u = u.as_str().ok_or_else(|| bad("room.settings", "`units` must be text"))?.trim();
+        if !u.is_empty() && Units::parse(u).is_none() {
+            return Err(bad("room.settings", "`units` must be mm, cm, m, ft or in (or blank for the drawing's)"));
+        }
+        r.units = u.to_ascii_lowercase();
+        changed = true;
+    }
+    if let Some(b) = p.get("box") {
+        r.boxed = b.as_bool().ok_or_else(|| bad("room.settings", "`box` must be true or false"))?;
+        changed = true;
+    }
+    if let Some(h) = p.get("textHeight") {
+        r.text_height = match h {
+            Value::Null => None,
+            v => match v.as_f64() {
+                Some(0.0) => None,
+                Some(x) if x.is_finite() && x > 0.0 && x < 1e9 => Some(x),
+                _ => return Err(bad("room.settings", "`textHeight` must be a positive number (or null for the default)")),
+            },
+        };
+        changed = true;
+    }
+    if let Some(f) = p.get("font") {
+        r.font = f.as_str().ok_or_else(|| bad("room.settings", "`font` must be text"))?.trim().chars().take(120).collect();
+        changed = true;
+    }
+    if changed {
+        super::project::set(s.doc_mut()?, SETTINGS_KEY, &settings_json(&r));
+        s.touch();
+    }
+    Ok(settings_json(&r))
+}
+
+/// Make the label text style exist with `font`, and return its name.
+fn ensure_label_style(s: &mut Session, font: &str) -> Result<()> {
+    let d = s.doc_mut()?;
+    match d.text_styles.iter_mut().find(|t| t.name.eq_ignore_ascii_case(LABEL_STYLE)) {
+        Some(t) => t.font = font.to_string(),
+        None => d.text_styles.push(aad_doc::TextStyle { name: LABEL_STYLE.into(), font: font.to_string(), ..Default::default() }),
+    }
+    Ok(())
+}
+
+/// The call's own parameters over the saved settings: what a room is made with.
+fn with_settings(s: &Session, p: &Value) -> Result<(Value, RoomSettings)> {
+    let r = room_settings(s.doc()?);
+    let mut o = p.as_object().cloned().unwrap_or_default();
+    if !o.contains_key("units") && !r.units.is_empty() {
+        o.insert("units".into(), json!(r.units));
+    }
+    if !o.contains_key("textHeight")
+        && let Some(h) = r.text_height
+    {
+        o.insert("textHeight".into(), json!(h));
+    }
+    Ok((Value::Object(o), r))
+}
+// ---------------------------------------------------------------------------------------------
 // ROOM
 
 /// The room type a typed name stands for: a two-letter code names its type, anything else is
@@ -320,6 +420,8 @@ struct RoomLabel {
 }
 
 fn make_room(s: &mut Session, p1: Vec2, p2: Vec2, name: &str, prefix: &str, rectangle: bool, p: &Value) -> Result<RoomLabel> {
+    let (p, rs) = with_settings(s, p)?;
+    let p = &p;
     let u = drawing_units(s.doc()?, "room", p)?;
     let th = text_height(u, p)?;
     let (w, h) = ((p2.x - p1.x).abs(), (p2.y - p1.y).abs());
@@ -339,9 +441,17 @@ fn make_room(s: &mut Session, p1: Vec2, p2: Vec2, name: &str, prefix: &str, rect
         handles.push(add_on(s, RECT_LAYER.0, lwpoly(rect_vertices(p1, p2), true))?);
     }
     let centered = (HAlign::Center, VAlign::Middle);
+    if !rs.font.is_empty() {
+        ensure_label_style(s, &rs.font)?;
+    }
     let lines = [(full.to_uppercase(), 0.0, th), (format_dim(u, w, h), th * 1.5, th * 0.8), (format!("Area: {area:.2} {unit}"), th * 2.8, th * 0.7)];
     for (text, down, height) in lines {
-        let kind = make_text(s, Vec2::new(center.x, center.y - down), &text, height, 0.0, centered);
+        let mut kind = make_text(s, Vec2::new(center.x, center.y - down), &text, height, 0.0, centered);
+        if !rs.font.is_empty()
+            && let EntityKind::Text(t) = &mut kind
+        {
+            t.style = LABEL_STYLE.into();
+        }
         handles.push(add_on(s, LABEL_LAYER.0, kind)?);
     }
     Ok(RoomLabel { name: full, width: w, height: h, handles, area, unit })
@@ -352,7 +462,8 @@ fn run_room(s: &mut Session, p: &Value) -> Result<Value> {
     let p2 = point_req("room", p, "p2")?;
     let name = str_param(p, "name").ok_or_else(|| bad("room", "`name` is required"))?;
     let default_prefix = super::project::active_floor_prefix(s.doc()?);
-    let r = make_room(s, p1, p2, name, str_param(p, "floorPrefix").unwrap_or(&default_prefix), bool_or(p, "rectangle", true), p)?;
+    let boxed = room_settings(s.doc()?).boxed;
+    let r = make_room(s, p1, p2, name, str_param(p, "floorPrefix").unwrap_or(&default_prefix), bool_or(p, "rectangle", boxed), p)?;
     Ok(json!({
         "name": r.name.to_uppercase(),
         "width": r.width,
@@ -375,7 +486,8 @@ impl Interactive for RoomM {
     }
     fn prompt(&self, _s: &Session) -> Prompt {
         match (&self.name, self.first) {
-            (None, _) => Prompt::new("Enter room name or two-letter code (br, ki, li, ba...)", Accept::TEXT),
+            (None, _) => Prompt::new("Select the room", Accept::TEXT)
+                .options(ROOM_TYPES.iter().map(|(code, name)| ((*name).to_string(), (*code).to_string())).collect()),
             (Some(_), None) => Prompt::new("Select FIRST corner of room", Accept::POINT),
             (Some(_), Some(a)) => Prompt::new("Select OPPOSITE corner of room", Accept::POINT).base(a),
         }
@@ -385,7 +497,10 @@ impl Interactive for RoomM {
             (None, _, Input::Text(t)) if !t.trim().is_empty() => self.name = Some(t),
             (Some(_), None, Input::Point(p)) => self.first = Some(p),
             (Some(name), Some(a), Input::Point(b)) => {
-                let r = make_room(s, a, b, name, "", true, &Value::Null)?;
+                // The floor chosen in the top bar numbers the room; the saved settings decide the rest.
+                let prefix = super::project::active_floor_prefix(s.doc()?);
+                let boxed = room_settings(s.doc()?).boxed;
+                let r = make_room(s, a, b, name, &prefix, boxed, &Value::Null)?;
                 s.echo(format!(
                     "{} | {} | Area: {:.2} {}",
                     r.name.to_uppercase(),

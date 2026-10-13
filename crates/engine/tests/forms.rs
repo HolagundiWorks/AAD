@@ -101,7 +101,9 @@ fn forms_exist_for_the_commands_people_open_from_menus() {
     let pre = forms::prefill(&s, f);
     assert_eq!(pre["floors"][0]["name"], "Ground", "the dialog starts from the drawing's floors");
     let room = forms::get("room").unwrap();
-    assert!(room.has_picks() && room.dialog_fields().count() >= 4);
+    // The room form asks for the room (from a list) and picks the corners: the floor comes from the top bar and the
+    // units, box, text height and font from the Room Label Settings, so none of those are asked here.
+    assert!(room.has_picks() && room.dialog_fields().count() == 1);
     assert!(forms::room_types().iter().any(|(c, _)| *c == "br"));
 }
 

@@ -8,7 +8,7 @@
   <name>AAD</name>
   <summary>Draft, dimension and plot 2D drawings</summary>
   <developer id="io.github.holagundiworks">
-    <name>Learning Machines LLC</name>
+    <name>HolagundiWorks</name>
   </developer>
   <description>
     <p>
@@ -23,7 +23,6 @@
   <url type="homepage">https://getartcraft.com/apps/aad</url>
   <url type="bugtracker">https://github.com/HolagundiWorks/AADT/issues</url>
   <url type="help">https://github.com/HolagundiWorks/AADT</url>
-  <url type="contact">https://discord.gg/artcraft</url>
   <categories>
     <category>Graphics</category>
     <category>Engineering</category>

@@ -182,10 +182,6 @@ pub static FORMS: &[Form] = &[
         wrap: None,
         fields: &[
             field("name", "Room type", Kind::RoomType).req(),
-            field("floorPrefix", "Number prefix (for example G for G1, G2)", Kind::Text),
-            field("textHeight", "Text height (drawing units)", Kind::Number),
-            field("rectangle", "Draw the room rectangle", Kind::Bool).def("true"),
-            field("units", "Units of the size text (blank: the drawing's)", Kind::Choice(UNITS)),
             field("p1", "First corner", Kind::Point).req(),
             field("p2", "Opposite corner", Kind::Point).req(),
         ],

@@ -124,13 +124,13 @@ fn sent(s: &Rc<RefCell<Shared>>) -> Vec<String> {
 // ---------------------------------------------------------------- Space
 
 #[test]
-fn space_runs_a_whole_command_or_alias_and_is_just_a_space_otherwise() {
+fn space_runs_the_first_command_in_the_list_and_a_sentence_keeps_its_spaces() {
     let mut h = harness(None);
     typed(&mut h, "lin");
     typed(&mut h, " ");
-    assert_eq!(running(&h), None, "a partial name is not executed");
-    assert_eq!(buffer(&h), "lin ", "it is an ordinary space");
-    h.state_mut().cmd.buffer.clear();
+    assert_eq!(running(&h).as_deref(), Some("line"), "a half-typed name: Space starts the first command in the list");
+    key(&mut h, Key::Escape);
+    assert_eq!(buffer(&h), "");
     typed(&mut h, "line");
     typed(&mut h, " ");
     assert_eq!(running(&h).as_deref(), Some("line"), "a whole command runs on Space");
@@ -418,4 +418,112 @@ fn a_long_sentence_with_coordinates_goes_to_the_assistant_as_one_request() {
     assert_eq!(msg, None, "{msg:?}");
     assert_eq!(sent(&s), [format!("submit:{text}")], "log: {:?}", h.state().session.log);
     assert!(!h.state().session.log.iter().any(|l| l.starts_with("Command:")), "nothing ran as a command: {:?}", h.state().session.log);
+}
+
+#[test]
+fn enter_and_space_run_the_first_listed_command_and_the_next_press_repeats_it() {
+    let mut h = harness(None);
+    // Enter on a half-typed name runs the first command in the list.
+    typed(&mut h, "cir");
+    assert_eq!(h.state().session.log.last().map(String::as_str), None);
+    key(&mut h, Key::Enter);
+    assert_eq!(running(&h).as_deref(), Some("circle"));
+    typed(&mut h, "10,10");
+    key(&mut h, Key::Enter);
+    typed(&mut h, "4");
+    key(&mut h, Key::Enter);
+    assert_eq!(running(&h), None, "the circle is drawn");
+    let count = h.state().session.doc().unwrap().model.len();
+    // Enter, and then Space, on the empty bar start the previous command again.
+    key(&mut h, Key::Enter);
+    assert_eq!(running(&h).as_deref(), Some("circle"), "Enter repeats the last command");
+    key(&mut h, Key::Escape);
+    typed(&mut h, " ");
+    assert_eq!(running(&h).as_deref(), Some("circle"), "so does Space");
+    key(&mut h, Key::Escape);
+    assert_eq!(h.state().session.doc().unwrap().model.len(), count);
+    // A sentence keeps its spaces: it does not start with a command name, and `/` always asks the assistant.
+    typed(&mut h, "tell me about the columns");
+    assert_eq!(buffer(&h), "tell me about the columns");
+    assert_eq!(running(&h), None);
+}
+
+#[test]
+fn closing_the_list_with_escape_stops_enter_from_picking_the_first_command() {
+    let mut h = harness(None);
+    typed(&mut h, "cir");
+    key(&mut h, Key::Escape);
+    assert_eq!(buffer(&h), "cir", "the list is closed, the text stays");
+    key(&mut h, Key::Enter);
+    assert_ne!(running(&h).as_deref(), Some("circle"), "Enter takes the text as typed: no first-in-list pick");
+}
+
+#[test]
+fn two_lines_of_history_show_by_default_and_the_history_can_be_cleared() {
+    let mut h = harness(None);
+    assert_eq!(h.state().ui.history_lines, 2, "two previous lines above the bar");
+    typed(&mut h, "line");
+    typed(&mut h, " ");
+    key(&mut h, Key::Escape);
+    h.state_mut().session.echo("one");
+    h.state_mut().session.echo("two");
+    assert!(!h.state().session.log.is_empty() && !h.state().cmd.history.is_empty());
+    h.state_mut().run("ui.history.clear", json!({})).unwrap();
+    assert!(h.state().session.log.is_empty(), "the log above the bar is empty");
+    assert!(h.state().cmd.history.is_empty(), "so are the commands recalled with Up");
+    key(&mut h, Key::ArrowUp);
+    assert_eq!(buffer(&h), "", "nothing to recall");
+}
+
+#[test]
+fn the_room_command_lists_the_rooms_and_space_or_enter_picks_the_first_match() {
+    let mut h = harness(None);
+    h.state_mut().session.start("room").unwrap();
+    assert_eq!(running(&h).as_deref(), Some("room"));
+    let all = cmdline::menu(h.state_mut());
+    assert_eq!(all.len(), 12, "the list of rooms is shown, twelve rows at a time");
+    assert_eq!(all[0].insert, "Bedroom");
+    typed(&mut h, "kit");
+    let m = cmdline::menu(h.state_mut());
+    assert_eq!(m.iter().map(|e| e.insert.as_str()).collect::<Vec<_>>(), ["Kitchen"], "typing narrows the list");
+    key(&mut h, Key::Enter);
+    assert_eq!(buffer(&h), "", "the room was entered");
+    assert!(h.state().session.current_prompt().is_some_and(|p| p.message.contains("FIRST corner")), "next: the corners");
+    key(&mut h, Key::Escape);
+    // A two-letter code and Space work the same way; arrows choose another row.
+    h.state_mut().session.start("room").unwrap();
+    typed(&mut h, "ba");
+    typed(&mut h, " ");
+    assert!(h.state().session.current_prompt().is_some_and(|p| p.message.contains("FIRST corner")), "Space picked the first match");
+    key(&mut h, Key::Escape);
+    h.state_mut().session.start("room").unwrap();
+    key(&mut h, Key::ArrowDown);
+    key(&mut h, Key::ArrowDown);
+    key(&mut h, Key::Enter);
+    assert!(h.state().session.current_prompt().is_some_and(|p| p.message.contains("FIRST corner")), "the row chosen with the arrows");
+    key(&mut h, Key::Escape);
+}
+
+#[test]
+fn text_style_and_room_label_settings_open_their_dialogs_and_the_help_menu_has_no_upstream_credits() {
+    let mut h = harness(None);
+    h.state_mut().cmdline("style");
+    assert_eq!(h.state().ui.dialog.as_deref(), Some("textstyle"));
+    h.run_steps(3);
+    h.state_mut().ui.dialog = None;
+    h.state_mut().cmdline("room.settings");
+    assert_eq!(h.state().ui.dialog.as_deref(), Some("roomsettings"));
+    h.run_steps(3);
+    h.state_mut().ui.dialog = None;
+    // JSON calls never open a dialog.
+    h.state_mut().run("style", json!({"name": "Notes", "font": "IBM Plex Sans", "height": 2.5})).unwrap();
+    assert_eq!(h.state().ui.dialog, None);
+    let help: Vec<String> = aad_ui_egui::menus::tree(h.state())
+        .into_iter()
+        .filter(|(m, _)| m == "Help")
+        .flat_map(|(_, e)| e.into_iter().filter_map(|e| if let aad_ui_egui::menus::Entry::Item { label, .. } = e { Some(label) } else { None }))
+        .collect();
+    assert!(help.iter().any(|l| l.contains("About")), "{help:?}");
+    h.state_mut().ui.dialog = Some("about".into());
+    h.run_steps(3);
 }

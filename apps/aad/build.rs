@@ -14,8 +14,8 @@ fn main() {
     }
     res.set("ProductName", "AAD")
         .set("FileDescription", "AAD computer-aided design")
-        .set("CompanyName", "Learning Machines LLC")
-        .set("LegalCopyright", "Copyright (c) 2026 ArtCraft Team and the AAD contributors. MIT OR Apache-2.0.")
+        .set("CompanyName", "HolagundiWorks")
+        .set("LegalCopyright", "Copyright (c) 2026 HolagundiWorks and the AAD contributors. MIT OR Apache-2.0.")
         .set("OriginalFilename", "aad.exe")
         .set("InternalName", "aad");
     if let Err(e) = res.compile() {

@@ -30,7 +30,6 @@ impl NativeMenu {
         let mut counter = 0usize;
         let app_menu = Submenu::new("AAD", true);
         let about = MenuItem::with_id("cc-about", "About AAD", true, None);
-        let discord = MenuItem::with_id("cc-discord", "Join the ArtCraft Discord…", true, None);
         let predefined = vec![
             ("Services", PredefinedMenuItem::services(Some("Services"))),
             ("Hide AAD", PredefinedMenuItem::hide(Some("Hide AAD"))),
@@ -38,7 +37,7 @@ impl NativeMenu {
             ("Show All", PredefinedMenuItem::show_all(Some("Show All"))),
             ("Quit AAD", PredefinedMenuItem::quit(Some("Quit AAD"))),
         ];
-        let _ = app_menu.append_items(&[&about, &discord, &PredefinedMenuItem::separator()]);
+        let _ = app_menu.append_items(&[&about, &PredefinedMenuItem::separator()]);
         for (label, item) in &predefined {
             let _ = app_menu.append(item);
             if ["Services", "Show All"].contains(label) {
@@ -46,7 +45,6 @@ impl NativeMenu {
             }
         }
         items.insert("cc-about".into(), ("ui.dialog.about".into(), "About AAD".into(), about));
-        items.insert("cc-discord".into(), ("ui.discord".into(), "Join the ArtCraft Discord…".into(), discord));
         let _ = menu.append(&app_menu);
         for (title, entries) in menus::tree(app) {
             let sub = Submenu::new(&title, true);
@@ -60,11 +58,7 @@ impl NativeMenu {
     pub fn poll(&mut self, app: &mut CadApp, ctx: &egui::Context) {
         while let Ok(ev) = MenuEvent::receiver().try_recv() {
             if let Some((cmd, _, _)) = self.items.get(ev.id.as_ref()) {
-                if cmd == "ui.discord" {
-                    ctx.open_url(egui::OpenUrl::new_tab("https://discord.gg/artcraft"));
-                } else {
-                    menus::activate(app, &cmd.clone());
-                }
+                menus::activate(app, &cmd.clone());
                 ctx.request_repaint();
             }
         }

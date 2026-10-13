@@ -114,7 +114,11 @@ pub fn command_entries(prefix: &str) -> Vec<Entry> {
         .filter(|c| !c.id.contains('.') && (c.id.starts_with(&p) || c.aliases.iter().any(|a| *a == p)))
         .map(|c| (c.id.to_ascii_uppercase(), c.label))
         .collect();
-    v.sort_by_key(|(id, _)| (id.len(), id.clone()));
+    // An exact name or alias first, then the shortest names: the first entry is what Space or Enter runs.
+    let exact = |id: &str| {
+        id.eq_ignore_ascii_case(&p) || aad_engine::command_specs().iter().any(|c| c.id.eq_ignore_ascii_case(id) && c.aliases.iter().any(|a| *a == p))
+    };
+    v.sort_by_key(|(id, _)| (!exact(id), id.len(), id.clone()));
     v.truncate(8);
     v.into_iter().map(|(id, label)| Entry { insert: id, label: label.to_string(), dim: false, note: String::new(), reference: false }).collect()
 }

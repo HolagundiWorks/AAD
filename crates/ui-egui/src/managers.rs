@@ -21,7 +21,9 @@ pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value,
     let dialog = match id {
         "linetype" | "lt" | "ltype" => "linetype",
         "ddptype" => "ptype",
+        "style" | "st" => "textstyle",
         "mleaderstyle" | "mls" => "mleaderstyle",
+        "room.settings" => "roomsettings",
         "pagesetup" => "pagesetup",
         _ => return None,
     };
@@ -35,6 +37,8 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, name: &str, open: &mut bool
         "linetype" => linetype(app, ctx, open),
         "ptype" => point_style(app, ctx, open),
         "mleaderstyle" => mleader_style(app, ctx, open),
+        "textstyle" => text_style(app, ctx, open),
+        "roomsettings" => room_settings(app, ctx, open),
         "pagesetup" => page_setup(app, ctx, open),
         _ => {
             *open = false;
@@ -351,7 +355,7 @@ fn style_manager(ctx: &egui::Context, open: &mut bool, title: &str, cmd: &'stati
                     let change = match f {
                         Field::Num(key, label, v) => {
                             ui.label(*label);
-                            num_field(ui, (cmd, &style.name, *key), *v).filter(|v| *v >= 0.0).map(|v| (*key, json!(v)))
+                            num_field(ui, (cmd, &style.name, *key), *v).filter(|v| *v >= 0.0 || *key == "oblique").map(|v| (*key, json!(v)))
                         }
                         Field::Choice(key, label, v, choices) => {
                             ui.label(*label);
@@ -478,5 +482,126 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
         });
     });
     set_temp(ctx, "pagesetup_sel", sel);
+    action
+}
+
+// ---------- Text Style ----------
+
+/// The fonts a text style can use: the built-in single-stroke font, the typography presets' families
+/// (whether installed here or not, so a project can name the font it is meant to use) and every
+/// installed font family, with the style's current font first when it is none of them.
+pub(crate) fn font_choices(current: &str) -> Vec<String> {
+    let mut v: Vec<String> = vec![aad_fonts::BUILTIN_FONT.to_string()];
+    for p in aad_fonts::registry::PRESETS {
+        for f in [p.sans, p.condensed, p.mono] {
+            if !v.iter().any(|x| x.eq_ignore_ascii_case(f)) {
+                v.push(f.to_string());
+            }
+        }
+    }
+    for f in aad_fonts::ttf::installed_families() {
+        if !v.iter().any(|x| x.eq_ignore_ascii_case(&f)) {
+            v.push(f);
+        }
+    }
+    if !current.is_empty() && !v.iter().any(|x| x.eq_ignore_ascii_case(current)) {
+        v.insert(0, current.to_string());
+    }
+    v
+}
+
+fn text_style(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
+    let Ok(d) = app.session.doc() else {
+        no_drawing(ctx, "Text Style", open);
+        return None;
+    };
+    let styles: Vec<Style> = d
+        .text_styles
+        .iter()
+        .map(|s| Style {
+            name: s.name.clone(),
+            fields: vec![
+                Field::Choice(
+                    "font",
+                    "Font",
+                    if aad_fonts::is_builtin_font(&s.font) { aad_fonts::BUILTIN_FONT.to_string() } else { s.font.clone() },
+                    font_choices(&s.font),
+                ),
+                Field::Num("height", "Height (0: ask each time)", s.height),
+                Field::Num("widthFactor", "Width factor", s.width_factor),
+                Field::Num("oblique", "Oblique angle (degrees)", (s.oblique.to_degrees() * 100.0).round() / 100.0),
+            ],
+        })
+        .collect();
+    let current = d.header.str("TEXTSTYLE", "Standard");
+    style_manager(ctx, open, "Text Style", "style", &current, &styles)
+}
+
+// ---------- Room Label Settings ----------
+
+/// Units, box, text height and font of the room labels (`room.settings`); the ROOM command uses
+/// them. Saved with the drawing.
+fn room_settings(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
+    if app.session.doc().is_err() {
+        no_drawing(ctx, "Room Label Settings", open);
+        return None;
+    }
+    let cur = app.session.execute("room.settings", &json!({})).unwrap_or(Value::Null);
+    let units = cur["units"].as_str().unwrap_or("").to_string();
+    let boxed = cur["box"].as_bool().unwrap_or(true);
+    let height = cur["textHeight"].as_f64();
+    let font = cur["font"].as_str().unwrap_or("").to_string();
+    let mut action = None;
+    egui::Window::new("Room Label Settings").open(open).default_size(vec2(420.0, 240.0)).resizable(false).show(ctx, |ui| {
+        ui.label(RichText::new("The floor in the top bar gives the number prefix; these settings are saved with the drawing.").small().weak());
+        ui.add_space(4.0);
+        egui::Grid::new("room_settings").num_columns(2).spacing(vec2(10.0, 8.0)).show(ui, |ui| {
+            ui.label("Drawing units (size text)");
+            egui::ComboBox::from_id_salt("room_units").selected_text(if units.is_empty() { "Drawing units" } else { units.as_str() }).show_ui(
+                ui,
+                |ui| {
+                    for (value, label) in [("", "Drawing units"), ("mm", "mm"), ("cm", "cm"), ("m", "m"), ("ft", "ft"), ("in", "in")] {
+                        if ui.selectable_label(units == value, label).clicked() && units != value {
+                            action = Some(("room.settings", json!({ "units": value })));
+                        }
+                    }
+                },
+            );
+            ui.end_row();
+            ui.label("Box around the room");
+            let mut b = boxed;
+            if ui.checkbox(&mut b, "Draw the room rectangle").changed() {
+                action = Some(("room.settings", json!({ "box": b })));
+            }
+            ui.end_row();
+            ui.label("Text height (drawing units)");
+            let shown = height.map(fmt_num).unwrap_or_default();
+            if let Some(t) = expr_field(ui, egui::Id::new("room_text_height"), &shown) {
+                let t = t.trim();
+                if t.is_empty() {
+                    action = Some(("room.settings", json!({ "textHeight": Value::Null })));
+                } else if let Ok(v) = t.parse::<f64>() {
+                    action = Some(("room.settings", json!({ "textHeight": v })));
+                }
+            }
+            ui.end_row();
+            ui.label("Font");
+            let choices = font_choices(&font);
+            let label = if font.is_empty() { "Text style default" } else { font.as_str() };
+            egui::ComboBox::from_id_salt("room_font").selected_text(label).width(220.0).show_ui(ui, |ui| {
+                if ui.selectable_label(font.is_empty(), "Text style default").clicked() && !font.is_empty() {
+                    action = Some(("room.settings", json!({ "font": "" })));
+                }
+                for c in &choices {
+                    if ui.selectable_label(c.eq_ignore_ascii_case(&font), c).clicked() && !c.eq_ignore_ascii_case(&font) {
+                        action = Some(("room.settings", json!({ "font": c })));
+                    }
+                }
+            });
+            ui.end_row();
+        });
+        ui.add_space(4.0);
+        ui.label(RichText::new("Blank text height: 125 mm worth of drawing units.").small().weak());
+    });
     action
 }
