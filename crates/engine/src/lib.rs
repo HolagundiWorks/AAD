@@ -13,6 +13,7 @@ pub mod assoc;
 pub mod audit;
 pub mod calc;
 pub mod cmd;
+pub mod dyninput;
 mod finite;
 pub mod flatten;
 pub mod forms;

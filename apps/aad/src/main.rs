@@ -1,6 +1,9 @@
 //! AAD desktop app.
 //!
-//! Usage: `aad [--control <port>] [--sample] [files…]`
+//! Usage: `aad [--control <port>] [--sample] [--egui] [files…]`
+//!
+//! On Windows, with no file and no `--control`, this starts the WinUI shell when `Aad.WinUi.exe`
+//! is beside the program or at `target/aad-winui`. `--egui` keeps this egui window.
 //!
 //! `--control <port>` (or `AAD_CONTROL_PORT`) starts a localhost JSON-lines control server:
 //! `{"id":1,"method":"cmdline.input","params":{"text":"circle 0,0 5"}}` → `{"id":1,"ok":true,…}`.
@@ -168,6 +171,19 @@ fn version_string() -> String {
 
 /// The control port from `--control <port>` or `AAD_CONTROL_PORT` (`source`); a value that is
 /// not a port is logged and ignored instead of silently starting no control channel.
+/// `Aad.WinUi.exe` beside this program, or the unpackaged build under `target/aad-winui`.
+#[cfg(windows)]
+fn winui_executable() -> Option<std::path::PathBuf> {
+    if let Some(path) = std::env::var_os("AAD_WINUI") {
+        let path = std::path::PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    [dir.join("Aad.WinUi.exe"), dir.join("../aad-winui/Aad.WinUi.exe")].into_iter().find(|path| path.is_file())
+}
+
 fn control_port_from(source: &str, value: Option<String>) -> Option<u16> {
     let value = value?;
     let port = value.trim().parse().ok();
@@ -188,11 +204,13 @@ fn main() -> eframe::Result {
     let mut control_port = control_port_from("AAD_CONTROL_PORT", std::env::var_os("AAD_CONTROL_PORT").map(|p| p.to_string_lossy().into_owned()));
     let mut files = Vec::new();
     let mut sample = false;
+    let mut egui = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--control" => control_port = control_port_from("--control", args.next()),
             "--sample" => sample = true,
+            "--egui" => egui = true,
             "--version" | "-V" => {
                 println!("{}", version_string());
                 return Ok(());
@@ -212,6 +230,22 @@ fn main() -> eframe::Result {
             }
         }
     }
+    // The Windows shell is the WinUI app. `--egui` and `--control` keep this process, which still
+    // has the assistant and the control channel. A drawing path stays here too, until the WinUI
+    // shell takes file arguments.
+    #[cfg(windows)]
+    if !egui
+        && control_port.is_none()
+        && files.is_empty()
+        && let Some(path) = winui_executable()
+    {
+        match std::process::Command::new(&path).spawn() {
+            Ok(_) => return Ok(()),
+            Err(error) => log::warn!("WinUI shell ({}): {error}", path.display()),
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = egui;
     install_io();
     let surface = aad_ui_egui::gpu::surface_config(std::env::var("AAD_VSYNC").ok().as_deref(), cfg!(all(unix, not(target_os = "macos"))));
     let mut options = eframe::NativeOptions {

@@ -1,6 +1,6 @@
 # User interface
 
-The interface as built (egui / eframe, GPU canvas). The control-by-control inventory and the
+This document describes the egui window (`aad --egui`). The Windows shell started by `aad` is the WinUI app in `apps/aad-winui`; what it implements is in [status.md](status.md). The control-by-control inventory and the
 measured behaviour are in [UI_INVENTORY.md](UI_INVENTORY.md), [UI_TEST_MATRIX.md](UI_TEST_MATRIX.md)
 and [UI_BASELINE.md](UI_BASELINE.md); workspace details in [workspaces.md](workspaces.md).
 

@@ -374,7 +374,8 @@ fn draw_list_gpu(c: &mut CanvasState, p: &egui::Painter, xf: &Xf, bg: Rgb, lwdis
     };
     if c.mesh_key != Some(key) {
         let t0 = crate::now_ms();
-        let mesh = crate::gpu::build_mesh(list, origin, bg, lwdisplay);
+        let mut mesh = crate::gpu::build_mesh(list, origin, bg, lwdisplay);
+        crate::gpu::expand_hairlines(&mut mesh);
         if let Ok(mut slot) = c.mesh_slot.lock() {
             *slot = Some(mesh);
         }

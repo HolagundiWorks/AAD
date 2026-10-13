@@ -29,9 +29,14 @@ troubleshooting: [docs/BUILD_AND_DEVELOPMENT.md](docs/BUILD_AND_DEVELOPMENT.md).
 ## Build and run
 
 ```sh
-cargo run --release -p aad -- --sample    # desktop app with a sample drawing
-cargo run --release -p aad -- file.dxf    # open a file
+cargo build -p aad-host
+dotnet build apps/aad-winui/Aad.WinUi.csproj -c Debug -p:Platform=x64 -o target/aad-winui
+cargo run --release -p aad -- --sample    # WinUI shell when Aad.WinUi.exe is built; otherwise the egui window
+cargo run --release -p aad -- --egui --sample
+cargo run --release -p aad -- file.dxf    # a file path stays on the egui window
 ```
+
+The WinUI shell needs the .NET 8 SDK. `aad --egui` and `aad --control PORT` keep the egui window (the assistant and the control channel). Copy `target/debug/aad_host.dll` next to `Aad.WinUi.exe` after building the host.
 
 Type commands at the command line, for example:
 

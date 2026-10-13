@@ -2,8 +2,8 @@
 //!
 //! [`build`] turns a drawing space into a [`DisplayList`]: world-space polylines, filled
 //! triangles and points, each tagged with its top-level entity handle and resolved colour.
-//! Linetypes, hatches, text, block references and dimensions are expanded here. The UI uploads
-//! the list to the GPU; [`raster`] draws it on the CPU (PNG export, plot preview, tests).
+//! Linetypes, hatches, text, block references and dimensions are expanded here. [`mesh`] packs
+//! the list for the GPU canvas; [`raster`] draws it on the CPU (PNG export, plot preview, tests).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![forbid(unsafe_code)]
 
@@ -13,6 +13,7 @@ mod fill;
 mod hatch;
 mod linetype;
 mod linetype_text;
+pub mod mesh;
 pub mod paper;
 mod plotstyle;
 mod point;

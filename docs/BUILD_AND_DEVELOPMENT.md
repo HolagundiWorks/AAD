@@ -31,11 +31,14 @@ Outputs are in `target/debug` and `target/release` (`aad.exe`, `aad-cli.exe`).
 ## Run
 
 ```text
-cargo run --release -p aad -- --sample            # verified: desktop app with a sample drawing
-cargo run --release -p aad -- file.dxf            # open a file
-cargo run --release -p aad -- --control 47123     # verified: with the JSON control channel
+cargo run --release -p aad -- --sample            # WinUI shell when target/aad-winui/Aad.WinUi.exe exists
+cargo run --release -p aad -- --egui --sample     # egui window
+cargo run --release -p aad -- file.dxf            # a file path stays on the egui window
+cargo run --release -p aad -- --control 47123     # egui window, JSON control channel
 cargo run --release -p aad-cli -- info examples/apartment.dxf
 ```
+
+The WinUI shell is built separately: `cargo build -p aad-host`, then `dotnet build apps/aad-winui/Aad.WinUi.csproj -c Debug -p:Platform=x64 -o target/aad-winui`. Copy `target/debug/aad_host.dll` beside `Aad.WinUi.exe`. That build needs the .NET 8 SDK.
 
 The control channel is described in [control-protocol.md](control-protocol.md).
 

@@ -9,4 +9,6 @@
 .DS_Store
 *.swp
 /apps/aad-web/dist/
+/apps/aad-winui/obj/
+/apps/aad-winui/bin/
 /.claude/worktrees/

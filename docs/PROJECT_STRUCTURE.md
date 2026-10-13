@@ -40,6 +40,7 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 | `dwg` | `lib.rs` (bridge to `acadrust`), `isolated.rs` (worker process) |
 | `engine` | `src/lib.rs` (`Session`), `cmd/` (commands, 48 files plus subfolders `blocks/`, `layer/`, `layout/`, `props/`), `snap.rs` and `snap/`, `select.rs`, `spatial.rs`, `finite.rs`, `guard.rs`, `flatten.rs`, `audit.rs`, `assoc.rs`; `tests/` (81 files); `benches/` |
 | `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code); `tests/` (17 files) |
+| `aad-host` | C ABI, registry menu, command line, pointer input, and Win32 child window for the WinUI shell. `apps/aad-winui` is the C# project and is excluded from the Cargo workspace |
 | `mcp`, `agent`, `llm` | MCP server, allow-listed tool layer, model runtime facade |
 | `aorms` | AORMS sign-in client and project calls (network, kept off the UI thread) |
 
@@ -47,7 +48,8 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 
 | Binary | File |
 |---|---|
-| `aad` | `apps/aad/src/main.rs` (`install_io()` registers the file formats; the DWG worker mode is handled first in `main`) |
+| `aad` | `apps/aad/src/main.rs` (`install_io()` registers the file formats; the DWG worker mode is handled first in `main`). On Windows, with no file and no `--control`, it starts `Aad.WinUi.exe` when that program has been built |
+| `Aad.WinUi` | `apps/aad-winui` (C#, not a Cargo member) |
 | `aad-cli` | `apps/aad-cli/src/main.rs` |
 | `aad-web` | `apps/aad-web/src/main.rs` (WASM) |
 | `xtask` | `xtask/src/main.rs` |

@@ -6,8 +6,8 @@
 //! a per-build origin so large world coordinates keep their precision; at deep zoom the origin
 //! follows the view (see [`choose_origin`]).
 //!
-//! Batches: filled triangles (TriangleList), 1-px hairlines (LineList), and instanced screen-space
-//! quads for wide lineweights and point markers. Fills are drawn first, then lines on top. A
+//! Batches: filled triangles (TriangleList) and instanced screen-space quads for strokes and
+//! point markers. Hairlines are 1-point quads, not hardware lines. Fills are drawn first. A
 //! wipeout starts a new draw-order group (see [`MeshData::breaks`]): its background-coloured mask
 //! is drawn after everything before it and under everything after it. The shader only uses
 //! vertex buffers and one uniform buffer, so it runs on WebGPU and WebGL2.
@@ -17,20 +17,13 @@
 
 use std::sync::{Arc, Mutex};
 
-use aad_color::Rgb;
-use aad_geom::{Bounds2, Vec2};
-use aad_render::{DisplayList, Kind};
+use aad_render::mesh::{CANVAS_SHADER as SHADER, INSTANCE_SIZE, VERTEX_SIZE};
+pub use aad_render::mesh::{MeshData, build_mesh, choose_origin, expand_hairlines, wide_width};
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
 
-/// Line/triangle vertex: position (2 × f32, relative to the origin) + sRGB colour (4 × u8).
-const VERTEX_SIZE: usize = 12;
-/// Wide-line / point instance: a, b (2 × f32 each) + colour (4 × u8) + width in points (f32).
-const INSTANCE_SIZE: usize = 24;
 /// Vertices (or instances) per GPU buffer; divisible by 2 and 3 so no primitive straddles two.
 const CHUNK: usize = 4_194_300;
-/// Point markers are 1.5 × 1.5 points (as on the CPU path).
-const POINT_SIZE: f32 = 1.5;
 
 /// How the native window presents frames (`NativeOptions::wgpu_options.surface`).
 ///
@@ -94,130 +87,6 @@ pub struct GpuTarget {
     pub format: wgpu::TextureFormat,
 }
 
-/// CPU-side vertex data for one display list, waiting to be uploaded.
-#[derive(Default)]
-pub struct MeshData {
-    pub lines: Vec<u8>,
-    pub tris: Vec<u8>,
-    pub quads: Vec<u8>,
-    /// Draw-order breaks, one before each wipeout mask: the fill vertices, line vertices and
-    /// quad instances drawn before it. Each group is drawn fills, lines, quads in turn.
-    pub breaks: Vec<[usize; 3]>,
-}
-
-impl MeshData {
-    pub fn line_vertices(&self) -> usize {
-        self.lines.len() / VERTEX_SIZE
-    }
-    pub fn tri_vertices(&self) -> usize {
-        self.tris.len() / VERTEX_SIZE
-    }
-    pub fn quad_instances(&self) -> usize {
-        self.quads.len() / INSTANCE_SIZE
-    }
-}
-
-fn rel(p: Vec2, origin: Vec2) -> [f32; 2] {
-    [(p.x - origin.x) as f32, (p.y - origin.y) as f32]
-}
-
-fn push_vertex(out: &mut Vec<u8>, p: [f32; 2], c: [u8; 4]) {
-    out.extend_from_slice(&p[0].to_le_bytes());
-    out.extend_from_slice(&p[1].to_le_bytes());
-    out.extend_from_slice(&c);
-}
-
-fn push_instance(out: &mut Vec<u8>, a: [f32; 2], b: [f32; 2], c: [u8; 4], width: f32) {
-    for v in [a[0], a[1], b[0], b[1]] {
-        out.extend_from_slice(&v.to_le_bytes());
-    }
-    out.extend_from_slice(&c);
-    out.extend_from_slice(&width.to_le_bytes());
-}
-
-/// Lineweight in screen points for a primitive (as on the CPU path), or `None` for a hairline.
-pub fn wide_width(lw: f32, lwdisplay: bool) -> Option<f32> {
-    if !lwdisplay || lw <= 0.0 {
-        return None;
-    }
-    let w = (lw * 3.78).clamp(1.0, 12.0);
-    (w > 1.0).then_some(w)
-}
-
-/// Convert a display list into vertex data relative to `origin`, colours resolved against `bg`.
-pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) -> MeshData {
-    let mut m = MeshData {
-        lines: Vec::with_capacity(list.segment_count().saturating_mul(2 * VERTEX_SIZE)),
-        tris: Vec::with_capacity(list.tris.len().saturating_mul(VERTEX_SIZE)),
-        quads: Vec::new(),
-        breaks: Vec::new(),
-    };
-    for prim in &list.prims {
-        let c = prim.display_rgb(bg);
-        let col = [c.0, c.1, c.2, 255];
-        let pts = list.points(prim);
-        match prim.kind {
-            Kind::Polyline => match wide_width(prim.lw, lwdisplay) {
-                Some(w) => {
-                    for s in pts.windows(2) {
-                        if let [a, b] = s {
-                            push_instance(&mut m.quads, rel(*a, origin), rel(*b, origin), col, w);
-                        }
-                    }
-                }
-                None => {
-                    for s in pts.windows(2) {
-                        if let [a, b] = s {
-                            push_vertex(&mut m.lines, rel(*a, origin), col);
-                            push_vertex(&mut m.lines, rel(*b, origin), col);
-                        }
-                    }
-                }
-            },
-            Kind::Tris => {
-                for t in pts.as_chunks::<3>().0 {
-                    for q in t {
-                        push_vertex(&mut m.tris, rel(*q, origin), col);
-                    }
-                }
-            }
-            Kind::Mask => {
-                m.breaks.push([m.tri_vertices(), m.line_vertices(), m.quad_instances()]);
-                for t in pts.as_chunks::<3>().0 {
-                    for q in t {
-                        push_vertex(&mut m.tris, rel(*q, origin), [bg.0, bg.1, bg.2, 255]);
-                    }
-                }
-            }
-            Kind::Point => {
-                if let Some(q) = pts.first() {
-                    let p = rel(*q, origin);
-                    push_instance(&mut m.quads, p, p, col, POINT_SIZE);
-                }
-            }
-            // Drawn on the CPU each frame (clipped to the view).
-            Kind::Infinite { .. } => {}
-        }
-    }
-    m
-}
-
-/// The vertex origin for a display list seen at `view_center` / `view_height`: the list's centre
-/// normally; at deep zoom (the view much smaller than the drawing) a point near the view, snapped
-/// to a coarse grid so panning re-uploads only every few dozen screens.
-pub fn choose_origin(bounds: &Bounds2, view_center: Vec2, view_height: f64) -> Vec2 {
-    let size = bounds.width().max(bounds.height());
-    if bounds.is_empty()
-        || !view_center.is_finite()
-        || view_height.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
-        || view_height * 2000.0 >= size
-    {
-        return if bounds.is_empty() { Vec2::ZERO } else { bounds.center() };
-    }
-    let step = view_height * 64.0;
-    Vec2::new((view_center.x / step).round() * step, (view_center.y / step).round() * step)
-}
-
 /// Pending upload shared between the canvas (producer) and the paint callback (consumer).
 pub type MeshSlot = Arc<Mutex<Option<MeshData>>>;
 
@@ -254,79 +123,6 @@ struct Resources {
 }
 
 const UNIFORM_SIZE: u64 = 48;
-
-const SHADER: &str = r#"
-struct View {
-    a: vec4<f32>, // offset x, offset y (world), scale (device px per unit), 1 = linear output
-    b: vec4<f32>, // canvas centre x, y (device px), screen w, h (device px)
-    c: vec4<f32>, // pixels per point
-};
-@group(0) @binding(0) var<uniform> view: View;
-
-struct VOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) color: vec4<f32>,
-};
-
-fn to_px(p: vec2<f32>) -> vec2<f32> {
-    let w = (p + view.a.xy) * view.a.z;
-    return vec2<f32>(view.b.x + w.x, view.b.y - w.y);
-}
-
-fn px_to_clip(px: vec2<f32>) -> vec4<f32> {
-    return vec4<f32>(px.x / view.b.z * 2.0 - 1.0, 1.0 - px.y / view.b.w * 2.0, 0.0, 1.0);
-}
-
-fn out_color(c: vec4<f32>) -> vec4<f32> {
-    if (view.a.w > 0.5) {
-        let lo = c.rgb / 12.92;
-        let hi = pow((c.rgb + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
-        return vec4<f32>(select(hi, lo, c.rgb <= vec3<f32>(0.04045)), c.a);
-    }
-    return c;
-}
-
-@vertex
-fn vs_line(@location(0) pos: vec2<f32>, @location(1) color: vec4<f32>) -> VOut {
-    var o: VOut;
-    o.pos = px_to_clip(to_px(pos));
-    o.color = out_color(color);
-    return o;
-}
-
-@vertex
-fn vs_quad(
-    @builtin(vertex_index) vi: u32,
-    @location(0) a: vec2<f32>,
-    @location(1) b: vec2<f32>,
-    @location(2) color: vec4<f32>,
-    @location(3) width: f32,
-) -> VOut {
-    let pa = to_px(a);
-    let pb = to_px(b);
-    let d = pb - pa;
-    let len = length(d);
-    var dir = vec2<f32>(1.0, 0.0);
-    if (len > 0.0001) {
-        dir = d / len;
-    }
-    let n = vec2<f32>(-dir.y, dir.x);
-    // Width arrives in points.
-    let hw = 0.5 * width * view.c.x;
-    let t = select(0.0, 1.0, vi == 1u || vi == 4u || vi == 5u);
-    let s = select(-1.0, 1.0, vi == 2u || vi == 3u || vi == 5u);
-    let along = mix(pa - dir * hw, pb + dir * hw, t);
-    var o: VOut;
-    o.pos = px_to_clip(along + n * hw * s);
-    o.color = out_color(color);
-    return o;
-}
-
-@fragment
-fn fs_main(v: VOut) -> @location(0) vec4<f32> {
-    return v.color;
-}
-"#;
 
 fn vertex_layout() -> wgpu::VertexBufferLayout<'static> {
     const ATTRS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Float32x2, 1 => Unorm8x4];
@@ -516,8 +312,10 @@ fn batch_ranges(counts: impl IntoIterator<Item = u32>, range: std::ops::Range<us
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aad_color::Rgb;
     use aad_doc::Handle;
-    use aad_render::DPrim;
+    use aad_geom::{Bounds2, Vec2};
+    use aad_render::{DPrim, DisplayList, Kind};
 
     #[test]
     fn surface_config_prefers_low_latency_where_asked_and_honours_override() {

@@ -5,8 +5,8 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 
 ## Workspace
 
-13 library crates, 3 apps and `xtask`. `cargo xtask layers` enforces the layering: nothing below L5
-depends on egui, eframe, winit, wgpu or rfd.
+`cargo xtask layers` enforces the layering: nothing below L5 depends on egui, eframe, winit, wgpu or rfd.
+`apps/aad-winui` is C# and is excluded from the Cargo workspace.
 
 | Layer | Crate | What it does |
 |---|---|---|
@@ -20,10 +20,12 @@ depends on egui, eframe, winit, wgpu or rfd.
 | L3 | `dwg` | DWG through a DXF bridge: the `acadrust` crate (MPL-2.0, unmodified) converts DWG and DXF bytes; native builds only. The apps run the conversion in a worker process (`isolated.rs`) so a damaged file cannot abort the program |
 | standalone | `llm` | Offline language-model runtime facade (Qwen3 prompt format, model file check). The llama.cpp backend is behind the off-by-default `llama` feature and is not wired into the apps yet ([ai-agent.md](ai-agent.md)) |
 | L4 | `engine` | `Session`, the command registry (`cmd/*`), command-line parser and prompt machines, object snaps, selection, grips, associativity, system variables, units, undo, audit (`audit.rs`), flatten on import (`flatten.rs`) |
-| L5 | `ui-egui` | The egui front end: GPU canvas, menus, command line, palettes, dialogs, icons drawn in code, light/dark theme, interface string catalog |
+| L5 | `ui-egui` | The egui front end: GPU canvas, menus, command line, palettes, dialogs, icons drawn in code, light/dark theme, interface string catalog. Used by `aad --egui`, the control channel, the assistant and the web build |
+| L5 | `host` | Windows shell host: a session, the shared canvas mesh, pointer clicks, pan, wheel, snaps, grips, dynamic input, the registry menu, the command line, form descriptions, a revision-tagged properties/layers/blocks snapshot, and the C ABI `apps/aad-winui` calls. The drawing is a Win32 child because wgpu 30 has no SwapChainPanel surface |
 | L5 | `mcp` | MCP server (JSON-RPC 2.0 over stdio) on a headless session or bridged to a running app |
 | L5 | `agent` | Tool layer for a local language model: registry, validation, confirmation, loop limits, audit log ([ai-agent.md](ai-agent.md)) |
-| app | `aad` | Desktop app (eframe/wgpu) |
+| app | `aad` | Desktop app. On Windows it starts `aad-winui` when that program is built; `--egui` and `--control` keep the eframe window (assistant, control channel) |
+| app | `aad-winui` | Unpackaged WinUI 3 shell over `aad-host`: registry menus, command line, dynamic input, grips, snaps, form dialogs, file pickers, PDF preview, and resizable Classic/Pro panels around the child drawing window |
 | app | `aad-cli` | `info`, `convert`, `run` (scripts), `commands`, `sample`, `mcp` |
 | app | `aad-web` | WASM build of the same UI (no DWG) |
 | tool | `xtask` | `ci`, `layers`, `assets`, `wasm`, `parity`, `version`, `stats` |

@@ -44,6 +44,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("aorms", Class::Layer(3)),
     ("engine", Class::Layer(4)),
     ("ui-egui", Class::Layer(5)),
+    ("host", Class::Layer(5)),
     ("mcp", Class::Layer(5)),
     ("agent", Class::Layer(5)),
     ("llm", Class::Standalone),

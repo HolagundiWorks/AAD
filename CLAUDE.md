@@ -14,7 +14,7 @@ hatch, layout and plot commands.
 
 ## Never crash
 A crash loses someone's drawing. **This outranks feature work.**
-- **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`; no `unsafe` (`unsafe_code = "forbid"`).
+- **No panics in non-test code:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`; no `unsafe` (`unsafe_code = "forbid"`). `aad-host` is the exception: it denies `unsafe` and allows it only in the C ABI, the Win32 child window, and the swap-chain surface.
 - **Errors are `Result<T, E>`** through the crate's error type and `?`. An unfinished feature returns an error or reports "not available yet"; it never panics.
 - **Input-derived numbers are hostile** (DXF/DWG files, command-line text, MCP, control and agent parameters): `get()` not `[i]`, checked arithmetic, no NaN casts, cap input-sized allocations and loop counts.
 - **Bound recursion** (nested or cyclic block references: `MAX_BLOCK_DEPTH`).
@@ -28,15 +28,16 @@ A crash loses someone's drawing. **This outranks feature work.**
 - **Fonts** are never committed. They are an optional build input (`CRAFT_FONTS_DIR`); code and tests must work without them.
 - **Everything is a command.** User-visible behaviour is a command in `crates/engine/src/cmd/*` (`CommandSpec`: id, label, menu path, shortcut, aliases, params doc, `enabled`, JSON `run`, optional `interactive` prompt machine) with tests. UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools reach the same commands. New features reuse existing commands where possible.
 - **Programmatic calls never open dialogs.** `engine.execute` runs the JSON form with defaults; only menu or toolbar invocation starts the prompt sequence.
-- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `mcp`, `agent` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. The UI crate is swappable.
+- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `host`, `mcp`, `agent` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. The UI crate is swappable. `aad-host` may use wgpu. The C# shell calls only that ABI.
 - **The UI is thin:** panels read engine state and act through `app.run(id, params)`, `app.start(id)` and `app.cmdline(text)`. Colours come from `theme::Tokens`; there are two palettes (dark with a black drawing area, light with a white one) and no other colour customisation.
 - **The AI never calculates or repairs.** The model only proposes calls to allow-listed tools; geometry, repairs and quantities come from deterministic engine commands ([docs/ai-agent.md](docs/ai-agent.md)).
-- **Rust only** (no handwritten JS/TS). Keep the code portable: the wasm check (`cargo xtask wasm`) stays in CI so the later phases (macOS, Linux, web) do not start from a broken base. Do not add features that only work elsewhere.
+- **The engine stays Rust.** The Windows shell may be C# in `apps/aad-winui`, calling `aad-host`. No handwritten JS/TS. The wasm check (`cargo xtask wasm`) stays in CI. The WinUI shell is Windows-only; do not add engine features that only build there.
 - **Do not claim a feature works unless it exists and has a test.** Documentation separates implemented from planned ([docs/status.md](docs/status.md)).
 - **Quality gate** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layering, wasm).
 
 ## Running and inspecting the app
 - `cargo run --release -p aad -- --sample --control PORT` starts the app with a sample drawing and the control channel. Pick a free port.
+- On Windows, `aad` starts the WinUI shell when `Aad.WinUi.exe` is beside it or under `target/aad-winui`. Build it with `cargo build -p aad-host`, then `dotnet build apps/aad-winui/Aad.WinUi.csproj -c Debug -p:Platform=x64 -o target/aad-winui`, and copy `target/debug/aad_host.dll` next to the exe. The shell draws the sample into a child window. Menus come from the engine registry; the command line runs the same prompts (`LINE 0,0 10,0`, Escape cancels). Clicks, drag selection, object snaps, the rubber-band preview, grips, middle-button pan and right-click Enter go to the child window. Open, Save and Save As use WinUI file pickers. Classic shows Properties, Layers and Blocks; Pro hides those columns. The dividers resize the columns. Dark and Light switch the window chrome and the drawing background. PDF previews the current layout, or another PDF file, in its own window. Dynamic input draws the typed distance or coordinates beside the cursor (Tab inserts the separator, or cycles object snaps when the line is empty; Enter places a locked point). Space or Enter on an empty line cycles a hot grip (stretch, move, rotate, scale, mirror). A menu command that has a form opens a settings window; points are then picked on the drawing. `--egui` and `--control` keep the egui window, which still has the assistant and the control channel.
 - Drive it with JSON lines on `127.0.0.1:PORT`:
   - `{"id":1,"method":"cmdline.input","params":{"text":"circle 0,0 5"}}` types at the command line like a user.
   - `{"id":2,"method":"engine.execute","params":{"command":"line","params":{"points":[[0,0],[10,0]]}}}` is the JSON form.
