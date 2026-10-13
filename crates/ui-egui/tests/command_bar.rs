@@ -408,3 +408,14 @@ fn typed_raw(h: &mut Harness<'static, CadApp>, text: &str) {
     h.event(Event::Text(text.to_string()));
     h.run_steps(1);
 }
+
+#[test]
+fn a_long_sentence_with_coordinates_goes_to_the_assistant_as_one_request() {
+    let s = shared();
+    let mut h = harness(Some(s.clone()));
+    let text = "What objects are near the point 4,3 and where is the text located?";
+    let msg = h.state_mut().cmdline(text);
+    assert_eq!(msg, None, "{msg:?}");
+    assert_eq!(sent(&s), [format!("submit:{text}")], "log: {:?}", h.state().session.log);
+    assert!(!h.state().session.log.iter().any(|l| l.starts_with("Command:")), "nothing ran as a command: {:?}", h.state().session.log);
+}
