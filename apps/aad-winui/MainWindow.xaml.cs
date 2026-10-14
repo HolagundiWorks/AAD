@@ -1,11 +1,15 @@
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.Data.Pdf;
 using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
@@ -25,16 +29,38 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _timer;
     private int _ticks;
     private string _panelKey = "";
+    private string _layoutKey = "";
+    private string _docKey = "";
+    private bool _filling;
+    private bool _historyOpen;
+    private bool _asking;
+    private bool _allowClose;
+    private string _ownClipboard = "";
+    private static readonly (string Id, string Label)[] Tools =
+    [
+        ("line", "Line"), ("pline", "Polyline"), ("circle", "Circle"), ("arc", "Arc"), ("rectang", "Rectangle"),
+        ("move", "Move"), ("copy", "Copy"), ("rotate", "Rotate"), ("offset", "Offset"), ("trim", "Trim"),
+        ("erase", "Erase"), ("dimlinear", "Dimension"), ("text", "Text"), ("hatch", "Hatch"),
+    ];
     private bool _classic = true;
     private bool _dark = true;
     private Window? _pdfWindow;
     private Window? _formWindow;
+    private LayerManagerWindow? _layersWindow;
+    private Window? _unitsWindow;
+    private DraftingWindow? _draftingWindow;
+    private QuickWindow? _quickWindow;
+    private QuickSelectWindow? _quickSelectWindow;
+    private string? _quickJson;
+    private string _command = "";
+    private bool _qpmode;
 
     internal void HoldForm(Window? window) => _formWindow = window;
 
     public MainWindow()
     {
         InitializeComponent();
+        AppWindow.Closing += OnAppClosing;
         _host = Native.Create(sample: true);
         Closed += (_, _) =>
         {
@@ -51,9 +77,14 @@ public sealed partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         BuildMenus();
+        BuildTools();
         RefreshChrome();
         RefreshPanels();
         ApplyShellTheme();
+        if (Content is DependencyObject root)
+        {
+            Density.Apply(root);
+        }
     }
 
     private void OnCanvasSize(object sender, SizeChangedEventArgs e)
@@ -72,6 +103,13 @@ public sealed partial class MainWindow : Window
         {
             e.Handled = true;
             var text = CommandInput.Text;
+            if (Native.GripPoint(_host, text))
+            {
+                CommandInput.Text = "";
+                RefreshChrome();
+                RefreshPanels();
+                return;
+            }
             if (string.IsNullOrWhiteSpace(text) && Native.GripCycle(_host))
             {
                 RefreshChrome();
@@ -107,10 +145,12 @@ public sealed partial class MainWindow : Window
                 Native.SnapTab(_host);
             }
         }
-        else if (e.Key == Windows.System.VirtualKey.Space && string.IsNullOrEmpty(CommandInput.Text) && Native.GripCycle(_host))
+        else if (e.Key == Windows.System.VirtualKey.Space && (Native.GripPoint(_host, CommandInput.Text) || (string.IsNullOrWhiteSpace(CommandInput.Text) && Native.GripCycle(_host))))
         {
             e.Handled = true;
+            CommandInput.Text = "";
             RefreshChrome();
+            RefreshPanels();
         }
     }
 
@@ -129,9 +169,38 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
+        StartCommand(id);
+    }
+
+    private void StartCommand(string id)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
         if (id is "open" or "qsave" or "saveas")
         {
             _ = PickFile(id);
+            return;
+        }
+        if (id == "close")
+        {
+            _ = CloseActive();
+            return;
+        }
+        if (id == "layer")
+        {
+            OpenLayers();
+            return;
+        }
+        if (id == "dsettings")
+        {
+            OpenDrafting();
+            return;
+        }
+        if (id == "qselect")
+        {
+            OpenQuickSelect();
             return;
         }
         var form = Native.ReadForm(_host, id);
@@ -144,23 +213,244 @@ public sealed partial class MainWindow : Window
         AfterCommand();
     }
 
-    private async Task PickFile(string id)
+    private void OnShellKey(object sender, KeyRoutedEventArgs e)
     {
-        if (_host == IntPtr.Zero)
+        if (_host == IntPtr.Zero || Typing())
         {
             return;
         }
+        var ctrl = KeyDown(Windows.System.VirtualKey.Control);
+        var shift = KeyDown(Windows.System.VirtualKey.Shift);
+        if (e.Key == Windows.System.VirtualKey.F1)
+        {
+            e.Handled = true;
+            CommandList.Show(this, Native.ReadText(_host, Native.TextMenu));
+            return;
+        }
+        if (e.Key == Windows.System.VirtualKey.F2)
+        {
+            e.Handled = true;
+            _historyOpen = !_historyOpen;
+            HistoryScroll.MaxHeight = _historyOpen ? 240 : 72;
+            return;
+        }
+        if (ctrl && e.Key == Windows.System.VirtualKey.F11)
+        {
+            e.Handled = true;
+            if (shift)
+            {
+                PropertiesColumn.Width = new GridLength(165);
+                BlocksColumn.Width = new GridLength(195);
+            }
+            else
+            {
+                OnWorkspace(this, e);
+            }
+            return;
+        }
+        if (ctrl && e.Key == Windows.System.VirtualKey.W)
+        {
+            e.Handled = true;
+            _ = CloseActive();
+            return;
+        }
+        if (ctrl && e.Key == Windows.System.VirtualKey.Q)
+        {
+            e.Handled = true;
+            _ = CloseAll(quit: true);
+            return;
+        }
+        if (ctrl && e.Key is Windows.System.VirtualKey.Number9 or Windows.System.VirtualKey.NumberPad9)
+        {
+            e.Handled = true;
+            CommandInput.Focus(FocusState.Programmatic);
+            return;
+        }
+        if (e.Key == Windows.System.VirtualKey.Delete && !ctrl)
+        {
+            e.Handled = true;
+            RunShortcut("erase");
+            return;
+        }
+        var id = (ctrl, shift, e.Key) switch
+        {
+            (true, true, Windows.System.VirtualKey.Z) => "redo",
+            (true, false, Windows.System.VirtualKey.Z) => "u",
+            (true, false, Windows.System.VirtualKey.Y) => "redo",
+            (true, false, Windows.System.VirtualKey.N) => "new",
+            (true, false, Windows.System.VirtualKey.O) => "open",
+            (true, true, Windows.System.VirtualKey.S) => "saveas",
+            (true, false, Windows.System.VirtualKey.S) => "qsave",
+            (true, false, Windows.System.VirtualKey.P) => "plot",
+            (true, false, Windows.System.VirtualKey.A) => "selectall",
+            (true, true, Windows.System.VirtualKey.C) => "copybase",
+            (true, false, Windows.System.VirtualKey.C) => "copyclip",
+            (true, false, Windows.System.VirtualKey.X) => "cutclip",
+            (true, true, Windows.System.VirtualKey.V) => "pasteblock",
+            (true, false, Windows.System.VirtualKey.V) => "pasteclip",
+            (false, false, Windows.System.VirtualKey.F3) => "osnap",
+            (false, false, Windows.System.VirtualKey.F8) => "ortho",
+            (false, false, Windows.System.VirtualKey.F10) => "polar",
+            (false, false, Windows.System.VirtualKey.F11) => "otrack",
+            (false, false, Windows.System.VirtualKey.F12) => "dynmode",
+            _ => "",
+        };
+        if (id.Length == 0)
+        {
+            return;
+        }
+        e.Handled = true;
+        if (id is "open" or "qsave" or "saveas")
+        {
+            _ = PickFile(id);
+            return;
+        }
+        if (id is "pasteclip" or "pasteblock")
+        {
+            _ = Paste(id);
+            return;
+        }
+        RunShortcut(id);
+    }
+
+    private static bool KeyDown(Windows.System.VirtualKey key) =>
+        (InputKeyboardSource.GetKeyStateForCurrentThread(key) & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+
+    private bool Typing()
+    {
+        if (Content is not FrameworkElement root || root.XamlRoot == null)
+        {
+            return false;
+        }
+        return FocusManager.GetFocusedElement(root.XamlRoot) is TextBox or ComboBox;
+    }
+
+    private void RunShortcut(string id)
+    {
+        if (id is "copyclip" or "cutclip" or "copybase")
+        {
+            if (Native.Execute(_host, id, "{}") != 0)
+            {
+                History.Text = Native.LastError(_host);
+            }
+            else
+            {
+                PublishClipboard();
+            }
+            AfterCommand();
+            return;
+        }
+        if (id is "u" or "redo" or "selectall" or "erase" or "new" or "osnap" or "ortho" or "polar" or "otrack" or "dynmode")
+        {
+            if (Native.Execute(_host, id, "{}") != 0)
+            {
+                History.Text = Native.LastError(_host);
+            }
+            _docKey = "";
+            AfterCommand();
+            return;
+        }
+        StartCommand(id);
+    }
+
+    private void PublishClipboard()
+    {
+        var text = Native.ReadClipboard(_host);
+        if (text.Length == 0)
+        {
+            return;
+        }
+        _ownClipboard = text;
+        var package = new DataPackage();
+        package.SetText(text);
+        Clipboard.SetContent(package);
+    }
+
+    private async Task Paste(string id)
+    {
         try
         {
-            await PickFileCore(id);
+            var view = Clipboard.GetContent();
+            if (view.Contains(StandardDataFormats.Text))
+            {
+                var text = await view.GetTextAsync();
+                if (text.Length > 0 && text != _ownClipboard)
+                {
+                    Native.LoadClipboard(_host, text);
+                }
+            }
         }
         catch (Exception ex)
         {
             History.Text = ex.Message;
         }
+        if (Native.Execute(_host, id, "{}") != 0)
+        {
+            History.Text = Native.LastError(_host);
+        }
+        AfterCommand();
     }
 
-    private async Task PickFileCore(string id)
+    private void OnMode(object sender, RoutedEventArgs e)
+    {
+        if (_host == IntPtr.Zero || sender is not ToggleButton button || button.Tag is not string id || button.IsChecked is not bool on)
+        {
+            return;
+        }
+        var json = JsonSerializer.Serialize(new Dictionary<string, object> { ["on"] = on });
+        if (Native.Execute(_host, id, json) != 0)
+        {
+            History.Text = Native.LastError(_host);
+        }
+        RefreshChrome();
+    }
+
+    private void OnNewLayout(object sender, RoutedEventArgs e)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (Native.Execute(_host, "layout.new", "{}") != 0)
+        {
+            History.Text = Native.LastError(_host);
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(Native.ReadResult(_host));
+            var name = doc.RootElement.TryGetProperty("name", out var value) ? value.GetString() : null;
+            if (!string.IsNullOrEmpty(name))
+            {
+                Native.Execute(_host, "layout.set", JsonSerializer.Serialize(new Dictionary<string, object> { ["name"] = name }));
+            }
+        }
+        catch (JsonException)
+        {
+            History.Text = "The new layout could not be read.";
+        }
+        _layoutKey = "";
+        AfterCommand();
+    }
+
+    private async Task<bool> PickFile(string id)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return false;
+        }
+        try
+        {
+            return await PickFileCore(id);
+        }
+        catch (Exception ex)
+        {
+            History.Text = ex.Message;
+            return false;
+        }
+    }
+
+    private async Task<bool> PickFileCore(string id)
     {
         var hwnd = WindowNative.GetWindowHandle(this);
         if (id == "open")
@@ -172,32 +462,33 @@ public sealed partial class MainWindow : Window
             var file = await picker.PickSingleFileAsync();
             if (file == null)
             {
-                return;
+                return false;
             }
             if (Native.Execute(_host, "open", PathJson(file.Path)) != 0)
             {
                 History.Text = Native.LastError(_host);
+                AfterCommand();
+                return false;
             }
-            else
-            {
-                Native.Execute(_host, "zoom.extents", "{}");
-            }
+            Native.Execute(_host, "zoom.extents", "{}");
+            _docKey = "";
             AfterCommand();
-            return;
+            return true;
         }
         if (id == "qsave")
         {
             if (Native.Execute(_host, "qsave", "{}") == 0)
             {
+                _docKey = "";
                 AfterCommand();
-                return;
+                return true;
             }
             var err = Native.LastError(_host);
             if (!err.Contains("no file name", StringComparison.OrdinalIgnoreCase))
             {
                 History.Text = err;
                 AfterCommand();
-                return;
+                return false;
             }
         }
         var save = new FileSavePicker();
@@ -208,13 +499,126 @@ public sealed partial class MainWindow : Window
         var chosen = await save.PickSaveFileAsync();
         if (chosen == null)
         {
-            return;
+            return false;
         }
         if (Native.Execute(_host, "saveas", PathJson(chosen.Path)) != 0)
         {
             History.Text = Native.LastError(_host);
+            AfterCommand();
+            return false;
         }
+        _docKey = "";
         AfterCommand();
+        return true;
+    }
+
+    private void OnAppClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (_allowClose)
+        {
+            return;
+        }
+        args.Cancel = true;
+        _ = CloseAll(quit: true);
+    }
+
+    private async Task CloseActive()
+    {
+        if (_asking || _host == IntPtr.Zero)
+        {
+            return;
+        }
+        _asking = true;
+        try
+        {
+            _docKey = "";
+            RefreshChrome();
+            var active = _documents.FirstOrDefault(doc => doc.Active) ?? _documents.FirstOrDefault();
+            if (active != null && active.Dirty && !await DiscardOrSave(active.Title))
+            {
+                return;
+            }
+            var index = active?.Index ?? 0;
+            if (Native.Execute(_host, "close", JsonSerializer.Serialize(new Dictionary<string, object> { ["index"] = index })) != 0)
+            {
+                History.Text = Native.LastError(_host);
+                return;
+            }
+            _docKey = "";
+            RefreshChrome();
+            if (_documents.Count == 0)
+            {
+                Native.Execute(_host, "new", "{}");
+            }
+            _panelKey = "";
+            _layoutKey = "";
+            AfterCommand();
+        }
+        finally
+        {
+            _asking = false;
+        }
+    }
+
+    private async Task CloseAll(bool quit)
+    {
+        if (_asking || _host == IntPtr.Zero)
+        {
+            return;
+        }
+        _asking = true;
+        try
+        {
+            while (true)
+            {
+                _docKey = "";
+                RefreshChrome();
+                var dirty = _documents.FirstOrDefault(doc => doc.Dirty);
+                if (dirty == null)
+                {
+                    break;
+                }
+                if (!dirty.Active)
+                {
+                    Native.Execute(_host, "document.switch", JsonSerializer.Serialize(new Dictionary<string, object> { ["index"] = dirty.Index }));
+                    _docKey = "";
+                    RefreshChrome();
+                }
+                if (!await DiscardOrSave(dirty.Title))
+                {
+                    return;
+                }
+                if (Native.Execute(_host, "close", JsonSerializer.Serialize(new Dictionary<string, object> { ["index"] = dirty.Index })) != 0)
+                {
+                    History.Text = Native.LastError(_host);
+                    return;
+                }
+            }
+            if (quit)
+            {
+                _allowClose = true;
+                Close();
+                return;
+            }
+        }
+        finally
+        {
+            _asking = false;
+        }
+    }
+
+    private async Task<bool> DiscardOrSave(string title)
+    {
+        var answer = await SavePrompt.Ask(this, title.Length == 0 ? "drawing" : title);
+        if (answer == 0)
+        {
+            return false;
+        }
+        if (answer == 2)
+        {
+            return true;
+        }
+        return await PickFile("qsave");
     }
 
     private static string PathJson(string path) =>
@@ -223,11 +627,13 @@ public sealed partial class MainWindow : Window
     private void OnWorkspace(object sender, RoutedEventArgs e)
     {
         _classic = !_classic;
-        PropertiesColumn.Width = new GridLength(_classic ? 220 : 0);
-        BlocksColumn.Width = new GridLength(_classic ? 260 : 0);
+        PropertiesColumn.Width = new GridLength(_classic ? 165 : 0);
+        BlocksColumn.Width = new GridLength(_classic ? 195 : 0);
         LeftSplitterColumn.Width = _classic ? GridLength.Auto : new GridLength(0);
         RightSplitterColumn.Width = _classic ? GridLength.Auto : new GridLength(0);
         WorkspaceButton.Content = _classic ? "Classic" : "Pro";
+        ToolRow.Height = _classic ? GridLength.Auto : new GridLength(0);
+        ToolStripHost.Visibility = _classic ? Visibility.Visible : Visibility.Collapsed;
         PlaceChild();
     }
 
@@ -256,11 +662,11 @@ public sealed partial class MainWindow : Window
         var delta = e.GetCurrentPoint(Content).Position.X - _dragX;
         if (_dragSplit == LeftSplitter)
         {
-            PropertiesColumn.Width = new GridLength(Math.Clamp(_dragWidth + delta, 140, 480));
+            PropertiesColumn.Width = new GridLength(Math.Clamp(_dragWidth + delta, 105, 360));
         }
         else
         {
-            BlocksColumn.Width = new GridLength(Math.Clamp(_dragWidth - delta, 180, 560));
+            BlocksColumn.Width = new GridLength(Math.Clamp(_dragWidth - delta, 135, 420));
         }
         PlaceChild();
     }
@@ -293,6 +699,7 @@ public sealed partial class MainWindow : Window
             root.RequestedTheme = _dark ? ElementTheme.Dark : ElementTheme.Light;
         }
         CanvasHost.Background = new SolidColorBrush(_dark ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
+        _layersWindow?.ApplyTheme(_dark ? ElementTheme.Dark : ElementTheme.Light);
         var title = AppWindow.TitleBar;
         var bg = _dark ? Color(0x20, 0x20, 0x20) : Color(0xF3, 0xF3, 0xF3);
         var fg = _dark ? Microsoft.UI.Colors.White : Color(0x1A, 0x1A, 0x1A);
@@ -474,6 +881,46 @@ public sealed partial class MainWindow : Window
             }
             Bar.Items.Add(top);
         }
+        EnsureHelp();
+    }
+
+    private void EnsureHelp()
+    {
+        MenuBarItem? help = null;
+        foreach (var item in Bar.Items)
+        {
+            if (item is MenuBarItem top && top.Title?.ToString() == "Help")
+            {
+                help = top;
+            }
+        }
+        if (help == null)
+        {
+            help = new MenuBarItem { Title = "Help" };
+            Bar.Items.Add(help);
+        }
+        var commands = new MenuFlyoutItem { Text = "Command list", KeyboardAcceleratorTextOverride = "F1" };
+        commands.Click += (_, _) => CommandList.Show(this, Native.ReadText(_host, Native.TextMenu));
+        var about = new MenuFlyoutItem { Text = "About AAD" };
+        about.Click += (_, _) => AboutWindow.Show(this, VersionText());
+        help.Items.Add(commands);
+        help.Items.Add(about);
+    }
+
+    private string VersionText()
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(Native.ReadText(_host, Native.TextChrome));
+            if (doc.RootElement.TryGetProperty("version", out var version) && version.GetString() is string text)
+            {
+                return text;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+        return "";
     }
 
     private MenuFlyoutItemBase MakeItem(MenuNode node, int depth)
@@ -521,12 +968,36 @@ public sealed partial class MainWindow : Window
         }
         if (state != null)
         {
-            History.Text = string.Join(Environment.NewLine, state.History);
-            CommandInput.PlaceholderText = state.Prompt;
-            if (HistoryScroll.IsLoaded)
+            var history = string.Join(Environment.NewLine, state.History);
+            if (History.Text != history)
             {
-                HistoryScroll.ChangeView(null, HistoryScroll.ScrollableHeight, null);
+                History.Text = history;
+                if (HistoryScroll.IsLoaded)
+                {
+                    HistoryScroll.ChangeView(null, HistoryScroll.ScrollableHeight, null);
+                }
             }
+            PromptLabel.Text = state.Prompt;
+            CommandInput.PlaceholderText = state.Prompt;
+            Coords.Text = state.Cursor;
+            SnapButton.IsChecked = state.Osnap;
+            OrthoButton.IsChecked = state.Ortho;
+            PolarButton.IsChecked = state.Polar;
+            TrackButton.IsChecked = state.Otrack;
+            DynButton.IsChecked = state.Dynmode;
+            WeightButton.IsChecked = state.Lwdisplay;
+            TransparencyButton.IsChecked = state.Transparency;
+            QuickButton.IsChecked = state.Qpmode;
+            _qpmode = state.Qpmode;
+            _command = state.Command;
+            if (!string.IsNullOrEmpty(state.Units))
+            {
+                UnitsButton.Content = state.Units;
+            }
+            ShowLayouts(state);
+            ShowDocuments(state);
+            _draftingWindow?.Reload(state.Polar, state.Osnap, state.Dynmode, state.Ortho, state.Osmode, state.Polarang, state.DynpiCartesian, state.DynpiAbsolute);
+            UpdateQuick();
         }
         var stats = Native.ReadStats(_host);
         Status.Text = stats.entities + " entities";
@@ -541,7 +1012,10 @@ public sealed partial class MainWindow : Window
         PanelSnapshot? snapshot;
         try
         {
-            snapshot = JsonSerializer.Deserialize<PanelSnapshot>(Native.ReadText(_host, Native.TextPanels), JsonOpts);
+            var text = Native.ReadText(_host, Native.TextPanels);
+            using var document = JsonDocument.Parse(text);
+            _quickJson = document.RootElement.TryGetProperty("quick", out var quick) && quick.ValueKind == JsonValueKind.Object ? quick.GetRawText() : null;
+            snapshot = JsonSerializer.Deserialize<PanelSnapshot>(text, JsonOpts);
         }
         catch (JsonException)
         {
@@ -560,6 +1034,114 @@ public sealed partial class MainWindow : Window
         FillProperties(snapshot);
         FillLayers(snapshot);
         FillBlocks(snapshot);
+        FillContext(snapshot);
+        Density.Apply(PropertiesPanel);
+        Density.Apply(LayersPanel);
+        Density.Apply(BlocksPanel);
+        Density.Apply(ContextBar);
+        _layersWindow?.OnDocumentRevision(snapshot.Uid, snapshot.Revision);
+        UpdateQuick();
+    }
+
+    private void OpenQuickSelect()
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (_quickSelectWindow == null)
+        {
+            _quickSelectWindow = new QuickSelectWindow(Content as FrameworkElement, _host, AfterCommand);
+            _quickSelectWindow.Closed += (_, _) => _quickSelectWindow = null;
+        }
+        _quickSelectWindow.Activate();
+        Native.ShowWindow(WindowNative.GetWindowHandle(_quickSelectWindow), 8);
+    }
+
+    private void UpdateQuick()
+    {
+        var wanted = _qpmode && _command.Length == 0 && _quickJson != null;
+        if (!wanted)
+        {
+            _quickWindow?.Close();
+            return;
+        }
+        if (_quickWindow == null)
+        {
+            _quickWindow = new QuickWindow(Content as FrameworkElement, (command, json) =>
+            {
+                if (_host == IntPtr.Zero)
+                {
+                    return;
+                }
+                if (Native.Execute(_host, command, json) != 0)
+                {
+                    History.Text = Native.LastError(_host);
+                }
+                _panelKey = "";
+                AfterCommand();
+            });
+            _quickWindow.Closed += (_, _) => _quickWindow = null;
+            _quickWindow.Place(this);
+            _quickWindow.Activate();
+            Native.ShowWindow(WindowNative.GetWindowHandle(_quickWindow), 8);
+        }
+        if (_quickJson != null)
+        {
+            _quickWindow.Apply(_quickJson);
+        }
+    }
+
+    private void OnLayers(object sender, RoutedEventArgs e) => OpenLayers();
+
+    private void OpenDrafting()
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (_draftingWindow == null)
+        {
+            _draftingWindow = new DraftingWindow(Content as FrameworkElement, _host, () =>
+            {
+                RefreshChrome();
+            });
+            _draftingWindow.Closed += (_, _) => _draftingWindow = null;
+            RefreshChrome();
+        }
+        _draftingWindow.Activate();
+        Native.ShowWindow(WindowNative.GetWindowHandle(_draftingWindow), 8);
+    }
+
+    private void OnUnits(object sender, RoutedEventArgs e)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (_unitsWindow == null)
+        {
+            _unitsWindow = UnitsWindow.Open(this, _host, AfterCommand);
+            _unitsWindow.Closed += (_, _) => _unitsWindow = null;
+        }
+        _unitsWindow.Activate();
+        Native.ShowWindow(WindowNative.GetWindowHandle(_unitsWindow), 8);
+    }
+
+    private void OpenLayers()
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (_layersWindow == null)
+        {
+            _layersWindow = new LayerManagerWindow(Content as FrameworkElement, _host, AfterCommand);
+            _layersWindow.Closed += (_, _) => _layersWindow = null;
+        }
+        _layersWindow.Reload("");
+        _layersWindow.Activate();
+        Native.ShowWindow(WindowNative.GetWindowHandle(_layersWindow), 8);
     }
 
     private void FillProperties(PanelSnapshot snapshot)
@@ -579,6 +1161,9 @@ public sealed partial class MainWindow : Window
     {
         LayersPanel.Children.Clear();
         LayersPanel.Children.Add(Heading("Layers"));
+        var manage = new Button { Content = "Layer properties", HorizontalAlignment = HorizontalAlignment.Left };
+        manage.Click += (_, _) => OpenLayers();
+        LayersPanel.Children.Add(manage);
         foreach (var layer in snapshot.Layers)
         {
             var block = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 6) };
@@ -631,7 +1216,7 @@ public sealed partial class MainWindow : Window
             {
                 Text = block.Entities + " objects · " + block.References + " references",
                 Opacity = 0.7,
-                FontSize = 12,
+                FontSize = 9,
             });
             var insert = new Button { Content = "Insert", Tag = name, HorizontalAlignment = HorizontalAlignment.Left };
             insert.Click += (_, _) =>
@@ -663,7 +1248,7 @@ public sealed partial class MainWindow : Window
             "frozen" => value ? "Frozen" : "Thaw",
             _ => value ? "Locked" : "Unlocked",
         };
-        var button = new Button { Content = shown, Tag = layer, MinWidth = 28 };
+        var button = new Button { Content = shown, Tag = layer, MinWidth = 21, FontSize = Density.Font };
         button.Click += (_, _) => RunLayer("layer.set", new Dictionary<string, object> { ["name"] = layer, [field] = !value });
         return button;
     }
@@ -721,6 +1306,137 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void FillContext(PanelSnapshot snapshot)
+    {
+        _filling = true;
+        try
+        {
+            var current = snapshot.Layers.FirstOrDefault(layer => layer.Current)?.Name;
+            FillCombo(LayerBox, snapshot.Layers.Select(layer => (layer.Name, layer.Name)), current);
+            FillFloor();
+            FillSpaces();
+        }
+        finally
+        {
+            _filling = false;
+        }
+    }
+
+    private void FillFloor()
+    {
+        if (Native.Execute(_host, "floor.current", "{}") != 0)
+        {
+            FloorBox.IsEnabled = false;
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(Native.ReadResult(_host));
+            var current = doc.RootElement.TryGetProperty("floor", out var floor) && floor.ValueKind == JsonValueKind.String ? floor.GetString() : null;
+            var names = new List<(string, string)>();
+            if (doc.RootElement.TryGetProperty("floors", out var floors) && floors.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in floors.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.String && item.GetString() is string name && name.Length > 0)
+                    {
+                        names.Add((name, name));
+                    }
+                }
+            }
+            FillCombo(FloorBox, names, current);
+        }
+        catch (JsonException)
+        {
+            FloorBox.IsEnabled = false;
+        }
+    }
+
+    private void FillSpaces()
+    {
+        if (Native.Execute(_host, "space.list", "{}") != 0)
+        {
+            SpaceBox.IsEnabled = false;
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(Native.ReadResult(_host));
+            var active = doc.RootElement.TryGetProperty("active", out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            var names = new List<(string, string)>();
+            if (doc.RootElement.TryGetProperty("spaces", out var spaces))
+            {
+                foreach (var space in spaces.EnumerateArray())
+                {
+                    var id = space.TryGetProperty("id", out var ident) ? ident.GetString() ?? "" : "";
+                    var name = space.TryGetProperty("name", out var label) ? label.GetString() ?? id : id;
+                    if (id.Length > 0)
+                    {
+                        names.Add((id, name));
+                    }
+                }
+            }
+            FillCombo(SpaceBox, names, active);
+        }
+        catch (JsonException)
+        {
+            SpaceBox.IsEnabled = false;
+        }
+    }
+
+    private static void FillCombo(ComboBox box, IEnumerable<(string Tag, string Label)> items, string? selected)
+    {
+        box.Items.Clear();
+        foreach (var (tag, label) in items)
+        {
+            box.Items.Add(new ComboBoxItem { Content = label, Tag = tag });
+        }
+        box.IsEnabled = box.Items.Count > 0;
+        for (var i = 0; i < box.Items.Count; i++)
+        {
+            if (box.Items[i] is ComboBoxItem item && item.Tag is string tag && tag.Equals(selected, StringComparison.OrdinalIgnoreCase))
+            {
+                box.SelectedIndex = i;
+                return;
+            }
+        }
+    }
+
+    private void OnLayerPicked(object sender, SelectionChangedEventArgs e) => PickContext(LayerBox, "layer.current", "name");
+
+    private void OnFloorPicked(object sender, SelectionChangedEventArgs e) => PickContext(FloorBox, "floor.current", "name");
+
+    private void OnSpacePicked(object sender, SelectionChangedEventArgs e) => PickContext(SpaceBox, "space.activate", "id");
+
+    private void PickContext(ComboBox box, string command, string key)
+    {
+        if (_filling || box.SelectedItem is not ComboBoxItem item || item.Tag is not string value || _host == IntPtr.Zero)
+        {
+            return;
+        }
+        var json = JsonSerializer.Serialize(new Dictionary<string, object> { [key] = value });
+        if (Native.Execute(_host, command, json) != 0)
+        {
+            History.Text = Native.LastError(_host);
+        }
+        _panelKey = "";
+        AfterCommand();
+    }
+
+    private void ChoosePopup(string id, string run)
+    {
+        if (run == "type")
+        {
+            if (Native.CommandLine(_host, id) != 0)
+            {
+                History.Text = Native.LastError(_host);
+            }
+            RefreshChrome();
+            return;
+        }
+        StartCommand(id);
+    }
+
     private void EnsureTimer()
     {
         if (_timer != null)
@@ -741,7 +1457,23 @@ public sealed partial class MainWindow : Window
             {
                 Status.Text = Native.LastError(_host);
             }
+            var popup = Native.ReadPopup(_host);
+            if (popup.Length > 0)
+            {
+                try
+                {
+                    CanvasMenu.Show(this, popup, ChoosePopup);
+                }
+                catch (JsonException)
+                {
+                    Status.Text = "The shortcut menu could not be read.";
+                }
+            }
             _ticks++;
+            if (_ticks % 4 == 0)
+            {
+                RefreshChrome();
+            }
             if (_ticks % 8 == 0)
             {
                 RefreshPanels();
@@ -759,11 +1491,126 @@ public sealed partial class MainWindow : Window
         public bool Enabled { get; set; } = true;
     }
 
+    private void BuildTools()
+    {
+        foreach (var (id, label) in Tools)
+        {
+            var command = id;
+            var button = new Button { Content = label, MinHeight = 21, FontSize = Density.Font };
+            AutomationProperties.SetName(button, label);
+            button.Click += (_, _) => StartCommand(command);
+            ToolStrip.Children.Add(button);
+        }
+    }
+
+    private void ShowLayouts(ChromeState state)
+    {
+        var key = state.Space + "\n" + string.Join("\n", state.Layouts);
+        if (key == _layoutKey)
+        {
+            return;
+        }
+        _layoutKey = key;
+        LayoutTabs.Children.Clear();
+        foreach (var name in state.Layouts)
+        {
+            var layout = name;
+            var current = layout.Equals(state.Space, StringComparison.OrdinalIgnoreCase);
+            var tab = new Button
+            {
+                Content = layout,
+                MinHeight = 21,
+                FontSize = Density.Font,
+                FontWeight = current ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+            };
+            AutomationProperties.SetName(tab, current ? "Current layout " + layout : "Switch to " + layout);
+            tab.Click += (_, _) =>
+            {
+                var json = JsonSerializer.Serialize(new Dictionary<string, object> { ["name"] = layout });
+                if (Native.Execute(_host, "layout.set", json) != 0)
+                {
+                    History.Text = Native.LastError(_host);
+                }
+                _layoutKey = "";
+                AfterCommand();
+            };
+            LayoutTabs.Children.Add(tab);
+        }
+    }
+
+    private void ShowDocuments(ChromeState state)
+    {
+        _documents.Clear();
+        _documents.AddRange(state.Documents);
+        var active = _documents.FirstOrDefault(doc => doc.Active);
+        Title = active == null || active.Title.Length == 0 ? "AAD" : "AAD — " + active.Title;
+        var key = string.Join("\n", _documents.Select(doc => doc.Index + ":" + doc.Title + ":" + doc.Dirty + ":" + doc.Active));
+        if (key == _docKey)
+        {
+            return;
+        }
+        _docKey = key;
+        FileTabs.Children.Clear();
+        foreach (var doc in _documents.ToList())
+        {
+            var index = doc.Index;
+            var tab = new Button
+            {
+                Content = doc.Dirty ? doc.Title + " *" : doc.Title,
+                MinHeight = 21,
+                FontSize = Density.Font,
+                FontWeight = doc.Active ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+            };
+            AutomationProperties.SetName(tab, doc.Active ? "Current drawing " + doc.Title : "Switch to " + doc.Title);
+            tab.Click += (_, _) =>
+            {
+                if (Native.Execute(_host, "document.switch", JsonSerializer.Serialize(new Dictionary<string, object> { ["index"] = index })) != 0)
+                {
+                    History.Text = Native.LastError(_host);
+                }
+                _docKey = "";
+                _layoutKey = "";
+                _panelKey = "";
+                AfterCommand();
+            };
+            FileTabs.Children.Add(tab);
+        }
+    }
+
     private sealed class ChromeState
     {
         public string Prompt { get; set; } = "Command:";
         public List<string> History { get; set; } = new();
+        public string Space { get; set; } = "Model";
+        public List<string> Layouts { get; set; } = new();
+        public string Layer { get; set; } = "0";
+        public bool Ortho { get; set; }
+        public bool Polar { get; set; }
+        public bool Otrack { get; set; }
+        public bool Dynmode { get; set; }
+        public bool Osnap { get; set; }
+        public bool Lwdisplay { get; set; }
+        public bool Transparency { get; set; }
+        public bool Qpmode { get; set; }
+        public string Command { get; set; } = "";
+        public string Units { get; set; } = "";
+        public uint Osmode { get; set; }
+        public double Polarang { get; set; } = 90;
+        public bool DynpiCartesian { get; set; }
+        public bool DynpiAbsolute { get; set; }
+        public string Cursor { get; set; } = "";
+        public List<DocTab> Documents { get; set; } = new();
     }
+
+    private sealed class DocTab
+    {
+        public int Index { get; set; }
+        public string Title { get; set; } = "";
+        public bool Dirty { get; set; }
+        public bool Active { get; set; }
+    }
+
+    private readonly List<DocTab> _documents = new();
 
     private sealed class PanelSnapshot
     {

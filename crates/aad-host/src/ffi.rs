@@ -113,6 +113,23 @@ pub unsafe extern "C" fn aad_host_start_form(host: *mut Host, id: *const c_char,
     })
 }
 
+/// Apply a typed point to the hot grip. Returns 1 when the grip consumed the text
+/// (applied, or rejected as not a point). Returns 0 when no grip is hot or the text is empty.
+///
+/// # Safety
+/// `host` is live. `text` is null-terminated UTF-8, at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_grip_point(host: *mut Host, text: *const c_char) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return 0;
+    };
+    let text = match read_text(text) {
+        Ok(text) => text,
+        Err(_) => return 0,
+    };
+    i32::from(host.grip_point(&text))
+}
+
 /// Cycle the hot grip. Returns 1 when a grip mode changed, 0 when no grip is hot.
 ///
 /// # Safety
@@ -257,6 +274,67 @@ pub unsafe extern "C" fn aad_host_embedded(host: *mut Host) -> i32 {
     i32::from(host.hwnd != 0)
 }
 
+/// Copy the pending right-click menu and clear it. A null `buf` only reports the length.
+///
+/// # Safety
+/// `host` is live. `buf` receives UTF-8 without a terminator. Returns the byte length, or a
+/// negative length when `buf` is too small and nothing was written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_popup(host: *mut Host, buf: *mut u8, len: u32) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return 0;
+    };
+    let n = copy_bytes(host.menu_request.as_bytes(), buf, len);
+    if n > 0 && !buf.is_null() {
+        host.menu_request.clear();
+    }
+    n
+}
+
+/// Copy the drawing clipboard as DXF text. A null `buf` only reports the length.
+///
+/// # Safety
+/// `host` is live. `buf` receives UTF-8 without a terminator. Returns the byte length, or a
+/// negative length when `buf` is too small and nothing was written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_clipboard(host: *mut Host, buf: *mut u8, len: u32) -> i32 {
+    let Some(host) = (unsafe { host.as_ref() }) else {
+        return 0;
+    };
+    copy_bytes(host.clipboard_text().as_bytes(), buf, len)
+}
+
+/// Replace the drawing clipboard with DXF text. Returns 1 when the text was a drawing.
+///
+/// # Safety
+/// `host` is live. `text` is null-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_clipboard_load(host: *mut Host, text: *const c_char) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return 0;
+    };
+    match read_text(text) {
+        Ok(text) => i32::from(host.load_clipboard(&text)),
+        Err(e) => {
+            host.error = e;
+            0
+        }
+    }
+}
+
+/// Copy the JSON result of the last successful [`aad_host_execute`]. A failed command clears it.
+///
+/// # Safety
+/// `host` is live. `buf` receives UTF-8 without a terminator. Returns the byte length, or a
+/// negative length when `buf` is too small and nothing was written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_result(host: *mut Host, buf: *mut u8, len: u32) -> i32 {
+    let Some(host) = (unsafe { host.as_ref() }) else {
+        return 0;
+    };
+    copy_bytes(host.result.as_bytes(), buf, len)
+}
+
 /// # Safety
 /// `host` is live. `buf` receives UTF-8 without a terminator. Returns the byte length, or a
 /// negative length when `buf` is too small and nothing was written.
@@ -292,6 +370,28 @@ pub(crate) unsafe fn execute(host: *mut Host, command: *const c_char, params: *c
 #[cfg(test)]
 pub(crate) unsafe fn stats(host: *mut Host, out: *mut Stats) -> i32 {
     unsafe { aad_host_stats(host, out) }
+}
+
+#[cfg(test)]
+#[cfg(test)]
+pub(crate) fn result_text(host: *mut Host) -> String {
+    let mut buf = vec![0u8; 64];
+    let n = unsafe { aad_host_result(host, buf.as_mut_ptr(), buf.len() as u32) };
+    if n == 0 {
+        return String::new();
+    }
+    let size = usize::try_from(n.unsigned_abs()).unwrap_or(0);
+    if n < 0 {
+        buf.resize(size, 0);
+        let n = unsafe { aad_host_result(host, buf.as_mut_ptr(), buf.len() as u32) };
+        if n <= 0 {
+            return String::new();
+        }
+        let n = usize::try_from(n).unwrap_or(0).min(buf.len());
+        return String::from_utf8_lossy(&buf[..n]).into_owned();
+    }
+    let n = usize::try_from(n).unwrap_or(0).min(buf.len());
+    String::from_utf8_lossy(&buf[..n]).into_owned()
 }
 
 #[cfg(test)]

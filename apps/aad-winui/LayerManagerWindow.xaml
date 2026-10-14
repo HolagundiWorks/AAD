@@ -1,0 +1,119 @@
+<Window
+    x:Class="Aad.WinUi.LayerManagerWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:Aad.WinUi"
+    Title="Layer Properties">
+    <Grid Padding="9" RowSpacing="6" PreviewKeyDown="OnWindowKey" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="SearchBox" PlaceholderText="Search layers" AutomationProperties.Name="Search layers" TextChanged="OnSearch" />
+            <Button Grid.Column="1" Content="New layer" Click="OnNew" AutomationProperties.Name="Create layer" />
+            <Button Grid.Column="2" Content="Delete" Click="OnDelete" AutomationProperties.Name="Delete selected layers" />
+        </Grid>
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+            <ComboBox x:Name="VisibilityFilter" Width="120" AutomationProperties.Name="Visibility filter" SelectionChanged="OnFilterChanged" />
+            <ComboBox x:Name="FreezeFilter" Width="120" AutomationProperties.Name="Freeze filter" SelectionChanged="OnFilterChanged" />
+            <ComboBox x:Name="LockFilter" Width="120" AutomationProperties.Name="Lock filter" SelectionChanged="OnFilterChanged" />
+            <ComboBox x:Name="PlotFilter" Width="120" AutomationProperties.Name="Plot filter" SelectionChanged="OnFilterChanged" />
+            <ComboBox x:Name="UsageFilter" Width="120" AutomationProperties.Name="Usage filter" SelectionChanged="OnFilterChanged" />
+            <Button x:Name="SortButton" Content="Name A–Z" Click="OnSort" AutomationProperties.Name="Sort layers by name" />
+            <Button Content="Undo" Click="OnUndo" AutomationProperties.Name="Undo" />
+            <Button Content="Redo" Click="OnRedo" AutomationProperties.Name="Redo" />
+        </StackPanel>
+        <TextBlock x:Name="Summary" Grid.Row="2" TextWrapping="Wrap" />
+        <TextBlock x:Name="Status" Grid.Row="3" TextWrapping="Wrap" />
+        <Grid Grid.Row="4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <StackPanel x:Name="Header" Orientation="Horizontal" Margin="12,0,0,4">
+                <StackPanel.RenderTransform>
+                    <TranslateTransform x:Name="HeaderShift" />
+                </StackPanel.RenderTransform>
+                <TextBlock Width="108" Text="Current" />
+                <TextBlock Width="56" Text="On" />
+                <TextBlock Width="72" Text="Freeze" />
+                <TextBlock Width="64" Text="Lock" />
+                <TextBlock Width="200" Text="Name" />
+                <TextBlock Width="148" Text="Color" />
+                <TextBlock Width="140" Text="Linetype" />
+                <TextBlock Width="100" Text="Lineweight" />
+                <TextBlock Width="88" Text="Transparency" />
+                <TextBlock Width="56" Text="Plot" />
+                <TextBlock Width="72" Text="Usage" />
+                <TextBlock Width="200" Text="Description" />
+            </StackPanel>
+            <ListView
+                x:Name="Layers"
+                Grid.Row="1"
+                FontSize="10.5"
+                SelectionMode="Extended"
+                IsItemClickEnabled="False"
+                CanDragItems="False"
+                ScrollViewer.HorizontalScrollMode="Enabled"
+                ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                ScrollViewer.VerticalScrollBarVisibility="Auto"
+                RightTapped="OnRowMenu"
+                Loaded="OnListLoaded">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="Padding" Value="8,2,8,2" />
+                        <Setter Property="MinHeight" Value="40" />
+                        <Setter Property="HorizontalContentAlignment" Value="Left" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="local:LayerRecord">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Button Width="108" Content="{x:Bind CurrentLabel}" IsEnabled="{x:Bind CanMakeCurrent}" Click="OnMakeCurrent" AutomationProperties.Name="{x:Bind CurrentAccess}" />
+                            <CheckBox Width="56" MinWidth="40" MinHeight="32" IsChecked="{x:Bind On, Mode=OneTime}" Click="OnVisibility" AutomationProperties.Name="{x:Bind OnAccess}" />
+                            <CheckBox Width="72" MinWidth="40" MinHeight="32" IsChecked="{x:Bind Frozen, Mode=OneTime}" Click="OnFreeze" AutomationProperties.Name="{x:Bind FreezeAccess}" />
+                            <CheckBox Width="64" MinWidth="40" MinHeight="32" IsChecked="{x:Bind Locked, Mode=OneTime}" Click="OnLock" AutomationProperties.Name="{x:Bind LockAccess}" />
+                            <TextBlock Width="200" Text="{x:Bind Name}" VerticalAlignment="Center" DoubleTapped="OnNameDoubleTapped" AutomationProperties.Name="{x:Bind NameAccess}" />
+                            <Button Width="148" Click="OnColor" AutomationProperties.Name="{x:Bind ColorAccess}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Border Width="14" Height="14" Background="{x:Bind Swatch}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{x:Bind ColorName}" />
+                                </StackPanel>
+                            </Button>
+                            <Button Width="140" Content="{x:Bind Linetype}" Click="OnLinetype" AutomationProperties.Name="{x:Bind LinetypeAccess}" />
+                            <Button Width="100" Content="{x:Bind Lineweight}" Click="OnLineweight" AutomationProperties.Name="{x:Bind LineweightAccess}" />
+                            <Button Width="88" Content="{x:Bind TransparencyLabel}" Click="OnTransparency" AutomationProperties.Name="{x:Bind TransparencyAccess}" />
+                            <CheckBox Width="56" MinWidth="40" MinHeight="32" IsChecked="{x:Bind Plot, Mode=OneTime}" Click="OnPlot" AutomationProperties.Name="{x:Bind PlotAccess}" />
+                            <TextBlock Width="72" Text="{x:Bind UsageLabel}" VerticalAlignment="Center" AutomationProperties.Name="{x:Bind UsageAccess}" />
+                            <TextBox Width="200" Text="{x:Bind Description, Mode=OneTime}" AutomationProperties.Name="{x:Bind DescriptionAccess}" GotFocus="OnEditorFocus" LostFocus="OnDescriptionLost" KeyDown="OnDescriptionKey" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            <TextBlock
+                x:Name="Empty"
+                Grid.Row="1"
+                Text="No layers match the search and filters."
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Visibility="Collapsed"
+                IsHitTestVisible="False" />
+        </Grid>
+        <TextBlock
+            Grid.Row="5"
+            Opacity="0.75"
+            FontSize="9"
+            TextWrapping="Wrap"
+            Text="Click selects a row. Double-click a name to make that layer current. F2 renames. Ctrl+A selects the rows in this list. Filters combine with AND. Delete asks before removing the selection, and each deletion is its own undo step." />
+    </Grid>
+</Window>

@@ -41,8 +41,14 @@ pub const POINTER_MIDDLE_DOWN: u32 = 5;
 pub const POINTER_MIDDLE_UP: u32 = 6;
 /// Right button. Enter while a command is running.
 pub const POINTER_RIGHT: u32 = 7;
+/// Left button double-click. Edits text, or enters a layout viewport.
+pub const POINTER_LEFT_DOUBLE: u32 = 8;
+/// Middle button double-click. Zooms to the drawing extents.
+pub const POINTER_MIDDLE_DOUBLE: u32 = 9;
 /// Shift is held.
 pub const MOD_SHIFT: u32 = 1;
+/// Ctrl is held.
+pub const MOD_CTRL: u32 = 2;
 
 /// One pointer event. Screen pixels are relative to the drawing surface, origin top-left.
 #[repr(C)]
@@ -152,6 +158,8 @@ pub struct Host {
     height: u32,
     error: String,
     result: String,
+    /// Shortcut or snap menu requested by a right-click, as JSON. Empty when none is waiting.
+    menu_request: String,
     #[cfg(windows)]
     bridge: Arc<Bridge>,
     #[cfg(windows)]
@@ -200,6 +208,7 @@ impl Host {
             height: 800,
             error: String::new(),
             result: String::new(),
+            menu_request: String::new(),
             #[cfg(windows)]
             bridge: Arc::new(Bridge::new()),
             #[cfg(windows)]
@@ -228,8 +237,13 @@ impl Host {
         if command.is_empty() || command.len() > 128 {
             return Err("missing command".into());
         }
+        self.result.clear();
         let value = self.session.execute(command, params).map_err(|e| e.to_string())?;
-        self.result = value.to_string();
+        let text = value.to_string();
+        if text.len() > 8 * 1_024 * 1_024 {
+            return Err("result is too large".into());
+        }
+        self.result = text;
         Ok(value)
     }
 
@@ -238,10 +252,14 @@ impl Host {
         self.exclusive(|host| host.submit_inner(text))
     }
 
-    /// Escape. Cancels the running command.
+    /// Escape. A hot grip is cleared; otherwise the running command is cancelled.
     pub fn cancel_command(&mut self) -> Result<(), String> {
         self.exclusive(|host| {
             host.draft.clear();
+            if host.hot.take().is_some() {
+                host.session.echo("*Cancel*");
+                return host.present_if_ready();
+            }
             host.session.cancel();
             host.present_if_ready()
         })
@@ -252,7 +270,8 @@ impl Host {
     }
 
     pub fn chrome_json(&self) -> String {
-        chrome::chrome_json(&self.session)
+        let cursor = self.screen.filter(|point| point.is_finite()).map(|_| self.aim);
+        chrome::chrome_json(&self.session, cursor)
     }
 
     /// Properties, layers and blocks, tagged with the drawing id and revision.
@@ -349,7 +368,9 @@ impl Host {
                 self.press = None;
                 Ok(())
             }
-            POINTER_RIGHT => self.right_click(),
+            POINTER_RIGHT => self.right_click(ev),
+            POINTER_LEFT_DOUBLE => self.left_double(ev),
+            POINTER_MIDDLE_DOUBLE => self.middle_double(),
             _ => Err("unsupported pointer action".into()),
         }
     }
@@ -461,8 +482,103 @@ impl Host {
         Ok(())
     }
 
-    fn right_click(&mut self) -> Result<(), String> {
-        if self.session.running.is_some() { self.session.input(aad_engine::Input::Enter).map_err(|e| e.to_string()) } else { Ok(()) }
+    fn left_double(&mut self, ev: Pointer) -> Result<(), String> {
+        if self.session.running.is_some() {
+            return Ok(());
+        }
+        let (on_paper, paper, inside, had_viewport) = {
+            let state = self.session.state().map_err(|e| e.to_string())?;
+            let on_paper = matches!(state.space, aad_engine::doc::Space::Paper(_));
+            let paper = self.screen_on(ev.x, ev.y, state.paper_view());
+            let viewport = state.active_viewport();
+            let inside = viewport.as_ref().is_some_and(|(_, view)| (paper.x - view.center.x).abs() <= view.width / 2.0 && (paper.y - view.center.y).abs() <= view.height / 2.0);
+            (on_paper, paper, inside, viewport.is_some())
+        };
+        if on_paper && !inside {
+            self.hot = None;
+            let at = serde_json::json!({ "at": [paper.x, paper.y] });
+            if self.session.execute("mspace", &at).is_err() && had_viewport {
+                let _ = self.session.execute("pspace", &serde_json::json!({}));
+            }
+            return Ok(());
+        }
+        let world = self.screen_to_world(ev.x, ev.y)?;
+        self.edit_text_at(world)
+    }
+
+    fn edit_text_at(&mut self, world: Vec2) -> Result<(), String> {
+        let editable = self.session.state().ok().and_then(|state| match state.selection.as_slice() {
+            [handle] => state.doc.entity(*handle).map(|entity| {
+                matches!(
+                    entity.kind,
+                    aad_engine::doc::EntityKind::Text(_)
+                        | aad_engine::doc::EntityKind::MText(_)
+                        | aad_engine::doc::EntityKind::AttDef(_)
+                        | aad_engine::doc::EntityKind::Dimension(_)
+                )
+            }),
+            _ => None,
+        });
+        if editable != Some(true) {
+            return Ok(());
+        }
+        self.session.start("textedit").map_err(|e| e.to_string())?;
+        self.session.input(aad_engine::Input::Point(world)).map_err(|e| e.to_string())
+    }
+
+    fn middle_double(&mut self) -> Result<(), String> {
+        self.panning = false;
+        self.press = None;
+        self.session.zoom_extents().map_err(|e| e.to_string())
+    }
+
+    fn screen_on(&self, x: f64, y: f64, view: aad_engine::View) -> Vec2 {
+        let height = f64::from(self.height.max(1));
+        let scale = height / view.height.max(1e-12);
+        let cx = f64::from(self.width.max(1)) * 0.5;
+        let cy = height * 0.5;
+        Vec2::new(view.center.x + (x - cx) / scale, view.center.y - (y - cy) / scale)
+    }
+
+    fn right_click(&mut self, ev: Pointer) -> Result<(), String> {
+        let snap = ev.mods & (MOD_SHIFT | MOD_CTRL) != 0;
+        if self.session.running.is_some() && !snap {
+            self.menu_request.clear();
+            return self.session.input(aad_engine::Input::Enter).map_err(|e| e.to_string());
+        }
+        let (x, y) = self.screen_point(ev.x, ev.y);
+        self.menu_request = chrome::popup_json(&self.session, snap, x, y);
+        Ok(())
+    }
+
+    fn screen_point(&self, x: f64, y: f64) -> (i32, i32) {
+        #[cfg(windows)]
+        {
+            window::client_to_screen(self.hwnd, x, y)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = self;
+            (i32::try_from(x as i64).unwrap_or(0), i32::try_from(y as i64).unwrap_or(0))
+        }
+    }
+
+    /// The pending right-click menu, then none.
+    pub fn take_popup(&mut self) -> String {
+        std::mem::take(&mut self.menu_request)
+    }
+
+    /// The drawing clipboard as DXF text, or empty when there is nothing to put on the system clipboard.
+    pub fn clipboard_text(&self) -> String {
+        aad_engine::cmd::clipboard::system_text(&self.session).unwrap_or_default()
+    }
+
+    /// Replace the drawing clipboard with DXF text from the system clipboard.
+    pub fn load_clipboard(&mut self, text: &str) -> bool {
+        if text.len() > 8 * 1_024 * 1_024 {
+            return false;
+        }
+        aad_engine::cmd::clipboard::load_system_text(&mut self.session, text)
     }
 
     fn pan_by(&mut self, dx: f64, dy: f64) -> Result<(), String> {
@@ -518,6 +634,36 @@ impl Host {
         self.session.cursor = self.aim;
         self.session.cursor_deferred = self.snap.and_then(|hit| hit.deferred);
         Ok(())
+    }
+
+    /// Enter or Space while a grip is hot. An empty line is left for [`Self::grip_cycle`].
+    /// A point (`x,y`, `@dx,dy`, `@d<a`) applies the grip and clears it. Anything else is reported
+    /// and still consumed, so it is not run as a command.
+    pub fn grip_point(&mut self, text: &str) -> bool {
+        if self.hot.is_none() {
+            return false;
+        }
+        if text.len() > 1_048_576 {
+            self.session.echo("text is too long".to_string());
+            let _ = self.present_if_ready();
+            return true;
+        }
+        let typed = text.trim();
+        if typed.is_empty() {
+            return false;
+        }
+        let Some(grip) = self.hot else { return false };
+        match aad_engine::prompt::parse_point_with(typed, grip.base, &self.session.angle_settings()) {
+            Some(point) => {
+                self.hot = None;
+                if let Err(error) = self.session.grip_edit(grip.handle, grip.index, point, grip.mode) {
+                    self.session.echo(error.to_string());
+                }
+            }
+            None => self.session.echo("Requires a point (x,y, @dx,dy or @d<a)."),
+        }
+        let _ = self.present_if_ready();
+        true
     }
 
     /// Space or Enter with nothing typed: the hot grip's next mode (stretch, move, rotate, scale, mirror).
@@ -680,6 +826,8 @@ impl Host {
         let list = aad_render::build(&state.doc, &state.space, &opts);
         let origin = mesh::choose_origin(&list.bounds, view.center, view.height);
         let mut built = mesh::build_mesh(&list, origin, self.paper(), lw);
+        let world_width = view.height * f64::from(self.width.max(1)) / f64::from(self.height.max(1));
+        mesh::append_infinite(&mut built, &list, origin, view.center, world_width, view.height, self.paper());
         mesh::expand_hairlines(&mut built);
         let scale = f64::from(self.height.max(1)) / view.height.max(1e-12);
         let uniform = [
@@ -848,9 +996,18 @@ mod tests {
         assert_eq!(host.stats().entities, before + 1);
         let chrome: serde_json::Value = serde_json::from_str(&host.chrome_json()).unwrap();
         assert!(chrome["prompt"].as_str().unwrap().contains("Specify next point"));
+        assert_eq!(chrome["command"], "line");
+        assert_eq!(chrome["space"], "Model");
+        assert_eq!(chrome["osnap"], true);
+        assert_eq!(chrome["ortho"], false);
+        assert_eq!(chrome["documents"][0]["active"], true);
+        assert_eq!(chrome["documents"][0]["dirty"], true);
+        assert!((chrome["polarang"].as_f64().unwrap() - 90.0).abs() < 1e-6);
+        assert_eq!(chrome["osmode"], 4133);
         host.cancel_command().unwrap();
         let chrome: serde_json::Value = serde_json::from_str(&host.chrome_json()).unwrap();
         assert_eq!(chrome["prompt"], "Command:");
+        assert_eq!(chrome["command"], "");
         assert!(host.submit("not-a-command").is_err());
         assert_eq!(host.stats().entities, before + 1);
         assert!(host.chrome_json().contains("unknown command"));
@@ -861,6 +1018,12 @@ mod tests {
         let mut host = Host::create(false);
         let first: serde_json::Value = serde_json::from_str(&host.panels_json()).unwrap();
         assert_eq!(first["properties"][0]["value"], "No selection");
+        assert!(first["quick"].is_null());
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        host.execute("selectall", &json!({})).unwrap();
+        let selected: serde_json::Value = serde_json::from_str(&host.panels_json()).unwrap();
+        assert_eq!(selected["quick"]["title"], "Line");
+        assert!(selected["quick"]["fields"].as_array().unwrap().iter().any(|field| field["key"] == "length"));
         assert_eq!(first["layers"][0]["name"], "0");
         assert_eq!(first["layers"][0]["current"], true);
         let revision = first["revision"].as_u64().unwrap();
@@ -874,7 +1037,7 @@ mod tests {
         host.submit("insert").unwrap();
         host.submit("NO-SUCH-BLOCK").unwrap();
         assert!(host.chrome_json().contains("not found"));
-        assert_eq!(host.stats().entities, 0);
+        assert_eq!(host.stats().entities, 1);
     }
 
     #[test]
@@ -886,7 +1049,16 @@ mod tests {
         host.pointer(Pointer { x: 400.0, y: 200.0, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
         assert_eq!(host.stats().entities, 1);
         host.pointer(Pointer { x: 0.0, y: 0.0, action: POINTER_RIGHT, wheel: 0.0, mods: 0 }).unwrap();
+        assert!(host.take_popup().is_empty(), "a right-click while a command runs is Enter");
         assert!(host.chrome_json().contains("Command:"));
+        host.pointer(Pointer { x: 12.0, y: 12.0, action: POINTER_RIGHT, wheel: 0.0, mods: 0 }).unwrap();
+        let menu: serde_json::Value = serde_json::from_str(&host.take_popup()).unwrap();
+        assert_eq!(menu["kind"], "command");
+        host.submit("line").unwrap();
+        host.pointer(Pointer { x: 12.0, y: 12.0, action: POINTER_RIGHT, wheel: 0.0, mods: MOD_SHIFT }).unwrap();
+        let snaps: serde_json::Value = serde_json::from_str(&host.take_popup()).unwrap();
+        assert_eq!(snaps["kind"], "snap");
+        assert!(host.chrome_json().contains("Specify"));
         let before = host.screen_to_world(400.0, 200.0).unwrap();
         host.pointer(Pointer { x: 10.0, y: 10.0, action: POINTER_MIDDLE_DOWN, wheel: 0.0, mods: 0 }).unwrap();
         host.pointer(Pointer { x: 80.0, y: 10.0, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
@@ -896,6 +1068,31 @@ mod tests {
         assert_eq!(host.stats().entities, 1);
         host.set_dark(false).unwrap();
         host.set_dark(true).unwrap();
+    }
+
+    #[test]
+    fn double_click_edits_text_and_middle_double_zooms_extents() {
+        let mut host = Host::create(false);
+        host.execute("text", &json!({ "at": [0.0, 0.0], "text": "Hi", "height": 1.0 })).unwrap();
+        host.execute("selectall", &json!({})).unwrap();
+        host.execute("zoom.extents", &json!({})).unwrap();
+        let at = host.world_to_screen(Vec2::ZERO).unwrap();
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_LEFT_DOUBLE, wheel: 0.0, mods: 0 }).unwrap();
+        assert!(host.chrome_json().contains("new text"), "a double-click on text starts TEXTEDIT");
+        host.cancel_command().unwrap();
+        let fitted = host.stats().view_height;
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_WHEEL, wheel: 2.0, mods: 0 }).unwrap();
+        assert!(host.stats().view_height < fitted);
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_MIDDLE_DOUBLE, wheel: 0.0, mods: 0 }).unwrap();
+        assert!((host.stats().view_height - fitted).abs() / fitted < 1e-6, "a middle double-click zooms to the extents");
+    }
+
+    #[test]
+    fn a_ray_is_drawn_across_the_view() {
+        let mut host = Host::create(false);
+        let empty = host.mesh_vertices().unwrap();
+        host.execute("ray", &json!({ "base": [0.0, 0.0], "through": [10.0, 0.0] })).unwrap();
+        assert!(host.mesh_vertices().unwrap() > empty, "a ray is clipped into the canvas mesh");
     }
 
     #[test]
@@ -1013,6 +1210,40 @@ mod tests {
     }
 
     #[test]
+    fn a_typed_point_applies_the_hot_grip_and_escape_clears_it() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        host.execute("zoom.extents", &json!({})).unwrap();
+        let at = host.world_to_screen(Vec2::ZERO).unwrap();
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_LEFT_UP, wheel: 0.0, mods: 0 }).unwrap();
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_LEFT_UP, wheel: 0.0, mods: 0 }).unwrap();
+        assert!(host.hot.is_some());
+        assert!(!host.grip_point("   "));
+        assert!(host.grip_point("nope"));
+        assert!(host.hot.is_some(), "a non-point leaves the grip hot");
+        assert!(host.chrome_json().contains("Requires a point"));
+        assert!(host.grip_point("@0,5"));
+        assert!(host.hot.is_none());
+        let doc = host.session.doc().unwrap();
+        let space = doc.space(&aad_engine::doc::Space::Model).unwrap();
+        let stretched = space.iter().any(|entity| match &entity.kind {
+            aad_engine::doc::EntityKind::Line(line) => line.a.xy().dist(Vec2::new(0.0, 5.0)) < 1e-6 && line.b.xy().dist(Vec2::new(10.0, 0.0)) < 1e-6,
+            _ => false,
+        });
+        assert!(stretched, "stretch moves the picked endpoint");
+        let moved = host.world_to_screen(Vec2::new(0.0, 5.0)).unwrap();
+        host.pointer(Pointer { x: moved.x, y: moved.y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
+        host.pointer(Pointer { x: moved.x, y: moved.y, action: POINTER_LEFT_UP, wheel: 0.0, mods: 0 }).unwrap();
+        assert!(host.hot.is_some(), "the endpoint is hot again");
+        host.cancel_command().unwrap();
+        assert!(host.hot.is_none());
+        assert!(host.chrome_json().contains("*Cancel*"));
+        assert!(!host.grip_point("1,0"));
+    }
+
+    #[test]
     fn tab_cycles_object_snaps_and_a_form_is_json() {
         let mut host = Host::create(false);
         host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
@@ -1027,6 +1258,31 @@ mod tests {
         let form = host.form_json("electrical.schedule").unwrap();
         assert!(form.contains("Electrical Schedule"));
         assert!(host.form_json("line").is_none());
+    }
+
+    #[test]
+    fn layer_query_is_the_authoritative_table() {
+        let host = ffi::create(0);
+        let run = |command: &str, params: &str| {
+            let command = std::ffi::CString::new(command).unwrap();
+            let params = std::ffi::CString::new(params).unwrap();
+            unsafe { ffi::execute(host, command.as_ptr(), params.as_ptr()) }
+        };
+        assert_eq!(run("layer.new", r#"{"name":"Walls","plot":false,"transparency":40,"description":"exterior"}"#), 0);
+        assert_eq!(run("layer", "{}"), 0);
+        let table: serde_json::Value = serde_json::from_str(&ffi::result_text(host)).unwrap();
+        let walls = table["layers"].as_array().unwrap().iter().find(|layer| layer["name"] == "Walls").unwrap();
+        assert_eq!(walls["plot"], false);
+        assert_eq!(walls["transparency"], 40);
+        assert_eq!(walls["description"], "exterior");
+        assert_eq!(walls["used"], false);
+        assert!(table["linetypes"].as_array().unwrap().iter().any(|name| name == "Continuous"));
+        assert_eq!(run("layer.set", r#"{"name":"0","frozen":true}"#), 1);
+        assert!(ffi::result_text(host).is_empty(), "a rejected command clears the previous result");
+        assert!(ffi::error_text(host).contains("cannot freeze"));
+        assert_eq!(run("layer.delete", r#"{"name":"0"}"#), 1);
+        assert!(ffi::error_text(host).contains("cannot delete"));
+        unsafe { ffi::destroy(host) };
     }
 
     #[test]

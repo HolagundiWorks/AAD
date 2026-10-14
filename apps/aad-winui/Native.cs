@@ -52,6 +52,19 @@ internal static class Native
 
     public static bool GripCycle(IntPtr host) => aad_host_grip_cycle(host) != 0;
 
+    public static bool GripPoint(IntPtr host, string text)
+    {
+        var textPtr = Marshal.StringToCoTaskMemUTF8(text);
+        try
+        {
+            return aad_host_grip_point(host, textPtr) != 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
     public static int SnapTab(IntPtr host) => aad_host_snap_tab(host);
 
     public static string? ReadForm(IntPtr host, string id)
@@ -225,20 +238,43 @@ internal static class Native
         return stats;
     }
 
-    public static string LastError(IntPtr host)
+    public static string ReadResult(IntPtr host) => ReadBuffer(aad_host_result, host);
+
+    public static string ReadPopup(IntPtr host) => ReadBuffer(aad_host_popup, host);
+
+    public static string ReadClipboard(IntPtr host) => ReadBuffer(aad_host_clipboard, host);
+
+    public static bool LoadClipboard(IntPtr host, string text)
     {
-        int needed = aad_host_last_error(host, IntPtr.Zero, 0);
+        var textPtr = Marshal.StringToCoTaskMemUTF8(text);
+        try
+        {
+            return aad_host_clipboard_load(host, textPtr) != 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
+    private static string ReadBuffer(Func<IntPtr, IntPtr, uint, int> read, IntPtr host)
+    {
+        int needed = read(host, IntPtr.Zero, 0);
         if (needed == 0)
         {
             return "";
         }
         int size = needed < 0 ? -needed : needed;
+        if (size is < 0 or > 8 * 1024 * 1024)
+        {
+            return "";
+        }
         var buffer = new byte[size];
         var handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
         try
         {
-            int n = aad_host_last_error(host, handle.AddrOfPinnedObject(), (uint)buffer.Length);
-            if (n < 0)
+            int n = read(host, handle.AddrOfPinnedObject(), (uint)buffer.Length);
+            if (n <= 0)
             {
                 return "";
             }
@@ -249,6 +285,8 @@ internal static class Native
             handle.Free();
         }
     }
+
+    public static string LastError(IntPtr host) => ReadBuffer(aad_host_last_error, host);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern IntPtr aad_host_create(int sample);
@@ -273,6 +311,9 @@ internal static class Native
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_grip_cycle(IntPtr host);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_grip_point(IntPtr host, IntPtr text);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_snap_tab(IntPtr host);
@@ -306,6 +347,18 @@ internal static class Native
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_stats(IntPtr host, out Stats stats);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_popup(IntPtr host, IntPtr buffer, uint length);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_clipboard(IntPtr host, IntPtr buffer, uint length);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_clipboard_load(IntPtr host, IntPtr text);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_result(IntPtr host, IntPtr buffer, uint length);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_last_error(IntPtr host, IntPtr buffer, uint length);

@@ -5,18 +5,22 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicPtr, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{ScreenToClient, ValidateRect};
+use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, ScreenToClient, ValidateRect};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, GW_HWNDPREV, GWLP_USERDATA, GWLP_WNDPROC, GetClientRect,
     GetWindow, GetWindowLongPtrW, HWND_TOP, IDC_ARROW, IsWindowVisible, LoadCursorW, MA_ACTIVATE, RegisterClassW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-    WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_VISIBLE,
+    SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WNDCLASSW, WS_CHILD,
+    WS_CLIPSIBLINGS, WS_VISIBLE,
 };
 
-use crate::{Bridge, MOD_SHIFT, POINTER_LEFT_DOWN, POINTER_LEFT_UP, POINTER_MIDDLE_DOWN, POINTER_MIDDLE_UP, POINTER_MOVE, POINTER_RIGHT, Pointer};
+use crate::{
+    Bridge, MOD_SHIFT, POINTER_LEFT_DOUBLE, POINTER_LEFT_DOWN, POINTER_LEFT_UP, POINTER_MIDDLE_DOUBLE, POINTER_MIDDLE_DOWN, POINTER_MIDDLE_UP, POINTER_MOVE,
+    POINTER_RIGHT, Pointer,
+};
 
 const CLASS: &[u16] = &[
     b'A' as u16,
@@ -231,6 +235,14 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             }
             0
         }
+        WM_LBUTTONDBLCLK => {
+            post(hwnd, POINTER_LEFT_DOUBLE, lparam, wparam);
+            0
+        }
+        WM_MBUTTONDBLCLK => {
+            post(hwnd, POINTER_MIDDLE_DOUBLE, lparam, wparam);
+            0
+        }
         WM_LBUTTONDOWN | WM_MBUTTONDOWN => {
             unsafe { SetCapture(hwnd) };
             post(hwnd, if msg == WM_LBUTTONDOWN { POINTER_LEFT_DOWN } else { POINTER_MIDDLE_DOWN }, lparam, wparam);
@@ -268,7 +280,13 @@ fn post(hwnd: HWND, action: u32, lparam: LPARAM, wparam: WPARAM) {
     let Some(bridge) = bridge(hwnd) else { return };
     let x = (lparam & 0xffff) as u16 as i16 as i32;
     let y = ((lparam >> 16) & 0xffff) as u16 as i16 as i32;
-    let mods = if wparam & 0x0004 != 0 { MOD_SHIFT } else { 0 };
+    let mut mods = 0;
+    if wparam & 0x0004 != 0 {
+        mods |= MOD_SHIFT;
+    }
+    if wparam & 0x0008 != 0 {
+        mods |= crate::MOD_CTRL;
+    }
     bridge.push(Pointer { x: f64::from(x), y: f64::from(y), action, wheel: 0.0, mods });
 }
 
@@ -279,6 +297,15 @@ fn release_if_idle(wparam: WPARAM) {
 }
 
 /// Device pixels per logical point for this window. One when the DPI is unknown.
+/// Client pixels of the child window, as screen pixels. The point itself when there is no window.
+pub fn client_to_screen(hwnd: isize, x: f64, y: f64) -> (i32, i32) {
+    let mut pt = POINT { x: i32::try_from(x as i64).unwrap_or(0), y: i32::try_from(y as i64).unwrap_or(0) };
+    if hwnd != 0 {
+        unsafe { ClientToScreen(hwnd as HWND, &mut pt) };
+    }
+    (pt.x, pt.y)
+}
+
 pub fn dpi_scale(hwnd: isize) -> f32 {
     if hwnd == 0 {
         return 1.0;

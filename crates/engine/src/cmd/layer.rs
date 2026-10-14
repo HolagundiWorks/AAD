@@ -15,7 +15,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("layer", "Layers", run_list)
             .menu(&["Format", "Layers"])
             .alias(&["la", "layers", "-layer"])
-            .params("{} → layers, states (typed -LAYER: option prompts)")
+            .params("{} → layers, states, linetypes (typed -LAYER: option prompts)")
             .interactive(|_| Ok(Box::new(prompts::LayerM::default()))),
         CommandSpec::new("layer.new", "New Layer", run_new).params("{name, color?, linetype?, lineweight? (mm), current?: bool}"),
         CommandSpec::new("layer.set", "Set Layer Properties", run_set)
@@ -92,7 +92,8 @@ fn run_list(s: &mut Session, _p: &Value) -> Result<Value> {
             v
         })
         .collect();
-    Ok(json!({ "layers": layers, "states": d.layer_states.iter().map(|st| st.name.clone()).collect::<Vec<_>>() }))
+    let linetypes: Vec<String> = d.linetypes.iter().take(1_024).map(|t| t.name.clone()).collect();
+    Ok(json!({ "layers": layers, "states": d.layer_states.iter().map(|st| st.name.clone()).collect::<Vec<_>>(), "linetypes": linetypes }))
 }
 
 /// Lower-case names of layers that have objects on them (model, layouts and block definitions).

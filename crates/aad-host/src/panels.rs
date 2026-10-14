@@ -65,6 +65,7 @@ pub fn panels_json(session: &Session) -> String {
         "layersTruncated": layers_truncated,
         "blocks": blocks,
         "blocksTruncated": blocks_truncated,
+        "quick": quick(doc, &state.selection),
     })
     .to_string()
 }
@@ -108,6 +109,122 @@ fn properties(doc: &aad_engine::doc::Drawing, selection: &[Handle]) -> Vec<Value
 
 fn row(label: &str, value: &str) -> Value {
     json!({ "label": label, "value": value })
+}
+
+/// The Quick Properties palette: common fields for the selection, and geometry when one object is selected.
+fn quick(doc: &aad_engine::doc::Drawing, selection: &[Handle]) -> Value {
+    if selection.is_empty() {
+        return Value::Null;
+    }
+    let ents: Vec<_> = selection.iter().take(200).filter_map(|handle| doc.entity(*handle)).collect();
+    let Some(first) = ents.first() else { return Value::Null };
+    let count = selection.len();
+    let type_name = first.kind.type_name();
+    let same_type = ents.iter().all(|entity| entity.kind.type_name() == type_name);
+    let title = if count == 1 {
+        type_name.to_string()
+    } else if same_type {
+        format!("{type_name} ({count})")
+    } else {
+        format!("All ({count})")
+    };
+    let handles: Vec<String> = selection.iter().take(200).map(|handle| handle.hex()).collect();
+    let layer = shared(ents.iter().map(|entity| entity.common.layer.as_str()));
+    let color = shared_owned(ents.iter().map(|entity| entity.common.color.name()));
+    let linetype = shared(ents.iter().map(|entity| entity.common.linetype.as_str()));
+    let mut linetypes = vec!["ByLayer".to_string(), "ByBlock".to_string()];
+    for pattern in doc.linetypes.iter().take(64) {
+        if pattern.name != "ByLayer" && pattern.name != "ByBlock" {
+            linetypes.push(pattern.name.clone());
+        }
+    }
+    let mut fields = Vec::new();
+    if count == 1 {
+        match &first.kind {
+            EntityKind::Line(line) => {
+                let delta = line.b.xy() - line.a.xy();
+                number_field(&mut fields, "length", "Length", delta.len());
+                number_field(&mut fields, "angle", "Angle", delta.angle().to_degrees());
+            }
+            EntityKind::Circle(circle) => {
+                number_field(&mut fields, "centerX", "Center X", circle.center.x);
+                number_field(&mut fields, "centerY", "Center Y", circle.center.y);
+                number_field(&mut fields, "radius", "Radius", circle.radius);
+                number_field(&mut fields, "diameter", "Diameter", circle.radius * 2.0);
+            }
+            EntityKind::Arc(arc) => {
+                number_field(&mut fields, "radius", "Radius", arc.radius);
+                number_field(&mut fields, "startAngle", "Start angle", arc.start.to_degrees());
+                number_field(&mut fields, "endAngle", "End angle", arc.end.to_degrees());
+            }
+            EntityKind::LwPolyline(poly) => {
+                number_field(&mut fields, "width", "Global width", poly.const_width);
+            }
+            EntityKind::Text(text) => {
+                text_field(&mut fields, "text", "Contents", &text.value);
+                number_field(&mut fields, "height", "Height", text.height);
+                number_field(&mut fields, "rotation", "Rotation", text.rotation.to_degrees());
+            }
+            EntityKind::MText(text) => {
+                text_field(&mut fields, "text", "Contents", &text.contents);
+                number_field(&mut fields, "height", "Text height", text.height);
+            }
+            EntityKind::Insert(insert) => {
+                fields.push(json!({ "label": "Name", "value": insert.block, "text": true }));
+                number_field(&mut fields, "rotation", "Rotation", insert.rotation.to_degrees());
+                number_field(&mut fields, "scale", "Scale", insert.scale.x);
+            }
+            EntityKind::Dimension(dim) => {
+                text_field(&mut fields, "textOverride", "Text override", &dim.text);
+            }
+            _ => {}
+        }
+    }
+    json!({
+        "title": title,
+        "handles": handles,
+        "layer": layer,
+        "color": color,
+        "linetype": linetype,
+        "linetypes": linetypes,
+        "layers": doc.layers.iter().take(400).map(|layer| layer.name.clone()).collect::<Vec<_>>(),
+        "fields": fields,
+    })
+}
+
+fn shared<'a>(values: impl Iterator<Item = &'a str>) -> String {
+    let mut first: Option<&str> = None;
+    for value in values {
+        match first {
+            None => first = Some(value),
+            Some(seen) if seen != value => return "*VARIES*".into(),
+            _ => {}
+        }
+    }
+    first.unwrap_or("").to_string()
+}
+
+fn shared_owned(values: impl Iterator<Item = String>) -> String {
+    let mut first: Option<String> = None;
+    for value in values {
+        match &first {
+            None => first = Some(value),
+            Some(seen) if seen != &value => return "*VARIES*".into(),
+            _ => {}
+        }
+    }
+    first.unwrap_or_default()
+}
+
+fn number_field(fields: &mut Vec<Value>, key: &str, label: &str, value: f64) {
+    if value.is_finite() {
+        fields.push(json!({ "key": key, "label": label, "value": format!("{value:.4}"), "text": false }));
+    }
+}
+
+fn text_field(fields: &mut Vec<Value>, key: &str, label: &str, value: &str) {
+    let value: String = value.chars().take(4_096).collect();
+    fields.push(json!({ "key": key, "label": label, "value": value, "text": true }));
 }
 
 fn reference_counts(doc: &aad_engine::doc::Drawing) -> std::collections::BTreeMap<String, u32> {

@@ -232,6 +232,37 @@ pub fn build_mesh(list: &DisplayList, origin: Vec2, bg: Rgb, lwdisplay: bool) ->
     m
 }
 
+/// Clip construction lines and rays to the view and append them as hairline segments.
+///
+/// [`build_mesh`] leaves `Kind::Infinite` out. The host calls this before [`expand_hairlines`].
+pub fn append_infinite(mesh: &mut MeshData, list: &DisplayList, origin: Vec2, center: Vec2, width: f64, height: f64, bg: Rgb) {
+    if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 && center.is_finite()) {
+        return;
+    }
+    let vis = Bounds2::from_points([Vec2::new(center.x - width * 0.5, center.y - height * 0.5), Vec2::new(center.x + width * 0.5, center.y + height * 0.5)]);
+    for prim in &list.prims {
+        let Kind::Infinite { ray } = prim.kind else { continue };
+        let pts = list.points(prim);
+        let (Some(base), Some(dir)) = (pts.first(), pts.get(1)) else { continue };
+        if !dir.is_finite() || dir.len() < 1e-12 {
+            continue;
+        }
+        let far = (vis.width() + vis.height()) * 2.0 + base.dist(vis.center());
+        if !far.is_finite() {
+            continue;
+        }
+        let a = if ray { *base } else { *base - *dir * far };
+        let b = *base + *dir * far;
+        if !a.is_finite() || !b.is_finite() {
+            continue;
+        }
+        let rgb = prim.display_rgb(bg);
+        let col = [rgb.0, rgb.1, rgb.2, 255];
+        push_vertex(&mut mesh.lines, rel(a, origin), col);
+        push_vertex(&mut mesh.lines, rel(b, origin), col);
+    }
+}
+
 /// Turn hairline segments into 1-point quads, in the same draw order.
 ///
 /// Hardware line lists leave gaps on diagonals and draw a single device pixel, which is thinner
