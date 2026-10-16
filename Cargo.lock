@@ -99,12 +99,14 @@ dependencies = [
  "aad-fonts",
  "aad-geom",
  "aad-render",
+ "aad-vdb",
  "criterion",
  "log",
  "proptest",
  "rstar",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
@@ -215,6 +217,16 @@ dependencies = [
  "naga",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "aad-vdb"
+version = "0.6.0"
+dependencies = [
+ "shilpi-client",
+ "shilpidb",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3871,6 +3883,28 @@ checksum = "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
 dependencies = [
  "serde_core",
 ]
+
+[[package]]
+name = "shilpi-client"
+version = "0.2.0"
+source = "git+https://github.com/HolagundiWorks/shilpidb?rev=0797da6bb10954aff8dce604451c92d73374946e#0797da6bb10954aff8dce604451c92d73374946e"
+dependencies = [
+ "shilpi-protocol",
+ "shilpidb",
+]
+
+[[package]]
+name = "shilpi-protocol"
+version = "0.2.0"
+source = "git+https://github.com/HolagundiWorks/shilpidb?rev=0797da6bb10954aff8dce604451c92d73374946e#0797da6bb10954aff8dce604451c92d73374946e"
+dependencies = [
+ "shilpidb",
+]
+
+[[package]]
+name = "shilpidb"
+version = "0.2.0"
+source = "git+https://github.com/HolagundiWorks/shilpidb?rev=0797da6bb10954aff8dce604451c92d73374946e#0797da6bb10954aff8dce604451c92d73374946e"
 
 [[package]]
 name = "shlex"

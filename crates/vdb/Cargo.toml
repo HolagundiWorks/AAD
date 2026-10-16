@@ -1,0 +1,18 @@
+[package]
+name = "aad-vdb"
+description = "AAD .vdb store: embeds ShilpiDB (codec + SpatialGrid) and talks to shilpid via shilpi-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Pinned to one ShilpiDB commit so the embedded engine and the client share one type.
+shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "0797da6bb10954aff8dce604451c92d73374946e" }
+shilpi-client = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "0797da6bb10954aff8dce604451c92d73374946e" }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

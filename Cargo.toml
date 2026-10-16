@@ -28,6 +28,7 @@ aad-host = { path = "crates/aad-host" }
 aad-mcp = { path = "crates/mcp" }
 aad-agent = { path = "crates/agent" }
 aad-llm = { path = "crates/llm" }
+aad-vdb = { path = "crates/vdb" }
 
 # foundation
 thiserror = "2"

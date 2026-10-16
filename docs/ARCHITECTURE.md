@@ -12,6 +12,7 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 |---|---|---|
 | L0 | `geom` | f64 vectors and matrices, bounds, lines, arcs and bulges, circles, ellipses, B-splines, intersections, tessellation, planar region tracing for HATCH and BOUNDARY |
 | L0 | `dxf` | Standalone DXF tag reader and writer (ASCII and binary), tag-count limits for hostile input |
+| L0 | `vdb` | AAD `.vdb` store on [ShilpiDB](https://github.com/HolagundiWorks/shilpidb): embedded codec + `SpatialGrid`, and `VdbClient` for `shilpid` ([aadt-shilpidb-architecture.md](architecture/aadt-shilpidb-architecture.md)) |
 | L1 | `color` | Colour index table, true colour, ByLayer and ByBlock, display colour against the background |
 | L1 | `doc` | The drawing database: header, symbol tables, blocks, model space, layouts; copy-on-write `EntityStore`; hatch pattern and linetype library (`library.rs`) |
 | L2 | `fonts` | Single-stroke drafting font, TrueType/OpenType outlines through `skrifa`, text and MTEXT layout, font fallback |

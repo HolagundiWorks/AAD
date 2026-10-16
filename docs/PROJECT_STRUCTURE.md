@@ -49,6 +49,7 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 | Binary | File |
 |---|---|
 | `aad` | `apps/aad/src/main.rs` (the DWG worker mode is handled first in `main`). On Windows the default binary only starts `Aad.WinUi.exe` and does not link eframe; `--features egui` plus `--egui` is the optional egui shell. Non-Windows always links egui/eframe |
+| `aad-vdb` | `crates/vdb` — ShilpiDB-backed `.vdb` file + `VdbClient`; engine commands `vdb.export` / `vdb.info` / `vdb.query` |
 | `Aad.WinUi` | `apps/aad-winui` (C#, not a Cargo member) |
 | `aad-cli` | `apps/aad-cli/src/main.rs` |
 | `aad-web` | `apps/aad-web/src/main.rs` (WASM) |
