@@ -1,15 +1,15 @@
 # AAD control protocol
 
-Start the egui window with `--control PORT` (or `AAD_CONTROL_PORT=PORT`). It listens on
-`127.0.0.1:PORT` for JSON lines: one request per line, one reply per line.
+On Windows the default `aad` binary starts the WinUI shell (no eframe). Pass `--control PORT`
+(or set `AAD_CONTROL_PORT`) so WinUI listens on `127.0.0.1:PORT` for JSON lines: one request
+per line, one reply per line. The port is shown in the status bar.
 
-The WinUI shell listens on `127.0.0.1` as well. The port is shown in the status bar; pass
-`--control PORT` to `aad` (forwarded to WinUI) or set `AAD_CONTROL_PORT` before launch.
 That listener answers `engine.execute`, `engine.commands`, `cmdline.input`, `cmdline.script`,
-`cmdline.key`, `cmdline.state`, `drawing.inspect`, `ui.menu.invoke` (the command-line form of
-the id, with no file dialog), `ui.render` (headless drawing PNG), and `app.open` / `app.save` /
-`app.quit`. Methods that drive egui chrome (`ui.click`, `ui.elements`, `ui.screenshot`, …)
-reply `not available in the WinUI shell`. Use `--egui --control` for those.
+`cmdline.key`, `cmdline.state`, `drawing.inspect`, `ui.menu.list`, `ui.menu.invoke`,
+`ui.inspect`, `ui.pointer`, `ui.render`, `ui.screenshot` (drawing PNG, not window chrome), and
+`app.open` / `app.save` / `app.quit`. Methods that drive egui widgets (`ui.click`, `ui.elements`,
+`ui.drag`, `ui.key`, `ui.text`, `ui.set`, `ui.resize`) need a build with `--features egui` and
+`aad --egui --control PORT`.
 
 ```json
 {"id": 1, "method": "cmdline.input", "params": {"text": "circle 0,0 5"}}
@@ -36,17 +36,17 @@ The server waits up to 60 s for the app to answer a request. After that it repli
 | `engine.execute` | `{command, params}` | Run any command with JSON parameters. Never opens a dialog. |
 | `engine.commands` | | Every command: id, label, menu path, shortcut, aliases, params doc, enabled. |
 | `drawing.inspect` | `{entities?, limit?}` | Drawing summary (counts, extents, layers, styles, blocks, layouts, selection, undo) and entities with handles and geometry. |
-| `ui.inspect` | | UI state, canvas rect, view, cursor and snap, performance counters; `closePrompt`: the drawing a "Save changes?" prompt is asking about (null when none); and actual egui keyboard focus (`focus.id`, `focus.label`, `focus.role`). |
-| `ui.elements` | `{label?, role?, focused?}` | Observed toolbar, tab, drafting and layer-palette controls from the latest UI frame. Filters match exactly. Each entry has its real egui `id`, label, role, rectangle `[x,y,width,height]`, enabled/visible/selected state and current focus. |
+| `ui.inspect` | | UI state, canvas rect, view, cursor; on WinUI also `shell: "winui"` (egui adds focus and performance counters). |
+| `ui.elements` | `{label?, role?, focused?}` | Observed egui controls from the latest frame. WinUI: use `--egui`. |
 | `ui.menu.list` / `ui.menu.invoke` | `{command}` | The menu tree; invoke an item like a click (interactive). |
-| `ui.pointer` | `{x, y, space?: "world"\|"screen", button?, action?: "click"\|"move"}` | Click in the drawing area (world coordinates by default). Right button = Enter. |
-| `ui.click` / `ui.move` | `{x, y, button?, shift?}` | Real egui pointer events in screen points (reach every widget). |
+| `ui.pointer` | `{x, y, space?: "world"\|"screen", button?, action?: "click"\|"move"}` | Click in the drawing area (world coordinates by default). Right button = Enter. Works on WinUI and egui. |
+| `ui.click` / `ui.move` | `{x, y, button?, shift?}` | Real egui pointer events in screen points (reach every widget). WinUI: use `--egui`. |
 | `ui.drag` | `{x, y, to: [x, y], button?}` | Real press, move and release (for example the command line's top edge). |
 | `ui.key` / `ui.text` | `{key, cmd?, shift?, alt?}` / `{text}` | Synthetic keyboard input. |
 | `ui.set` | UiState fields | Show/hide palettes, toolbars, command line…; `theme: "light"\|"dark"` (also `engine.execute` with `ui.theme {theme}`, or `ui.theme.toggle`); `ui.inspect` reports the theme shown (`theme`: light/dark). `saveFormat: "dxf"\|"dwg"` (also `ui.saveformat {format}`) is the format Save As suggests for new drawings. |
 | `ui.resize` | `{width, height}` | Resize the window. |
 | `ui.focus` | | Activate the native window. Does not assign focus to a widget. |
-| `ui.screenshot` | `{path?}` | PNG of the window (needs a presented frame). |
+| `ui.screenshot` | `{path?}` | egui: PNG of the window. WinUI: drawing PNG via the same path as `ui.render` (`drawing: true` in the result; not chrome). |
 | `ui.render` | `{path?, width?, height?, fit?}` | Headless render. `fit` (default true) frames the whole drawing; `false` uses the current view. Replies `{pngBase64, width, height, bytes, path?}`. |
 | `app.open` / `app.save` / `app.quit` | `{path}` | File operations. |
 

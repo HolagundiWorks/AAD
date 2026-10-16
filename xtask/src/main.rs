@@ -170,16 +170,18 @@ fn cmd_ci() -> Result<(), String> {
             "clippy",
             Box::new(|| {
                 let mut c = cargo();
-                c.args(["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]);
-                run(c, "cargo clippy --workspace --all-targets -- -D warnings")
+                // `aad/egui` keeps the optional egui shell in the clippy graph (default Windows
+                // `aad` is WinUI-only and does not link eframe).
+                c.args(["clippy", "--workspace", "--all-targets", "--features", "aad/egui", "--", "-D", "warnings"]);
+                run(c, "cargo clippy --workspace --all-targets --features aad/egui -- -D warnings")
             }),
         ),
         (
             "test",
             Box::new(|| {
                 let mut c = cargo();
-                c.args(["test", "--workspace"]);
-                run(c, "cargo test --workspace")
+                c.args(["test", "--workspace", "--features", "aad/egui"]);
+                run(c, "cargo test --workspace --features aad/egui")
             }),
         ),
         ("assets", Box::new(|| assets::run(&root()))),

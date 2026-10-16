@@ -7,7 +7,7 @@ covered yet. Windows is the supported platform for now.
 
 | Question | Answer |
 |---|---|
-| Framework | The tests below cover the egui window (`aad --egui`): native Rust, **egui / eframe 0.36** (`crates/ui-egui`); a thin layer over the engine (`app.run`, `app.start`, `app.cmdline`). The WinUI shell is covered by `aad-host` tests |
+| Framework | The tests below cover the egui window (`cargo build -p aad --features egui` then `aad --egui`): native Rust, **egui / eframe 0.36** (`crates/ui-egui`); a thin layer over the engine (`app.run`, `app.start`, `app.cmdline`). The default Windows binary is WinUI-only; that shell is covered by `aad-host` tests |
 | Rendering | The drawing is a GPU mesh painted through an `egui-wgpu` callback (`crates/ui-egui/src/gpu.rs`); widgets are egui's own. When there is no GPU target the canvas falls back to painting on the CPU |
 | Input | egui events: pointer, keys, wheel, text. The canvas reads them in `canvas.rs`; shortcuts in `menus.rs::shortcuts` |
 | Tools, panels, dialogs | Tools are engine commands with prompts; panels are docked (`docking.rs`); dialogs are `formdialog.rs` (generated from the command forms) and `dialogs.rs` |

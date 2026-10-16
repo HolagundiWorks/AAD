@@ -78,7 +78,8 @@
                     </TabViewItem>
                 </TabView>
             </Grid>
-            <local:ResizeGrip x:Name="LeftSplitter" Grid.Column="2" Width="8" Background="{ThemeResource DividerStrokeColorDefaultBrush}" PointerPressed="OnSplitPressed" PointerMoved="OnSplitMoved" PointerReleased="OnSplitReleased" KeyDown="OnSplitKey" AutomationProperties.Name="Resize side panel" ToolTipService.ToolTip="Drag, or Left and Right arrows when focused" />
+            <!-- Control with a Border template so Background is hit-testable (empty Control was not). -->
+            <local:ResizeGrip x:Name="LeftSplitter" Grid.Column="2" Width="8" MinWidth="8" Background="{ThemeResource DividerStrokeColorDefaultBrush}" PointerPressed="OnSplitPressed" PointerMoved="OnSplitMoved" PointerReleased="OnSplitReleased" PointerCaptureLost="OnSplitCaptureLost" KeyDown="OnSplitKey" AutomationProperties.Name="Resize side panel" ToolTipService.ToolTip="Drag, or Left and Right arrows when focused" />
             <Border x:Name="CanvasHost" Grid.Column="3" Background="Black" SizeChanged="OnCanvasSize" AutomationProperties.Name="Drawing" />
             <Grid x:Name="StartPage" Grid.Column="3" Visibility="Collapsed" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" AutomationProperties.Name="Start">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">

@@ -11,6 +11,8 @@ use serde_json::{Value, json};
 const MAX_LAYERS: usize = 400;
 const MAX_BLOCKS: usize = 400;
 const MAX_SCAN: usize = 50_000;
+const MAX_BLOCK_REFS: usize = 200;
+const MAX_BLOCK_ATTRS: usize = 50;
 
 /// The Classic panels: current properties, the layer table and block definitions.
 pub fn panels_json(session: &Session) -> String {
@@ -38,7 +40,7 @@ pub fn panels_json(session: &Session) -> String {
             "current": layer.name.eq_ignore_ascii_case(&current),
         }));
     }
-    let refs = reference_counts(doc);
+    let refs = reference_handles(doc);
     let mut blocks_truncated = false;
     let mut blocks: Vec<&aad_engine::doc::Block> = doc.blocks.values().map(|b| b.as_ref()).filter(|b| !b.anonymous).collect();
     blocks.sort_by_key(|block| block.name.to_ascii_lowercase());
@@ -49,10 +51,24 @@ pub fn panels_json(session: &Session) -> String {
     let blocks: Vec<Value> = blocks
         .iter()
         .map(|b| {
+            let (count, handles) = refs.get(&b.name).map_or((0u32, Vec::new()), |(total, list)| {
+                (*total, list.iter().map(|h| h.hex()).collect::<Vec<_>>())
+            });
+            let attributes: Vec<String> = b
+                .entities
+                .iter()
+                .filter_map(|entity| match &entity.kind {
+                    EntityKind::AttDef(attr) => Some(format!("{} = {}", attr.tag, attr.text.value)),
+                    _ => None,
+                })
+                .take(MAX_BLOCK_ATTRS)
+                .collect();
             json!({
                 "name": b.name,
                 "entities": b.entities.len(),
-                "references": refs.get(&b.name).copied().unwrap_or(0),
+                "references": count,
+                "handles": handles,
+                "attributes": attributes,
             })
         })
         .collect();
@@ -233,17 +249,21 @@ fn text_field(fields: &mut Vec<Value>, key: &str, label: &str, value: &str) {
     fields.push(json!({ "key": key, "label": label, "value": value, "text": true }));
 }
 
-fn reference_counts(doc: &aad_engine::doc::Drawing) -> std::collections::BTreeMap<String, u32> {
-    let mut counts = std::collections::BTreeMap::new();
+/// Count of inserts and up to [`MAX_BLOCK_REFS`] handles per block name.
+fn reference_handles(doc: &aad_engine::doc::Drawing) -> std::collections::BTreeMap<String, (u32, Vec<Handle>)> {
+    let mut refs = std::collections::BTreeMap::new();
     let entities = std::iter::once(&doc.model).chain(doc.layouts.iter().map(|layout| &layout.entities)).flat_map(|space| space.iter());
     for (seen, entity) in entities.enumerate() {
         if seen == MAX_SCAN {
             break;
         }
         if let EntityKind::Insert(insert) = &entity.kind {
-            let count = counts.entry(insert.block.clone()).or_insert(0u32);
-            *count = count.saturating_add(1);
+            let entry = refs.entry(insert.block.clone()).or_insert_with(|| (0u32, Vec::new()));
+            entry.0 = entry.0.saturating_add(1);
+            if entry.1.len() < MAX_BLOCK_REFS {
+                entry.1.push(entity.handle);
+            }
         }
     }
-    counts
+    refs
 }

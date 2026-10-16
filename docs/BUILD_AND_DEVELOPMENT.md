@@ -32,8 +32,8 @@ Outputs are in `target/debug` and `target/release` (`aad.exe`, `aad-cli.exe`).
 
 ```text
 cargo run --release -p aad -- --sample            # WinUI shell when target/aad-winui/Aad.WinUi.exe exists
-cargo run --release -p aad -- --egui --sample     # egui window
-cargo run --release -p aad -- file.dxf            # WinUI opens the file (egui if WinUI is missing)
+cargo run --release -p aad --features egui -- --egui --sample   # optional egui window (Windows)
+cargo run --release -p aad -- file.dxf            # WinUI opens the file (error if WinUI is missing)
 cargo run --release -p aad -- --control 47123     # WinUI + JSON control channel
 cargo run --release -p aad-cli -- info examples/apartment.dxf
 ```
@@ -45,11 +45,11 @@ The control channel is described in [control-protocol.md](control-protocol.md).
 ## Test, format, lint
 
 ```text
-cargo xtask ci                                           # verified: fmt, clippy -D warnings, tests, assets, layers, wasm
+cargo xtask ci                                           # verified: fmt, clippy -D warnings (with aad/egui), tests, assets, layers, wasm
 cargo fmt --all -- --check                               # verified
-cargo clippy --workspace --all-targets -- -D warnings    # verified
-cargo test --workspace --all-targets                     # verified
-cargo test -p aad-ui-egui                           # verified: the UI tests
+cargo clippy --workspace --all-targets --features aad/egui -- -D warnings
+cargo test --workspace --features aad/egui               # keeps the optional egui shell in the graph
+cargo test -p aad-ui-egui                                # verified: the UI tests
 ```
 
 `cargo xtask --help` lists the other tasks. Details, long-running property and mutation tests and

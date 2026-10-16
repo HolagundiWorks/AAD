@@ -211,6 +211,7 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetLocalizedLandmarkType(StatusRow, "status");
         AutomationProperties.SetHeadingLevel(StartHeading, AutomationHeadingLevel.Level1);
         AnnouncePrompt(PromptLabel.Text ?? "Command:", "");
+        AutomationProperties.SetName(LeftSplitter, "Resize side panel, width " + (int)_leftWidth);
     }
 
     private void OnCanvasSize(object sender, SizeChangedEventArgs e)
@@ -332,9 +333,74 @@ public sealed partial class MainWindow : Window
             _ = CloseActive();
             return;
         }
-        if (id == "layer")
+        if (id is "layer" or "la" or "layers" or "ui.dialog.layers")
         {
             OpenLayers();
+            return;
+        }
+        if (id == "ui.panel.layers")
+        {
+            ShowSidePanel(SideTab.Layers);
+            return;
+        }
+        if (id is "ui.panel.properties" or "properties")
+        {
+            ShowSidePanel(SideTab.Properties);
+            return;
+        }
+        if (id is "ui.dialog.blocks" or "blocks")
+        {
+            ShowSidePanel(SideTab.Blocks);
+            return;
+        }
+        if (id is "units" or "un")
+        {
+            OpenUnits();
+            return;
+        }
+        if (id is "ui.dialog.about")
+        {
+            AboutWindow.Show(this, VersionText());
+            return;
+        }
+        if (id is "ui.dialog.commands")
+        {
+            CommandList.Show(this, Native.ReadText(_host, Native.TextMenu));
+            return;
+        }
+        if (id is "ui.dialog.customizetop")
+        {
+            OpenTools();
+            return;
+        }
+        if (id is "ui.dialog.parameters")
+        {
+            History.Text = "Parameters Manager is not available yet.";
+            return;
+        }
+        if (id == "ui.workspace.classic")
+        {
+            SwitchWorkspace(classic: true);
+            return;
+        }
+        if (id == "ui.workspace.pro")
+        {
+            SwitchWorkspace(classic: false);
+            return;
+        }
+        if (id is "ui.workspace.toggle")
+        {
+            SwitchWorkspace(!_classic);
+            return;
+        }
+        if (id is "ui.workspace.reset" or "resetui" or "ui.dock.reset")
+        {
+            ResetCurrentWorkspace();
+            return;
+        }
+        if (id == "ui.workspace")
+        {
+            History.Text = _classic ? "Workspace: Classic" : "Workspace: Pro";
             return;
         }
         if (id is "style" or "st")
@@ -387,12 +453,12 @@ public sealed partial class MainWindow : Window
             OpenRoomSettings();
             return;
         }
-        if (id == "dsettings")
+        if (id is "dsettings" or "ds" or "se" or "ui.dialog.dsettings")
         {
             OpenDrafting();
             return;
         }
-        if (id == "qselect")
+        if (id is "qselect" or "qs" or "ui.dialog.qselect")
         {
             OpenQuickSelect();
             return;
@@ -677,6 +743,12 @@ public sealed partial class MainWindow : Window
             _ = BeginPlot(plotId);
             return;
         }
+        if (IsBareDialogCommand(text, out var dialogId))
+        {
+            StartCommand(dialogId);
+            CommandInput.Focus(FocusState.Programmatic);
+            return;
+        }
         if (Native.CommandLine(_host, text) != 0)
         {
             History.Text = Native.LastError(_host);
@@ -687,7 +759,7 @@ public sealed partial class MainWindow : Window
         CommandInput.Focus(FocusState.Programmatic);
     }
 
-    private static bool IsBarePlotCommand(string text, out string id)
+    private static bool IsBareToken(string text, out string id)
     {
         id = "";
         var trimmed = text.Trim();
@@ -702,7 +774,33 @@ public sealed partial class MainWindow : Window
             return false;
         }
         id = token.ToLowerInvariant();
-        return id is "plot" or "print" or "exportpdf";
+        return true;
+    }
+
+    private static bool IsBarePlotCommand(string text, out string id) =>
+        IsBareToken(text, out id) && id is "plot" or "print" or "exportpdf";
+
+    /// <summary>Bare typed names that open a WinUI dialog (same as the menu), not the JSON command defaults.</summary>
+    private static bool IsBareDialogCommand(string text, out string id)
+    {
+        if (!IsBareToken(text, out id))
+        {
+            return false;
+        }
+        return id is "units" or "un"
+            or "layer" or "la" or "layers"
+            or "style" or "st"
+            or "pagesetup"
+            or "stylesmanager"
+            or "plot.batch"
+            or "dimstyle"
+            or "linetype" or "lt" or "ltype"
+            or "ddptype"
+            or "mleaderstyle" or "mls"
+            or "room.settings"
+            or "dsettings" or "ds" or "se"
+            or "qselect" or "qs"
+            or "cal" or "quickcalc" or "qc" or "calc";
     }
 
     private async Task BeginPlot(string id)
@@ -1228,8 +1326,11 @@ public sealed partial class MainWindow : Window
         }
         _dragSplit = splitter;
         _dragX = e.GetCurrentPoint(Content).Position.X;
-        _dragWidth = PropertiesColumn.ActualWidth;
+        _dragWidth = _leftWidth;
+        _leftCollapsed = false;
+        _leftIdleSince = DateTime.UtcNow;
         splitter.CapturePointer(e.Pointer);
+        e.Handled = true;
     }
 
     private void OnSplitMoved(object sender, PointerRoutedEventArgs e)
@@ -1239,11 +1340,9 @@ public sealed partial class MainWindow : Window
             return;
         }
         var delta = e.GetCurrentPoint(Content).Position.X - _dragX;
-        if (_dragSplit == LeftSplitter)
-        {
-            SetSideWidth(_dragWidth + delta);
-        }
+        SetSideWidth(_dragWidth + delta);
         PlaceChild();
+        e.Handled = true;
     }
 
     private void OnSplitReleased(object sender, PointerRoutedEventArgs e)
@@ -1252,7 +1351,20 @@ public sealed partial class MainWindow : Window
         {
             splitter.ReleasePointerCapture(e.Pointer);
         }
+        EndSplitDrag();
+        e.Handled = true;
+    }
+
+    private void OnSplitCaptureLost(object sender, PointerRoutedEventArgs e) => EndSplitDrag();
+
+    private void EndSplitDrag()
+    {
+        if (_dragSplit == null)
+        {
+            return;
+        }
         _dragSplit = null;
+        _leftIdleSince = DateTime.UtcNow;
         SaveShell();
     }
 
@@ -1578,6 +1690,8 @@ public sealed partial class MainWindow : Window
         // Shell-only aliases that match common Windows habits and stay on the same command ids.
         RememberKey(true, false, Windows.System.VirtualKey.Y, "redo");
         RememberKey(true, false, Windows.System.VirtualKey.U, "redo");
+        RememberKey(true, false, Windows.System.VirtualKey.Number1, "ui.panel.properties");
+        RememberKey(true, false, Windows.System.VirtualKey.NumberPad1, "ui.panel.properties");
         EnsureHelp();
     }
 
@@ -1941,7 +2055,9 @@ public sealed partial class MainWindow : Window
         Native.ShowWindow(WindowNative.GetWindowHandle(_draftingWindow), 8);
     }
 
-    private void OnUnits(object sender, RoutedEventArgs e)
+    private void OnUnits(object sender, RoutedEventArgs e) => OpenUnits();
+
+    private void OpenUnits()
     {
         if (_host == IntPtr.Zero)
         {
@@ -2592,6 +2708,8 @@ public sealed partial class MainWindow : Window
         grid.Children.Add(child);
     }
 
+    private string? _selectedBlock;
+
     private void FillBlocks(PanelSnapshot snapshot)
     {
         BlocksPanel.Children.Clear();
@@ -2600,33 +2718,105 @@ public sealed partial class MainWindow : Window
         {
             BlocksPanel.Children.Add(FieldLabel("This drawing defines no blocks."));
         }
+        if (!string.IsNullOrEmpty(_selectedBlock) && snapshot.Blocks.All(b => !string.Equals(b.Name, _selectedBlock, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedBlock = null;
+        }
         foreach (var block in snapshot.Blocks)
         {
             var name = block.Name;
-            var line = new StackPanel { Spacing = 0 };
-            line.Children.Add(new TextBlock { Text = name });
-            line.Children.Add(FieldLabel(block.Entities + " objects · " + block.References + " references"));
-            var insert = new Button { Content = "Insert", Tag = name, HorizontalAlignment = HorizontalAlignment.Left, MinHeight = Density.MinTarget };
-            Density.Name(insert, "Insert block " + name);
-            insert.Click += (_, _) =>
+            var selected = string.Equals(_selectedBlock, name, StringComparison.OrdinalIgnoreCase);
+            var line = new Border
             {
-                if (_host == IntPtr.Zero || Native.CommandLine(_host, "insert") != 0)
-                {
-                    History.Text = Native.LastError(_host);
-                    return;
-                }
-                Native.CommandLine(_host, name);
+                Padding = new Thickness(4, 4, 4, 4),
+                CornerRadius = new CornerRadius(3),
+                Background = selected ? SelectedBlockBrush() : null,
+            };
+            var stack = new StackPanel { Spacing = 2 };
+            stack.Children.Add(new TextBlock { Text = name, FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal });
+            stack.Children.Add(FieldLabel(block.Entities + " objects · " + block.References + " references"));
+            line.Child = stack;
+            line.PointerPressed += (_, _) =>
+            {
+                _selectedBlock = name;
                 _panelKey = "";
-                RefreshChrome();
                 RefreshPanels();
             };
-            line.Children.Add(insert);
             BlocksPanel.Children.Add(line);
+        }
+        var focus = snapshot.Blocks.FirstOrDefault(b => string.Equals(b.Name, _selectedBlock, StringComparison.OrdinalIgnoreCase));
+        if (focus != null)
+        {
+            BlocksPanel.Children.Add(new Border { Height = 1, Margin = new Thickness(0, 8, 0, 8), Background = StripBrush() });
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            var insert = new Button { Content = "Insert", MinHeight = Density.MinTarget };
+            Density.Name(insert, "Insert block " + focus.Name);
+            insert.Click += (_, _) => InsertBlock(focus.Name);
+            actions.Children.Add(insert);
+            var select = new Button
+            {
+                Content = "Select references",
+                MinHeight = Density.MinTarget,
+                IsEnabled = focus.Handles.Count > 0,
+            };
+            Density.Name(select, "Select references of " + focus.Name);
+            select.Click += (_, _) => SelectBlockReferences(focus);
+            actions.Children.Add(select);
+            BlocksPanel.Children.Add(actions);
+            if (focus.Attributes.Count > 0)
+            {
+                BlocksPanel.Children.Add(FieldLabel("Attribute definitions"));
+                foreach (var attr in focus.Attributes)
+                {
+                    BlocksPanel.Children.Add(new TextBlock { Text = attr });
+                }
+                BlocksPanel.Children.Add(FieldLabel("Edit attribute values on a reference with ATTEDIT."));
+            }
         }
         if (snapshot.BlocksTruncated)
         {
             BlocksPanel.Children.Add(FieldLabel("Further blocks are not listed."));
         }
+        BlocksPanel.Children.Add(FieldLabel("External references are not supported."));
+    }
+
+    private static Brush? SelectedBlockBrush()
+    {
+        if (Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out var value) && value is Brush brush)
+        {
+            return brush;
+        }
+        return null;
+    }
+
+    private void InsertBlock(string name)
+    {
+        if (_host == IntPtr.Zero || Native.CommandLine(_host, "insert") != 0)
+        {
+            History.Text = Native.LastError(_host);
+            return;
+        }
+        Native.CommandLine(_host, name);
+        _panelKey = "";
+        RefreshChrome();
+        RefreshPanels();
+    }
+
+    private void SelectBlockReferences(BlockRow block)
+    {
+        if (_host == IntPtr.Zero || block.Handles.Count == 0)
+        {
+            return;
+        }
+        var json = JsonSerializer.Serialize(new Dictionary<string, object> { ["handles"] = block.Handles });
+        if (Native.Execute(_host, "select", json) != 0)
+        {
+            History.Text = Native.LastError(_host);
+            return;
+        }
+        _panelKey = "";
+        RefreshChrome();
+        RefreshPanels();
     }
 
     private void RunLayer(string command, Dictionary<string, object> parameters)
@@ -3230,7 +3420,8 @@ public sealed partial class MainWindow : Window
         // Floated panels leave only the context/pin strip in the dock.
         var dockWidth = _leftFloat != null ? Math.Min(_leftWidth, 200) : _leftWidth;
         PropertiesColumn.Width = new GridLength(leftOpen ? dockWidth : 12);
-        LeftSplitterColumn.Width = leftOpen && _leftFloat == null ? GridLength.Auto : new GridLength(0);
+        LeftSplitterColumn.Width = leftOpen && _leftFloat == null ? new GridLength(8) : new GridLength(0);
+        LeftSplitter.Visibility = leftOpen && _leftFloat == null ? Visibility.Visible : Visibility.Collapsed;
         SideTabs.Visibility = leftOpen && _leftFloat == null ? Visibility.Visible : Visibility.Collapsed;
         ContextBar.Visibility = leftOpen ? Visibility.Visible : Visibility.Collapsed;
         PinLeftButton.Visibility = leftOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -3317,6 +3508,18 @@ public sealed partial class MainWindow : Window
         CheckItem(window, "File tabs", () => _showTabs, value => _showTabs = value);
         CheckItem(window, "Status bar", () => _showStatus, value => _showStatus = value);
         CheckItem(window, "Command line", () => _showCommand, value => _showCommand = value);
+        CheckItem(window, "Pin side panels", () => _pinLeft, value =>
+        {
+            _pinLeft = value;
+            _leftCollapsed = false;
+            _leftIdleSince = DateTime.UtcNow;
+            UpdatePinButton();
+        });
+        CommandItem(window, "Properties", () => ShowSidePanel(SideTab.Properties));
+        CommandItem(window, "Layers palette", () => ShowSidePanel(SideTab.Layers));
+        CommandItem(window, "Blocks", () => ShowSidePanel(SideTab.Blocks));
+        CommandItem(window, "Classic workspace", () => SwitchWorkspace(classic: true));
+        CommandItem(window, "Pro workspace", () => SwitchWorkspace(classic: false));
         CommandItem(window, "Reset this workspace", ResetCurrentWorkspace);
         CommandItem(window, "Calculator", OpenCalculator);
         CommandItem(window, "Pomodoro", OpenPomodoro);
@@ -3329,6 +3532,36 @@ public sealed partial class MainWindow : Window
             Native.SetUcs(_host, _ucs);
             SaveShell();
         });
+    }
+
+    private enum SideTab
+    {
+        Properties,
+        Layers,
+        Blocks,
+    }
+
+    /// Expands the side column (and floats it back if needed), then selects a panel tab.
+    private void ShowSidePanel(SideTab tab)
+    {
+        if (_leftFloat != null)
+        {
+            _leftFloat.Activate();
+        }
+        else
+        {
+            _leftCollapsed = false;
+            _leftIdleSince = DateTime.UtcNow;
+            ApplyColumns();
+            PlaceChild();
+        }
+        var item = tab switch
+        {
+            SideTab.Layers => LayersTab,
+            SideTab.Blocks => BlocksTab,
+            _ => PropertiesTab,
+        };
+        SideTabs.SelectedItem = item;
     }
 
     private void CheckItem(MenuBarItem menu, string label, Func<bool> read, Action<bool> write)
@@ -3975,10 +4208,12 @@ public sealed partial class MainWindow : Window
         public string Name { get; set; } = "";
         public int Entities { get; set; }
         public int References { get; set; }
+        public List<string> Handles { get; set; } = new();
+        public List<string> Attributes { get; set; } = new();
     }
 }
 
-/// <summary>The side-column edge. Focusable so Left/Right can change the width.</summary>
+/// <summary>Side-column edge. Focusable so Left/Right can change the width.</summary>
 public sealed class ResizeGrip : Control
 {
     public ResizeGrip()
@@ -3986,10 +4221,12 @@ public sealed class ResizeGrip : Control
         IsTabStop = true;
         UseSystemFocusVisuals = true;
         ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.SizeWestEast);
+        // Without a template, Control.Background never paints and the grip does not hit-test.
+        Template = (ControlTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(
+            """
+            <ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+              <Border Background="{TemplateBinding Background}" />
+            </ControlTemplate>
+            """);
     }
-
-    protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize) =>
-        new(double.IsNaN(Width) ? 8 : Width, availableSize.Height);
-
-    protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize) => finalSize;
 }

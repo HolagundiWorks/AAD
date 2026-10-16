@@ -720,6 +720,10 @@ impl Host {
                 let error = self.submit(id).err();
                 json_ok(self.cmdline_state(before, error))
             }
+            "ui.menu.list" => self.control_menu_list(),
+            "ui.inspect" => self.control_inspect(),
+            "ui.pointer" => self.control_pointer(params),
+            "ui.screenshot" => self.control_screenshot(params),
             "app.open" => {
                 let Some(path) = params.get("path").and_then(Value::as_str) else {
                     return json_err("missing path");
@@ -742,9 +746,116 @@ impl Host {
                 json_ok(Value::Null)
             }
             "ui.render" => self.control_render(params),
-            other if other.starts_with("ui.") => json_err("not available in the WinUI shell; use --egui or ui.render"),
+            other if other.starts_with("ui.") => {
+                json_err(format!("{other} is egui chrome automation; use --egui, or ui.pointer / ui.render / ui.screenshot on WinUI"))
+            }
             _ => json_err("unknown method"),
         }
+    }
+
+    fn control_menu_list(&self) -> Value {
+        match serde_json::from_str::<Value>(&self.menu_json()) {
+            Ok(Value::Array(items)) => {
+                let menus: Vec<Value> = items
+                    .into_iter()
+                    .map(|node| menu_node_for_control(&node))
+                    .collect();
+                json_ok(Value::Array(menus))
+            }
+            Ok(_) | Err(_) => json_err("menu tree is unavailable"),
+        }
+    }
+
+    fn control_inspect(&self) -> Value {
+        let view = self.session.state().map(|state| state.view()).unwrap_or(aad_engine::View { center: Vec2::ZERO, height: 1.0 });
+        let settings = &self.session.settings;
+        json_ok(serde_json::json!({
+            "shell": "winui",
+            "canvas": { "width": self.width, "height": self.height, "visible": self.canvas_visible },
+            "view": { "center": [view.center.x, view.center.y], "height": view.height },
+            "cursor": [self.aim.x, self.aim.y],
+            "dark": self.dark,
+            "ucs": self.show_ucs,
+            "osnap": settings.osmode != 0,
+            "ortho": settings.orthomode,
+            "polar": settings.polarmode,
+            "dynmode": settings.dynmode,
+            "controlPort": self.control_port,
+            "assistant": self.assistant.phase().to_string(),
+            "closePrompt": Value::Null,
+            "focus": Value::Null,
+        }))
+    }
+
+    fn control_pointer(&mut self, params: &Value) -> Value {
+        let Some(x) = params.get("x").and_then(Value::as_f64) else {
+            return json_err("missing x/y");
+        };
+        let Some(y) = params.get("y").and_then(Value::as_f64) else {
+            return json_err("missing x/y");
+        };
+        if !x.is_finite() || !y.is_finite() {
+            return json_err("x/y must be finite");
+        }
+        let world = if params.get("space").and_then(Value::as_str).unwrap_or("world") == "screen" {
+            match self.screen_to_world(x, y) {
+                Ok(point) => point,
+                Err(e) => return json_err(e),
+            }
+        } else {
+            Vec2::new(x, y)
+        };
+        self.aim = world;
+        self.session.cursor = world;
+        self.session.cursor_deferred = None;
+        let action = params.get("action").and_then(Value::as_str).unwrap_or("click");
+        if action == "move" {
+            return json_ok(serde_json::json!({ "world": [world.x, world.y] }));
+        }
+        let shift = params.get("shift").and_then(Value::as_bool).unwrap_or(false);
+        let before = self.session.log.len();
+        let result = match params.get("button").and_then(Value::as_str).unwrap_or("left") {
+            "right" => self.session.input(aad_engine::Input::Enter),
+            _ if self.session.running.is_some() => self.session.input(aad_engine::Input::Point(world)),
+            _ => self.session.idle_click(world, shift),
+        };
+        match result {
+            Ok(()) => {
+                let _ = self.present_if_ready();
+                json_ok(serde_json::json!({
+                    "world": [world.x, world.y],
+                    "state": self.cmdline_state(before, None),
+                }))
+            }
+            Err(e) => json_err(e.to_string()),
+        }
+    }
+
+    /// Drawing PNG (not WinUI chrome). Same raster path as `ui.render`; default path is the temp dir.
+    fn control_screenshot(&self, params: &Value) -> Value {
+        let path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| std::env::temp_dir().join("aad-shot.png").to_string_lossy().into_owned());
+        let mut body = params.clone();
+        if let Some(object) = body.as_object_mut() {
+            object.insert("path".into(), Value::String(path.clone()));
+            object.entry("width".to_string()).or_insert_with(|| Value::from(self.width.max(16)));
+            object.entry("height".to_string()).or_insert_with(|| Value::from(self.height.max(16)));
+            object.entry("fit".to_string()).or_insert(Value::Bool(false));
+        }
+        let rendered = self.control_render(&body);
+        if rendered.get("ok") != Some(&Value::Bool(true)) {
+            return rendered;
+        }
+        let result = rendered.get("result").cloned().unwrap_or(Value::Null);
+        json_ok(serde_json::json!({
+            "path": result.get("path").cloned().unwrap_or(Value::String(path)),
+            "width": result.get("width").cloned().unwrap_or(Value::from(self.width)),
+            "height": result.get("height").cloned().unwrap_or(Value::from(self.height)),
+            "drawing": true,
+        }))
     }
 
     /// Headless PNG of the drawing (same contract as egui `ui.render`). No window chrome.
@@ -1457,6 +1568,26 @@ fn log_since(session: &Session, before: usize) -> Vec<String> {
     session.log.iter().skip(before).cloned().collect()
 }
 
+/// Shape the host menu tree like egui `ui.menu.list` (`label` / `children` / optional `id`).
+fn menu_node_for_control(node: &Value) -> Value {
+    let label = node.get("title").and_then(Value::as_str).unwrap_or("");
+    let children: Vec<Value> = node
+        .get("items")
+        .and_then(Value::as_array)
+        .map(|items| items.iter().map(menu_node_for_control).collect())
+        .unwrap_or_default();
+    let mut out = serde_json::json!({ "label": label, "children": children });
+    if let (Some(id), Some(object)) = (node.get("id").and_then(Value::as_str), out.as_object_mut()) {
+        if !id.is_empty() {
+            object.insert("id".into(), Value::String(id.to_string()));
+        }
+    }
+    if let (Some(enabled), Some(object)) = (node.get("enabled"), out.as_object_mut()) {
+        object.insert("enabled".into(), enabled.clone());
+    }
+    out
+}
+
 fn json_ok(value: Value) -> Value {
     serde_json::json!({"ok": true, "result": value})
 }
@@ -1516,6 +1647,22 @@ mod tests {
         assert!(host.submit("not-a-command").is_err());
         assert_eq!(host.stats().entities, before + 1);
         assert!(host.chrome_json().contains("unknown command"));
+    }
+
+    #[test]
+    fn panels_list_block_reference_handles() {
+        let mut host = Host::create(false);
+        let line = host.execute("line", &json!({ "points": [[0.0, 0.0], [1.0, 0.0]] })).unwrap();
+        let handle = line.get("handles").and_then(|v| v.as_array()).and_then(|a| a.first()).cloned()
+            .or_else(|| line.get("handle").cloned())
+            .unwrap_or(json!("1"));
+        host.execute("block", &json!({ "name": "DOOR", "base": [0.0, 0.0], "handles": [handle], "keep": "delete" })).unwrap();
+        host.execute("insert", &json!({ "name": "DOOR", "at": [2.0, 0.0] })).unwrap();
+        let panels: serde_json::Value = serde_json::from_str(&host.panels_json()).unwrap();
+        let blocks = panels["blocks"].as_array().unwrap();
+        let door = blocks.iter().find(|b| b["name"] == "DOOR").expect("DOOR block");
+        assert!(door["references"].as_u64().unwrap_or(0) >= 1);
+        assert!(!door["handles"].as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -1902,6 +2049,33 @@ mod tests {
         host.clear_plot_request();
         assert!(host.plot_request_json().is_empty());
         assert!(host.session.plot_request.is_none());
+    }
+
+    #[test]
+    fn ui_inspect_menu_list_pointer_and_screenshot_work_on_the_control_channel() {
+        let mut host = Host::create(false);
+        host.apply_size(640, 480);
+        let inspect = host.control_one("ui.inspect", &json!({}));
+        assert_eq!(inspect["ok"], true, "{inspect}");
+        assert_eq!(inspect["result"]["shell"], "winui");
+        assert_eq!(inspect["result"]["canvas"]["width"], 640);
+        let menus = host.control_one("ui.menu.list", &json!({}));
+        assert_eq!(menus["ok"], true, "{menus}");
+        assert!(menus["result"].as_array().unwrap().iter().any(|m| m["label"] == "File"));
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let click = host.control_one("ui.pointer", &json!({ "x": 5.0, "y": 0.0, "space": "world" }));
+        assert_eq!(click["ok"], true, "{click}");
+        assert_eq!(host.session.selection().len(), 1);
+        let path = std::env::temp_dir().join(format!("aad-host-ui-shot-{}.png", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let shot = host.control_one("ui.screenshot", &json!({ "path": path.to_string_lossy() }));
+        assert_eq!(shot["ok"], true, "{shot}");
+        assert_eq!(shot["result"]["drawing"], true);
+        assert!(path.is_file(), "missing {}", path.display());
+        let _ = std::fs::remove_file(&path);
+        let chrome = host.control_one("ui.click", &json!({ "x": 1.0, "y": 1.0 }));
+        assert_eq!(chrome["ok"], false);
+        assert!(chrome["error"].as_str().unwrap_or("").contains("egui"));
     }
 
     #[test]

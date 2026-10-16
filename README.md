@@ -31,12 +31,12 @@ troubleshooting: [docs/BUILD_AND_DEVELOPMENT.md](docs/BUILD_AND_DEVELOPMENT.md).
 ```sh
 cargo build -p aad-host
 dotnet build apps/aad-winui/Aad.WinUi.csproj -c Debug -p:Platform=x64 -o target/aad-winui
-cargo run --release -p aad -- --sample    # WinUI shell when Aad.WinUi.exe is built; otherwise the egui window
-cargo run --release -p aad -- --egui --sample
-cargo run --release -p aad -- file.dxf    # a file path stays on the egui window
+cargo run --release -p aad -- --sample              # WinUI shell (default Windows binary; no eframe)
+cargo run --release -p aad -- file.dxf              # forwards the path to WinUI
+cargo run --release -p aad --features egui -- --egui --sample   # optional egui window
 ```
 
-The WinUI shell needs the .NET 8 SDK. `aad --egui` and `aad --control PORT` keep the egui window (the assistant and the control channel). Copy `target/debug/aad_host.dll` next to `Aad.WinUi.exe` after building the host.
+The WinUI shell needs the .NET 8 SDK. The default Windows `aad` binary does not link eframe; rebuild with `--features egui` for `aad --egui` (widget automation). Copy `target/debug/aad_host.dll` next to `Aad.WinUi.exe` after building the host.
 
 Type commands at the command line, for example:
 
