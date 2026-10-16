@@ -129,11 +129,14 @@ dependencies = [
 name = "aad-host"
 version = "0.6.0"
 dependencies = [
+ "aad-agent",
  "aad-color",
+ "aad-dwg",
  "aad-engine",
  "aad-fonts",
  "aad-geom",
  "aad-io",
+ "aad-llm",
  "aad-render",
  "pollster 0.4.0",
  "raw-window-handle",

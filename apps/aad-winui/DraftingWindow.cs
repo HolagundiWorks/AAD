@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 
@@ -20,11 +22,11 @@ internal sealed class DraftingWindow : Window
 
     private readonly IntPtr _host;
     private readonly Action _changed;
-    private readonly ToggleButton _polar = new() { Content = "Polar tracking on (F10)" };
-    private readonly ToggleButton _snap = new() { Content = "Object snap on (F3)" };
-    private readonly ToggleButton _dyn = new() { Content = "Dynamic input (F12)" };
-    private readonly ToggleButton _ortho = new() { Content = "Ortho (F8)" };
-    private readonly ComboBox _angle = new() { MinWidth = 80 };
+    private readonly ToggleButton _polar = new() { Content = "Polar tracking on (F10)", MinHeight = Density.MinTarget };
+    private readonly ToggleButton _snap = new() { Content = "Object snap on (F3)", MinHeight = Density.MinTarget };
+    private readonly ToggleButton _dyn = new() { Content = "Dynamic input (F12)", MinHeight = Density.MinTarget };
+    private readonly ToggleButton _ortho = new() { Content = "Ortho (F8)", MinHeight = Density.MinTarget };
+    private readonly ComboBox _angle = new() { MinWidth = 80, MinHeight = Density.MinTarget };
     private readonly RadioButton _polarFormat = new() { Content = "Polar (distance < angle)", GroupName = "dynpi" };
     private readonly RadioButton _cartesian = new() { Content = "Cartesian (x, y)", GroupName = "dynpi" };
     private readonly RadioButton _relative = new() { Content = "Relative", GroupName = "dyncoord" };
@@ -41,11 +43,14 @@ internal sealed class DraftingWindow : Window
         stack.Children.Add(Heading("Polar tracking"));
         stack.Children.Add(_polar);
         var angleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        angleRow.Children.Add(new TextBlock { Text = "Increment angle", VerticalAlignment = VerticalAlignment.Center });
+        var angleLabel = Density.Secondary("Increment angle");
+        angleLabel.VerticalAlignment = VerticalAlignment.Center;
+        angleRow.Children.Add(angleLabel);
         foreach (var angle in Angles)
         {
             _angle.Items.Add(angle);
         }
+        Density.Name(_angle, "Polar increment angle");
         angleRow.Children.Add(_angle);
         stack.Children.Add(angleRow);
         stack.Children.Add(Heading("Object snap"));
@@ -60,7 +65,7 @@ internal sealed class DraftingWindow : Window
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             }
             var (bit, name) = Modes[i];
-            var box = new CheckBox { Content = name };
+            var box = new CheckBox { Content = name, MinHeight = Density.MinTarget };
             var mode = bit;
             box.Click += (_, _) => SetMode(mode, box.IsChecked == true);
             _modes[bit] = box;
@@ -81,6 +86,7 @@ internal sealed class DraftingWindow : Window
         Content = new ScrollViewer { Content = new Grid { RequestedTheme = theme, Children = { stack } } };
         Title = "Drafting Settings";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 520));
+        ShellIcon.Apply(this);
         _polar.Click += (_, _) => Run("polar", new { on = _polar.IsChecked == true });
         _snap.Click += (_, _) => Run("osnap", new { on = _snap.IsChecked == true });
         _dyn.Click += (_, _) => Run("dynmode", new { on = _dyn.IsChecked == true });
@@ -149,5 +155,16 @@ internal sealed class DraftingWindow : Window
 
     private void RunVar(string name, bool value) => Run("setvar", new { name, value });
 
-    private static TextBlock Heading(string text) => new() { Text = text, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 8, 0, 0) };
+    private static TextBlock Heading(string text)
+    {
+        var block = new TextBlock
+        {
+            Text = text,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Margin = new Thickness(0, 8, 0, 0),
+        };
+        AutomationProperties.SetHeadingLevel(block, AutomationHeadingLevel.Level2);
+        Density.Name(block, text);
+        return block;
+    }
 }

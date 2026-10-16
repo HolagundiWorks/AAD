@@ -9,12 +9,12 @@ internal sealed class QuickSelectWindow : Window
 {
     private readonly IntPtr _host;
     private readonly Action _changed;
-    private readonly ComboBox _apply = new() { MinWidth = 160 };
-    private readonly ComboBox _type = new() { MinWidth = 160 };
-    private readonly ComboBox _property = new() { MinWidth = 160 };
-    private readonly ComboBox _operator = new() { MinWidth = 80 };
-    private readonly TextBox _value = new() { MinWidth = 120 };
-    private readonly ComboBox _mode = new() { MinWidth = 160 };
+    private readonly ComboBox _apply = new() { MinWidth = 160, MinHeight = Density.MinTarget };
+    private readonly ComboBox _type = new() { MinWidth = 160, MinHeight = Density.MinTarget };
+    private readonly ComboBox _property = new() { MinWidth = 160, MinHeight = Density.MinTarget };
+    private readonly ComboBox _operator = new() { MinWidth = 80, MinHeight = Density.MinTarget };
+    private readonly TextBox _value = new() { MinWidth = 120, MinHeight = Density.MinTarget };
+    private readonly ComboBox _mode = new() { MinWidth = 160, MinHeight = Density.MinTarget };
     private readonly TextBlock _message = new() { TextWrapping = TextWrapping.Wrap };
     private bool _filling;
 
@@ -35,7 +35,14 @@ internal sealed class QuickSelectWindow : Window
         stack.Children.Add(_value);
         stack.Children.Add(Label("How to apply"));
         stack.Children.Add(_mode);
-        var ok = new Button { Content = "OK", HorizontalAlignment = HorizontalAlignment.Right, MinWidth = 72 };
+        Density.Name(_apply, "Apply to");
+        Density.Name(_type, "Object type");
+        Density.Name(_property, "Property");
+        Density.Name(_operator, "Operator");
+        Density.Name(_value, "Value");
+        Density.Name(_mode, "How to apply");
+        var ok = new Button { Content = "OK", HorizontalAlignment = HorizontalAlignment.Right, MinWidth = 72, MinHeight = Density.MinTarget };
+        Density.Name(ok, "Apply quick select");
         ok.Click += (_, _) => ApplyFilter();
         stack.Children.Add(ok);
         stack.Children.Add(_message);
@@ -44,6 +51,7 @@ internal sealed class QuickSelectWindow : Window
         Content = new ScrollViewer { Content = new Grid { RequestedTheme = theme, Children = { stack } } };
         Title = "Quick Select";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(360, 420));
+        ShellIcon.Apply(this);
         _apply.Items.Add(Item("Drawing", "drawing"));
         _apply.Items.Add(Item("Current selection", "selection"));
         _apply.SelectedIndex = 0;
@@ -193,5 +201,5 @@ internal sealed class QuickSelectWindow : Window
         }
     }
 
-    private static TextBlock Label(string text) => new() { Text = text, Opacity = 0.7 };
+    private static TextBlock Label(string text) => Density.Secondary(text);
 }

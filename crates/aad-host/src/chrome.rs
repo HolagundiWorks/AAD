@@ -63,6 +63,20 @@ fn push_item(entries: &mut Vec<Node>, rest: &[&str], label: &str, id: &str, shor
 /// Right-click menu. `snap` is the object-snap override list; otherwise the shortcut menu.
 /// A running command still treats a plain right-click as Enter, so this is only built when the
 /// shell should show a menu.
+/// World coordinate icon menu. The model view is the world system; hiding is the other choice.
+pub fn ucs_popup(x: i32, y: i32) -> String {
+    serde_json::json!({
+        "kind": "ucs",
+        "x": x,
+        "y": y,
+        "groups": [[
+            {"label": "World (WCS)", "id": "show", "enabled": true, "run": "ucs"},
+            {"label": "Hide UCS Icon", "id": "hide", "enabled": true, "run": "ucs"},
+        ]],
+    })
+    .to_string()
+}
+
 pub fn popup_json(session: &Session, snap: bool, x: i32, y: i32) -> String {
     let groups = if snap { snap_groups(session) } else { command_groups(session) };
     serde_json::json!({ "kind": if snap { "snap" } else { "command" }, "x": x, "y": y, "groups": groups }).to_string()
@@ -142,11 +156,7 @@ fn push_row(groups: &mut Vec<Vec<serde_json::Value>>, session: &Session, ids: &[
 
 fn submenu(session: &Session, label: &str, ids: &[&str]) -> Option<serde_json::Value> {
     let items: Vec<_> = ids.iter().filter_map(|id| command_item(session, id, None)).collect();
-    if items.is_empty() {
-        None
-    } else {
-        Some(serde_json::json!({ "label": label, "enabled": true, "items": items }))
-    }
+    if items.is_empty() { None } else { Some(serde_json::json!({ "label": label, "enabled": true, "items": items })) }
 }
 
 fn command_item(session: &Session, id: &str, label: Option<&str>) -> Option<serde_json::Value> {
@@ -162,7 +172,7 @@ fn command_item(session: &Session, id: &str, label: Option<&str>) -> Option<serd
 /// Prompt, history, the layout tabs and the drafting modes the status bar shows.
 pub fn chrome_json(session: &Session, cursor: Option<aad_geom::Vec2>) -> String {
     let log = &session.log;
-    let start = log.len().saturating_sub(12);
+    let start = log.len().saturating_sub(500);
     let history: Vec<&str> = log[start..].iter().map(String::as_str).collect();
     let settings = &session.settings;
     let osnap_off = aad_engine::snap::mode::OFF;
@@ -216,11 +226,18 @@ pub fn chrome_json(session: &Session, cursor: Option<aad_geom::Vec2>) -> String 
         "transparency": settings.transparency_display,
         "qpmode": settings.qpmode,
         "command": session.running.as_ref().map(|running| running.id.as_str()).unwrap_or(""),
+        "literalSpace": literal_space(session),
         "version": env!("CARGO_PKG_VERSION"),
         "units": units_label(session),
         "cursor": cursor.map(|point| format!("{:.4}, {:.4}", point.x, point.y)).unwrap_or_default(),
     })
     .to_string()
+}
+
+/// Space is part of the answer only when the prompt wants text and nothing else (a text string).
+/// Everywhere else it confirms, the same as Enter.
+fn literal_space(session: &Session) -> bool {
+    session.current_prompt().is_some_and(|prompt| prompt.accept.text && !prompt.accept.point && !prompt.accept.number && prompt.options.is_empty())
 }
 
 fn units_label(session: &Session) -> String {

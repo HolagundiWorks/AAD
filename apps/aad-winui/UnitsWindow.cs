@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using WinRT.Interop;
 
@@ -16,19 +18,25 @@ internal static class UnitsWindow
     public static Window Open(Window owner, IntPtr host, Action changed)
     {
         var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
-        var status = new TextBlock { TextWrapping = TextWrapping.Wrap, Opacity = 0.8 };
+        var status = Density.Secondary("", TextWrapping.Wrap);
+        AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
+        Density.Name(status, "Units status");
         var drawing = Combo(DrawingUnits, "mm");
         var display = Combo(DisplayUnits, "mm");
         var paper = Combo(Papers, "A1");
-        var scale = new TextBox { Text = "1:100", Width = 80 };
+        Density.Name(drawing, "Drawing units");
+        Density.Name(display, "Display units");
+        Density.Name(paper, "Paper size");
+        var scale = new TextBox { Text = "1:100", Width = 80, MinHeight = Density.MinTarget };
+        Density.Name(scale, "Plot scale");
         var confirm = false;
-        var rescale = new Button { Content = "Change unit and rescale…", MinHeight = 21 };
+        var rescale = ActionButton("Change unit and rescale…");
         var stack = new StackPanel { Spacing = 6, Margin = new Thickness(12), MaxWidth = 420 };
         stack.Children.Add(Heading("Drawing units"));
         stack.Children.Add(Note("Changing the unit never rescales objects unless you confirm it."));
         stack.Children.Add(drawing);
         var unitRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var metadata = new Button { Content = "Change unit only", MinHeight = 21 };
+        var metadata = ActionButton("Change unit only");
         unitRow.Children.Add(metadata);
         unitRow.Children.Add(rescale);
         stack.Children.Add(unitRow);
@@ -39,15 +47,15 @@ internal static class UnitsWindow
         var plotRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         plotRow.Children.Add(scale);
         plotRow.Children.Add(paper);
-        var size = new Button { Content = "Size annotation", MinHeight = 21 };
-        var check = new Button { Content = "Check the sheet", MinHeight = 21 };
+        var size = ActionButton("Size annotation");
+        var check = ActionButton("Check the sheet");
         plotRow.Children.Add(size);
         plotRow.Children.Add(check);
         stack.Children.Add(plotRow);
         stack.Children.Add(Heading("Annotation conflicts"));
         var anno = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var find = new Button { Content = "Find", MinHeight = 21 };
-        var resolve = new Button { Content = "Resolve overlaps", MinHeight = 21 };
+        var find = ActionButton("Find");
+        var resolve = ActionButton("Resolve overlaps");
         anno.Children.Add(find);
         anno.Children.Add(resolve);
         stack.Children.Add(anno);
@@ -110,14 +118,22 @@ internal static class UnitsWindow
         {
             presenter.IsResizable = false;
         }
+        ShellIcon.Apply(window);
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(460, 420));
         display.Tag = false;
         return window;
     }
 
+    private static Button ActionButton(string label)
+    {
+        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        Density.Name(button, label);
+        return button;
+    }
+
     private static ComboBox Combo(IEnumerable<string> items, string selected)
     {
-        var box = new ComboBox { MinWidth = 80 };
+        var box = new ComboBox { MinWidth = 80, MinHeight = Density.MinTarget };
         foreach (var item in items)
         {
             box.Items.Add(item);
@@ -163,7 +179,13 @@ internal static class UnitsWindow
         }
     }
 
-    private static TextBlock Heading(string text) => new() { Text = text, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+    private static TextBlock Heading(string text)
+    {
+        var block = new TextBlock { Text = text, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+        AutomationProperties.SetHeadingLevel(block, AutomationHeadingLevel.Level2);
+        Density.Name(block, text);
+        return block;
+    }
 
-    private static TextBlock Note(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 };
+    private static TextBlock Note(string text) => Density.Secondary(text, TextWrapping.Wrap);
 }

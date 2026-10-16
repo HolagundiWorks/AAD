@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
@@ -22,10 +23,21 @@ public sealed partial class LayerManagerWindow : Window
         "0.80 mm", "0.90 mm", "1.00 mm", "1.06 mm", "1.20 mm", "1.40 mm", "1.58 mm", "2.00 mm", "2.11 mm",
     ];
 
+    private static readonly (double Width, string Title)[] Columns =
+    [
+        (56, "Status"), (168, "Name"), (40, "On"), (56, "Freeze"), (44, "Lock"), (44, "Plot"),
+        (120, "Color"), (148, "Linetype"), (110, "Lineweight"), (110, "Transparency"), (120, "New VP Freeze"), (220, "Description"),
+    ];
+
     private readonly IntPtr _host;
     private readonly Action _changed;
     private readonly List<LayerRecord> _all = new();
+    private readonly List<LayerRecord> _shown = new();
+    private readonly HashSet<string> _selected = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _linetypes = new();
+    private readonly List<string> _states = new();
+    private readonly Button _nameSort = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(4, 0, 4, 0) };
+    private string _pivot = "";
     private ulong _uid;
     private ulong _revision;
     private bool _sortDesc;
@@ -34,6 +46,9 @@ public sealed partial class LayerManagerWindow : Window
     private int _editors;
     private bool _refreshWhenIdle;
     private string _focusName = "";
+
+    /// <summary>The shell docks this view into the Layers column, or opens it in this window.</summary>
+    public event EventHandler? MergeRequested;
 
     public LayerManagerWindow(FrameworkElement? themeSource, IntPtr host, Action changed)
     {
@@ -48,25 +63,57 @@ public sealed partial class LayerManagerWindow : Window
             }
             Density.Apply(root);
         }
+        BuildHeader();
+        AutomationProperties.SetHeadingLevel(FiltersHeading, AutomationHeadingLevel.Level2);
+        AutomationProperties.SetName(FiltersHeading, "Filters");
+        AutomationProperties.SetLiveSetting(Status, AutomationLiveSetting.Polite);
+        AutomationProperties.SetLiveSetting(Summary, AutomationLiveSetting.Polite);
+        AutomationProperties.SetName(Empty, "No layers match the search and filters.");
         _reloading = true;
-        FillFilter(VisibilityFilter, "Visibility", "Any", "On", "Off");
-        FillFilter(FreezeFilter, "Freeze", "Any", "Frozen", "Thawed");
-        FillFilter(LockFilter, "Lock", "Any", "Locked", "Unlocked");
-        FillFilter(PlotFilter, "Plot", "Any", "Plot", "No plot");
-        FillFilter(UsageFilter, "Usage", "Any", "Used", "Unused");
+        Filters.SelectedIndex = 0;
         LoadPrefs();
         _reloading = false;
         Closed += (_, _) => SavePrefs();
         AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 1100, Height = 680 });
+        ShellIcon.Apply(this);
     }
 
-    public void ApplyTheme(ElementTheme theme)
+    public void ApplyTheme(ElementTheme theme) => Root.RequestedTheme = theme;
+
+    public void ShowMerged(bool merged)
     {
-        if (Content is FrameworkElement root)
+        MergeIcon.Kind = merged ? "undock" : "dock";
+        var tip = merged ? "Open in a window" : "Merge into the side panel";
+        ToolTipService.SetToolTip(MergeButton, tip);
+        AutomationProperties.SetName(MergeButton, tip);
+    }
+
+    /// <summary>Take the view out of this window so the side panel can host it.</summary>
+    public void DetachBody()
+    {
+        if (Content == Root)
         {
-            root.RequestedTheme = theme;
+            Content = null;
         }
     }
+
+    /// <summary>Put the view back in this window.</summary>
+    public void AttachBody()
+    {
+        if (Root.Parent is Panel panel)
+        {
+            panel.Children.Remove(Root);
+        }
+        Content = Root;
+    }
+
+    public void Conceal() => AppWindow.Hide();
+
+    public FrameworkElement Body() => Root;
+
+    private void OnMergeRequested(object sender, RoutedEventArgs e) => MergeRequested?.Invoke(this, EventArgs.Empty);
+
+    private XamlRoot? ViewRoot => Root.XamlRoot;
 
     public void OnDocumentRevision(ulong uid, ulong revision)
     {
@@ -106,14 +153,6 @@ public sealed partial class LayerManagerWindow : Window
         }
     }
 
-    private void OnListLoaded(object sender, RoutedEventArgs e)
-    {
-        if (FindScrollViewer(Layers) is ScrollViewer viewer)
-        {
-            viewer.ViewChanged += (_, _) => HeaderShift.X = -viewer.HorizontalOffset;
-        }
-    }
-
     private void OnSearch(object sender, TextChangedEventArgs e) => Show(SelectedNames());
 
     private void OnFilterChanged(object sender, SelectionChangedEventArgs e)
@@ -129,12 +168,27 @@ public sealed partial class LayerManagerWindow : Window
     private void OnSort(object sender, RoutedEventArgs e)
     {
         _sortDesc = !_sortDesc;
-        SortButton.Content = _sortDesc ? "Name Z–A" : "Name A–Z";
         SavePrefs();
         Show(SelectedNames());
     }
 
-    private void OnNew(object sender, RoutedEventArgs e)
+    private void OnNew(object sender, RoutedEventArgs e) => CreateLayer(false);
+
+    private void OnNewFrozen(object sender, RoutedEventArgs e) => CreateLayer(true);
+
+    private void OnSetCurrent(object sender, RoutedEventArgs e)
+    {
+        if (_selected.Count != 1)
+        {
+            Status.Text = "Select one layer.";
+            return;
+        }
+        SetCurrent(_selected.First());
+    }
+
+    private void OnRefresh(object sender, RoutedEventArgs e) => Reload("");
+
+    private void CreateLayer(bool freezeInNewViewports)
     {
         if (!EnsureCurrent())
         {
@@ -148,6 +202,12 @@ public sealed partial class LayerManagerWindow : Window
         }
         if (!Run("layer.new", new Dictionary<string, object> { ["name"] = name }))
         {
+            return;
+        }
+        if (freezeInNewViewports && !Run("layer.set", new Dictionary<string, object> { ["name"] = name, ["newVpFreeze"] = true }))
+        {
+            Reload(name);
+            _changed();
             return;
         }
         Status.Text = "Created " + name + ".";
@@ -184,7 +244,7 @@ public sealed partial class LayerManagerWindow : Window
         if (RecordOf(sender) is LayerRecord row)
         {
             e.Handled = true;
-            SetCurrent(row.Name);
+            _ = Rename(row);
         }
     }
 
@@ -195,6 +255,14 @@ public sealed partial class LayerManagerWindow : Window
     private void OnLock(object sender, RoutedEventArgs e) => Toggle(sender, "locked");
 
     private void OnPlot(object sender, RoutedEventArgs e) => Toggle(sender, "plot");
+
+    private void OnNewVp(object sender, RoutedEventArgs e)
+    {
+        if (RecordOf(sender) is LayerRecord row)
+        {
+            Set(row.Name, Flag(row.Name, "newVpFreeze", !row.NewVpFreeze));
+        }
+    }
 
     private async void OnColor(object sender, RoutedEventArgs e)
     {
@@ -280,7 +348,7 @@ public sealed partial class LayerManagerWindow : Window
         {
             e.Handled = true;
             editor.Text = row.Description;
-            Layers.Focus(FocusState.Programmatic);
+            TableScroll.Focus(FocusState.Programmatic);
         }
     }
 
@@ -290,9 +358,12 @@ public sealed partial class LayerManagerWindow : Window
         {
             return;
         }
-        if (!Layers.SelectedItems.Contains(row))
+        if (!_selected.Contains(row.Name))
         {
-            Layers.SelectedItem = row;
+            _selected.Clear();
+            _selected.Add(row.Name);
+            _pivot = row.Name;
+            PaintSelection();
         }
         var menu = new MenuFlyout();
         menu.Items.Add(Item("Make current", () => SetCurrent(row.Name), row.CanMakeCurrent));
@@ -301,7 +372,7 @@ public sealed partial class LayerManagerWindow : Window
         menu.Items.Add(Item(row.Frozen ? "Thaw" : "Freeze", () => Set(row.Name, Flag(row.Name, "frozen", !row.Frozen)), true));
         menu.Items.Add(Item(row.Locked ? "Unlock" : "Lock", () => Set(row.Name, Flag(row.Name, "locked", !row.Locked)), true));
         menu.Items.Add(Item("Delete", () => _ = DeleteSelection(), true));
-        menu.ShowAt(Layers, e.GetPosition(Layers));
+        menu.ShowAt(Rows, e.GetPosition(Rows));
         e.Handled = true;
     }
 
@@ -315,19 +386,25 @@ public sealed partial class LayerManagerWindow : Window
             SearchBox.SelectAll();
             return;
         }
-        if (e.Key == VirtualKey.F2 && Layers.SelectedItems.Count == 1 && Layers.SelectedItem is LayerRecord row)
+        if (e.Key == VirtualKey.F2 && _selected.Count == 1 && _shown.FirstOrDefault(item => item.Name.Equals(_selected.First(), StringComparison.OrdinalIgnoreCase)) is LayerRecord row)
         {
             e.Handled = true;
             _ = Rename(row);
             return;
         }
-        if (control && e.Key == VirtualKey.A && FocusManager.GetFocusedElement(Content.XamlRoot) is not TextBox)
+        if (control && e.Key == VirtualKey.A && ViewRoot is XamlRoot selectRoot && FocusManager.GetFocusedElement(selectRoot) is not TextBox)
         {
             e.Handled = true;
-            Layers.SelectAll();
+            _selected.Clear();
+            foreach (var item in _shown)
+            {
+                _selected.Add(item.Name);
+            }
+            _pivot = _shown.FirstOrDefault()?.Name ?? "";
+            PaintSelection();
             return;
         }
-        if (e.Key == VirtualKey.Delete && FocusManager.GetFocusedElement(Content.XamlRoot) is not TextBox)
+        if (e.Key == VirtualKey.Delete && ViewRoot is XamlRoot deleteRoot && FocusManager.GetFocusedElement(deleteRoot) is not TextBox)
         {
             e.Handled = true;
             _ = DeleteSelection();
@@ -336,10 +413,18 @@ public sealed partial class LayerManagerWindow : Window
 
     private void Toggle(object sender, string field)
     {
-        if (sender is not CheckBox box || RecordOf(sender) is not LayerRecord row || box.IsChecked is not bool value)
+        if (RecordOf(sender) is not LayerRecord row)
         {
             return;
         }
+        var value = field switch
+        {
+            "on" => !row.On,
+            "frozen" => !row.Frozen,
+            "locked" => !row.Locked,
+            "plot" => !row.Plot,
+            _ => false,
+        };
         Set(row.Name, Flag(row.Name, field, value));
     }
 
@@ -401,7 +486,7 @@ public sealed partial class LayerManagerWindow : Window
 
     private async Task DeleteSelection()
     {
-        var names = Layers.SelectedItems.OfType<LayerRecord>().Select(row => row.Name).ToList();
+        var names = _selected.ToList();
         if (names.Count == 0)
         {
             Status.Text = "Select one or more layers.";
@@ -417,7 +502,7 @@ public sealed partial class LayerManagerWindow : Window
             PrimaryButtonText = "Delete",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close,
-            XamlRoot = Content.XamlRoot,
+            XamlRoot = ViewRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary || !EnsureCurrent())
         {
@@ -516,6 +601,18 @@ public sealed partial class LayerManagerWindow : Window
                     _all.Add(LayerRecord.From(layer));
                 }
             }
+            _states.Clear();
+            if (root.TryGetProperty("states", out var states))
+            {
+                foreach (var state in states.EnumerateArray())
+                {
+                    var text = state.GetString();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        _states.Add(text);
+                    }
+                }
+            }
         }
         catch (JsonException)
         {
@@ -550,49 +647,49 @@ public sealed partial class LayerManagerWindow : Window
     private void Show(HashSet<string> selected)
     {
         var query = SearchBox.Text.Trim();
-        var shown = _all.Where(row => Matches(row, query)).ToList();
-        shown.Sort((a, b) =>
+        _shown.Clear();
+        _shown.AddRange(_all.Where(row => Matches(row, query)));
+        _shown.Sort((a, b) =>
         {
             var order = string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
             return _sortDesc ? -order : order;
         });
-        _reloading = true;
-        try
+        _selected.Clear();
+        foreach (var row in _shown)
         {
-            Layers.ItemsSource = shown;
-            Layers.SelectedItems.Clear();
-            foreach (var row in shown)
+            if (selected.Contains(row.Name))
             {
-                if (selected.Contains(row.Name))
-                {
-                    Layers.SelectedItems.Add(row);
-                }
+                _selected.Add(row.Name);
             }
         }
-        finally
+        if (_pivot.Length == 0 || _shown.All(row => !row.Name.Equals(_pivot, StringComparison.OrdinalIgnoreCase)))
         {
-            _reloading = false;
+            _pivot = _shown.FirstOrDefault()?.Name ?? "";
         }
-        Empty.Visibility = shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var current = _all.FirstOrDefault(row => row.Current)?.Name ?? "";
-        var filters = FilterIndexes().Any(index => index > 0) || query.Length > 0;
-        Summary.Text = (filters ? "Filters active. " : "")
-            + _all.Count + " layers, " + shown.Count + " shown. Current layer: " + current + ". Filters combine with AND.";
+        BuildRows();
+        FillStates();
+        Empty.Visibility = _shown.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var current = _all.FirstOrDefault(row => row.Current)?.Name ?? "—";
+        _nameSort.Content = _sortDesc ? "Name  ▼" : "Name  ▲";
+        Summary.Text = "Layers displayed: " + _shown.Count + " of " + _all.Count + ".   Current layer: " + current;
         if (_focusName.Length > 0)
         {
             var focus = _focusName;
             _focusName = "";
+            _selected.Clear();
+            _selected.Add(focus);
+            _pivot = focus;
+            PaintSelection();
             DispatcherQueue.TryEnqueue(() =>
             {
-                var match = shown.FirstOrDefault(row => row.Name.Equals(focus, StringComparison.OrdinalIgnoreCase));
-                if (match == null)
+                foreach (var child in Rows.Children)
                 {
-                    return;
-                }
-                Layers.ScrollIntoView(match, ScrollIntoViewAlignment.Leading);
-                if (Layers.ContainerFromItem(match) is ListViewItem item)
-                {
-                    item.Focus(FocusState.Programmatic);
+                    if (child is FrameworkElement element && element.DataContext is LayerRecord row && row.Name.Equals(focus, StringComparison.OrdinalIgnoreCase))
+                    {
+                        element.StartBringIntoView();
+                        element.Focus(FocusState.Programmatic);
+                        return;
+                    }
                 }
             });
         }
@@ -604,18 +701,299 @@ public sealed partial class LayerManagerWindow : Window
         {
             return false;
         }
-        if (VisibilityFilter.SelectedIndex == 1 && !row.On) return false;
-        if (VisibilityFilter.SelectedIndex == 2 && row.On) return false;
-        if (FreezeFilter.SelectedIndex == 1 && !row.Frozen) return false;
-        if (FreezeFilter.SelectedIndex == 2 && row.Frozen) return false;
-        if (LockFilter.SelectedIndex == 1 && !row.Locked) return false;
-        if (LockFilter.SelectedIndex == 2 && row.Locked) return false;
-        if (PlotFilter.SelectedIndex == 1 && !row.Plot) return false;
-        if (PlotFilter.SelectedIndex == 2 && row.Plot) return false;
-        if (UsageFilter.SelectedIndex == 1 && !row.Used) return false;
-        if (UsageFilter.SelectedIndex == 2 && row.Used) return false;
-        return true;
+        return Filters.SelectedIndex != 1 || row.Used;
     }
+
+    private void BuildHeader()
+    {
+        Header.ColumnDefinitions.Clear();
+        Header.Children.Clear();
+        for (var i = 0; i < Columns.Length; i++)
+        {
+            Header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Columns[i].Width) });
+            if (i == 1)
+            {
+                _nameSort.Content = "Name  ▲";
+                _nameSort.Click += OnSort;
+                AutomationProperties.SetName(_nameSort, "Sort layers by name");
+                Grid.SetColumn(_nameSort, i);
+                Header.Children.Add(_nameSort);
+                continue;
+            }
+            var title = new TextBlock { Text = Columns[i].Title, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+            Grid.SetColumn(title, i);
+            Header.Children.Add(title);
+        }
+        // An explicit width stops the grid from shrinking its columns into the viewport.
+        Header.Width = Columns.Sum(column => column.Width);
+        Header.HorizontalAlignment = HorizontalAlignment.Left;
+    }
+
+    private void BuildRows()
+    {
+        Rows.Children.Clear();
+        foreach (var row in _shown)
+        {
+            var grid = new Grid { MinHeight = Density.MinTarget, Width = Header.Width, HorizontalAlignment = HorizontalAlignment.Left, DataContext = row, Background = RowBrush(row.Name, Rows.Children.Count) };
+            AutomationProperties.SetName(grid, row.Name);
+            grid.PointerPressed += OnRowPressed;
+            grid.RightTapped += OnRowMenu;
+            for (var i = 0; i < Columns.Length; i++)
+            {
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Columns[i].Width) });
+            }
+            Add(grid, 0, IconButton(row.StatusKind, row.CurrentAccess, OnMakeCurrent));
+            var name = new TextBlock { Text = row.Name, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0) };
+            AutomationProperties.SetName(name, row.NameAccess);
+            name.DoubleTapped += OnNameDoubleTapped;
+            Add(grid, 1, name);
+            Add(grid, 2, IconButton(row.OnKind, row.OnAccess, OnVisibility));
+            Add(grid, 3, IconButton(row.FreezeKind, row.FreezeAccess, OnFreeze));
+            Add(grid, 4, IconButton(row.LockKind, row.LockAccess, OnLock));
+            Add(grid, 5, IconButton(row.PlotKind, row.PlotAccess, OnPlot));
+            var color = new Button
+            {
+                Background = Transparent(),
+                BorderThickness = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                MinHeight = Density.MinTarget,
+                Padding = new Thickness(4, 0, 4, 0),
+            };
+            color.Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 6,
+                Children = { new Border { Width = 14, Height = 14, Background = row.Swatch, VerticalAlignment = VerticalAlignment.Center }, new TextBlock { Text = row.ColorName, VerticalAlignment = VerticalAlignment.Center } },
+            };
+            AutomationProperties.SetName(color, row.ColorAccess);
+            color.Click += OnColor;
+            Add(grid, 6, color);
+            Add(grid, 7, TextButton(row.Linetype, row.LinetypeAccess, OnLinetype));
+            Add(grid, 8, TextButton(row.Lineweight, row.LineweightAccess, OnLineweight));
+            Add(grid, 9, TextButton(row.TransparencyLabel, row.TransparencyAccess, OnTransparency));
+            Add(grid, 10, IconButton(row.NewVpKind, row.NewVpAccess, OnNewVp));
+            var description = new TextBox
+            {
+                Text = row.Description,
+                Background = Transparent(),
+                BorderThickness = new Thickness(0),
+                MinHeight = Density.MinTarget,
+                Padding = new Thickness(4, 0, 4, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            AutomationProperties.SetName(description, row.DescriptionAccess);
+            description.GotFocus += OnEditorFocus;
+            description.LostFocus += OnDescriptionLost;
+            description.KeyDown += OnDescriptionKey;
+            Add(grid, 11, description);
+            Density.Apply(grid);
+            Rows.Children.Add(grid);
+        }
+    }
+
+    private void OnRowPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement element || element.DataContext is not LayerRecord row || IsEditor(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+        var control = Key(VirtualKey.Control);
+        var shift = Key(VirtualKey.Shift);
+        if (shift && _pivot.Length > 0)
+        {
+            var from = _shown.FindIndex(item => item.Name.Equals(_pivot, StringComparison.OrdinalIgnoreCase));
+            var to = _shown.FindIndex(item => item.Name.Equals(row.Name, StringComparison.OrdinalIgnoreCase));
+            if (from >= 0 && to >= 0)
+            {
+                if (!control)
+                {
+                    _selected.Clear();
+                }
+                var start = Math.Min(from, to);
+                var end = Math.Max(from, to);
+                for (var i = start; i <= end; i++)
+                {
+                    _selected.Add(_shown[i].Name);
+                }
+            }
+        }
+        else if (control)
+        {
+            if (!_selected.Remove(row.Name))
+            {
+                _selected.Add(row.Name);
+            }
+            _pivot = row.Name;
+        }
+        else
+        {
+            _selected.Clear();
+            _selected.Add(row.Name);
+            _pivot = row.Name;
+        }
+        PaintSelection();
+        e.Handled = true;
+    }
+
+    private void PaintSelection()
+    {
+        for (var i = 0; i < Rows.Children.Count; i++)
+        {
+            if (Rows.Children[i] is Grid grid && grid.DataContext is LayerRecord row)
+            {
+                grid.Background = RowBrush(row.Name, i);
+            }
+        }
+    }
+
+    private Brush RowBrush(string name, int index)
+    {
+        if (_selected.Contains(name))
+        {
+            return new SolidColorBrush(Windows.UI.Color.FromArgb(64, 0, 120, 215));
+        }
+        return index % 2 == 1 ? new SolidColorBrush(Windows.UI.Color.FromArgb(16, 128, 128, 128)) : Transparent();
+    }
+
+    private void FillStates()
+    {
+        var keep = States.SelectedItem as string;
+        _reloading = true;
+        try
+        {
+            States.Items.Clear();
+            foreach (var state in _states)
+            {
+                States.Items.Add(state);
+            }
+            if (keep != null && _states.Contains(keep))
+            {
+                States.SelectedItem = keep;
+            }
+        }
+        finally
+        {
+            _reloading = false;
+        }
+        var chosen = States.SelectedItem is string;
+        RestoreStateButton.IsEnabled = chosen;
+        DeleteStateButton.IsEnabled = chosen;
+    }
+
+    private void OnStatePicked(object sender, SelectionChangedEventArgs e)
+    {
+        if (_reloading)
+        {
+            return;
+        }
+        var chosen = States.SelectedItem is string;
+        RestoreStateButton.IsEnabled = chosen;
+        DeleteStateButton.IsEnabled = chosen;
+    }
+
+    private void OnRestoreState(object sender, RoutedEventArgs e)
+    {
+        if (States.SelectedItem is string name)
+        {
+            HistoryCommand("layerstate.restore", name);
+        }
+    }
+
+    private void OnDeleteState(object sender, RoutedEventArgs e)
+    {
+        if (States.SelectedItem is string name)
+        {
+            HistoryCommand("layerstate.delete", name);
+        }
+    }
+
+    private void OnSaveState(object sender, RoutedEventArgs e)
+    {
+        var name = StateName.Text.Trim();
+        if (name.Length == 0)
+        {
+            Status.Text = "Type a name for the layer state.";
+            return;
+        }
+        if (!Run("layerstate.save", new Dictionary<string, object> { ["name"] = name }))
+        {
+            return;
+        }
+        StateName.Text = "";
+        Status.Text = "Saved layer state " + name + ".";
+        Reload("");
+        _changed();
+        States.SelectedItem = name;
+    }
+
+    private void HistoryCommand(string command, string name)
+    {
+        if (!Run(command, new Dictionary<string, object> { ["name"] = name }))
+        {
+            return;
+        }
+        Status.Text = "";
+        Reload("");
+        _changed();
+    }
+
+    private static void Add(Grid grid, int column, FrameworkElement child)
+    {
+        Grid.SetColumn(child, column);
+        grid.Children.Add(child);
+    }
+
+    private static Button IconButton(string kind, string access, RoutedEventHandler click)
+    {
+        var button = new Button
+        {
+            Background = Transparent(),
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(0),
+            Width = Density.MinTarget,
+            Height = Density.MinTarget,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        button.Content = new DrawnIcon { Kind = kind };
+        AutomationProperties.SetName(button, access);
+        button.Click += click;
+        return button;
+    }
+
+    private static Button TextButton(string text, string access, RoutedEventHandler click)
+    {
+        var button = new Button
+        {
+            Content = text,
+            Background = Transparent(),
+            BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            MinHeight = Density.MinTarget,
+            Padding = new Thickness(4, 0, 4, 0),
+        };
+        AutomationProperties.SetName(button, access);
+        button.Click += click;
+        return button;
+    }
+
+    private static SolidColorBrush Transparent() => new(Microsoft.UI.Colors.Transparent);
+
+    private static bool IsEditor(DependencyObject? node)
+    {
+        while (node != null)
+        {
+            if (node is Button or TextBox)
+            {
+                return true;
+            }
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
+    private static bool Key(VirtualKey key) =>
+        (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
     private string? NextName()
     {
@@ -630,18 +1008,7 @@ public sealed partial class LayerManagerWindow : Window
         return null;
     }
 
-    private HashSet<string> SelectedNames()
-    {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var item in Layers.SelectedItems)
-        {
-            if (item is LayerRecord row)
-            {
-                names.Add(row.Name);
-            }
-        }
-        return names;
-    }
+    private HashSet<string> SelectedNames() => new(_selected, StringComparer.OrdinalIgnoreCase);
 
     private void ShowChoices(FrameworkElement anchor, IReadOnlyList<string> values, string current, Action<string> apply)
     {
@@ -662,7 +1029,7 @@ public sealed partial class LayerManagerWindow : Window
 
     private async Task<string?> Ask(string title, string label, string value, string primary)
     {
-        var box = new TextBox { Text = value };
+        var box = new TextBox { Text = value, MinHeight = Density.MinTarget };
         AutomationProperties.SetName(box, label);
         var dialog = new ContentDialog
         {
@@ -679,7 +1046,7 @@ public sealed partial class LayerManagerWindow : Window
             PrimaryButtonText = primary,
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
-            XamlRoot = Content.XamlRoot,
+            XamlRoot = ViewRoot,
         };
         _acceptText = false;
         box.KeyDown += (_, args) =>
@@ -705,16 +1072,12 @@ public sealed partial class LayerManagerWindow : Window
         {
             var values = ApplicationData.Current.LocalSettings.Values;
             _sortDesc = values["aad.layers.sortDesc"] as bool? ?? false;
-            SortButton.Content = _sortDesc ? "Name Z–A" : "Name A–Z";
-            Select(VisibilityFilter, values["aad.layers.visibility"]);
-            Select(FreezeFilter, values["aad.layers.freeze"]);
-            Select(LockFilter, values["aad.layers.lock"]);
-            Select(PlotFilter, values["aad.layers.plot"]);
-            Select(UsageFilter, values["aad.layers.usage"]);
+            _nameSort.Content = _sortDesc ? "Name  ▼" : "Name  ▲";
+            Filters.SelectedIndex = values["aad.layers.filter"] as int? == 1 ? 1 : 0;
         }
         catch (Exception)
         {
-            SortButton.Content = "Name A–Z";
+            _nameSort.Content = "Name  ▲";
         }
     }
 
@@ -724,39 +1087,11 @@ public sealed partial class LayerManagerWindow : Window
         {
             var values = ApplicationData.Current.LocalSettings.Values;
             values["aad.layers.sortDesc"] = _sortDesc;
-            values["aad.layers.visibility"] = VisibilityFilter.SelectedIndex;
-            values["aad.layers.freeze"] = FreezeFilter.SelectedIndex;
-            values["aad.layers.lock"] = LockFilter.SelectedIndex;
-            values["aad.layers.plot"] = PlotFilter.SelectedIndex;
-            values["aad.layers.usage"] = UsageFilter.SelectedIndex;
+            values["aad.layers.filter"] = Filters.SelectedIndex == 1 ? 1 : 0;
         }
         catch (Exception)
         {
             // Preferences are optional. The drawing is unaffected.
-        }
-    }
-
-    private int[] FilterIndexes() =>
-    [
-        VisibilityFilter.SelectedIndex, FreezeFilter.SelectedIndex, LockFilter.SelectedIndex,
-        PlotFilter.SelectedIndex, UsageFilter.SelectedIndex,
-    ];
-
-    private static void FillFilter(ComboBox box, string group, params string[] items)
-    {
-        box.Items.Clear();
-        foreach (var item in items)
-        {
-            box.Items.Add(group + ": " + item);
-        }
-        box.SelectedIndex = 0;
-    }
-
-    private static void Select(ComboBox box, object? stored)
-    {
-        if (stored is int index && index >= 0 && index < box.Items.Count)
-        {
-            box.SelectedIndex = index;
         }
     }
 
@@ -768,25 +1103,6 @@ public sealed partial class LayerManagerWindow : Window
         if (sender is FrameworkElement element)
         {
             return element.DataContext as LayerRecord;
-        }
-        return null;
-    }
-
-    private static ScrollViewer? FindScrollViewer(DependencyObject parent)
-    {
-        var count = VisualTreeHelper.GetChildrenCount(parent);
-        for (var i = 0; i < count; i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is ScrollViewer viewer)
-            {
-                return viewer;
-            }
-            var nested = FindScrollViewer(child);
-            if (nested != null)
-            {
-                return nested;
-            }
         }
         return null;
     }
@@ -813,7 +1129,16 @@ public sealed class LayerRecord
     public string Lineweight { get; init; } = "";
     public int Transparency { get; init; }
     public string Description { get; init; } = "";
+    public bool NewVpFreeze { get; init; }
     public Brush Swatch { get; init; } = new SolidColorBrush(Microsoft.UI.Colors.Gray);
+
+    public string StatusKind => Current ? "check" : Used ? "layers" : "layer-frozen";
+    public string OnKind => On ? "bulb" : "bulb-off";
+    public string FreezeKind => Frozen ? "snowflake" : "sun";
+    public string LockKind => Locked ? "lock" : "unlock";
+    public string PlotKind => Plot ? "print" : "print-off";
+    public string NewVpKind => NewVpFreeze ? "snowflake" : "sun";
+    public string NewVpAccess => (NewVpFreeze ? "Thaw " : "Freeze ") + Name + " in new viewports";
 
     public string CurrentLabel => Current ? "Current" : "Make current";
     public bool CanMakeCurrent => !Current && !Frozen && !Locked;
@@ -830,7 +1155,7 @@ public sealed class LayerRecord
     public string ColorAccess => "Layer color: " + ColorName;
     public string LinetypeAccess => "Linetype of layer " + Name + ": " + Linetype;
     public string LineweightAccess => "Lineweight of layer " + Name + ": " + Lineweight;
-    public string TransparencyLabel => Transparency + "%";
+    public string TransparencyLabel => Transparency.ToString();
     public string TransparencyAccess => "Transparency of layer " + Name + ": " + Transparency + " percent";
     public string UsageLabel => Used ? "Used" : "Unused";
     public string UsageAccess => Used ? "Layer " + Name + " has objects" : "Layer " + Name + " has no objects";
@@ -853,6 +1178,7 @@ public sealed class LayerRecord
             Lineweight = Text(layer, "lineweight"),
             Transparency = layer.TryGetProperty("transparency", out var transparency) && transparency.TryGetInt32(out var percent) ? percent : 0,
             Description = Text(layer, "description"),
+            NewVpFreeze = Bool(layer, "newVpFreeze"),
             Swatch = SwatchOf(color),
         };
     }

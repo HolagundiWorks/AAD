@@ -1,7 +1,15 @@
 # AAD control protocol
 
-Start the desktop app with `--control PORT` (or `AAD_CONTROL_PORT=PORT`). It listens on
+Start the egui window with `--control PORT` (or `AAD_CONTROL_PORT=PORT`). It listens on
 `127.0.0.1:PORT` for JSON lines: one request per line, one reply per line.
+
+The WinUI shell listens on `127.0.0.1` as well. The port is shown in the status bar; pass
+`--control PORT` to `aad` (forwarded to WinUI) or set `AAD_CONTROL_PORT` before launch.
+That listener answers `engine.execute`, `engine.commands`, `cmdline.input`, `cmdline.script`,
+`cmdline.key`, `cmdline.state`, `drawing.inspect`, `ui.menu.invoke` (the command-line form of
+the id, with no file dialog), `ui.render` (headless drawing PNG), and `app.open` / `app.save` /
+`app.quit`. Methods that drive egui chrome (`ui.click`, `ui.elements`, `ui.screenshot`, …)
+reply `not available in the WinUI shell`. Use `--egui --control` for those.
 
 ```json
 {"id": 1, "method": "cmdline.input", "params": {"text": "circle 0,0 5"}}

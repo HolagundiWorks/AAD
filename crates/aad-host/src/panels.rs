@@ -132,6 +132,9 @@ fn quick(doc: &aad_engine::doc::Drawing, selection: &[Handle]) -> Value {
     let layer = shared(ents.iter().map(|entity| entity.common.layer.as_str()));
     let color = shared_owned(ents.iter().map(|entity| entity.common.color.name()));
     let linetype = shared(ents.iter().map(|entity| entity.common.linetype.as_str()));
+    let lineweight = shared_owned(ents.iter().map(|entity| entity.common.lineweight.name()));
+    let transparency = shared_owned(ents.iter().map(|entity| entity.common.transparency.name()));
+    let ltscale = shared_owned(ents.iter().map(|entity| format!("{:.4}", entity.common.ltscale)));
     let mut linetypes = vec!["ByLayer".to_string(), "ByBlock".to_string()];
     for pattern in doc.linetypes.iter().take(64) {
         if pattern.name != "ByLayer" && pattern.name != "ByBlock" {
@@ -186,6 +189,9 @@ fn quick(doc: &aad_engine::doc::Drawing, selection: &[Handle]) -> Value {
         "layer": layer,
         "color": color,
         "linetype": linetype,
+        "lineweight": lineweight,
+        "transparency": transparency,
+        "ltscale": ltscale,
         "linetypes": linetypes,
         "layers": doc.layers.iter().take(400).map(|layer| layer.name.clone()).collect::<Vec<_>>(),
         "fields": fields,

@@ -1,7 +1,10 @@
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using WinRT.Interop;
 
 namespace Aad.WinUi;
@@ -10,6 +13,60 @@ namespace Aad.WinUi;
 internal static class CanvasMenu
 {
     private static Window? _window;
+    private static long _openedAt;
+
+    public static bool IsOpen => _window != null;
+
+    /// <summary>Close the menu if it is open. Returns whether it was open.</summary>
+    public static bool Dismiss()
+    {
+        if (_window == null)
+        {
+            return false;
+        }
+        try
+        {
+            _window.Close();
+        }
+        catch (Exception)
+        {
+            _window = null;
+        }
+        return true;
+    }
+
+    /// <summary>Close on Escape or a click outside the menu (called from the shell timer).</summary>
+    public static void DismissOutsideClick()
+    {
+        if (_window == null || Environment.TickCount64 - _openedAt < 250)
+        {
+            return;
+        }
+        if ((GetAsyncKeyState(0x1B) & 0x8000) != 0)
+        {
+            Dismiss();
+            return;
+        }
+        var left = (GetAsyncKeyState(0x01) & 0x8000) != 0;
+        var right = (GetAsyncKeyState(0x02) & 0x8000) != 0;
+        if (!left && !right)
+        {
+            return;
+        }
+        if (!Native.GetCursorPos(out var point))
+        {
+            return;
+        }
+        var hwnd = WindowNative.GetWindowHandle(_window);
+        if (!GetWindowRect(hwnd, out var rect))
+        {
+            return;
+        }
+        if (point.X < rect.Left || point.X >= rect.Right || point.Y < rect.Top || point.Y >= rect.Bottom)
+        {
+            Dismiss();
+        }
+    }
 
     public static void Show(MainWindow owner, string json, Action<string, string> choose)
     {
@@ -29,8 +86,7 @@ internal static class CanvasMenu
                     {
                         Height = 1,
                         Margin = new Thickness(0, 2, 0, 2),
-                        Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray),
-                        Opacity = 0.4,
+                        Background = ThemeBrush("DividerStrokeColorDefaultBrush", Microsoft.UI.Colors.Gray),
                     });
                 }
                 first = false;
@@ -41,22 +97,41 @@ internal static class CanvasMenu
             }
         }
         var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
+        var dark = theme != ElementTheme.Light;
         var body = new ScrollViewer
         {
             Content = stack,
             MaxHeight = 360,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            BorderThickness = new Thickness(0),
         };
-        var frame = new Grid { RequestedTheme = theme, Children = { body } };
+        var frame = new Border
+        {
+            RequestedTheme = theme,
+            BorderThickness = new Thickness(0),
+            Background = ThemeBrush("SolidBackgroundFillColorBaseBrush", dark ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White),
+            Child = body,
+        };
+        frame.PreviewKeyDown += OnMenuKey;
         _window?.Close();
         var window = new Window { Title = "Menu", Content = frame };
         _window = window;
+        _openedAt = Environment.TickCount64;
         if (window.AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
             presenter.IsAlwaysOnTop = true;
             presenter.IsResizable = false;
+            presenter.IsMinimizable = false;
+            presenter.IsMaximizable = false;
         }
+        window.Activated += (_, args) =>
+        {
+            if (args.WindowActivationState == WindowActivationState.Deactivated)
+            {
+                Dismiss();
+            }
+        };
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_window, window))
@@ -68,7 +143,25 @@ internal static class CanvasMenu
         window.AppWindow.Move(new Windows.Graphics.PointInt32(x, y));
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(220, 280));
         window.Activate();
-        Native.ShowWindow(WindowNative.GetWindowHandle(window), 8);
+        var hwnd = WindowNative.GetWindowHandle(window);
+        var ownerHwnd = WindowNative.GetWindowHandle(owner);
+        if (ownerHwnd != IntPtr.Zero)
+        {
+            Native.SetWindowLongPtr(hwnd, Native.GwlpHwndParent, ownerHwnd);
+        }
+        Native.ShowWindow(hwnd, 8);
+        Native.Frame(hwnd, dark ? 0x00242424 : 0x00F3F3F3, dark);
+        frame.Focus(FocusState.Programmatic);
+    }
+
+    private static void OnMenuKey(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Escape)
+        {
+            return;
+        }
+        e.Handled = true;
+        Dismiss();
     }
 
     private static void AddItem(StackPanel stack, JsonElement item, Action<string, string> choose, int indent)
@@ -79,7 +172,7 @@ internal static class CanvasMenu
             {
                 Text = item.TryGetProperty("label", out var title) ? title.GetString() : "",
                 Margin = new Thickness(8 + indent, 4, 8, 0),
-                Opacity = 0.7,
+                Foreground = ThemeBrush("TextFillColorSecondaryBrush", Microsoft.UI.Colors.Gray),
             });
             foreach (var child in children.EnumerateArray())
             {
@@ -98,14 +191,39 @@ internal static class CanvasMenu
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(indent, 0, 0, 0),
-            MinHeight = 21,
+            MinHeight = Density.MinTarget,
+            Padding = new Thickness(12, 4, 12, 4),
             FontSize = Density.Font,
+            BorderThickness = new Thickness(0),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            CornerRadius = new CornerRadius(4),
         };
+        Density.Name(button, label);
         button.Click += (_, _) =>
         {
-            _window?.Close();
+            Dismiss();
             choose(id, run);
         };
         stack.Children.Add(button);
+    }
+
+    private static Brush ThemeBrush(string key, Windows.UI.Color fallback) =>
+        Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
+            ? brush
+            : new SolidColorBrush(fallback);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RectI rect);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RectI
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 }

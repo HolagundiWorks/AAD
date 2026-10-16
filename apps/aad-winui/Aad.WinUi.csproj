@@ -5,6 +5,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Aad.WinUi</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\app-icon\aad.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
     <Platform>x64</Platform>
     <PlatformTarget>x64</PlatformTarget>
@@ -23,11 +24,20 @@
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
+    <Content Include="..\..\assets\app-icon\aad.ico" Link="aad.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\assets\app-icon\aad-256.png" Link="aad-256.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CopyHost" AfterTargets="Build">
     <PropertyGroup>
-      <_HostDll>$(MSBuildThisFileDirectory)..\..\target\debug\aad_host.dll</_HostDll>
+      <_HostCandidate1>$(MSBuildThisFileDirectory)..\..\target\x86_64-pc-windows-msvc\release\aad_host.dll</_HostCandidate1>
+      <_HostCandidate2>$(MSBuildThisFileDirectory)..\..\target\x86_64-pc-windows-msvc\debug\aad_host.dll</_HostCandidate2>
+      <_HostCandidate3>$(MSBuildThisFileDirectory)..\..\target\release\aad_host.dll</_HostCandidate3>
+      <_HostCandidate4>$(MSBuildThisFileDirectory)..\..\target\debug\aad_host.dll</_HostCandidate4>
+      <_HostDll Condition="Exists('$(_HostCandidate1)')">$(_HostCandidate1)</_HostDll>
+      <_HostDll Condition="'$(_HostDll)' == '' and Exists('$(_HostCandidate2)')">$(_HostCandidate2)</_HostDll>
+      <_HostDll Condition="'$(_HostDll)' == '' and Exists('$(_HostCandidate3)')">$(_HostCandidate3)</_HostDll>
+      <_HostDll Condition="'$(_HostDll)' == '' and Exists('$(_HostCandidate4)')">$(_HostCandidate4)</_HostDll>
     </PropertyGroup>
-    <Copy SourceFiles="$(_HostDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="Exists('$(_HostDll)')" />
+    <Copy SourceFiles="$(_HostDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" Condition="'$(_HostDll)' != ''" />
   </Target>
 </Project>

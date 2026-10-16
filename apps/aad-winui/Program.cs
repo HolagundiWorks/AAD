@@ -5,9 +5,12 @@ namespace Aad.WinUi;
 
 public static class Program
 {
+    internal static LaunchArgs Launch { get; private set; } = new();
+
     [STAThread]
-    public static void Main(string[] _)
+    public static void Main(string[] args)
     {
+        Launch = LaunchArgs.Parse(args);
         WinRT.ComWrappersSupport.InitializeComWrappers();
         Application.Start(_ =>
         {

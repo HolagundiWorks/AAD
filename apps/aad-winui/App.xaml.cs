@@ -27,7 +27,8 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         // The window must stay rooted. A local variable is collected and the window closes.
-        _window = new MainWindow();
+        _window = new MainWindow(Program.Launch);
+        ShellIcon.Apply(_window);
         _window.Activate();
         // Activate does not show the window when this process cannot take the foreground.
         Native.ShowWindow(WindowNative.GetWindowHandle(_window), 8);

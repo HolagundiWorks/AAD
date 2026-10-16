@@ -11,15 +11,15 @@ use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CallWindowProcW, CreateWindowExW, DefWindowProcW, DestroyWindow, GW_HWNDPREV, GWLP_USERDATA, GWLP_WNDPROC, GetClientRect,
-    GetWindow, GetWindowLongPtrW, HWND_TOP, IDC_ARROW, IsWindowVisible, LoadCursorW, MA_ACTIVATE, RegisterClassW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WNDCLASSW, WS_CHILD,
-    WS_CLIPSIBLINGS, WS_VISIBLE,
+    GetWindow, GetWindowLongPtrW, HWND_TOP, IDC_ARROW, IsWindowVisible, LoadCursorW, MA_NOACTIVATE, RegisterClassW, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_SHOWWINDOW, SetWindowLongPtrW, SetWindowPos, ShowWindow, WM_DESTROY, WM_ERASEBKGND, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN,
+    WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_RBUTTONDOWN, WNDCLASSW,
+    WS_CHILD, WS_CLIPSIBLINGS, WS_VISIBLE,
 };
 
 use crate::{
-    Bridge, MOD_SHIFT, POINTER_LEFT_DOUBLE, POINTER_LEFT_DOWN, POINTER_LEFT_UP, POINTER_MIDDLE_DOUBLE, POINTER_MIDDLE_DOWN, POINTER_MIDDLE_UP, POINTER_MOVE,
-    POINTER_RIGHT, Pointer,
+    Bridge, MOD_SHIFT, POINTER_LEFT_DOUBLE, POINTER_LEFT_DOWN, POINTER_LEFT_UP, POINTER_MIDDLE_DOUBLE, POINTER_MIDDLE_DOWN, POINTER_MIDDLE_UP,
+    POINTER_MOVE, POINTER_RIGHT, Pointer,
 };
 
 const CLASS: &[u16] = &[
@@ -151,6 +151,16 @@ pub fn move_to(hwnd: isize, x: i32, y: i32, width: u32, height: u32) -> Result<(
     Ok(())
 }
 
+pub fn hide(hwnd: isize) {
+    let hwnd = hwnd as HWND;
+    if hwnd.is_null() {
+        return;
+    }
+    unsafe {
+        ShowWindow(hwnd, 0);
+    }
+}
+
 pub fn destroy(hwnd: isize) {
     let hwnd = hwnd as HWND;
     if hwnd.is_null() {
@@ -226,7 +236,7 @@ unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam:
             unsafe { ValidateRect(hwnd, std::ptr::null()) };
             0
         }
-        WM_MOUSEACTIVATE => MA_ACTIVATE as LRESULT,
+        WM_MOUSEACTIVATE => MA_NOACTIVATE as LRESULT,
         WM_MOUSEWHEEL => {
             if let Some(bridge) = bridge(hwnd) {
                 let (x, y) = client_point(hwnd, lparam);

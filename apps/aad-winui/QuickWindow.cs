@@ -13,9 +13,9 @@ internal sealed class QuickWindow : Window
 
     private readonly Action<string, string> _run;
     private readonly StackPanel _stack = new() { Spacing = 6, Margin = new Thickness(12) };
-    private readonly ComboBox _color = new() { MinWidth = 140 };
-    private readonly ComboBox _layer = new() { MinWidth = 140 };
-    private readonly ComboBox _linetype = new() { MinWidth = 140 };
+    private readonly ComboBox _color = new() { MinWidth = 140, MinHeight = Density.MinTarget };
+    private readonly ComboBox _layer = new() { MinWidth = 140, MinHeight = Density.MinTarget };
+    private readonly ComboBox _linetype = new() { MinWidth = 140, MinHeight = Density.MinTarget };
     private readonly Dictionary<string, TextBox> _fields = new();
     private List<string> _handles = new();
     private string _applied = "";
@@ -29,6 +29,7 @@ internal sealed class QuickWindow : Window
         Content = new ScrollViewer { Content = new Grid { RequestedTheme = theme, Children = { _stack } } };
         Title = "Quick Properties";
         AppWindow.Resize(new Windows.Graphics.SizeInt32(300, 420));
+        ShellIcon.Apply(this);
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsAlwaysOnTop = true;
@@ -105,7 +106,7 @@ internal sealed class QuickWindow : Window
                 var value = field.TryGetProperty("value", out var valueNode) ? valueNode.GetString() ?? "" : "";
                 var key = field.TryGetProperty("key", out var keyNode) ? keyNode.GetString() ?? "" : "";
                 var text = field.TryGetProperty("text", out var textNode) && textNode.ValueKind == JsonValueKind.True;
-                var box = new TextBox { Text = value, MinWidth = 140, Tag = value };
+                var box = new TextBox { Text = value, MinWidth = 140, MinHeight = Density.MinTarget, Tag = value };
                 if (key.Length > 0)
                 {
                     _fields[key] = box;
@@ -127,7 +128,8 @@ internal sealed class QuickWindow : Window
                 _stack.Children.Add(Row(label, box));
             }
         }
-        var close = new Button { Content = "Turn off", HorizontalAlignment = HorizontalAlignment.Right };
+        var close = new Button { Content = "Turn off", HorizontalAlignment = HorizontalAlignment.Right, MinHeight = Density.MinTarget };
+        Density.Name(close, "Turn off quick properties");
         close.Click += (_, _) => _run("qpmode", "{\"on\":false}");
         _stack.Children.Add(close);
         Density.Apply(_stack);
@@ -235,8 +237,12 @@ internal sealed class QuickWindow : Window
     private static StackPanel Row(string label, UIElement editor)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        row.Children.Add(new TextBlock { Text = label, Width = 88, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7 });
+        var caption = Density.Secondary(label);
+        caption.Width = 88;
+        caption.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(caption);
         row.Children.Add(editor);
+        Density.Name(editor, label);
         return row;
     }
 }

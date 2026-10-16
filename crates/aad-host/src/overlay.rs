@@ -52,7 +52,17 @@ pub struct Cursor {
     pub hot: Option<HotGrip>,
 }
 
-pub fn mesh(session: &Session, cursor: Option<&Cursor>, paper: Rgb, height: u32, origin: Vec2, tip: Option<&str>) -> MeshData {
+pub fn mesh(
+    session: &Session,
+    cursor: Option<&Cursor>,
+    paper: Rgb,
+    height: u32,
+    origin: Vec2,
+    tip: Option<&str>,
+    width: u32,
+    show_ucs: bool,
+    icon_px: f64,
+) -> MeshData {
     let Ok(state) = session.state() else { return MeshData::default() };
     let view = state.view();
     let scale = f64::from(height.max(1)) / view.height.max(1e-12);
@@ -129,6 +139,9 @@ pub fn mesh(session: &Session, cursor: Option<&Cursor>, paper: Rgb, height: u32,
             add_tip(&mut list, cursor.aim, scale, tip);
         }
     }
+    if show_ucs {
+        add_ucs(&mut list, view.center, width, height, scale, icon_px);
+    }
     let mut built = mesh::build_mesh(&list, origin, paper, false);
     mesh::expand_hairlines(&mut built);
     built
@@ -141,6 +154,42 @@ fn grip_ghost(kind: &aad_engine::doc::EntityKind, hot: HotGrip, aim: Vec2) -> Op
         return Some(ghost);
     }
     if hot.mode == grips::GripMode::Stretch { grips::stretch_grip(kind, hot.index, aim) } else { None }
+}
+
+fn add_ucs(list: &mut DisplayList, center: Vec2, width: u32, height: u32, scale: f64, icon_px: f64) {
+    if !center.is_finite() || !scale.is_finite() || scale <= 0.0 || !icon_px.is_finite() || icon_px <= 0.0 {
+        return;
+    }
+    let px = |n: f64| n * icon_px;
+    let to_world = |sx: f64, sy: f64| {
+        let cx = f64::from(width.max(1)) * 0.5;
+        let cy = f64::from(height.max(1)) * 0.5;
+        Vec2::new(center.x + (sx - cx) / scale, center.y - (sy - cy) / scale)
+    };
+    let origin = to_world(px(36.0), f64::from(height) - px(34.0));
+    let axis_x = to_world(px(36.0) + px(60.0), f64::from(height) - px(34.0));
+    let axis_y = to_world(px(36.0), f64::from(height) - px(34.0) - px(60.0));
+    if ![origin, axis_x, axis_y].into_iter().all(|point| point.is_finite()) {
+        return;
+    }
+    let ink = Rgb(255, 255, 255);
+    add_poly(list, &[origin, axis_x], ink, true);
+    add_poly(list, &[origin, axis_y], ink, true);
+    add_poly(list, &square(origin, px(4.5) / scale), ink, true);
+    add_label(list, to_world(px(36.0) + px(70.0), f64::from(height) - px(34.0)), scale, icon_px, "X");
+    add_label(list, to_world(px(36.0), f64::from(height) - px(34.0) - px(70.0)), scale, icon_px, "Y");
+}
+
+fn add_label(list: &mut DisplayList, at: Vec2, scale: f64, icon_px: f64, text: &str) {
+    if !at.is_finite() || !scale.is_finite() || scale <= 0.0 {
+        return;
+    }
+    let height = 13.0 * icon_px / scale;
+    let shaped = aad_fonts::shape_stroke(text, height, 1.0, 0.0);
+    for stroke in &shaped.strokes {
+        let pts: Vec<Vec2> = stroke.iter().map(|point| at + *point).collect();
+        add_poly(list, &pts, Rgb(255, 255, 255), true);
+    }
 }
 
 fn add_crosshair(list: &mut DisplayList, at: Vec2, scale: f64, height: u32, cursorsize: f64, picking: bool, pickbox: f64) {

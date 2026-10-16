@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using WinRT.Interop;
 
@@ -34,17 +36,19 @@ internal static class FormDialog
                 picks = true;
                 continue;
             }
-            stack.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap });
+            stack.Children.Add(Density.Secondary(label, TextWrapping.Wrap));
             switch (kind)
             {
                 case "bool":
                     var box = new CheckBox { IsChecked = BoolOf(field) };
+                    Density.Name(box, label);
                     checks[key] = box;
                     stack.Children.Add(box);
                     break;
                 case "choice":
                 case "room":
-                    var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+                    var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = Density.MinTarget };
+                    Density.Name(combo, label);
                     if (kind == "room" && rooms.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var room in rooms.EnumerateArray())
@@ -80,7 +84,8 @@ internal static class FormDialog
                     {
                         rows.Children.Add(TableRow(columns, default));
                     }
-                    var add = new Button { Content = "Add row", HorizontalAlignment = HorizontalAlignment.Left };
+                    var add = new Button { Content = "Add row", HorizontalAlignment = HorizontalAlignment.Left, MinHeight = Density.MinTarget };
+                    Density.Name(add, "Add row to " + label);
                     add.Click += (_, _) =>
                     {
                         if (rows.Children.Count < 24)
@@ -93,7 +98,8 @@ internal static class FormDialog
                     stack.Children.Add(add);
                     break;
                 default:
-                    var input = new TextBox { Text = StringOf(field) };
+                    var input = new TextBox { Text = StringOf(field), MinHeight = Density.MinTarget };
+                    Density.Name(input, label);
                     scalars[key] = input;
                     stack.Children.Add(input);
                     break;
@@ -101,12 +107,16 @@ internal static class FormDialog
         }
         if (picks)
         {
-            stack.Children.Add(new TextBlock { Text = "Points are picked on the drawing after OK.", Opacity = 0.7 });
+            stack.Children.Add(Density.Secondary("Points are picked on the drawing after OK.", TextWrapping.Wrap));
         }
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        AutomationProperties.SetLiveSetting(error, AutomationLiveSetting.Assertive);
+        Density.Name(error, "Form error");
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var ok = new Button { Content = "OK" };
-        var cancel = new Button { Content = "Cancel" };
+        var ok = new Button { Content = "OK", MinHeight = Density.MinTarget };
+        var cancel = new Button { Content = "Cancel", MinHeight = Density.MinTarget };
+        Density.Name(ok, "OK");
+        Density.Name(cancel, "Cancel");
         buttons.Children.Add(ok);
         buttons.Children.Add(cancel);
         stack.Children.Add(error);
@@ -118,6 +128,7 @@ internal static class FormDialog
             page.RequestedTheme = shell.RequestedTheme;
         }
         var window = new Window { Title = title, Content = page };
+        ShellIcon.Apply(window);
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 560, Height = 640 });
         ok.Click += (_, _) =>
         {
@@ -199,7 +210,10 @@ internal static class FormDialog
                     text = Cell(cell);
                 }
             }
-            line.Children.Add(new TextBox { Text = text, Width = 88, PlaceholderText = column.GetProperty("label").GetString() });
+            var label = column.GetProperty("label").GetString() ?? "Cell";
+            var box = new TextBox { Text = text, Width = 88, MinHeight = Density.MinTarget, PlaceholderText = label };
+            Density.Name(box, label);
+            line.Children.Add(box);
             i++;
         }
         return line;

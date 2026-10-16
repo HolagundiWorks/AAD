@@ -151,11 +151,39 @@ pub unsafe extern "C" fn aad_host_snap_tab(host: *mut Host) -> i32 {
     call(host, |host| host.snap_tab())
 }
 
+/// Move the drafting cursor (`dx`/`dy` are steps; positive `dy` is down). Non-zero `ctrl` pans;
+/// non-zero `shift` uses a larger step.
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_key_nudge(host: *mut Host, dx: i32, dy: i32, ctrl: i32, shift: i32) -> i32 {
+    call(host, |host| host.key_nudge(dx, dy, ctrl != 0, shift != 0))
+}
+
+/// Activate at the keyboard cursor (pick, place, grip, or close a selection window).
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_key_activate(host: *mut Host, shift: i32) -> i32 {
+    call(host, |host| host.key_activate(shift != 0))
+}
+
 /// # Safety
 /// `host` is live. Cancels the running command.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn aad_host_cancel(host: *mut Host) -> i32 {
     call(host, |host| host.cancel_command())
+}
+
+/// Clear the command-line log. Does not cancel the running command or change the drawing.
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_clear_log(host: *mut Host) -> i32 {
+    call(host, |host| host.clear_log())
 }
 
 /// # Safety
@@ -291,6 +319,24 @@ pub unsafe extern "C" fn aad_host_popup(host: *mut Host, buf: *mut u8, len: u32)
     n
 }
 
+/// Copy a finished `plot.window` request as JSON and clear it. A null `buf` only reports the length.
+///
+/// # Safety
+/// `host` is live. `buf` receives UTF-8 without a terminator. Returns the byte length, or a
+/// negative length when `buf` is too small and nothing was written.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_plot_request(host: *mut Host, buf: *mut u8, len: u32) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return 0;
+    };
+    let json = host.plot_request_json();
+    let n = copy_bytes(json.as_bytes(), buf, len);
+    if n > 0 && !buf.is_null() {
+        host.clear_plot_request();
+    }
+    n
+}
+
 /// Copy the drawing clipboard as DXF text. A null `buf` only reports the length.
 ///
 /// # Safety
@@ -403,6 +449,58 @@ pub(crate) fn error_text(host: *mut Host) -> String {
     }
     let n = usize::try_from(n).unwrap_or(0).min(buf.len());
     String::from_utf8_lossy(&buf[..n]).into_owned()
+}
+
+/// Show or hide the world-coordinate icon.
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_ucs(host: *mut Host, on: i32) -> i32 {
+    call(host, |host| host.set_ucs(on != 0))
+}
+
+/// Show or hide the child drawing window.
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_canvas(host: *mut Host, visible: i32) -> i32 {
+    call(host, |host| host.set_canvas_visible(visible != 0))
+}
+
+/// Answer a pending assistant confirmation. Non-zero allows the tool.
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_assistant(host: *mut Host, accept: i32) -> i32 {
+    call(host, |host| host.assistant_reply(accept != 0))
+}
+
+/// Bind the loopback control channel. Returns the port, or `-1` on failure.
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_listen(host: *mut Host, port: u16) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return -1;
+    };
+    match std::panic::catch_unwind(AssertUnwindSafe(|| host.listen(port))) {
+        Ok(Ok(bound)) => {
+            host.error.clear();
+            i32::from(bound)
+        }
+        Ok(Err(e)) => {
+            host.error = e;
+            -1
+        }
+        Err(_) => {
+            host.error = "internal error".into();
+            -1
+        }
+    }
 }
 
 fn call(host: *mut Host, f: impl FnOnce(&mut Host) -> Result<(), String>) -> i32 {

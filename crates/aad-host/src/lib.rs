@@ -7,7 +7,10 @@
 //! `unsafe` is denied except in the ABI, the child window, and the swap-chain surface.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod assistant;
+mod bar;
 mod chrome;
+mod control;
 mod ffi;
 mod forms;
 #[cfg(windows)]
@@ -19,6 +22,7 @@ mod surface;
 #[cfg(windows)]
 mod window;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use aad_color::Rgb;
@@ -117,6 +121,8 @@ impl Bridge {
 }
 
 /// The values beside the cursor. The command line already shows the prompt.
+/// Kept for the overlay test; the WinUI fields use [`dyn_boxes`].
+#[cfg(test)]
 fn dyn_line(prompt: &aad_engine::Prompt, frame: Option<&aad_engine::dyninput::Frame>, draft: &str, aim: Vec2) -> String {
     let line = if let Some(frame) = frame
         && let Some(entry) = aad_engine::dyninput::parse(draft, frame)
@@ -151,6 +157,42 @@ fn dyn_line(prompt: &aad_engine::Prompt, frame: Option<&aad_engine::dyninput::Fr
     line.chars().take(48).collect()
 }
 
+/// The two Dynamic Input boxes. The command-line text stays the source of truth; this is only the view.
+fn dyn_boxes(prompt: &aad_engine::Prompt, frame: &aad_engine::dyninput::Frame, draft: &str, aim: Vec2) -> (String, String, String, String, i32) {
+    let dist = |v: f64| aad_engine::units::format_distance(v, 2, 4);
+    let clip = |text: String| text.chars().take(24).collect();
+    if let Some(entry) = aad_engine::dyninput::parse(draft, frame) {
+        let held = aad_engine::dyninput::constrain(&entry, frame, aim);
+        let (first_live, second_live) = frame.live(entry.format, held);
+        let first = if entry.first.is_empty() { dist(first_live) } else { entry.first.to_string() };
+        let second = if entry.second.is_empty() {
+            match entry.format {
+                aad_engine::dyninput::Format::Cartesian => dist(second_live),
+                aad_engine::dyninput::Format::Polar => format!("{:.1}°", second_live.to_degrees()),
+            }
+        } else {
+            entry.second.to_string()
+        };
+        let (a_label, b_label) = match entry.format {
+            aad_engine::dyninput::Format::Cartesian => ("X", "Y"),
+            aad_engine::dyninput::Format::Polar => ("Length", "Angle"),
+        };
+        let active = if entry.split { 1 } else { 0 };
+        return (a_label.into(), b_label.into(), clip(first), clip(second), active);
+    }
+    if !draft.is_empty() {
+        return ("Input".into(), String::new(), clip(draft.to_string()), String::new(), 0);
+    }
+    if let Some(base) = prompt.base.filter(|base| base.is_finite() && aim.is_finite()) {
+        let deg = (base.angle_to(aim).to_degrees() * 10.0).round() / 10.0;
+        return ("Length".into(), "Angle".into(), dist(base.dist(aim)), format!("{deg:.1}°"), 0);
+    }
+    if aim.is_finite() {
+        return ("X".into(), "Y".into(), dist(aim.x), dist(aim.y), 0);
+    }
+    ("X".into(), "Y".into(), String::new(), String::new(), 0)
+}
+
 /// One editing session and, on Windows, its drawing surface.
 pub struct Host {
     session: Session,
@@ -170,6 +212,9 @@ pub struct Host {
     /// `Present` must not touch the surface again.
     #[cfg(windows)]
     in_call: bool,
+    /// Command lines that arrived while `in_call` was set. Run after the frame, not dropped.
+    #[cfg(windows)]
+    pending_submit: Vec<String>,
     /// Screen point where the left or middle button went down.
     press: Option<Vec2>,
     panning: bool,
@@ -189,11 +234,47 @@ pub struct Host {
     draft: String,
     /// Tab cycling: the raw point where it started, and how many times Tab has advanced.
     snap_cycle: Option<(Vec2, usize)>,
+    show_ucs: bool,
+    canvas_visible: bool,
+    assistant: assistant::Desk,
+    control_rx: Option<std::sync::mpsc::Receiver<control::Job>>,
+    control_port: u16,
+    control_stop: Option<Arc<AtomicBool>>,
+    /// Set by `app.quit` on the control channel; the shell closes when chrome reports it.
+    quit_requested: bool,
+}
+
+/// DXF and DWG read and write. The engine stays free of file formats; the host installs them
+/// once. DWG is converted by a worker process when that program is beside the shell.
+fn install_formats() {
+    aad_engine::cmd::file::set_io(aad_engine::cmd::file::IoHooks {
+        read: |bytes, name| aad_io::read(bytes, name).map_err(|e| e.to_string()),
+        write: |drawing, name| aad_io::write(drawing, name).map_err(|e| e.to_string()),
+        plot: Some(|drawing, space, opts| aad_io::plot(drawing, space, opts).map_err(|e| e.to_string())),
+    });
+    if let Some(worker) = dwg_worker() {
+        let _ = aad_dwg::isolated::enable_with(worker);
+    }
+}
+
+fn dwg_worker() -> Option<std::path::PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    let names = ["aad-dwg-worker", "aad", "aad-cli"];
+    for name in names {
+        let file = if cfg!(windows) { format!("{name}.exe") } else { name.to_string() };
+        for path in [dir.join(&file), dir.join("..").join(&file), dir.join("../debug").join(&file)] {
+            if path.is_file() {
+                return Some(path);
+            }
+        }
+    }
+    None
 }
 
 impl Host {
     /// `sample` opens the built-in sample drawing. Otherwise the session starts empty.
     pub fn create(sample: bool) -> Self {
+        install_formats();
         let mut session = Session::empty();
         if sample {
             session.open_drawing(aad_engine::sample::default_sample(), "Sample", None);
@@ -217,6 +298,8 @@ impl Host {
             gpu: None,
             #[cfg(windows)]
             in_call: false,
+            #[cfg(windows)]
+            pending_submit: Vec::new(),
             press: None,
             panning: false,
             dragged: false,
@@ -230,6 +313,13 @@ impl Host {
             hot: None,
             draft: String::new(),
             snap_cycle: None,
+            show_ucs: true,
+            canvas_visible: true,
+            assistant: assistant::Desk::new(),
+            control_rx: None,
+            control_port: 0,
+            control_stop: None,
+            quit_requested: false,
         }
     }
 
@@ -238,7 +328,14 @@ impl Host {
             return Err("missing command".into());
         }
         self.result.clear();
-        let value = self.session.execute(command, params).map_err(|e| e.to_string())?;
+        let value = match self.session.execute(command, params) {
+            Ok(value) => value,
+            Err(e) => {
+                let message = e.to_string();
+                self.session.echo(message.clone());
+                return Err(message);
+            }
+        };
         let text = value.to_string();
         if text.len() > 8 * 1_024 * 1_024 {
             return Err("result is too large".into());
@@ -249,7 +346,32 @@ impl Host {
 
     /// Run one command-line line, the same path as typing it and pressing Enter.
     pub fn submit(&mut self, text: &str) -> Result<(), String> {
-        self.exclusive(|host| host.submit_inner(text))
+        #[cfg(windows)]
+        if self.in_call {
+            if self.pending_submit.len() < 8 {
+                self.pending_submit.push(text.to_string());
+                return Ok(());
+            }
+            self.session.echo("command was not run".to_string());
+            return Err("the drawing is busy".into());
+        }
+        let result = self.exclusive(|host| host.submit_inner(text));
+        #[cfg(windows)]
+        self.flush_submit();
+        result
+    }
+
+    /// Lines queued while a frame was being presented.
+    #[cfg(windows)]
+    fn flush_submit(&mut self) {
+        let mut rounds = 0;
+        while rounds < 8 && !self.in_call && !self.pending_submit.is_empty() {
+            let pending = std::mem::take(&mut self.pending_submit);
+            for text in pending {
+                let _ = self.exclusive(|host| host.submit_inner(&text));
+            }
+            rounds += 1;
+        }
     }
 
     /// Escape. A hot grip is cleared; otherwise the running command is cancelled.
@@ -258,6 +380,10 @@ impl Host {
             host.draft.clear();
             if host.hot.take().is_some() {
                 host.session.echo("*Cancel*");
+                return host.present_if_ready();
+            }
+            if host.assistant.busy() {
+                host.assistant.stop(&mut host.session);
                 return host.present_if_ready();
             }
             host.session.cancel();
@@ -271,7 +397,48 @@ impl Host {
 
     pub fn chrome_json(&self) -> String {
         let cursor = self.screen.filter(|point| point.is_finite()).map(|_| self.aim);
-        chrome::chrome_json(&self.session, cursor)
+        let mut value: Value = serde_json::from_str(&chrome::chrome_json(&self.session, cursor)).unwrap_or(Value::Null);
+        if let Some(object) = value.as_object_mut() {
+            object.insert("assistant".into(), Value::String(self.assistant.phase().to_string()));
+            object.insert("assistantPrompt".into(), Value::String(self.assistant.prompt().to_string()));
+            object.insert("assistantPartial".into(), Value::String(self.assistant.partial().to_string()));
+            object.insert("assistantModel".into(), Value::String(self.assistant.model_status().to_string()));
+            object.insert("controlPort".into(), Value::from(self.control_port));
+            object.insert("quit".into(), Value::from(self.quit_requested));
+            object.insert("ucs".into(), Value::from(self.show_ucs));
+            object.insert("dyn".into(), self.dyn_chrome());
+        }
+        value.to_string()
+    }
+
+    /// Screen position and the two cursor fields. `on` is false when Dynamic Input is not relevant.
+    fn dyn_chrome(&self) -> Value {
+        let Some(screen) = self.screen.filter(|point| point.is_finite()) else {
+            return serde_json::json!({ "on": false });
+        };
+        let Some(frame) = self.dyn_frame() else {
+            return serde_json::json!({ "on": false });
+        };
+        let Some(prompt) = self.session.current_prompt() else {
+            return serde_json::json!({ "on": false });
+        };
+        let (a_label, b_label, a, b, active) = dyn_boxes(&prompt, &frame, &self.draft, self.aim);
+        serde_json::json!({
+            "on": true,
+            "x": screen.x,
+            "y": screen.y,
+            "aLabel": a_label,
+            "a": a,
+            "bLabel": b_label,
+            "b": b,
+            "active": active,
+        })
+    }
+
+    /// Drop the command-line log only. The drawing, the running command and the registry stay.
+    pub fn clear_log(&mut self) -> Result<(), String> {
+        self.session.log.clear();
+        Ok(())
     }
 
     /// Properties, layers and blocks, tagged with the drawing id and revision.
@@ -312,6 +479,26 @@ impl Host {
             let message = "text is too long".to_string();
             self.session.echo(message.clone());
             return Err(message);
+        }
+        if self.assistant.confirming() {
+            let word = text.trim().to_ascii_lowercase();
+            let accept = matches!(word.as_str(), "y" | "yes" | "allow");
+            let decline = matches!(word.as_str(), "n" | "no" | "decline");
+            self.draft.clear();
+            if accept || decline {
+                self.assistant.confirm(&mut self.session, accept);
+                return self.present_if_ready();
+            }
+            let message = "Allow or Decline".to_string();
+            self.session.echo(message.clone());
+            return Err(message);
+        }
+        if self.session.running.is_none() && self.hot.is_none() {
+            match bar::classify(text) {
+                bar::Kind::Reference => return self.ask_assistant(text),
+                bar::Kind::Natural if self.assistant.available() => return self.ask_assistant(text),
+                _ => {}
+            }
         }
         let finished = self.finish_dyn(text);
         self.draft.clear();
@@ -406,6 +593,217 @@ impl Host {
         })
     }
 
+    pub fn set_ucs(&mut self, on: bool) -> Result<(), String> {
+        self.exclusive(|host| {
+            host.show_ucs = on;
+            host.present_if_ready()
+        })
+    }
+
+    /// Hide the child drawing window so a XAML page can use that cell. `pump` will not raise it
+    /// until it is shown again.
+    pub fn set_canvas_visible(&mut self, visible: bool) -> Result<(), String> {
+        self.canvas_visible = visible;
+        #[cfg(windows)]
+        if !visible && self.hwnd != 0 {
+            window::hide(self.hwnd);
+        }
+        Ok(())
+    }
+
+    /// Listen on `127.0.0.1`. Port `0` picks a free port. A second call returns the port already bound.
+    pub fn listen(&mut self, port: u16) -> Result<u16, String> {
+        if self.control_port != 0 {
+            return Ok(self.control_port);
+        }
+        let (bound, rx, stop) = control::start(port)?;
+        self.control_port = bound;
+        self.control_rx = Some(rx);
+        self.control_stop = Some(stop);
+        Ok(bound)
+    }
+
+    pub fn assistant_reply(&mut self, accept: bool) -> Result<(), String> {
+        self.exclusive(|host| {
+            if !host.assistant.confirming() {
+                return Err("the assistant is not waiting".into());
+            }
+            host.assistant.confirm(&mut host.session, accept);
+            host.present_if_ready()
+        })
+    }
+
+    fn ask_assistant(&mut self, text: &str) -> Result<(), String> {
+        self.assistant.ask(&mut self.session, text)?;
+        self.present_if_ready()
+    }
+
+    fn ucs_hit(&self, x: f64, y: f64) -> bool {
+        if !x.is_finite() || !y.is_finite() {
+            return false;
+        }
+        let scale = f64::from(self.pixels_per_point.max(1.0));
+        let x0 = 16.0 * scale;
+        let x1 = 130.0 * scale;
+        let y1 = f64::from(self.height) - 8.0 * scale;
+        let y0 = y1 - 96.0 * scale;
+        x >= x0 && x <= x1 && y >= y0 && y <= y1
+    }
+
+    fn drain_control(&mut self) {
+        let Some(rx) = &self.control_rx else { return };
+        let jobs: Vec<control::Job> = std::iter::from_fn(|| rx.try_recv().ok()).take(32).collect();
+        for job in jobs {
+            if !job.begin() {
+                continue;
+            }
+            let value = self.control_one(&job.method, &job.params);
+            let _ = job.reply.send(value);
+        }
+    }
+
+    fn control_one(&mut self, method: &str, params: &Value) -> Value {
+        let text = |key: &str| params.get(key).and_then(Value::as_str).unwrap_or("");
+        match method {
+            "engine.execute" | "command" => {
+                let Some(id) = params.get("command").and_then(Value::as_str).or_else(|| params.get("id").and_then(Value::as_str)) else {
+                    return json_err("missing `command`");
+                };
+                let body = params.get("params").cloned().unwrap_or(serde_json::json!({}));
+                let body = if body.is_null() { serde_json::json!({}) } else { body };
+                match self.execute(id, &body) {
+                    Ok(value) => json_ok(value),
+                    Err(e) => json_err(e),
+                }
+            }
+            "cmdline.input" => {
+                let before = self.session.log.len();
+                let error = self.submit(text("text")).err();
+                json_ok(self.cmdline_state(before, error))
+            }
+            "cmdline.script" => {
+                let before = self.session.log.len();
+                match self.session.script(text("text")) {
+                    Ok(()) => json_ok(serde_json::json!({"output": log_since(&self.session, before), "state": self.cmdline_state(before, None)})),
+                    Err(e) => json_err(e.to_string()),
+                }
+            }
+            "cmdline.key" => {
+                let before = self.session.log.len();
+                let error = match text("key").to_ascii_lowercase().as_str() {
+                    "escape" | "esc" => self.cancel_command().err(),
+                    _ => self.session.input(aad_engine::Input::Enter).err().map(|e| e.to_string()),
+                };
+                if let Some(message) = &error {
+                    self.session.echo(message.clone());
+                }
+                json_ok(self.cmdline_state(before, error))
+            }
+            "cmdline.state" => json_ok(self.cmdline_state(self.session.log.len(), None)),
+            "engine.commands" => {
+                let list: Vec<Value> = aad_engine::command_specs()
+                    .iter()
+                    .map(|spec| serde_json::to_value(spec.info(&self.session)).unwrap_or(Value::Null))
+                    .filter(|value| !value.is_null())
+                    .collect();
+                json_ok(Value::Array(list))
+            }
+            "drawing.inspect" | "document.inspect" => match self.execute("drawing.inspect", params) {
+                Ok(value) => json_ok(value),
+                Err(e) => json_err(e),
+            },
+            "ui.menu.invoke" => {
+                let Some(id) = params.get("command").and_then(Value::as_str).or_else(|| params.get("id").and_then(Value::as_str)) else {
+                    return json_err("missing `command`");
+                };
+                let before = self.session.log.len();
+                let error = self.submit(id).err();
+                json_ok(self.cmdline_state(before, error))
+            }
+            "app.open" => {
+                let Some(path) = params.get("path").and_then(Value::as_str) else {
+                    return json_err("missing path");
+                };
+                match self.execute("open", &serde_json::json!({ "path": path })) {
+                    Ok(value) => json_ok(value),
+                    Err(e) => json_err(e),
+                }
+            }
+            "app.save" => {
+                let id = if params.get("path").and_then(Value::as_str).is_some() { "saveas" } else { "qsave" };
+                match self.execute(id, params) {
+                    Ok(value) => json_ok(value),
+                    Err(e) => json_err(e),
+                }
+            }
+            "app.quit" => {
+                // Programmatic calls never open dialogs: quit without the unsaved-changes prompt.
+                self.quit_requested = true;
+                json_ok(Value::Null)
+            }
+            "ui.render" => self.control_render(params),
+            other if other.starts_with("ui.") => json_err("not available in the WinUI shell; use --egui or ui.render"),
+            _ => json_err("unknown method"),
+        }
+    }
+
+    /// Headless PNG of the drawing (same contract as egui `ui.render`). No window chrome.
+    fn control_render(&self, params: &Value) -> Value {
+        let width = params.get("width").and_then(Value::as_f64).unwrap_or(1600.0).clamp(16.0, 8192.0) as u32;
+        let height = params.get("height").and_then(Value::as_f64).unwrap_or(1000.0).clamp(16.0, 8192.0) as u32;
+        let fit = params.get("fit").and_then(Value::as_bool).unwrap_or(true);
+        let Ok(state) = self.session.state() else {
+            return json_err("no drawing");
+        };
+        let list = aad_render::build(&state.doc, &state.space, &aad_render::Options::default());
+        let view = state.view();
+        let raster = if fit {
+            aad_render::raster::View::fit(&list.bounds, width, height, 0.05)
+        } else {
+            aad_render::raster::View {
+                center: view.center,
+                scale: f64::from(height) / view.height.max(1e-12),
+                width,
+                height,
+            }
+        };
+        let Some(png) = aad_render::raster::render_png(&list, &raster, &aad_render::raster::RasterOptions::default()) else {
+            return json_err("render failed");
+        };
+        if let Some(path) = params.get("path").and_then(Value::as_str) {
+            if let Err(e) = std::fs::write(path, &png) {
+                return json_err(e.to_string());
+            }
+            return json_ok(serde_json::json!({
+                "pngBase64": aad_engine::cmd::file::base64_encode(&png),
+                "width": width,
+                "height": height,
+                "bytes": png.len(),
+                "path": path,
+            }));
+        }
+        json_ok(serde_json::json!({
+            "pngBase64": aad_engine::cmd::file::base64_encode(&png),
+            "width": width,
+            "height": height,
+            "bytes": png.len(),
+        }))
+    }
+
+    fn cmdline_state(&self, before: usize, error: Option<String>) -> Value {
+        let prompt = self.session.current_prompt();
+        serde_json::json!({
+            "prompt": self.session.prompt_text(),
+            "running": self.session.running.as_ref().map(|running| running.id.clone()),
+            "keywords": prompt.as_ref().map(|prompt| prompt.keywords.clone()).unwrap_or_default(),
+            "accept": prompt.as_ref().map(|prompt| serde_json::to_value(prompt.accept).unwrap_or(Value::Null)).unwrap_or(Value::Null),
+            "buffer": self.draft,
+            "history": self.session.log.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev().cloned().collect::<Vec<_>>(),
+            "output": log_since(&self.session, before),
+            "error": error,
+        })
+    }
+
     fn wheel(&mut self, ev: Pointer) -> Result<(), String> {
         if ev.wheel == 0.0 {
             return Ok(());
@@ -435,6 +833,11 @@ impl Host {
         if let Some(grip) = self.grip_at(ev.x, ev.y) {
             self.session.echo(grip.label().to_string());
             self.hot = Some(grip);
+            return Ok(());
+        }
+        if self.show_ucs && self.ucs_hit(ev.x, ev.y) {
+            let (x, y) = self.screen_point(ev.x, ev.y);
+            self.menu_request = chrome::ucs_popup(x, y);
             return Ok(());
         }
         self.dragged = false;
@@ -491,7 +894,9 @@ impl Host {
             let on_paper = matches!(state.space, aad_engine::doc::Space::Paper(_));
             let paper = self.screen_on(ev.x, ev.y, state.paper_view());
             let viewport = state.active_viewport();
-            let inside = viewport.as_ref().is_some_and(|(_, view)| (paper.x - view.center.x).abs() <= view.width / 2.0 && (paper.y - view.center.y).abs() <= view.height / 2.0);
+            let inside = viewport
+                .as_ref()
+                .is_some_and(|(_, view)| (paper.x - view.center.x).abs() <= view.width / 2.0 && (paper.y - view.center.y).abs() <= view.height / 2.0);
             (on_paper, paper, inside, viewport.is_some())
         };
         if on_paper && !inside {
@@ -566,6 +971,23 @@ impl Host {
     /// The pending right-click menu, then none.
     pub fn take_popup(&mut self) -> String {
         std::mem::take(&mut self.menu_request)
+    }
+
+    /// JSON for a finished `plot.window` request. Empty when nothing is waiting.
+    /// `{"window":null}` means extents/display; `{"window":[x0,y0,x1,y1]}` is a rectangle.
+    pub fn plot_request_json(&self) -> String {
+        match &self.session.plot_request {
+            None => String::new(),
+            Some(req) => match req.window {
+                Some(window) => serde_json::json!({ "window": window }).to_string(),
+                None => serde_json::json!({ "window": null }).to_string(),
+            },
+        }
+    }
+
+    /// Clear a finished `plot.window` request after the shell has copied it.
+    pub fn clear_plot_request(&mut self) {
+        self.session.plot_request = None;
     }
 
     /// The drawing clipboard as DXF text, or empty when there is nothing to put on the system clipboard.
@@ -678,6 +1100,52 @@ impl Host {
         true
     }
 
+    /// Move the drafting cursor by arrow keys. `dx`/`dy` are steps on screen (positive `dy` is down).
+    /// Ctrl pans the view instead. Shift uses a larger step.
+    pub fn key_nudge(&mut self, dx: i32, dy: i32, ctrl: bool, shift: bool) -> Result<(), String> {
+        self.exclusive(|host| {
+            let dx = dx.clamp(-64, 64);
+            let dy = dy.clamp(-64, 64);
+            let step = if shift { 40.0 } else { 8.0 };
+            let sx = f64::from(dx) * step;
+            let sy = f64::from(dy) * step;
+            if ctrl {
+                host.pan_by(sx, sy)?;
+                if let Some(screen) = host.screen {
+                    host.place_cursor(screen.x, screen.y, false)?;
+                }
+                return host.present_if_ready();
+            }
+            let screen = host.screen.unwrap_or_else(|| {
+                Vec2::new(f64::from(host.width.max(1)) * 0.5, f64::from(host.height.max(1)) * 0.5)
+            });
+            let max_x = f64::from(host.width.max(1));
+            let max_y = f64::from(host.height.max(1));
+            let x = (screen.x + sx).clamp(0.0, max_x);
+            let y = (screen.y + sy).clamp(0.0, max_y);
+            host.place_cursor(x, y, shift)?;
+            host.present_if_ready()
+        })
+    }
+
+    /// Place a point, pick or grip, or close a selection window at the keyboard cursor (Insert).
+    pub fn key_activate(&mut self, shift: bool) -> Result<(), String> {
+        self.exclusive(|host| {
+            let screen = match host.screen {
+                Some(point) if point.is_finite() => point,
+                _ => host.world_to_screen(host.aim).unwrap_or_else(|_| {
+                    Vec2::new(f64::from(host.width.max(1)) * 0.5, f64::from(host.height.max(1)) * 0.5)
+                }),
+            };
+            if !screen.x.is_finite() || !screen.y.is_finite() {
+                return Err("cursor is not on the drawing".into());
+            }
+            let mods = if shift { MOD_SHIFT } else { 0 };
+            host.left_down(Pointer { x: screen.x, y: screen.y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods })?;
+            host.present_if_ready()
+        })
+    }
+
     /// Tab with nothing for Dynamic Input to split: the next object snap under the cursor.
     pub fn snap_tab(&mut self) -> Result<(), String> {
         let Some(raw) = self.raw else { return Ok(()) };
@@ -747,6 +1215,8 @@ impl Host {
     }
 
     /// The line drawn beside the cursor while a command is running.
+    /// The WinUI shell draws these fields itself; this string is what the overlay test strokes.
+    #[cfg(test)]
     fn dyn_tip(&self) -> Option<String> {
         if self.screen.is_none() || self.session.pending_window.is_some() {
             return None;
@@ -825,9 +1295,10 @@ impl Host {
         };
         let list = aad_render::build(&state.doc, &state.space, &opts);
         let origin = mesh::choose_origin(&list.bounds, view.center, view.height);
-        let mut built = mesh::build_mesh(&list, origin, self.paper(), lw);
+        let paper = self.paper();
+        let mut built = mesh::build_mesh(&list, origin, paper, lw);
         let world_width = view.height * f64::from(self.width.max(1)) / f64::from(self.height.max(1));
-        mesh::append_infinite(&mut built, &list, origin, view.center, world_width, view.height, self.paper());
+        mesh::append_infinite(&mut built, &list, origin, view.center, world_width, view.height, paper);
         mesh::expand_hairlines(&mut built);
         let scale = f64::from(self.height.max(1)) / view.height.max(1e-12);
         let uniform = [
@@ -844,7 +1315,10 @@ impl Host {
             0.0,
             0.0,
         ];
-        let key = state.revision ^ origin.x.to_bits() ^ origin.y.to_bits().rotate_left(1);
+        // The sheet colour is part of the key: colour 7 is white on black and black on white, and
+        // the GPU keeps the last upload until this key changes.
+        let tint = u64::from(paper.0) << 16 | u64::from(paper.1) << 8 | u64::from(paper.2);
+        let key = state.revision ^ origin.x.to_bits() ^ origin.y.to_bits().rotate_left(1) ^ tint.rotate_left(21);
         Ok((key, built, uniform, origin))
     }
 
@@ -914,9 +1388,13 @@ impl Host {
         if self.in_call {
             return Ok(());
         }
+        self.drain_control();
+        self.assistant.poll(&mut self.session);
         self.in_call = true;
         let result = (|| {
-            window::raise(self.hwnd);
+            if self.canvas_visible {
+                window::raise(self.hwnd);
+            }
             for ev in self.bridge.drain() {
                 self.pointer(ev)?;
             }
@@ -926,6 +1404,7 @@ impl Host {
             Ok(())
         })();
         self.in_call = false;
+        self.flush_submit();
         result
     }
 
@@ -935,8 +1414,18 @@ impl Host {
         let paper = self.paper();
         let cursor =
             self.screen.is_some().then_some(overlay::Cursor { aim: self.aim, raw: self.raw, snap: self.snap.map(|hit| hit.point), hot: self.hot });
-        let tip = self.dyn_tip();
-        let overlay = overlay::mesh(&self.session, cursor.as_ref(), paper, self.height, origin, tip.as_deref());
+        let tip = self.hot.map(|hot| hot.label().to_string());
+        let overlay = overlay::mesh(
+            &self.session,
+            cursor.as_ref(),
+            paper,
+            self.height,
+            origin,
+            tip.as_deref(),
+            self.width,
+            self.show_ucs,
+            f64::from(self.pixels_per_point),
+        );
         let gpu = self.gpu.as_mut().ok_or("no drawing surface")?;
         gpu.set_clear(paper);
         gpu.set_overlay(&overlay);
@@ -953,12 +1442,27 @@ impl Host {
 #[cfg(windows)]
 impl Drop for Host {
     fn drop(&mut self) {
+        if let Some(stop) = &self.control_stop {
+            stop.store(true, Ordering::Relaxed);
+        }
         self.gpu.take();
         if self.hwnd != 0 {
             window::destroy(self.hwnd);
             self.hwnd = 0;
         }
     }
+}
+
+fn log_since(session: &Session, before: usize) -> Vec<String> {
+    session.log.iter().skip(before).cloned().collect()
+}
+
+fn json_ok(value: Value) -> Value {
+    serde_json::json!({"ok": true, "result": value})
+}
+
+fn json_err(error: impl std::fmt::Display) -> Value {
+    serde_json::json!({"ok": false, "error": error.to_string()})
 }
 
 #[cfg(test)]
@@ -997,6 +1501,7 @@ mod tests {
         let chrome: serde_json::Value = serde_json::from_str(&host.chrome_json()).unwrap();
         assert!(chrome["prompt"].as_str().unwrap().contains("Specify next point"));
         assert_eq!(chrome["command"], "line");
+        assert_eq!(chrome["literalSpace"], false);
         assert_eq!(chrome["space"], "Model");
         assert_eq!(chrome["osnap"], true);
         assert_eq!(chrome["ortho"], false);
@@ -1023,6 +1528,8 @@ mod tests {
         host.execute("selectall", &json!({})).unwrap();
         let selected: serde_json::Value = serde_json::from_str(&host.panels_json()).unwrap();
         assert_eq!(selected["quick"]["title"], "Line");
+        assert_eq!(selected["quick"]["lineweight"], "ByLayer");
+        assert_eq!(selected["quick"]["transparency"], "ByLayer");
         assert!(selected["quick"]["fields"].as_array().unwrap().iter().any(|field| field["key"] == "length"));
         assert_eq!(first["layers"][0]["name"], "0");
         assert_eq!(first["layers"][0]["current"], true);
@@ -1038,6 +1545,23 @@ mod tests {
         host.submit("NO-SUCH-BLOCK").unwrap();
         assert!(host.chrome_json().contains("not found"));
         assert_eq!(host.stats().entities, 1);
+    }
+
+    #[test]
+    fn open_reads_a_saved_dwg() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let dwg = std::env::temp_dir().join(format!("aad-host-open-{}.dwg", std::process::id()));
+        let dxf = std::env::temp_dir().join(format!("aad-host-open-{}.dxf", std::process::id()));
+        host.execute("saveas", &json!({ "path": dwg.to_string_lossy() })).unwrap();
+        host.execute("saveas", &json!({ "path": dxf.to_string_lossy() })).unwrap();
+        let mut opened = Host::create(false);
+        opened.execute("open", &json!({ "path": dwg.to_string_lossy() })).unwrap();
+        assert!(opened.stats().entities >= 1);
+        opened.execute("open", &json!({ "path": dxf.to_string_lossy() })).unwrap();
+        assert!(opened.stats().entities >= 1);
+        let _ = std::fs::remove_file(&dwg);
+        let _ = std::fs::remove_file(&dxf);
     }
 
     #[test]
@@ -1085,6 +1609,26 @@ mod tests {
         assert!(host.stats().view_height < fitted);
         host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_MIDDLE_DOUBLE, wheel: 0.0, mods: 0 }).unwrap();
         assert!((host.stats().view_height - fitted).abs() / fitted < 1e-6, "a middle double-click zooms to the extents");
+    }
+
+    fn mesh_has_rgb(mesh: &MeshData, rgb: [u8; 3]) -> bool {
+        let hit = |bytes: &[u8], stride: usize, at: usize| {
+            bytes.chunks(stride).any(|v| v.len() >= at + 3 && v[at] == rgb[0] && v[at + 1] == rgb[1] && v[at + 2] == rgb[2])
+        };
+        hit(&mesh.lines, mesh::VERTEX_SIZE, 8) || hit(&mesh.tris, mesh::VERTEX_SIZE, 8) || hit(&mesh.quads, mesh::INSTANCE_SIZE, 16)
+    }
+
+    #[test]
+    fn light_paper_draws_colour_7_black() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let (dark_key, dark_mesh, _, _) = host.mesh().unwrap();
+        assert!(mesh_has_rgb(&dark_mesh, [255, 255, 255]), "colour 7 is white on the black drawing area");
+        host.dark = false;
+        let (light_key, light_mesh, _, _) = host.mesh().unwrap();
+        assert_ne!(light_key, dark_key, "the canvas reuploads when the sheet colour changes");
+        assert!(mesh_has_rgb(&light_mesh, [0, 0, 0]), "colour 7 is black on the white drawing area");
+        assert!(!mesh_has_rgb(&light_mesh, [255, 255, 255]), "the white stroke is replaced");
     }
 
     #[test]
@@ -1139,6 +1683,9 @@ mod tests {
             host.height,
             Vec2::ZERO,
             None,
+            host.width,
+            host.show_ucs,
+            f64::from(host.pixels_per_point),
         );
         assert!(rubber.quad_instances() > 4, "the rubber band and crosshair are drawn");
         host.pointer(Pointer { x: far.x, y: far.y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
@@ -1171,6 +1718,9 @@ mod tests {
             host.height,
             Vec2::ZERO,
             Some(&tip),
+            host.width,
+            host.show_ucs,
+            f64::from(host.pixels_per_point),
         );
         assert!(drawn.quad_instances() > 0, "the tooltip is stroked");
         host.submit("5<90").unwrap();
@@ -1207,6 +1757,28 @@ mod tests {
             _ => false,
         });
         assert!(moved, "move mode shifts the whole line");
+    }
+
+    #[test]
+    fn keyboard_nudge_and_activate_select_without_a_pointer() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        host.execute("zoom.extents", &json!({})).unwrap();
+        let at = host.world_to_screen(Vec2::ZERO).unwrap();
+        host.pointer(Pointer { x: at.x, y: at.y, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
+        let before = host.screen.expect("cursor on screen");
+        host.key_nudge(1, 0, false, false).unwrap();
+        let after = host.screen.expect("cursor on screen");
+        assert!(after.x > before.x, "arrow keys move the screen cursor");
+        let on_line = host.world_to_screen(Vec2::new(5.0, 0.0)).unwrap();
+        host.pointer(Pointer { x: on_line.x, y: on_line.y, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
+        host.key_activate(false).unwrap();
+        let selected = host.session.state().unwrap().selection.len();
+        assert!(selected >= 1, "Insert picks the entity under the keyboard cursor");
+        let center = host.session.state().unwrap().view().center;
+        host.key_nudge(2, 0, true, false).unwrap();
+        let moved = host.session.state().unwrap().view().center;
+        assert!(center.dist(moved) > 1e-9, "Ctrl+arrow pans");
     }
 
     #[test]
@@ -1291,5 +1863,170 @@ mod tests {
         let pdf = host.pdf_bytes().unwrap();
         assert!(pdf.starts_with(b"%PDF"));
         assert!(pdf.windows(4).any(|w| w == b"%%EOF") || pdf.ends_with(b"%%EOF\n") || pdf.ends_with(b"%%EOF"));
+    }
+
+    #[test]
+    fn a_slash_request_reports_when_the_assistant_runtime_is_absent() {
+        let mut host = Host::create(false);
+        if host.assistant.available() {
+            assert!(host.submit("/ layers").is_ok());
+            assert_eq!(host.assistant.phase(), "thinking");
+        } else {
+            assert!(host.submit("/ layers").is_err());
+            assert!(host.chrome_json().contains("not included"));
+            assert_eq!(host.assistant.phase(), "idle");
+        }
+    }
+
+    #[test]
+    fn the_ucs_icon_click_opens_its_menu() {
+        let mut host = Host::create(false);
+        let y = f64::from(host.stats().height) - 40.0;
+        host.pointer(Pointer { x: 40.0, y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
+        let popup = host.take_popup();
+        assert!(popup.contains("Hide UCS Icon"), "{popup}");
+        host.set_ucs(false).unwrap();
+        host.pointer(Pointer { x: 40.0, y, action: POINTER_LEFT_DOWN, wheel: 0.0, mods: 0 }).unwrap();
+        assert!(host.take_popup().is_empty());
+    }
+
+    #[test]
+    fn plot_window_request_json_is_exposed_to_the_shell() {
+        let mut host = Host::create(false);
+        assert!(host.plot_request_json().is_empty());
+        host.session.plot_request = Some(aad_engine::PlotRequest { window: None });
+        assert!(host.plot_request_json().contains("null"), "{}", host.plot_request_json());
+        host.session.plot_request = Some(aad_engine::PlotRequest { window: Some([1.0, 2.0, 3.0, 4.0]) });
+        let json = host.plot_request_json();
+        assert!(json.contains('1') && json.contains('4'), "{json}");
+        host.clear_plot_request();
+        assert!(host.plot_request_json().is_empty());
+        assert!(host.session.plot_request.is_none());
+    }
+
+    #[test]
+    fn ui_render_writes_a_png_on_the_control_channel() {
+        let path = std::env::temp_dir().join(format!("aad-host-ui-render-{}.png", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let reply = host.control_one(
+            "ui.render",
+            &json!({ "path": path.to_string_lossy(), "width": 64, "height": 48 }),
+        );
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(reply["result"]["width"], 64);
+        assert_eq!(reply["result"]["height"], 48);
+        assert!(reply["result"]["bytes"].as_u64().unwrap_or(0) > 0);
+        assert!(path.is_file(), "missing {}", path.display());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn app_open_save_and_quit_work_on_the_control_channel() {
+        let path = std::env::temp_dir().join(format!("aad-host-app-open-{}.dxf", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [3.0, 0.0]] })).unwrap();
+        host.execute("saveas", &json!({ "path": path.to_string_lossy() })).unwrap();
+        let mut opened = Host::create(false);
+        let open = opened.control_one("app.open", &json!({ "path": path.to_string_lossy() }));
+        assert_eq!(open["ok"], true, "{open}");
+        assert!(opened.stats().entities >= 1);
+        let save = opened.control_one("app.save", &json!({}));
+        assert_eq!(save["ok"], true, "{save}");
+        let missing = opened.control_one("app.open", &json!({}));
+        assert_eq!(missing["ok"], false);
+        assert!(missing["error"].as_str().unwrap_or("").contains("missing path"));
+        let quit = opened.control_one("app.quit", &json!({}));
+        assert_eq!(quit["ok"], true, "{quit}");
+        let chrome: serde_json::Value = serde_json::from_str(&opened.chrome_json()).unwrap();
+        assert_eq!(chrome["quit"], true);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn the_control_channel_runs_a_command_on_the_session_thread() {
+        let mut host = Host::create(false);
+        let port = host.listen(0).unwrap();
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        use std::io::Write;
+        writeln!(stream, r#"{{"id":7,"method":"engine.execute","params":{{"command":"line","params":{{"points":[[0,0],[2,0]]}}}}}}"#).unwrap();
+        stream.set_nonblocking(true).unwrap();
+        let start = std::time::Instant::now();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        while start.elapsed() < std::time::Duration::from_secs(3) && !got.contains(&b'\n') {
+            host.pump().unwrap();
+            match std::io::Read::read(&mut stream, &mut buf) {
+                Ok(0) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(std::time::Duration::from_millis(20)),
+                Err(e) => panic!("{e}"),
+            }
+        }
+        let text = String::from_utf8(got).unwrap();
+        assert!(text.contains("\"ok\":true") && text.contains("\"id\":7"), "{text}");
+        assert!(host.stats().entities >= 1);
+    }
+
+    #[test]
+    fn the_control_channel_waits_for_a_line_written_after_accept() {
+        let mut host = Host::create(false);
+        let port = host.listen(0).unwrap();
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        use std::io::Write;
+        writeln!(stream, r#"{{"id":4,"method":"cmdline.input","params":{{"text":"line"}}}}"#).unwrap();
+        stream.set_nonblocking(true).unwrap();
+        let start = std::time::Instant::now();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        while start.elapsed() < std::time::Duration::from_secs(3) && !got.contains(&b'\n') {
+            host.pump().unwrap();
+            match std::io::Read::read(&mut stream, &mut buf) {
+                Ok(0) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(std::time::Duration::from_millis(20)),
+                Err(e) => panic!("{e}"),
+            }
+        }
+        let text = String::from_utf8(got).unwrap();
+        assert!(text.contains("\"ok\":true") && text.contains("\"id\":4"), "{text}");
+        assert_eq!(host.session.running.as_ref().map(|running| running.id.as_str()), Some("line"));
+    }
+
+    #[test]
+    fn dyn_chrome_reports_the_point_prompt_fields() {
+        let mut host = Host::create(false);
+        host.submit("LINE 0,0 4,0").unwrap();
+        host.pointer(Pointer { x: 100.0, y: 40.0, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
+        let chrome: serde_json::Value = serde_json::from_str(&host.chrome_json()).unwrap();
+        assert_eq!(chrome["dyn"]["on"], true);
+        assert_eq!(chrome["dyn"]["x"], 100.0);
+        assert_eq!(chrome["dyn"]["aLabel"], "Length");
+        assert_eq!(chrome["dyn"]["bLabel"], "Angle");
+        assert!(!chrome["dyn"]["a"].as_str().unwrap_or("").is_empty());
+    }
+
+    #[test]
+    fn clear_log_keeps_the_drawing_and_the_running_command() {
+        let mut host = Host::create(false);
+        host.submit("LINE 0,0 4,0").unwrap();
+        let entities = host.stats().entities;
+        assert!(entities >= 1);
+        assert!(host.session.running.is_some());
+        assert!(!host.session.log.is_empty());
+        host.clear_log().unwrap();
+        assert!(host.session.log.is_empty());
+        assert_eq!(host.stats().entities, entities);
+        assert!(host.session.running.is_some());
+        let chrome: serde_json::Value = serde_json::from_str(&host.chrome_json()).unwrap();
+        assert!(chrome["history"].as_array().is_some_and(|rows| rows.is_empty()));
+        assert_eq!(chrome["command"], "line");
     }
 }

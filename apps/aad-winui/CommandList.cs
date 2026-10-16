@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using WinRT.Interop;
 
@@ -29,6 +30,8 @@ internal static class CommandList
         }
         lines.Text = text.ToString();
         lines.FontSize = Density.Font;
+        Density.Name(lines, "Command list");
+        AutomationProperties.SetHeadingLevel(lines, Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel.Level1);
         _window?.Close();
         var window = new Window
         {
@@ -46,6 +49,7 @@ internal static class CommandList
             }
         };
         _window = window;
+        ShellIcon.Apply(window);
         window.AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 520));
         window.Activate();
         Native.ShowWindow(WindowNative.GetWindowHandle(window), 8);

@@ -5,14 +5,14 @@
 .DESCRIPTION
   Produces, in $env:DIST (default: dist/release):
     aad-<version>-windows-<arch>.msi            per-machine installer (WiX v5)
-    aad-<version>-windows-<arch>-portable.zip   aad.exe + aad-cli.exe
+    aad-<version>-windows-<arch>-portable.zip   aad.exe, aad-cli.exe, and on x64 the WinUI shell
 
   The binaries link the C runtime statically (+crt-static), so neither the MSI nor the portable
-  zip needs the Visual C++ redistributable. Signing is delegated to sign.ps1 (skipped with a
-  warning when no signing secrets are set).
+  zip needs the Visual C++ redistributable. The WinUI shell is self-contained for the Windows
+  App SDK. Signing is delegated to sign.ps1 (skipped with a warning when no signing secrets are set).
 
   Needs: Rust (MSVC toolchain + the target), the Windows SDK (rc.exe, signtool.exe),
-  and WiX v5 with its UI extension (the setup wizard):
+  .NET 8 SDK (x64 WinUI shell), and WiX v5 with its UI extension (the setup wizard):
     dotnet tool install --global wix --version 5.0.2
     wix extension add -g WixToolset.UI.wixext/5.0.2
 
@@ -76,7 +76,14 @@ if (-not $SkipBuild) {
     $env:LLAMA_STATIC_CRT = '1'
     $env:CMAKE_MSVC_RUNTIME_LIBRARY = 'MultiThreaded'
   }
-  Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p aad -p aad-cli --target $Target @Features }
+  Invoke-Native "cargo build ($Target)" { cargo build --release --locked -p aad -p aad-cli -p aad-host --target $Target @Features }
+  if ($Arch -eq 'x64') {
+    $WinUiPublish = Join-Path $TargetDir "aad-winui-publish\$Arch"
+    Remove-Item -Recurse -Force $WinUiPublish -ErrorAction SilentlyContinue
+    Invoke-Native 'dotnet publish Aad.WinUi' {
+      dotnet publish (Join-Path $Root 'apps\aad-winui\Aad.WinUi.csproj') -c Release -p:Platform=x64 -r win-x64 --self-contained true -o $WinUiPublish
+    }
+  }
 }
 
 $Bin = Join-Path $TargetDir "$Target\release"
@@ -104,7 +111,31 @@ Copy-Item (Join-Path $Bin 'aad.exe'), (Join-Path $Bin 'aad-cli.exe') $Stage
 # Licence texts and notices, installed beside the program (the licence page of the wizard shows LICENSE-MIT).
 foreach ($n in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD_PARTY_LICENSES.md', 'ATTRIBUTION.md') { Copy-Item (Join-Path $Root $n) $Stage }
 
+$WinUiDir = $null
+$WinUiDefine = @()
+if ($Arch -eq 'x64') {
+  $WinUiPublish = Join-Path $TargetDir "aad-winui-publish\$Arch"
+  if (-not (Test-Path (Join-Path $WinUiPublish 'Aad.WinUi.exe'))) {
+    throw "WinUI publish output missing at $WinUiPublish (build without -SkipBuild, or publish Aad.WinUi first)"
+  }
+  $HostDll = Join-Path $Bin 'aad_host.dll'
+  if (-not (Test-Path $HostDll)) { throw "aad_host.dll missing at $HostDll" }
+  $WinUiDir = Join-Path $Stage 'winui'
+  Remove-Item -Recurse -Force $WinUiDir -ErrorAction SilentlyContinue
+  New-Item -ItemType Directory -Force -Path $WinUiDir | Out-Null
+  Copy-Item (Join-Path $WinUiPublish '*') $WinUiDir -Recurse -Force
+  Copy-Item $HostDll $WinUiDir -Force
+  # aad.exe looks for Aad.WinUi.exe beside itself (and aad_host.dll next to that exe).
+  Copy-Item (Join-Path $WinUiDir 'Aad.WinUi.exe') $Stage -Force
+  Copy-Item $HostDll $Stage -Force
+  $WinUiDefine = @('-d', "WinUiDir=$WinUiDir")
+  Write-Output "winui: staged from $WinUiPublish"
+}
+
 & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'aad.exe') (Join-Path $Stage 'aad-cli.exe')
+if (Test-Path (Join-Path $Stage 'Aad.WinUi.exe')) {
+  & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'Aad.WinUi.exe') (Join-Path $Stage 'aad_host.dll')
+}
 
 # Typography presets: AAD_FONTS_DIR holds the font files (.ttf/.otf) and their licence texts, taken
 # from the upstream releases (nothing is committed to this repository). They are installed in
@@ -147,7 +178,7 @@ $Msi = Join-Path $Dist "$Edition-$Version-windows-$Arch.msi"
 Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot 'aad.wxs') -arch $Arch -ext WixToolset.UI.wixext `
     -d "Version=$MsiVersion" -d "ProductName=$ProductName" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\aad.ico')" `
-    @FontsDefine @ModelDefine -o $Msi
+    @FontsDefine @ModelDefine @WinUiDefine -o $Msi
 }
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
@@ -158,6 +189,15 @@ $Portable = Join-Path $TargetDir "windows-package\$Edition-$Version-windows-$Arc
 Remove-Item -Recurse -Force $Portable -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Portable | Out-Null
 Copy-Item (Join-Path $Stage '*.exe') $Portable
+if (Test-Path (Join-Path $Stage 'aad_host.dll')) { Copy-Item (Join-Path $Stage 'aad_host.dll') $Portable }
+if ($WinUiDir -and (Test-Path $WinUiDir)) {
+  Get-ChildItem -Path $WinUiDir -File | ForEach-Object {
+    Copy-Item $_.FullName $Portable -Force
+  }
+  Get-ChildItem -Path $WinUiDir -Directory | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $Portable $_.Name) -Recurse -Force
+  }
+}
 if (Test-Path (Join-Path $Stage 'fonts')) { Copy-Item (Join-Path $Stage 'fonts') $Portable -Recurse }
 if (Test-Path (Join-Path $Stage 'models')) { Copy-Item (Join-Path $Stage 'models') $Portable -Recurse }
 foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD_PARTY_LICENSES.md', 'ATTRIBUTION.md') {

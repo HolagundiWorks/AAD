@@ -2,12 +2,14 @@
 //!
 //! Usage: `aad [--control <port>] [--sample] [--egui] [files…]`
 //!
-//! On Windows, with no file and no `--control`, this starts the WinUI shell when `Aad.WinUi.exe`
-//! is beside the program or at `target/aad-winui`. `--egui` keeps this egui window.
+//! On Windows this starts the WinUI shell when `Aad.WinUi.exe` is beside the program or at
+//! `target/aad-winui`, forwarding `--sample`, `--control`, and drawing paths. `--egui` keeps
+//! this egui window (also used when the WinUI executable is missing).
 //!
 //! `--control <port>` (or `AAD_CONTROL_PORT`) starts a localhost JSON-lines control server:
 //! `{"id":1,"method":"cmdline.input","params":{"text":"circle 0,0 5"}}` → `{"id":1,"ok":true,…}`.
-//! See `aad_ui_egui::control` for the methods.
+//! On WinUI the host answers the engine/cmdline/drawing methods plus `app.open` / `app.save` /
+//! `app.quit`; egui-only `ui.*` needs `--egui --control`.
 //!
 //! `AAD_VSYNC=1` presents with vsync on Linux/BSD, where the default is the low-latency
 //! present mode (`AAD_VSYNC=0` selects that elsewhere); see `aad_ui_egui::gpu::surface_config`.
@@ -230,16 +232,24 @@ fn main() -> eframe::Result {
             }
         }
     }
-    // The Windows shell is the WinUI app. `--egui` and `--control` keep this process, which still
-    // has the assistant and the control channel. A drawing path stays here too, until the WinUI
-    // shell takes file arguments.
+    // The Windows shell is the WinUI app. `--egui` keeps this process (assistant UI and egui-only
+    // control methods). Otherwise hand off sample, control port, and drawing paths.
     #[cfg(windows)]
     if !egui
-        && control_port.is_none()
-        && files.is_empty()
         && let Some(path) = winui_executable()
     {
-        match std::process::Command::new(&path).spawn() {
+        let mut cmd = std::process::Command::new(&path);
+        if sample {
+            cmd.arg("--sample");
+        }
+        if let Some(port) = control_port {
+            cmd.arg("--control").arg(port.to_string());
+            cmd.env("AAD_CONTROL_PORT", port.to_string());
+        }
+        for file in &files {
+            cmd.arg(file);
+        }
+        match cmd.spawn() {
             Ok(_) => return Ok(()),
             Err(error) => log::warn!("WinUI shell ({}): {error}", path.display()),
         }

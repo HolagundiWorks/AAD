@@ -50,6 +50,8 @@ internal static class Native
 
     public static int Cancel(IntPtr host) => aad_host_cancel(host);
 
+    public static int ClearLog(IntPtr host) => aad_host_clear_log(host);
+
     public static bool GripCycle(IntPtr host) => aad_host_grip_cycle(host) != 0;
 
     public static bool GripPoint(IntPtr host, string text)
@@ -66,6 +68,11 @@ internal static class Native
     }
 
     public static int SnapTab(IntPtr host) => aad_host_snap_tab(host);
+
+    public static int KeyNudge(IntPtr host, int dx, int dy, bool ctrl, bool shift) =>
+        aad_host_key_nudge(host, dx, dy, ctrl ? 1 : 0, shift ? 1 : 0);
+
+    public static int KeyActivate(IntPtr host, bool shift) => aad_host_key_activate(host, shift ? 1 : 0);
 
     public static string? ReadForm(IntPtr host, string id)
     {
@@ -163,6 +170,14 @@ internal static class Native
 
     public static int Theme(IntPtr host, bool dark) => aad_host_theme(host, dark ? 1 : 0);
 
+    public static int SetUcs(IntPtr host, bool on) => aad_host_ucs(host, on ? 1 : 0);
+
+    public static int SetCanvas(IntPtr host, bool visible) => aad_host_canvas(host, visible ? 1 : 0);
+
+    public static int Assistant(IntPtr host, bool accept) => aad_host_assistant(host, accept ? 1 : 0);
+
+    public static int Listen(IntPtr host, ushort port) => aad_host_listen(host, port);
+
     public static byte[]? ReadPdf(IntPtr host)
     {
         int needed = aad_host_pdf(host, IntPtr.Zero, 0);
@@ -242,6 +257,9 @@ internal static class Native
 
     public static string ReadPopup(IntPtr host) => ReadBuffer(aad_host_popup, host);
 
+    /// JSON from a finished <c>plot.window</c> prompt, or empty. Cleared when read.
+    public static string ReadPlotRequest(IntPtr host) => ReadBuffer(aad_host_plot_request, host);
+
     public static string ReadClipboard(IntPtr host) => ReadBuffer(aad_host_clipboard, host);
 
     public static bool LoadClipboard(IntPtr host, string text)
@@ -304,6 +322,9 @@ internal static class Native
     private static extern int aad_host_cancel(IntPtr host);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_clear_log(IntPtr host);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_form(IntPtr host, IntPtr id, IntPtr buffer, uint length);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -319,6 +340,12 @@ internal static class Native
     private static extern int aad_host_snap_tab(IntPtr host);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_key_nudge(IntPtr host, int dx, int dy, int ctrl, int shift);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_key_activate(IntPtr host, int shift);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_draft(IntPtr host, IntPtr text);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -326,6 +353,18 @@ internal static class Native
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_theme(IntPtr host, int dark);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_ucs(IntPtr host, int on);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_canvas(IntPtr host, int visible);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_assistant(IntPtr host, int accept);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_listen(IntPtr host, ushort port);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_pdf(IntPtr host, IntPtr buffer, uint length);
@@ -352,6 +391,9 @@ internal static class Native
     private static extern int aad_host_popup(IntPtr host, IntPtr buffer, uint length);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_plot_request(IntPtr host, IntPtr buffer, uint length);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_clipboard(IntPtr host, IntPtr buffer, uint length);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -363,6 +405,94 @@ internal static class Native
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_last_error(IntPtr host, IntPtr buffer, uint length);
 
+    /// The character this key would type, using the active keyboard layout. Empty for keys that do not type.
+    public static string Character(Windows.System.VirtualKey key)
+    {
+        var state = new byte[256];
+        if (!GetKeyboardState(state))
+        {
+            return "";
+        }
+        uint scan = MapVirtualKey((uint)key, 0);
+        var buffer = new StringBuilder(8);
+        int written = ToUnicode((uint)key, scan, state, buffer, buffer.Capacity, 0);
+        if (written <= 0)
+        {
+            return "";
+        }
+        var text = buffer.ToString();
+        if (text.Length == 0 || char.IsControl(text[0]))
+        {
+            return "";
+        }
+        return text;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PointI
+    {
+        public int X;
+        public int Y;
+    }
+
+    public const int GwlpHwndParent = -8;
+    public const int GwlExStyle = -20;
+    public const int WsExTransparent = 0x20;
+    public const int WsExNoActivate = 0x08000000;
+
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetCursorPos(out PointI point);
+
+    [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref PointI point);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    public static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    public static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+
+    public static void Lift(IntPtr hwnd) =>
+        _ = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040);
+
+    public static void RoundWindow(IntPtr hwnd) => Frame(hwnd, 0x00242424, true);
+
+    public static void Frame(IntPtr hwnd, int borderColor, bool dark)
+    {
+        const long caption = 0x00C00000;
+        const long thick = 0x00040000;
+        const long border = 0x00800000;
+        const long dialog = 0x00400000;
+        var style = GetWindowLongPtr(hwnd, -16).ToInt64();
+        var next = style & ~(caption | thick | border | dialog);
+        if (next != style)
+        {
+            _ = SetWindowLongPtr(hwnd, -16, new IntPtr(next));
+            _ = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0020 | 0x0002 | 0x0001 | 0x0004 | 0x0010);
+        }
+        var preference = 2;
+        _ = DwmSetWindowAttribute(hwnd, 33, ref preference, sizeof(int));
+        var mode = dark ? 1 : 0;
+        _ = DwmSetWindowAttribute(hwnd, 20, ref mode, sizeof(int));
+        _ = DwmSetWindowAttribute(hwnd, 34, ref borderColor, sizeof(int));
+        _ = DwmSetWindowAttribute(hwnd, 35, ref borderColor, sizeof(int));
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool GetKeyboardState(byte[] lpKeyState);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int ToUnicode(uint wVirtKey, uint wScanCode, byte[] lpKeyState, StringBuilder pwszBuff, int cchBuff, uint wFlags);
 }

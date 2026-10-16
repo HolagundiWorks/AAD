@@ -19,13 +19,24 @@ type_complexity = "allow"
 name = "aad_host"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "aad-dwg-worker"
+path = "src/bin/dwg_worker.rs"
+
+[features]
+# The local language model runtime (llama.cpp; needs CMake, a C++ toolchain and LLVM libclang).
+assistant = ["aad-llm/llama"]
+
 [dependencies]
 aad-color = { workspace = true }
 aad-engine = { workspace = true }
 aad-fonts = { workspace = true }
 aad-io = { workspace = true }
+aad-dwg = { workspace = true }
 aad-geom = { workspace = true }
 aad-render = { workspace = true }
+aad-agent = { workspace = true }
+aad-llm = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 pollster = "0.4"

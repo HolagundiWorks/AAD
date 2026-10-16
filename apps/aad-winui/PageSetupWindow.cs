@@ -1,0 +1,346 @@
+using System.Globalization;
+using System.Text.Json;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+
+namespace Aad.WinUi;
+
+/// <summary>File &gt; Page Setup Manager… — edit a layout's page setup via <c>pagesetup</c>.</summary>
+internal static class PageSetupWindow
+{
+    private static readonly string[] PlotAreas = ["layout", "extents", "display", "limits"];
+
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
+    public static Window Open(Window owner, IntPtr host, Action changed)
+    {
+        var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
+        var status = Density.Secondary("", TextWrapping.Wrap);
+        AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
+        Density.Name(status, "Page setup status");
+
+        var list = new ListBox { MinHeight = 180, MinWidth = 160 };
+        Density.Name(list, "Layouts");
+        var paper = new ComboBox { MinWidth = 200, MinHeight = Density.MinTarget };
+        Density.Name(paper, "Paper size");
+        var portrait = new RadioButton { Content = "Portrait", MinHeight = Density.MinTarget, GroupName = "orient" };
+        var landscape = new RadioButton { Content = "Landscape", MinHeight = Density.MinTarget, GroupName = "orient" };
+        Density.Name(portrait, "Portrait");
+        Density.Name(landscape, "Landscape");
+        var plotArea = new ComboBox { MinWidth = 160, MinHeight = Density.MinTarget };
+        foreach (var area in PlotAreas)
+        {
+            plotArea.Items.Add(area);
+        }
+        Density.Name(plotArea, "Plot area");
+        var fit = new CheckBox { Content = "Fit to paper", MinHeight = Density.MinTarget };
+        Density.Name(fit, "Fit to paper");
+        var scale = new TextBox { MinHeight = Density.MinTarget, Width = 120 };
+        Density.Name(scale, "Scale");
+        var center = new CheckBox { Content = "Center the plot", MinHeight = Density.MinTarget };
+        Density.Name(center, "Center the plot");
+        var lineweights = new CheckBox { Content = "Plot object lineweights", MinHeight = Density.MinTarget };
+        Density.Name(lineweights, "Plot object lineweights");
+        var sizeLabel = Density.Secondary("", TextWrapping.Wrap);
+        Density.Name(sizeLabel, "Paper dimensions");
+        var propsHeading = Heading("Page setup");
+
+        var left = new StackPanel { Spacing = 6, Width = 180 };
+        left.Children.Add(Heading("Layouts"));
+        left.Children.Add(list);
+
+        var right = new StackPanel { Spacing = 6, MinWidth = 260 };
+        right.Children.Add(propsHeading);
+        right.Children.Add(Labeled("Paper size", paper));
+        var orient = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        orient.Children.Add(portrait);
+        orient.Children.Add(landscape);
+        right.Children.Add(Labeled("Orientation", orient));
+        right.Children.Add(Labeled("Plot area", plotArea));
+        right.Children.Add(fit);
+        right.Children.Add(Labeled("Scale", scale));
+        right.Children.Add(center);
+        right.Children.Add(lineweights);
+        right.Children.Add(sizeLabel);
+
+        var columns = new Grid { ColumnSpacing = 16 };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(right, 1);
+        columns.Children.Add(left);
+        columns.Children.Add(right);
+
+        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 560 };
+        root.Children.Add(columns);
+        root.Children.Add(status);
+
+        var state = new State();
+        var loading = false;
+
+        void Fail(string message) => status.Text = message;
+
+        bool Run(object body)
+        {
+            if (Native.Execute(host, "pagesetup", JsonSerializer.Serialize(body, JsonOpts)) != 0)
+            {
+                Fail(Native.LastError(host));
+                return false;
+            }
+            status.Text = "";
+            changed();
+            return true;
+        }
+
+        void ShowPage(LayoutRow? layout)
+        {
+            loading = true;
+            try
+            {
+                if (layout?.Page == null)
+                {
+                    propsHeading.Text = "Page setup";
+                    return;
+                }
+                propsHeading.Text = "Page setup of " + layout.Name;
+                var page = layout.Page;
+                if (!string.IsNullOrEmpty(page.Paper) && !paper.Items.Cast<object>().Any(item => string.Equals(item as string, page.Paper, StringComparison.OrdinalIgnoreCase)))
+                {
+                    paper.Items.Insert(0, page.Paper);
+                }
+                paper.SelectedItem = paper.Items.Cast<object>().FirstOrDefault(item => string.Equals(item as string, page.Paper, StringComparison.OrdinalIgnoreCase))
+                    ?? page.Paper;
+                portrait.IsChecked = !page.Landscape;
+                landscape.IsChecked = page.Landscape;
+                plotArea.SelectedItem = PlotAreas.FirstOrDefault(a => a.Equals(page.PlotArea, StringComparison.OrdinalIgnoreCase)) ?? "layout";
+                fit.IsChecked = page.ScaleToFit;
+                scale.Text = page.Scale.ToString("0.####", CultureInfo.InvariantCulture);
+                scale.IsEnabled = !page.ScaleToFit;
+                center.IsChecked = page.Center;
+                lineweights.IsChecked = page.Lineweights;
+                var w = page.Landscape ? page.HeightMm : page.WidthMm;
+                var h = page.Landscape ? page.WidthMm : page.HeightMm;
+                sizeLabel.Text = w.ToString("0.#", CultureInfo.InvariantCulture) + " × " + h.ToString("0.#", CultureInfo.InvariantCulture) + " mm";
+            }
+            finally
+            {
+                loading = false;
+            }
+        }
+
+        LayoutRow? Selected()
+        {
+            if (list.SelectedItem is not string name)
+            {
+                return null;
+            }
+            return state.Layouts.FirstOrDefault(l => l.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        void Reload(string? prefer)
+        {
+            if (!Run(new { }))
+            {
+                return;
+            }
+            Report? report;
+            try
+            {
+                report = JsonSerializer.Deserialize<Report>(Native.ReadResult(host), JsonOpts);
+            }
+            catch (JsonException)
+            {
+                Fail("The page setups could not be read.");
+                return;
+            }
+            state.Layouts = report?.Layouts ?? new List<LayoutRow>();
+            loading = true;
+            try
+            {
+                paper.Items.Clear();
+                foreach (var name in report?.Papers ?? new List<string>())
+                {
+                    paper.Items.Add(name);
+                }
+                list.Items.Clear();
+                foreach (var layout in state.Layouts)
+                {
+                    list.Items.Add(layout.Name);
+                }
+                var keep = prefer ?? (list.SelectedItem as string) ?? state.Layouts.FirstOrDefault()?.Name;
+                if (keep != null && state.Layouts.Any(l => l.Name.Equals(keep, StringComparison.OrdinalIgnoreCase)))
+                {
+                    list.SelectedItem = state.Layouts.First(l => l.Name.Equals(keep, StringComparison.OrdinalIgnoreCase)).Name;
+                }
+                else if (list.Items.Count > 0)
+                {
+                    list.SelectedIndex = 0;
+                }
+            }
+            finally
+            {
+                loading = false;
+            }
+            ShowPage(Selected());
+            if (state.Layouts.Count == 0)
+            {
+                Fail("This drawing has no layouts.");
+            }
+        }
+
+        void Apply(string key, object value)
+        {
+            if (loading || Selected() is not { } layout)
+            {
+                return;
+            }
+            if (!Run(new Dictionary<string, object> { ["layout"] = layout.Name, [key] = value }))
+            {
+                return;
+            }
+            Reload(layout.Name);
+        }
+
+        list.SelectionChanged += (_, _) =>
+        {
+            if (!loading)
+            {
+                ShowPage(Selected());
+            }
+        };
+        paper.SelectionChanged += (_, _) =>
+        {
+            if (!loading && paper.SelectedItem is string name)
+            {
+                Apply("paper", name);
+            }
+        };
+        portrait.Checked += (_, _) =>
+        {
+            if (!loading)
+            {
+                Apply("landscape", false);
+            }
+        };
+        landscape.Checked += (_, _) =>
+        {
+            if (!loading)
+            {
+                Apply("landscape", true);
+            }
+        };
+        plotArea.SelectionChanged += (_, _) =>
+        {
+            if (!loading && plotArea.SelectedItem is string area)
+            {
+                Apply("plotArea", area);
+            }
+        };
+        fit.Checked += (_, _) => Apply("scaleToFit", true);
+        fit.Unchecked += (_, _) => Apply("scaleToFit", false);
+        center.Checked += (_, _) => Apply("center", true);
+        center.Unchecked += (_, _) => Apply("center", false);
+        lineweights.Checked += (_, _) => Apply("lineweights", true);
+        lineweights.Unchecked += (_, _) => Apply("lineweights", false);
+        void ApplyScale()
+        {
+            if (loading || Selected() is not { } layout)
+            {
+                return;
+            }
+            var text = (scale.Text ?? "").Trim();
+            if (text.Length == 0)
+            {
+                return;
+            }
+            object value = double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var n)
+                || double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out n)
+                ? n
+                : text;
+            Apply("scale", value);
+        }
+        scale.LostFocus += (_, _) => ApplyScale();
+        scale.KeyDown += (_, args) =>
+        {
+            if (args.Key == Windows.System.VirtualKey.Enter)
+            {
+                args.Handled = true;
+                ApplyScale();
+            }
+        };
+
+        Density.Apply(root);
+        var window = new Window
+        {
+            Title = "Page Setup Manager",
+            Content = new ScrollViewer
+            {
+                Content = new Grid { RequestedTheme = theme, Children = { root } },
+            },
+        };
+        if (window.AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            presenter.IsResizable = true;
+        }
+        ShellIcon.Apply(window);
+        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(560, 440));
+        Reload(null);
+        return window;
+    }
+
+    private static FrameworkElement Labeled(string label, FrameworkElement field)
+    {
+        var row = new StackPanel { Spacing = 2 };
+        var text = new TextBlock { Text = label };
+        Density.Name(text, label);
+        row.Children.Add(text);
+        row.Children.Add(field);
+        return row;
+    }
+
+    private static TextBlock Heading(string text)
+    {
+        var block = new TextBlock { Text = text, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+        AutomationProperties.SetHeadingLevel(block, AutomationHeadingLevel.Level2);
+        Density.Name(block, text);
+        return block;
+    }
+
+    private sealed class State
+    {
+        public List<LayoutRow> Layouts { get; set; } = new();
+    }
+
+    private sealed class Report
+    {
+        public List<LayoutRow> Layouts { get; set; } = new();
+        public List<string> Papers { get; set; } = new();
+    }
+
+    private sealed class LayoutRow
+    {
+        public string Name { get; set; } = "";
+        public PageRow? Page { get; set; }
+    }
+
+    private sealed class PageRow
+    {
+        public string Paper { get; set; } = "";
+        public double WidthMm { get; set; }
+        public double HeightMm { get; set; }
+        public bool Landscape { get; set; }
+        public string PlotArea { get; set; } = "layout";
+        public bool ScaleToFit { get; set; }
+        public double Scale { get; set; } = 1;
+        public bool Center { get; set; }
+        public bool Lineweights { get; set; } = true;
+    }
+}

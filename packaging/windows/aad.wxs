@@ -67,6 +67,9 @@
 
     <Feature Id="Main" Title="AAD" Level="1">
       <ComponentGroupRef Id="AadFiles" />
+      <?ifdef WinUiDir?>
+      <ComponentGroupRef Id="AadWinUi" />
+      <?endif?>
       <?ifdef FontsDir?>
       <ComponentGroupRef Id="AadFonts" />
       <?endif?>
@@ -116,6 +119,15 @@
       </Component>
     </ComponentGroup>
   </Fragment>
+
+  <?ifdef WinUiDir?>
+  <Fragment>
+    <!-- Unpackaged WinUI shell + self-contained Windows App SDK, beside aad.exe. -->
+    <ComponentGroup Id="AadWinUi" Directory="INSTALLFOLDER">
+      <Files Include="$(var.WinUiDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+  <?endif?>
 
   <!--
     Setup wizard: WixUI_InstallDir's flow (WiX v5, ext/UI/wixlib/WixUI_InstallDir.wxs) without the
