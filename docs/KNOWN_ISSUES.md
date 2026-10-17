@@ -11,7 +11,8 @@ P2 significant, P3 minor, P4 cosmetic. Confirmed means reproduced; a hypothesis 
 | BUG-001 residual | P2 | A damaged DWG can no longer abort the program, but the worker process that reads it has no memory limit, and code that does not call `aad_dwg::isolated::enable()` still reads in-process. Not reported upstream to `acadrust` | Read `apps/aad-cli/tests/fixtures/dwg/alloc-bomb-ac18-section-size.dwg` in-process | Use the apps (they enable the worker); keep DXF copies |
 | (limit) | P3 | Opening, saving and plotting block the window, with no progress display. About 0.5 s at 100 000 entities and 5 s at 1 000 000 for the DXF read alone (command-line harness) | Open a large DXF | Wait; the UI-thread cost inside the app is not yet timed (UI-003) |
 | (limit) | P3 | Panning inside a layout viewport rebuilds the viewport content every frame: 52 ms at 100 000 entities ([PERFORMANCE.md](PERFORMANCE.md)) | Pan in an MSPACE viewport on a large drawing | Work in model space |
-| (limit) | P3 | The display list for a 100 000-entity drawing takes about 125 ms to build on the UI thread on every edit or zoom-band change | Edit a large drawing | none |
+| (limit) | P3 | The display list for a 100 000-entity drawing takes about 125 ms to build on the UI thread on every edit or zoom-band change. A text-heavy drawing (705 000 primitives) takes about 0.32 s since glyph outlines are ear-clipped ([PERFORMANCE.md](PERFORMANCE.md)) | Edit a large drawing | none |
+| (limit) | P3 | Reading a large DWG takes 1.2 to 1.5 s, and the WinUI shell calls `open` synchronously (`MainWindow.xaml.cs`), so the window is unresponsive meanwhile; an asynchronous open needs a change on both sides of the `aad-host` ABI | Open a large DWG | Wait |
 
 ## Fixed
 
