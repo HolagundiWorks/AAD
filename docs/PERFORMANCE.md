@@ -126,3 +126,23 @@ The 40 ms edits were the non-finite-result check, not the edits (profile and fix
 | add one line | 386 us | 192 us |
 
 The "finding" paragraph above describes the state before the fix.
+
+## Update: display-list build of text-heavy drawings
+
+Measured with the ignored probes in `apps/aad-cli/tests/perf_probe.rs` (`AAD_PERF_FILE=<drawing>`,
+`cargo test --release -p aad-cli --test perf_probe -- --ignored --nocapture --test-threads=1`) on a
+drawing with 705 474 primitives, most of it filled TrueType text. Text fill dominated the build.
+
+| Step | Display-list build | Triangle vertices |
+|---|---|---|
+| Slab trapezoids (`triangulate_evenodd`) | about 1.0 to 1.6 s | 37.3 M |
+| Ear clipping (`triangulate_outline`, `earcutr`) | about 0.32 to 0.38 s | 12.1 M |
+
+`triangulate_outline` classifies loops by nesting depth, triangulates each outer boundary with its
+holes, and falls back to `triangulate_evenodd` when the result area differs from the outline area or
+the input is hostile (too many loops or points). A per-glyph cache was tried and removed: the gain
+over ear clipping was small for the added key-quantisation risk.
+
+Still open: DWG parse (1.2 to 1.5 s), file open and save on the UI thread (UI-003), DXF write and
+read (about 0.55 s), mesh upload (about 170 ms), viewport pan rebuild in layouts, first-pick spatial
+index build (70 to 140 ms).
