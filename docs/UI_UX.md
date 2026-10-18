@@ -44,7 +44,7 @@ double-click on text edits it; grips on a selected object edit it; Tab cycles sn
 `Ctrl+X/C/V`, `Ctrl+Shift+C/V`, `Ctrl+A`, `Delete`, `Ctrl+1` Properties, `Ctrl+9` command line,
 `Ctrl+Q`, `Ctrl+F11` workspace, `Ctrl+Shift+F11` reset toolbars and menus, `F1` command reference, `F2` history, `F3` object snap, `F8` ortho,
 `F10` polar, `F11` object snap tracking, `F12` dynamic input (from the command registry; complete
-list in [UI_INVENTORY.md](UI_INVENTORY.md)). Shortcuts do not fire while a text field has focus.
+list in [UI_INVENTORY.md](UI_INVENTORY.md)). Other shortcuts do not fire while a text field has focus; the function keys do, including in the command line. There is no grid display or snap to grid, no isometric plane switch and no 3D object snap, so `F4`, `F5`, `F7` and `F9` do nothing.
 
 ## Dialogs
 

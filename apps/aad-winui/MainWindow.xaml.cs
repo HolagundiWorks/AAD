@@ -245,6 +245,10 @@ public sealed partial class MainWindow : Window
         }
         var ctrl = KeyDown(Windows.System.VirtualKey.Control);
         var shift = KeyDown(Windows.System.VirtualKey.Shift);
+        if (ApplyFunctionKey(e, ctrl, shift))
+        {
+            return;
+        }
         if (ApplyDraftKeys(e, ctrl, shift, true))
         {
             return;
@@ -517,6 +521,10 @@ public sealed partial class MainWindow : Window
             CommandInput.Focus(FocusState.Programmatic);
             return;
         }
+        if (ApplyFunctionKey(e, ctrl, shift))
+        {
+            return;
+        }
         if (Typing())
         {
             return;
@@ -618,6 +626,52 @@ public sealed partial class MainWindow : Window
         CommandInput.Text += typed;
         CommandInput.SelectionStart = CommandInput.Text.Length;
         CommandInput.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Function keys work wherever the focus is, including the command line (as in other CAD
+    /// programs): F1 command reference, F2 history, Ctrl+F11 workspace, and the registry's own
+    /// F-key shortcuts (F3 object snap, F8 ortho, F10 polar, F11 object snap tracking, F12 dynamic
+    /// input). F6 focuses the command line and is handled by the caller.
+    /// </summary>
+    private bool ApplyFunctionKey(KeyRoutedEventArgs e, bool ctrl, bool shift)
+    {
+        if (e.Key is < Windows.System.VirtualKey.F1 or > Windows.System.VirtualKey.F12 || e.Key == Windows.System.VirtualKey.F6)
+        {
+            return false;
+        }
+        if (e.Key == Windows.System.VirtualKey.F1 && !ctrl && !shift)
+        {
+            e.Handled = true;
+            CommandList.Show(this, Native.ReadText(_host, Native.TextMenu));
+            return true;
+        }
+        if (e.Key == Windows.System.VirtualKey.F2 && !ctrl && !shift)
+        {
+            e.Handled = true;
+            SetHistoryOpen(!_historyOpen);
+            return true;
+        }
+        if (ctrl && e.Key == Windows.System.VirtualKey.F11)
+        {
+            e.Handled = true;
+            if (shift)
+            {
+                ResetCurrentWorkspace();
+            }
+            else
+            {
+                SwitchWorkspace(!_classic);
+            }
+            return true;
+        }
+        if (TryMenuKey(ctrl, shift, e.Key, out var id))
+        {
+            e.Handled = true;
+            InvokeAccelId(id);
+            return true;
+        }
+        return false;
     }
 
     private bool TryMenuKey(bool ctrl, bool shift, Windows.System.VirtualKey key, out string id) =>
