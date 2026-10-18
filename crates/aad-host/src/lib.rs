@@ -929,10 +929,7 @@ impl Host {
     fn control_menu_list(&self) -> Value {
         match serde_json::from_str::<Value>(&self.menu_json()) {
             Ok(Value::Array(items)) => {
-                let menus: Vec<Value> = items
-                    .into_iter()
-                    .map(|node| menu_node_for_control(&node))
-                    .collect();
+                let menus: Vec<Value> = items.into_iter().map(|node| menu_node_for_control(&node)).collect();
                 json_ok(Value::Array(menus))
             }
             Ok(_) | Err(_) => json_err("menu tree is unavailable"),
@@ -1044,12 +1041,7 @@ impl Host {
         let raster = if fit {
             aad_render::raster::View::fit(&list.bounds, width, height, 0.05)
         } else {
-            aad_render::raster::View {
-                center: view.center,
-                scale: f64::from(height) / view.height.max(1e-12),
-                width,
-                height,
-            }
+            aad_render::raster::View { center: view.center, scale: f64::from(height) / view.height.max(1e-12), width, height }
         };
         let Some(png) = aad_render::raster::render_png(&list, &raster, &aad_render::raster::RasterOptions::default()) else {
             return json_err("render failed");
@@ -1400,9 +1392,7 @@ impl Host {
                 }
                 return host.present_if_ready();
             }
-            let screen = host.screen.unwrap_or_else(|| {
-                Vec2::new(f64::from(host.width.max(1)) * 0.5, f64::from(host.height.max(1)) * 0.5)
-            });
+            let screen = host.screen.unwrap_or_else(|| Vec2::new(f64::from(host.width.max(1)) * 0.5, f64::from(host.height.max(1)) * 0.5));
             let max_x = f64::from(host.width.max(1));
             let max_y = f64::from(host.height.max(1));
             let x = (screen.x + sx).clamp(0.0, max_x);
@@ -1417,9 +1407,9 @@ impl Host {
         self.exclusive(|host| {
             let screen = match host.screen {
                 Some(point) if point.is_finite() => point,
-                _ => host.world_to_screen(host.aim).unwrap_or_else(|_| {
-                    Vec2::new(f64::from(host.width.max(1)) * 0.5, f64::from(host.height.max(1)) * 0.5)
-                }),
+                _ => host
+                    .world_to_screen(host.aim)
+                    .unwrap_or_else(|_| Vec2::new(f64::from(host.width.max(1)) * 0.5, f64::from(host.height.max(1)) * 0.5)),
             };
             if !screen.x.is_finite() || !screen.y.is_finite() {
                 return Err("cursor is not on the drawing".into());
@@ -1739,7 +1729,6 @@ impl Host {
     }
 }
 
-
 #[cfg(windows)]
 impl Drop for Host {
     fn drop(&mut self) {
@@ -1761,11 +1750,8 @@ fn log_since(session: &Session, before: usize) -> Vec<String> {
 /// Shape the host menu tree like egui `ui.menu.list` (`label` / `children` / optional `id`).
 fn menu_node_for_control(node: &Value) -> Value {
     let label = node.get("title").and_then(Value::as_str).unwrap_or("");
-    let children: Vec<Value> = node
-        .get("items")
-        .and_then(Value::as_array)
-        .map(|items| items.iter().map(menu_node_for_control).collect())
-        .unwrap_or_default();
+    let children: Vec<Value> =
+        node.get("items").and_then(Value::as_array).map(|items| items.iter().map(menu_node_for_control).collect()).unwrap_or_default();
     let mut out = serde_json::json!({ "label": label, "children": children });
     if let (Some(id), Some(object)) = (node.get("id").and_then(Value::as_str), out.as_object_mut()) {
         if !id.is_empty() {
@@ -1859,7 +1845,11 @@ mod tests {
     fn panels_list_block_reference_handles() {
         let mut host = Host::create(false);
         let line = host.execute("line", &json!({ "points": [[0.0, 0.0], [1.0, 0.0]] })).unwrap();
-        let handle = line.get("handles").and_then(|v| v.as_array()).and_then(|a| a.first()).cloned()
+        let handle = line
+            .get("handles")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .cloned()
             .or_else(|| line.get("handle").cloned())
             .unwrap_or(json!("1"));
         host.execute("block", &json!({ "name": "DOOR", "base": [0.0, 0.0], "handles": [handle], "keep": "delete" })).unwrap();
@@ -2409,10 +2399,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let mut host = Host::create(false);
         host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
-        let reply = host.control_one(
-            "ui.render",
-            &json!({ "path": path.to_string_lossy(), "width": 64, "height": 48 }),
-        );
+        let reply = host.control_one("ui.render", &json!({ "path": path.to_string_lossy(), "width": 64, "height": 48 }));
         assert_eq!(reply["ok"], true, "{reply}");
         assert_eq!(reply["result"]["width"], 64);
         assert_eq!(reply["result"]["height"], 48);
@@ -2523,7 +2510,10 @@ mod tests {
         // A command being typed shows beside the cursor.
         host.set_draft("lin").unwrap();
         let d = dynamic(&host);
-        assert_eq!((d["on"].clone(), d["aLabel"].clone(), d["a"].clone(), d["bLabel"].clone()), (json!(true), json!("Command"), json!("lin"), json!("")));
+        assert_eq!(
+            (d["on"].clone(), d["aLabel"].clone(), d["a"].clone(), d["bLabel"].clone()),
+            (json!(true), json!("Command"), json!("lin"), json!(""))
+        );
         assert_eq!(d["x"], 100.0);
         // An assistant request, `/` or a sentence, stays in the command bar.
         host.set_draft("/ what layers are there").unwrap();

@@ -100,7 +100,8 @@ fn run_fix(s: &mut Session, p: &Value, axis: Axis) -> Result<Value> {
         return Err(bad(name, "the selected text is on locked layers"));
     }
     let d = s.doc()?;
-    let tallest = hs.iter().filter_map(|h| d.entity(*h)).filter_map(|e| anchor(&e.kind)).map(|(_, h)| h).filter(|h| h.is_finite()).fold(0.0_f64, f64::max);
+    let tallest =
+        hs.iter().filter_map(|h| d.entity(*h)).filter_map(|e| anchor(&e.kind)).map(|(_, h)| h).filter(|h| h.is_finite()).fold(0.0_f64, f64::max);
     let height = if tallest > 0.0 { tallest } else { DEFAULT_HEIGHT };
     let c2c = height * 1.5;
     let mut spots: Vec<(Handle, Vec3)> = hs.iter().filter_map(|h| d.entity(*h).and_then(|e| anchor(&e.kind)).map(|(at, _)| (*h, at))).collect();
@@ -146,7 +147,9 @@ fn run_fix(s: &mut Session, p: &Value, axis: Axis) -> Result<Value> {
 }
 
 fn run_align(s: &mut Session, p: &Value) -> Result<Value> {
-    let mode = str_param(p, "mode").map(str::to_ascii_lowercase).ok_or_else(|| bad("txtalign", "`mode` is required: left, right, centrex, top, middle or bottom"))?;
+    let mode = str_param(p, "mode")
+        .map(str::to_ascii_lowercase)
+        .ok_or_else(|| bad("txtalign", "`mode` is required: left, right, centrex, top, middle or bottom"))?;
     let on_x = match mode.as_str() {
         "left" | "right" | "centrex" => true,
         "top" | "middle" | "bottom" => false,
@@ -253,14 +256,21 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
             EntityKind::MText(m) => ("MTEXT", m.style.as_str()),
             _ => continue,
         };
-        csv.push_str(&format!("{},{kind},{:.3},{:.3},{height:.4},{},{}\n", csv_field(&e.common.layer), at.x, at.y, csv_field(style), csv_field(&text)));
+        csv.push_str(&format!(
+            "{},{kind},{:.3},{:.3},{height:.4},{},{}\n",
+            csv_field(&e.common.layer),
+            at.x,
+            at.y,
+            csv_field(style),
+            csv_field(&text)
+        ));
     }
     match str_param(p, "path") {
         Some(_path) => {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("txtexport", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": hs.len(), "path": _path }));
+                Ok(json!({ "count": hs.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("txtexport", "paths are not available on the web; omit `path` to get the CSV text"))

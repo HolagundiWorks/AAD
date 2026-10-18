@@ -239,7 +239,10 @@ pub fn append_infinite(mesh: &mut MeshData, list: &DisplayList, origin: Vec2, ce
     if !(width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 && center.is_finite()) {
         return;
     }
-    let vis = Bounds2::from_points([Vec2::new(center.x - width * 0.5, center.y - height * 0.5), Vec2::new(center.x + width * 0.5, center.y + height * 0.5)]);
+    let vis = Bounds2::from_points([
+        Vec2::new(center.x - width * 0.5, center.y - height * 0.5),
+        Vec2::new(center.x + width * 0.5, center.y + height * 0.5),
+    ]);
     for prim in &list.prims {
         let Kind::Infinite { ray } = prim.kind else { continue };
         let pts = list.points(prim);

@@ -930,7 +930,6 @@ mod tests {
             .collect()
     }
 
-
     #[test]
     fn new_layout_gets_viewport_zoomed_to_extents() {
         let mut s = session_with_model();
