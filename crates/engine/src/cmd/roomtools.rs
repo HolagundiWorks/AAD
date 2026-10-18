@@ -93,11 +93,15 @@ fn find_rooms(d: &Drawing, space: &aad_doc::Space) -> Vec<Room> {
         let tol = name.height * 0.02;
         let first = areas.partition_point(|a| a.at.x < name.at.x - tol);
         let want_y = name.at.y - name.height * 2.8;
-        let area = areas[first..].iter().take_while(|a| a.at.x <= name.at.x + tol).find(|a| (a.at.y - want_y).abs() <= tol && (a.height - name.height * 0.7).abs() <= tol);
+        let area = areas[first..]
+            .iter()
+            .take_while(|a| a.at.x <= name.at.x + tol)
+            .find(|a| (a.at.y - want_y).abs() <= tol && (a.height - name.height * 0.7).abs() <= tol);
         let Some(area) = area else { continue };
         let Some((value, unit)) = parse_area(&area.value) else { continue };
         let size_y = name.at.y - name.height * 1.5;
-        let size = texts.iter().find(|t| (t.at.x - name.at.x).abs() <= tol && (t.at.y - size_y).abs() <= tol).map(|t| t.value.clone()).unwrap_or_default();
+        let size =
+            texts.iter().find(|t| (t.at.x - name.at.x).abs() <= tol && (t.at.y - size_y).abs() <= tol).map(|t| t.value.clone()).unwrap_or_default();
         rooms.push(Room { name_text: name.handle, name: name.value.clone(), size, area: value, unit, at: name.at });
     }
     rooms
@@ -161,7 +165,8 @@ fn run_log(s: &mut Session, p: &Value) -> Result<Value> {
     for r in &rooms {
         csv.push_str(&format!("{},{},{:.2},{},{:.3},{:.3}\n", csv_field(&r.name), csv_field(&r.size), r.area, csv_field(&r.unit), r.at.x, r.at.y));
     }
-    let list: Vec<Value> = rooms.iter().map(|r| json!({ "name": r.name, "size": r.size, "area": r.area, "unit": r.unit, "x": r.at.x, "y": r.at.y })).collect();
+    let list: Vec<Value> =
+        rooms.iter().map(|r| json!({ "name": r.name, "size": r.size, "area": r.area, "unit": r.unit, "x": r.at.x, "y": r.at.y })).collect();
     match str_param(p, "path") {
         Some(_path) => {
             #[cfg(not(target_arch = "wasm32"))]

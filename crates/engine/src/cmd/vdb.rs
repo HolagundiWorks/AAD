@@ -5,9 +5,9 @@
 
 use std::path::PathBuf;
 
-use aad_doc::{entity_bounds, Space};
-use aad_vdb::{save_path, Bbox, VdbRecord, VdbStore, FORMAT_VERSION};
-use serde_json::{json, Value};
+use aad_doc::{Space, entity_bounds};
+use aad_vdb::{Bbox, FORMAT_VERSION, VdbRecord, VdbStore, save_path};
+use serde_json::{Value, json};
 
 use super::*;
 use crate::{Result, Session};
@@ -57,12 +57,7 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
             if bounds.is_empty() || !finite_bounds(&bounds) {
                 continue;
             }
-            let payload = format!(
-                "{}\t{}\t{}",
-                entity.handle.hex(),
-                entity.kind.type_name(),
-                entity.common.layer
-            );
+            let payload = format!("{}\t{}\t{}", entity.handle.hex(), entity.kind.type_name(), entity.common.layer);
             records.push(VdbRecord {
                 id: entity.handle.0,
                 bbox: Bbox::from_corners(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y),
@@ -155,10 +150,7 @@ fn path_param(p: &Value, key: &str, cmd: &str) -> Result<PathBuf> {
 }
 
 fn window_param(p: &Value, cmd: &str) -> Result<Bbox> {
-    let arr = p
-        .get("window")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| bad(cmd, "missing `window: [x0, y0, x1, y1]`"))?;
+    let arr = p.get("window").and_then(|v| v.as_array()).ok_or_else(|| bad(cmd, "missing `window: [x0, y0, x1, y1]`"))?;
     if arr.len() != 4 {
         return Err(bad(cmd, "`window` needs four numbers [x0, y0, x1, y1]"));
     }
@@ -194,26 +186,14 @@ mod tests {
         let mut s = Session::new();
         let a = Vec3::new(0.0, 0.0, 0.0);
         let b = Vec3::new(10.0, 0.0, 0.0);
-        s.doc_mut()
-            .expect("doc")
-            .add(
-                &Space::Model,
-                Common::default(),
-                EntityKind::Line(Line { a, b }),
-            )
-            .expect("add");
+        s.doc_mut().expect("doc").add(&Space::Model, Common::default(), EntityKind::Line(Line { a, b })).expect("add");
         let path_str = path.to_string_lossy().to_string();
         let exported = s.execute("vdb.export", &json!({ "path": path_str })).expect("export");
         assert_eq!(exported["count"], 1);
         assert_eq!(exported["version"], FORMAT_VERSION);
         let info = s.execute("vdb.info", &json!({ "path": path_str })).expect("info");
         assert_eq!(info["count"], 1);
-        let q = s
-            .execute(
-                "vdb.query",
-                &json!({ "path": path_str, "window": [0.0, -1.0, 10.0, 1.0] }),
-            )
-            .expect("query");
+        let q = s.execute("vdb.query", &json!({ "path": path_str, "window": [0.0, -1.0, 10.0, 1.0] })).expect("query");
         assert_eq!(q["matched"], 1);
         assert_eq!(q["hits"][0]["type"], "Line");
     }

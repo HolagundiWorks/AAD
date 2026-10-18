@@ -209,9 +209,12 @@ const NOTICE: &str = include_str!("../../../NOTICE");
 fn about(ctx: &egui::Context, open: &mut bool) {
     let t = Tokens::get();
     let tab_id = egui::Id::new("about_tab");
-    egui::Window::new(crate::tl!("About O-Draft")).id(egui::Id::new("About O-Draft")).open(open).default_size(vec2(640.0, 420.0)).collapsible(false).show(
-        ctx,
-        |ui| {
+    egui::Window::new(crate::tl!("About O-Draft"))
+        .id(egui::Id::new("About O-Draft"))
+        .open(open)
+        .default_size(vec2(640.0, 420.0))
+        .collapsible(false)
+        .show(ctx, |ui| {
             let mut tab = ui.data_mut(|d| d.get_temp::<u8>(tab_id)).unwrap_or(0);
             ui.horizontal(|ui| {
                 for (i, l) in ["About", "Licences"].iter().enumerate() {
@@ -243,8 +246,7 @@ fn about(ctx: &egui::Context, open: &mut bool) {
                     ui.label(RichText::new(crate::tl!("MIT OR Apache-2.0. Not affiliated with Autodesk, Inc.")).small().color(t.text_faint));
                 }
             }
-        },
-    );
+        });
 }
 
 fn commands(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
