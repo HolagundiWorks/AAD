@@ -85,7 +85,7 @@ internal sealed class DraftingWindow : Window
         var theme = themeSource?.RequestedTheme ?? ElementTheme.Default;
         Content = new ScrollViewer { Content = new Grid { RequestedTheme = theme, Children = { stack } } };
         Title = "Drafting Settings";
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 520));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 680));
         ShellIcon.Apply(this);
         _polar.Click += (_, _) => Run("polar", new { on = _polar.IsChecked == true });
         _snap.Click += (_, _) => Run("osnap", new { on = _snap.IsChecked == true });

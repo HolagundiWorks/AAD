@@ -55,3 +55,18 @@ $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Window
 
 Do not capture the window with a screen copy while another window overlaps it; `PrintWindow` with the
 `PW_RENDERFULLCONTENT` flag (2) captures only that window.
+
+## Second pass, after the O-Draft rebrand (2026-10-19)
+
+Same method, plus the dialogs opened through UI Automation (Units, Linetype, Drafting Settings, Command list) and both themes captured with `PrintWindow`.
+
+| # | Finding | Criterion | State |
+|---|---|---|---|
+| 7 | With the black accent, a pressed-in status-bar toggle (snap, polar, tracking, dynamic input) is filled light in the dark theme and ink in the light theme, but its drawn icon kept the old stroke colour, so the icon vanished | 1.4.11 | **Fixed.** `DrawnIcon` redraws when its toggle is checked or unchecked and draws the opposite tone on an accent fill |
+| 8 | The Drafting Settings window opened 520 px high; its last section was cut off (the page scrolls, but nothing showed that) | UI | **Fixed**: 680 px |
+| 9 | The Start page showed a logo and the word "Start" | UI | **Fixed**: product name, one line saying what it is, then the three buttons |
+| 10 | The layer table's horizontal scroll bar was only an overlay, so a 470 px panel looked as if the table ended at Freeze | UI | **Fixed**: the bar is always visible. The columns still do not all fit; widen the panel or scroll |
+
+Passed again: every element in the four dialogs has a name; no focusable target under 24 px other than the clipped one in 8.
+
+Still open: the `command_bar` tests of the egui shell (six) fail because the command bar's Space rule changed (a sentence now needs a leading `/`); the tests were not updated. Narrator, high-contrast themes, 200 % scaling and the dialogs not reachable by a named menu item (Page Setup, Room Label Settings) were not examined.

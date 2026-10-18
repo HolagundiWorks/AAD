@@ -29,7 +29,7 @@ claim that a feature works; it lists where the documents and the code disagree o
 
 - Two shells exist (WinUI default, egui behind `--features egui`); commands reach both through the
   engine, but the assistant UI and the `ui.*` automation methods exist only in egui.
-- `UI_INVENTORY.md` and `UI_BASELINE.md` still describe the egui app as the product.
+- `UI_BASELINE.md` and `UI_UX.md` describe the egui app; the WinUI shell is covered by `status.md` and `WCAG_UI_AUDIT.md`.
 
 ## Performance plan
 

@@ -13,10 +13,10 @@ namespace Aad.WinUi;
 /// </summary>
 internal static class ToolIcons
 {
-    public static UIElement For(string id, bool dark)
+    public static UIElement For(string id, bool dark, bool onFill = false)
     {
         var canvas = new Canvas { Width = 24, Height = 24 };
-        var pen = new Pen(canvas, dark);
+        var pen = new Pen(canvas, dark, onFill);
         switch (id)
         {
             case "line":
@@ -320,11 +320,15 @@ internal static class ToolIcons
         public Brush AccentBrush { get; }
         private readonly Brush _point;
 
-        public Pen(Canvas canvas, bool dark)
+        public Pen(Canvas canvas, bool dark, bool onFill = false)
         {
             _canvas = canvas;
-            BaseBrush = new SolidColorBrush(dark ? Color.FromArgb(255, 214, 214, 214) : Color.FromArgb(255, 45, 45, 45));
-            AccentBrush = new SolidColorBrush(Color.FromArgb(255, 40, 132, 220));
+            // A pressed-in toggle is filled with the accent (light neutral in the dark theme, ink in the
+            // light one), so its strokes take the opposite tone to stay visible.
+            BaseBrush = new SolidColorBrush(onFill
+                ? (dark ? Color.FromArgb(255, 23, 24, 27) : Color.FromArgb(255, 246, 245, 241))
+                : (dark ? Color.FromArgb(255, 214, 214, 214) : Color.FromArgb(255, 45, 45, 45)));
+            AccentBrush = new SolidColorBrush(onFill && dark ? Color.FromArgb(255, 27, 111, 214) : Color.FromArgb(255, 40, 132, 220));
             _point = new SolidColorBrush(Color.FromArgb(255, 224, 138, 28));
         }
 
@@ -469,8 +473,31 @@ public sealed class DrawnIcon : ContentControl
         IsHitTestVisible = false;
         HorizontalContentAlignment = HorizontalAlignment.Center;
         VerticalContentAlignment = VerticalAlignment.Center;
-        Loaded += (_, _) => Redraw();
+        Loaded += (_, _) =>
+        {
+            HookToggle();
+            Redraw();
+        };
         ActualThemeChanged += (_, _) => Redraw();
+    }
+
+    private Microsoft.UI.Xaml.Controls.Primitives.ToggleButton? _toggle;
+
+    /// <summary>Redraw when the toggle button that holds this mark is pressed in or released.</summary>
+    private void HookToggle()
+    {
+        DependencyObject? node = this;
+        while (node != null && node is not Microsoft.UI.Xaml.Controls.Primitives.ToggleButton)
+        {
+            node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node);
+        }
+        if (node is Microsoft.UI.Xaml.Controls.Primitives.ToggleButton toggle && !ReferenceEquals(toggle, _toggle))
+        {
+            _toggle = toggle;
+            toggle.Checked += (_, _) => Redraw();
+            toggle.Unchecked += (_, _) => Redraw();
+            toggle.Indeterminate += (_, _) => Redraw();
+        }
     }
 
     public string Kind
@@ -481,6 +508,6 @@ public sealed class DrawnIcon : ContentControl
 
     private void Redraw()
     {
-        Content = string.IsNullOrEmpty(Kind) ? null : ToolIcons.For(Kind, ActualTheme != ElementTheme.Light);
+        Content = string.IsNullOrEmpty(Kind) ? null : ToolIcons.For(Kind, ActualTheme != ElementTheme.Light, _toggle?.IsChecked == true);
     }
 }

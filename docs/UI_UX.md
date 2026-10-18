@@ -1,7 +1,7 @@
 # User interface
 
-This document describes the optional egui window (`cargo build -p aad --features egui` then `aad --egui`). The default Windows shell started by `aad` is the WinUI app in `apps/aad-winui`; what it implements is in [status.md](status.md). The control-by-control inventory and the
-measured behaviour are in [UI_INVENTORY.md](UI_INVENTORY.md), [UI_TEST_MATRIX.md](UI_TEST_MATRIX.md)
+This document describes the optional egui window (`cargo build -p aad --features egui` then `aad --egui`). The default Windows shell started by `aad` is the WinUI app in `apps/aad-winui`; what it implements is in [status.md](status.md). The menu and command list is the command registry (`ui.menu.list`); the
+measured behaviour is in [UI_TEST_MATRIX.md](UI_TEST_MATRIX.md)
 and [UI_BASELINE.md](UI_BASELINE.md); workspace details in [workspaces.md](workspaces.md).
 
 ## Layout
@@ -44,7 +44,7 @@ double-click on text edits it; grips on a selected object edit it; Tab cycles sn
 `Ctrl+X/C/V`, `Ctrl+Shift+C/V`, `Ctrl+A`, `Delete`, `Ctrl+1` Properties, `Ctrl+9` command line,
 `Ctrl+Q`, `Ctrl+F11` workspace, `Ctrl+Shift+F11` reset toolbars and menus, `F1` command reference, `F2` history, `F3` object snap, `F8` ortho,
 `F10` polar, `F11` object snap tracking, `F12` dynamic input (from the command registry; complete
-list in [UI_INVENTORY.md](UI_INVENTORY.md)). Other shortcuts do not fire while a text field has focus; the function keys do, including in the command line. There is no grid display or snap to grid, no isometric plane switch and no 3D object snap, so `F4`, `F5`, `F7` and `F9` do nothing.
+list: `ui.menu.list` on the control channel). Other shortcuts do not fire while a text field has focus; the function keys do, including in the command line. There is no grid display or snap to grid, no isometric plane switch and no 3D object snap, so `F4`, `F5`, `F7` and `F9` do nothing.
 
 ## Dialogs
 

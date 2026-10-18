@@ -131,8 +131,11 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/mcp.md](docs/mcp.md) | MCP server |
 | [docs/plot-styles.md](docs/plot-styles.md) | Plot styles and plotting |
 | [docs/releasing.md](docs/releasing.md) | Versioning, release workflow, signing |
-| [docs/QUALITY_BASELINE.md](docs/QUALITY_BASELINE.md), [docs/BUG_BACKLOG.md](docs/BUG_BACKLOG.md), [docs/UI_BASELINE.md](docs/UI_BASELINE.md), [docs/UI_BUG_BACKLOG.md](docs/UI_BUG_BACKLOG.md) | Quality programme records |
-| [docs/UI_TESTING_STRATEGY.md](docs/UI_TESTING_STRATEGY.md), [docs/UI_INVENTORY.md](docs/UI_INVENTORY.md), [docs/UI_TEST_MATRIX.md](docs/UI_TEST_MATRIX.md) | UI test tooling, control inventory, coverage |
+| [docs/BUG_BACKLOG.md](docs/BUG_BACKLOG.md), [docs/UI_BASELINE.md](docs/UI_BASELINE.md), [docs/UI_BUG_BACKLOG.md](docs/UI_BUG_BACKLOG.md) | Quality programme records |
+| [docs/UI_TESTING_STRATEGY.md](docs/UI_TESTING_STRATEGY.md), [docs/UI_TEST_MATRIX.md](docs/UI_TEST_MATRIX.md) | UI test tooling, coverage |
+| [docs/WCAG_UI_AUDIT.md](docs/WCAG_UI_AUDIT.md) | Accessibility and interface audit of the WinUI shell: method, findings, fixes |
+| [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) | What the documents promise and the code lacks; performance plan |
+| [docs/architecture/suite-integration.md](docs/architecture/suite-integration.md) | How O-Draft connects to O-Studio, O-Metra, ShilpiDB and AORMS |
 | [docs/parity-checklist.md](docs/parity-checklist.md) | Generated menu-name comparison (`cargo xtask parity`) |
 | [CLAUDE.md](CLAUDE.md) | Rules for developers and coding agents |
 

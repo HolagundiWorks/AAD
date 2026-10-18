@@ -57,7 +57,7 @@
                 </ListView>
             </StackPanel>
             <Border Grid.Column="1" Width="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-            <ScrollViewer Grid.Column="2" x:Name="TableScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Padding="0,4,8,4">
+            <ScrollViewer Grid.Column="2" x:Name="TableScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Auto" Padding="0,4,8,4">
                 <StackPanel>
                     <Grid x:Name="Header" MinHeight="32" />
                     <StackPanel x:Name="Rows" />

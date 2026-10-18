@@ -84,7 +84,8 @@
             <Grid x:Name="StartPage" Grid.Column="3" Visibility="Collapsed" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" AutomationProperties.Name="Start">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
                     <Image x:Name="StartLogo" Width="72" Height="72" HorizontalAlignment="Center" AutomationProperties.Name="AAD" />
-                    <TextBlock x:Name="StartHeading" Text="Start" />
+                    <TextBlock x:Name="StartHeading" Text="O-Draft" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" AutomationProperties.HeadingLevel="Level1" />
+                    <TextBlock Text="Drafting. Part of OSAS, the Open Source Architecture Suit." Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,0,0,12" />
                     <Button Content="New drawing" Click="OnStartNew" AutomationProperties.Name="New drawing" />
                     <Button Content="Open drawing" Click="OnStartOpen" AutomationProperties.Name="Open drawing" />
                     <Button Content="Back to the drawing" Click="OnStartClose" AutomationProperties.Name="Back to the drawing" />
