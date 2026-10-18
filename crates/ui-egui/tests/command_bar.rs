@@ -166,13 +166,13 @@ fn a_chosen_suggestion_runs_on_space() {
 fn a_sentence_keeps_its_spaces_and_enter_sends_it_to_the_assistant() {
     let s = shared();
     let mut h = harness(Some(s.clone()));
-    typed(&mut h, "tell me what this drawing contains");
-    assert_eq!(buffer(&h), "tell me what this drawing contains", "every space was typed, none executed");
+    typed(&mut h, "/ tell me what this drawing contains");
+    assert_eq!(buffer(&h), "/ tell me what this drawing contains", "every space was typed, none executed");
     assert!(sent(&s).is_empty() && running(&h).is_none());
     key(&mut h, Key::Enter);
     assert_eq!(sent(&s), ["submit:tell me what this drawing contains"]);
     assert_eq!(buffer(&h), "", "the bar is cleared once the request is sent");
-    assert_eq!(h.state().cmd.history.last().map(String::as_str), Some("tell me what this drawing contains"), "one history for both kinds of input");
+    assert_eq!(h.state().cmd.history.last().map(String::as_str), Some("/ tell me what this drawing contains"), "one history for both kinds of input");
 }
 
 #[test]
@@ -227,16 +227,16 @@ fn the_slash_menu_lists_references_and_arrows_tab_enter_and_escape_work_on_it() 
     key(&mut h, Key::Escape);
     assert_eq!(buffer(&h), "");
     // Arrows choose, Enter accepts into the same bar without sending, Tab accepts the first.
-    typed(&mut h, "see /");
+    typed(&mut h, "/ see /");
     key(&mut h, Key::ArrowDown);
     key(&mut h, Key::ArrowDown);
     assert_eq!(h.state().cmd.sug_sel, Some(1));
     key(&mut h, Key::Enter);
-    assert_eq!(buffer(&h), "see /view ", "the second reference (/drawing, /view, ...), inserted at the word being typed");
+    assert_eq!(buffer(&h), "/ see /view ", "the second reference (/drawing, /view, ...), inserted at the word being typed");
     assert!(sent(&s).is_empty(), "Enter accepted the reference, it did not send");
     typed(&mut h, "/la");
     typed_raw(&mut h, "	");
-    assert_eq!(buffer(&h), "see /view /layers ");
+    assert_eq!(buffer(&h), "/ see /view /layers ");
     key(&mut h, Key::ArrowUp);
     assert!(h.state().cmd.sug_sel.is_none(), "with no menu open the arrows are for the history");
 }
@@ -247,7 +247,7 @@ fn references_are_resolved_into_live_context_and_several_can_be_combined() {
     let mut h = harness(Some(s.clone()));
     h.state_mut().run("layer.set", json!({"name": "A-WALL", "locked": true})).unwrap();
     h.state_mut().run("layer.new", json!({"name": "S-COLUMN"})).unwrap();
-    typed(&mut h, "Using /layers and /drawing, which layers are locked?");
+    typed(&mut h, "/ Using /layers and /drawing, which layers are locked?");
     key(&mut h, Key::Enter);
     let log = sent(&s);
     assert_eq!(log.len(), 1);
@@ -266,7 +266,7 @@ fn unavailable_and_unknown_references_are_reported_and_nothing_is_sent_or_change
     let doc = h.state().session.doc().unwrap().clone();
     let rev = h.state().session.state().unwrap().revision;
     {
-        let text = "please list the /rooms";
+        let text = "/ please list the /rooms";
         typed(&mut h, text);
         key(&mut h, Key::Enter);
     }
@@ -300,18 +300,18 @@ fn the_assistant_asks_allow_or_decline_in_the_bar_and_y_n_enter_and_escape_answe
 fn while_the_assistant_works_typing_stays_in_the_bar_enter_waits_and_escape_stops_it() {
     let s = shared();
     let mut h = harness(Some(s.clone()));
-    typed(&mut h, "tell me about the layers");
+    typed(&mut h, "/ tell me about the layers");
     key(&mut h, Key::Enter);
     assert_eq!(sent(&s).len(), 1);
-    typed(&mut h, "and the floors please");
-    assert_eq!(buffer(&h), "and the floors please", "typing is not lost, and Space did not execute anything");
+    typed(&mut h, "/ and the floors please");
+    assert_eq!(buffer(&h), "/ and the floors please", "typing is not lost, and Space did not execute anything");
     key(&mut h, Key::Enter);
     assert_eq!(sent(&s).len(), 1, "a second request is not sent while the first is running");
-    assert_eq!(buffer(&h), "and the floors please", "the text waits in the bar");
+    assert_eq!(buffer(&h), "/ and the floors please", "the text waits in the bar");
     assert!(h.state().session.log.iter().any(|l| l.contains("assistant is busy")));
     key(&mut h, Key::Escape);
     assert_eq!(sent(&s).last().unwrap(), "cancel", "Escape stops the assistant first");
-    assert_eq!(buffer(&h), "and the floors please", "and does not also clear what was typed");
+    assert_eq!(buffer(&h), "/ and the floors please", "and does not also clear what was typed");
 }
 
 // ---------------------------------------------------------------- other keys
@@ -339,16 +339,16 @@ fn up_and_down_walk_the_history_of_commands_and_requests_together() {
     typed(&mut h, "line 0,0 3,3");
     key(&mut h, Key::Enter);
     key(&mut h, Key::Escape);
-    typed(&mut h, "tell me about the layers");
+    typed(&mut h, "/ tell me about the layers");
     key(&mut h, Key::Enter);
     s.borrow_mut().state = None; // the assistant has answered
     h.run_steps(2);
     key(&mut h, Key::ArrowUp);
-    assert_eq!(buffer(&h), "tell me about the layers");
+    assert_eq!(buffer(&h), "/ tell me about the layers");
     key(&mut h, Key::ArrowUp);
-    assert_eq!(buffer(&h), "line");
+    assert_eq!(buffer(&h), "LINE");
     key(&mut h, Key::ArrowDown);
-    assert_eq!(buffer(&h), "line", "with suggestions open the arrows choose among them, not the history");
+    assert_eq!(buffer(&h), "LINE", "with suggestions open the arrows choose among them, not the history");
     assert_eq!(h.state().cmd.sug_sel, Some(0));
 }
 
@@ -413,10 +413,10 @@ fn typed_raw(h: &mut Harness<'static, CadApp>, text: &str) {
 fn a_long_sentence_with_coordinates_goes_to_the_assistant_as_one_request() {
     let s = shared();
     let mut h = harness(Some(s.clone()));
-    let text = "What objects are near the point 4,3 and where is the text located?";
+    let text = "/ What objects are near the point 4,3 and where is the text located?";
     let msg = h.state_mut().cmdline(text);
     assert_eq!(msg, None, "{msg:?}");
-    assert_eq!(sent(&s), [format!("submit:{text}")], "log: {:?}", h.state().session.log);
+    assert_eq!(sent(&s), [format!("submit:{}", text.trim_start_matches("/ "))], "log: {:?}", h.state().session.log);
     assert!(!h.state().session.log.iter().any(|l| l.starts_with("Command:")), "nothing ran as a command: {:?}", h.state().session.log);
 }
 
@@ -442,9 +442,9 @@ fn enter_and_space_run_the_first_listed_command_and_the_next_press_repeats_it() 
     assert_eq!(running(&h).as_deref(), Some("circle"), "so does Space");
     key(&mut h, Key::Escape);
     assert_eq!(h.state().session.doc().unwrap().model.len(), count);
-    // A sentence keeps its spaces: it does not start with a command name, and `/` always asks the assistant.
-    typed(&mut h, "tell me about the columns");
-    assert_eq!(buffer(&h), "tell me about the columns");
+    // A sentence keeps its spaces only behind `/`: without it Space would run the first word as a command.
+    typed(&mut h, "/ tell me about the columns");
+    assert_eq!(buffer(&h), "/ tell me about the columns");
     assert_eq!(running(&h), None);
 }
 
