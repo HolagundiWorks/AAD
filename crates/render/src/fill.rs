@@ -144,7 +144,7 @@ pub fn triangulate_outline(loops: &[Vec<Vec2>]) -> Vec<Vec2> {
         }
         expected += signed_area(outer).abs() - holes.iter().map(|h| signed_area(h).abs()).sum::<f64>();
     }
-    let got: f64 = out.chunks_exact(3).map(|t| (t[1] - t[0]).cross(t[2] - t[0]).abs() / 2.0).sum();
+    let got: f64 = out.as_chunks::<3>().0.iter().map(|t| (t[1] - t[0]).cross(t[2] - t[0]).abs() / 2.0).sum();
     if out.is_empty() || (got - expected).abs() > 1e-6 * expected.abs().max(got.abs()).max(1e-300) {
         return triangulate_evenodd(loops);
     }
