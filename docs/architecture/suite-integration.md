@@ -37,7 +37,7 @@ changes the drawing it came from; imported text and tool results are data, not i
 | Hand-off to and from AQC | `bridge.export`, `bridge.import`; file `hcw-aqc-bridge` version 1, millimetres, beside the drawing as `name.aqc.json` | Implemented. Import previews first and never changes geometry. Rooms are not exported |
 | Spatial index and ShilpiDB exchange | `aad-vdb`, `vdb.*` | Implemented; see [aadt-shilpidb-architecture.md](aadt-shilpidb-architecture.md) |
 | Spatial AI tools (overview, window, nearest, describe) | `crates/agent` | Implemented |
-| Drawing-level change record (revision, checksum) | none | **Missing** |
+| Drawing-level change record (revision, checksum) | `revision.rs`, `drawing.revision`, `<file>.aadrev.json` | Implemented |
 | Stable cross-application project and artifact references | none | **Missing**: the only shared key is the AORMS project office id stored in the drawing's project data |
 
 ## 3. Contracts the suite needs from AAD
@@ -80,15 +80,15 @@ Milestone 1 is "drawing to draft estimate". AAD's side, step by step:
 | Open the project's linked drawing | `app.open`, `aorms.open` | A launcher passing a project id to AAD; none exists |
 | Resolve the same project in AQC | the AORMS office id is stored in the drawing | AQC side not audited |
 | Extract measurements | `takeoff.start` and `takeoff.*` over `MEASURE-*` layers | Needs a stated list of supported geometry; unsupported objects must be reported, not skipped silently (today `takeoff` reads the measure layers only) |
-| Pass them on | `bridge.export` | Add the drawing revision (section 3); add rooms (`room.log` now exists) |
+| Pass them on | `bridge.export` | Done: carries the drawing revision and rooms (AQC side not verified) |
 | Calculate quantities and cost | AQC (not audited) | Not AAD's part |
 | Draft in AOS | AOS (not audited) | Not AAD's part |
 | Reject unauthorised writes, keep an audit trail | agent confirmation policy and audit log | Audit log is in memory per session; not persisted or shared |
 
 ## 6. Order of work in AAD
 
-1. `DrawingRevision` at save, written beside the file; shown by `drawing.inspect`.
-2. Rooms and the revision in `bridge.export` (format version 2, read by version 1 importers as before).
+1. `DrawingRevision` at save, written beside the file; checked by `drawing.revision`. **Done.**
+2. Rooms and the revision in `bridge.export`, as additive keys of format version 1. **Done.** Whether AQC accepts the extra keys is not verified.
 3. Register the existing `takeoff.*`, `schedule` and `room.log` commands as agent tools (read-only
    ones first), with schemas, in the existing registry.
 4. Persist the audit log next to the drawing revision it refers to.

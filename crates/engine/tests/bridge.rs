@@ -188,3 +188,41 @@ fn export_goes_beside_the_saved_drawing_by_default() {
     assert!(!expected.exists() && r.get("path").is_none());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn export_names_the_saved_drawing_revision_and_lists_rooms() {
+    let mut s = session();
+    let dir = std::env::temp_dir().join(format!("aad-bridge-rev-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dxf = dir.join("house.dxf");
+    std::fs::write(&dxf, b"saved bytes").unwrap();
+    let path = dxf.to_str().unwrap().to_string();
+    s.execute("room", &json!({"p1": [0, 0], "p2": [4000, 3000], "name": "br", "units": "mm", "textHeight": 150})).unwrap();
+    s.state_mut().unwrap().path = Some(path.clone());
+
+    // No revision recorded yet: the export says so and carries none.
+    let r = s.execute("bridge.export", &json!({"write": false})).unwrap();
+    let warnings: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(warnings.iter().any(|w| w.contains("no matching saved revision")), "{warnings:?}");
+    let file: Value = serde_json::from_str(r["json"].as_str().unwrap()).unwrap();
+    assert!(file["source"].get("revision").is_none());
+
+    // With a recorded revision that still matches the file, it is named, and the room is listed.
+    let rev = aad_engine::revision::record(&path, b"saved bytes", 4).unwrap();
+    let r = s.execute("bridge.export", &json!({"write": false})).unwrap();
+    let file: Value = serde_json::from_str(r["json"].as_str().unwrap()).unwrap();
+    assert_eq!(file["source"]["revision"]["sha256"], json!(rev.sha256));
+    assert_eq!(file["rooms"][0]["name"], json!("BEDROOM"));
+    assert_eq!(file["rooms"][0]["area_m2"], json!(12.0));
+    let warnings: Vec<&str> = r["warnings"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(!warnings.iter().any(|w| w.contains("no room labels") || w.contains("no matching saved revision")), "{warnings:?}");
+    // The room was drawn after the session opened, so the drawing differs from its saved state.
+    assert!(warnings.iter().any(|w| w.contains("unsaved changes")), "{warnings:?}");
+
+    // The file changed after the save: the revision is no longer offered.
+    std::fs::write(&dxf, b"changed elsewhere").unwrap();
+    let r = s.execute("bridge.export", &json!({"write": false})).unwrap();
+    let file: Value = serde_json::from_str(r["json"].as_str().unwrap()).unwrap();
+    assert!(file["source"].get("revision").is_none());
+    std::fs::remove_dir_all(&dir).ok();
+}

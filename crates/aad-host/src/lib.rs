@@ -1695,6 +1695,24 @@ mod tests {
     }
 
     #[test]
+    fn saving_records_a_drawing_revision_and_the_command_notices_a_later_change() {
+        let mut host = Host::create(false);
+        let dir = std::env::temp_dir().join(format!("aad-host-rev-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("plan.dxf").to_string_lossy().to_string();
+        assert!(host.execute("drawing.revision", &json!({})).is_err(), "no file yet");
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [5.0, 0.0]] })).unwrap();
+        host.execute("saveas", &json!({ "path": path })).unwrap();
+        let r = host.execute("drawing.revision", &json!({})).unwrap();
+        assert_eq!(r["status"], json!("current"));
+        assert_eq!(r["recorded"]["entities"], json!(1));
+        assert_eq!(r["recorded"]["file"], json!("plan.dxf"));
+        std::fs::write(&path, b"edited elsewhere").unwrap();
+        assert_eq!(host.execute("drawing.revision", &json!({})).unwrap()["status"], json!("changed"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn open_reads_a_saved_dwg() {
         let mut host = Host::create(false);
         host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();

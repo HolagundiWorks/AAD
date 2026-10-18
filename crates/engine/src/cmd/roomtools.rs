@@ -103,6 +103,20 @@ fn find_rooms(d: &Drawing, space: &aad_doc::Space) -> Vec<Room> {
     rooms
 }
 
+/// The rooms of a space as the AQC hand-off lists them: name, size text and area in square metres.
+/// Areas drawn in square feet are converted.
+pub(crate) fn rooms_for_export(d: &Drawing, space: &aad_doc::Space) -> Vec<Value> {
+    let mut rooms = find_rooms(d, space);
+    rooms.sort_by(|a, b| a.name.cmp(&b.name).then(a.at.y.total_cmp(&b.at.y)).then(a.at.x.total_cmp(&b.at.x)));
+    rooms
+        .iter()
+        .map(|r| {
+            let m2 = if r.unit.starts_with("sq ft") { r.area * 0.092_903_04 } else { r.area };
+            json!({ "name": r.name, "size": r.size, "area_m2": (m2 * 1000.0).round() / 1000.0 })
+        })
+        .collect()
+}
+
 fn run_relabel(s: &mut Session, p: &Value) -> Result<Value> {
     let h = *targets(s, p)?.first().ok_or_else(|| bad("room.relabel", "select the room name text"))?;
     let typed = str_param(p, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad("room.relabel", "`name` is required"))?;

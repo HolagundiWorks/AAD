@@ -157,8 +157,28 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(t) = iso_time() {
         source["exported"] = json!(t);
     }
+    // The drawing revision this export was made from: the hash recorded when the file was saved,
+    // given only while the file on disk still matches it.
+    #[cfg(not(target_arch = "wasm32"))]
+    match s.state()?.path.as_deref().map(crate::revision::check) {
+        Some(Ok(c)) if c["status"] == "current" => source["revision"] = c["recorded"].clone(),
+        Some(Ok(_)) => warnings.push("the drawing file has no matching saved revision: save the drawing so the export names it".into()),
+        Some(Err(_)) => warnings.push("the drawing file could not be read to record its revision".into()),
+        None => warnings.push("the drawing has not been saved, so the export names no revision".into()),
+    }
+    {
+        let st = s.state()?;
+        if !std::sync::Arc::ptr_eq(&st.doc, &st.saved) {
+            warnings.push("the drawing has unsaved changes: this export reflects them, the saved revision does not".into());
+        }
+    }
     root.insert("source".into(), source);
     root.insert("units".into(), json!("mm"));
+    let rooms = super::roomtools::rooms_for_export(d, &s.space());
+    if rooms.is_empty() {
+        warnings.push("no room labels: run `room` to include rooms".into());
+    }
+    root.insert("rooms".into(), Value::Array(rooms));
 
     // Project details.
     let details = project::get(d, "details");
@@ -331,7 +351,6 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
         None => warnings.push("no saved slab take-off: run `takeoff.slab` to include slabs".into()),
     }
     root.insert("slabs".into(), Value::Array(slabs.clone()));
-    warnings.push("rooms are not exported: AAD has no room log yet".into());
 
     let text = serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| bad("bridge.export", e.to_string()))?;
     #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]

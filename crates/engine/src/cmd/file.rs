@@ -61,6 +61,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .enabled(always)
             .noundo(),
         CommandSpec::new("close", "Close", run_close).menu(&["File", "Close"]).key("Cmd+W").params("{index?}").noundo(),
+        CommandSpec::new("drawing.revision", "Drawing Revision", run_revision)
+            .params("{path? (default: the active drawing's file)} → {status: current|changed|unrecorded, sha256, bytes, recorded?} (compares the file on disk with the revision its last save recorded in <file>.aadrev.json)")
+            .noundo(),
         CommandSpec::new("closeall", "Close All", run_closeall).menu(&["File", "Close All"]).enabled(always).noundo(),
         CommandSpec::new("qsave", "Save", run_qsave_reporting).menu(&["File", "Save"]).key("Cmd+S").alias(&["save"]).params("{path?}").noundo(),
         CommandSpec::new("saveas", "Save As...", run_saveas_reporting)
@@ -135,6 +138,22 @@ fn run_open(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "index": i, "flatten": s.last_flatten.as_ref().map(|r| r.to_json()) }))
 }
 
+fn run_revision(s: &mut Session, p: &Value) -> Result<Value> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (s, p);
+        Err(bad("drawing.revision", "files are not available on the web"))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let path = match str_param(p, "path") {
+            Some(path) => path.to_string(),
+            None => s.state()?.path.clone().ok_or_else(|| bad("drawing.revision", "the drawing has no file yet; save it or pass `path`"))?,
+        };
+        crate::revision::check(&path).map_err(|e| bad("drawing.revision", e))
+    }
+}
+
 fn run_close(s: &mut Session, p: &Value) -> Result<Value> {
     let i = p.get("index").and_then(Value::as_u64).map(|i| i as usize).unwrap_or(s.active);
     if i >= s.docs.len() {
@@ -162,7 +181,15 @@ fn run_closeall(s: &mut Session, _p: &Value) -> Result<Value> {
 pub(crate) fn save_to(s: &mut Session, path: &str) -> Result<usize> {
     let hooks = io().ok_or_else(|| bad("save", "file formats are not available in this build"))?;
     let bytes = (hooks.write)(&super::xref::without_overlays(s.doc()?), path).map_err(|e| bad("save", e))?;
-    commit_save(s, path, &bytes, store)
+    let n = commit_save(s, path, &bytes, store)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    if is_drawing_file(path) {
+        let entities = s.doc().map(|d| d.entity_count()).unwrap_or(0);
+        if let Err(e) = crate::revision::record(path, &bytes, entities) {
+            s.echo(format!("Drawing revision not recorded: {e}"));
+        }
+    }
+    Ok(n)
 }
 
 /// Put saved bytes where the user gets them: natively the file at `path` (written atomically); on
