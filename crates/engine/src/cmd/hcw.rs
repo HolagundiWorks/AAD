@@ -66,7 +66,7 @@ const BP_LAYERS: &[(&str, i16, &str, u16)] = &[
 ];
 
 /// HCW Layer Standard: name, ACI colour, linetype, lineweight (hundredths of mm), description.
-const HCW_LAYERS: &[(&str, i16, &str, u16, &str)] = &[
+pub(crate) const HCW_LAYERS: &[(&str, i16, &str, u16, &str)] = &[
     ("AN-REF", 250, "Continuous", 9, "Construction lines / viewport borders"),
     ("AN-GRID", 8, "CENTER2", 13, "Grid and centre lines"),
     ("AN-SYMB", 7, "Continuous", 18, "North point / symbols / logos"),
@@ -166,7 +166,7 @@ pub fn specs() -> Vec<CommandSpec> {
 // Units
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum Units {
+pub(crate) enum Units {
     Mm,
     Cm,
     M,
@@ -186,7 +186,7 @@ impl Units {
         })
     }
     /// Metres in one drawing unit.
-    fn metres(self) -> f64 {
+    pub(crate) fn metres(self) -> f64 {
         match self {
             Units::Mm => 0.001,
             Units::Cm => 0.01,
@@ -202,7 +202,7 @@ impl Units {
 
 /// The units of the drawing: `units` if given, else `INSUNITS`, else millimetres (metric drawing)
 /// or inches.
-fn drawing_units(d: &Drawing, cmd: &str, p: &Value) -> Result<Units> {
+pub(crate) fn drawing_units(d: &Drawing, cmd: &str, p: &Value) -> Result<Units> {
     if let Some(u) = str_param(p, "units") {
         return Units::parse(u).ok_or_else(|| bad(cmd, "`units` must be mm, cm, m, ft or in"));
     }

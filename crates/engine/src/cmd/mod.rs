@@ -19,6 +19,7 @@ mod gripcmds;
 pub(crate) mod groups;
 mod hatch;
 mod hcw;
+mod hcwlayers;
 mod texttools;
 mod inquiry;
 mod layer;
@@ -193,6 +194,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(layer::specs());
         v.extend(hcw::specs());
         v.extend(texttools::specs());
+        v.extend(hcwlayers::specs());
         v.extend(annot::specs());
         v.extend(project::specs());
         v.extend(space::specs());

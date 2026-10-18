@@ -10,6 +10,7 @@ kit's README (`/HolagundiWorks/hcwCAD-KIT`). No C# source is included.
 | Area | AAD commands | Notes |
 |---|---|---|
 | Layer sets | `hcwlayers` `{set: hcw\|bp\|both}` | Creates missing layers only; unknown linetypes fall back to Continuous |
+| HCW layer tools | `hcwreset`, `hcwinfo`, `hcwlock`, `hcwunlock`, `hcwaudit2`, `hcwbyblock`, `hcwmove`, `hcwschedule`, `hcwlegend` | From `hcwtools.lsp` section 7 and 10. The standard has 36 layers (the toolkit says 35). HCWPURGE and HCWAUDIT are the existing `purge` and `audit`; HCWLAYERSTATE is `layerstate.*`. The legend is sized as for metres at 1:1 and scaled to the drawing units |
 | Text tools | `fixtxt`, `fixtxth`, `txtalign`, `txtdup`, `txtaudit`, `txtexport`, `txtinc` | From the AutoLISP toolkit `hcwtools.lsp` (same authors). `txtalign` sets the insertion point on one axis; `txtinc` is JSON-only (no prompt sequence yet) |
 | Rooms | `room` (aliases `hcwroom`, `roomc`), `rarea` | 29 room codes; label with name, size and area; units from the drawing units |
 | Project data | `project`, `floors`, `beams`, `levels` | Stored in the drawing (`Drawing.project`, DXF XRECORD `AAD_PROJECT`). `floors` rejects a ceiling height above the floor-to-floor height |
@@ -29,7 +30,7 @@ measure cable length; `stair.plan` draws a plan only; no section is drawn from t
 ## To do (in order)
 
 1. Drawing tools: `DBCOUNT`, `DGRID`, `AUTOLABEL`, `INCARRAY`, `RENUMBERLAYOUTS`, `ROOMTEXTFIT`, `RTAG`, room log and report, polygon area.
-2. Layer tools: `HCWRESET`, `HCWLEGEND`, `BPLTSTART`, permit-layer move, `BPLT` report, `VHLAYERS`, `HCWAUDIT`, `HCWSTYLES`.
+2. Permit-layer tools: `BPLTSTART`, `BPLTLAYERS`, `BPLTCOPY`, `BPLTCHECK`, `BPLTAREA`, `BPLTREPORT`, `BPLTTITLEBLOCK`; `VHLAYERS`, `LAYERMAP`, `TXTSTYLE`.
 3. Notes and fields, title block.
 4. Wall edit, join, regenerate, hatch and adopt; escalators; column table; auto-dimension; sheet set and fit.
 
