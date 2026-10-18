@@ -1,7 +1,7 @@
 namespace Aad.WinUi;
 
 /// <summary>
-/// Command-line options forwarded from <c>aad.exe</c> or passed when starting Aad.WinUi directly.
+/// Command-line options forwarded from <c>o-draft.exe</c> (the <c>aad</c> cargo binary) or passed when starting Aad.WinUi directly.
 /// </summary>
 public sealed class LaunchArgs
 {

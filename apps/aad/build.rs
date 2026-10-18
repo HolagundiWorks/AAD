@@ -1,4 +1,4 @@
-//! Windows only: embed the app icon and version info into `aad.exe`. Elsewhere a no-op.
+//! Windows only: embed the app icon and version info into `aad.exe` (shipped as `o-draft.exe`). Elsewhere a no-op.
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -16,7 +16,7 @@ fn main() {
         .set("FileDescription", "O-Draft drafting")
         .set("CompanyName", "HolagundiWorks")
         .set("LegalCopyright", "Copyright (c) 2026 HolagundiWorks and the AAD contributors. MIT OR Apache-2.0.")
-        .set("OriginalFilename", "aad.exe")
+        .set("OriginalFilename", "o-draft.exe")
         .set("InternalName", "aad");
     if let Err(e) = res.compile() {
         if std::env::var_os("AAD_REQUIRE_WINRES").is_some() {

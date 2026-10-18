@@ -36,7 +36,7 @@ cargo run --release -p aad -- file.dxf              # forwards the path to WinUI
 cargo run --release -p aad --features egui -- --egui --sample   # optional egui window
 ```
 
-The WinUI shell needs the .NET 8 SDK. The default Windows `aad` binary does not link eframe; rebuild with `--features egui` for `aad --egui` (widget automation). Copy `target/debug/aad_host.dll` next to `Aad.WinUi.exe` after building the host.
+The WinUI shell needs the .NET 8 SDK. The default Windows `aad` binary (shipped as `o-draft.exe`) does not link eframe; rebuild with `--features egui` for `aad --egui` (widget automation). Copy `target/debug/aad_host.dll` next to `ODraft.WinUi.exe` after building the host.
 
 Type commands at the command line, for example:
 
