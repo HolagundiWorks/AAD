@@ -18,6 +18,7 @@ marks, isometric drafting).
 | Layouts and output | Paper-space layouts, viewports, page setup, PDF plotting |
 | Maintenance | `PURGE`, `AUDIT`, `RECOVER`, `FLATTEN` ([maintenance.md](maintenance.md)) |
 | Architecture: layers and rooms | `hcwlayers` (HCW and building-permission layer sets), `room` (room labels with area), `rarea` ([hcw-kit-port.md](hcw-kit-port.md)) |
+| Architecture: text tools | `fixtxt`, `fixtxth` (uniform height, no overlap), `txtalign`, `txtdup`, `txtaudit`, `txtexport` (CSV), `txtinc` (copy and count up a numbered label); ported from the HCW AutoLISP toolkit ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Architecture: walls and openings | `wall.draw` (mitred faces and end caps), `wall.door`, `wall.window` (cut the wall lines, place a block that carries a deduction line, link the schedule entry), `wall.clean` |
 | Architecture: structure | `grid.axis`, `column.place`, `column.schedule`, `lintel.draw`, `stair.plan` (straight or dogleg, risers, goings, concrete volume), `lift.shaft`, `rail.draw` |
 | Architecture: levels and symbols | `level.mark`, `level.schedule`, `section.marker`, `elevation.marker`, `north.arrow`, `slope.arrow` |
@@ -49,7 +50,7 @@ marks, isometric drafting).
 |---|---|
 | macOS, Linux and web builds | Later phases. Only Windows is built, tested and packaged now |
 | Bundling the model in the installer; result tables and highlighting; retrieval | [ai-agent.md](ai-agent.md) |
-| Remaining hcwCAD-KIT tools | Text and drawing tools (`FIXTXT`, `TXTALIGN`, `INCARRAY`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
+| Remaining hcwCAD-KIT tools | Drawing tools (`INCARRAY`, `DGRID`, `AUTOLABEL`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Agent tools for take-off and schedules | The engine commands exist; the agent registry does not expose them yet ([ai-agent.md](ai-agent.md)) |
 | Xref and floor-project interface | Floor selector in the toolbar, setup wizard dialog, Floor View Manager, opening-block generation and reconciliation ([projects.md](projects.md)) |
 | Panels for Opening Schedule, Drawing Explorer, Xrefs, Measurement and Project Navigator; guarding block-definition edits against locked layers; export and import of drawing spaces | [ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md), section 4 |
