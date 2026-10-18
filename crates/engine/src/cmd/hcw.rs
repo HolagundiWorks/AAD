@@ -17,8 +17,8 @@ use super::machines::SelectRun;
 use super::*;
 use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step};
 
-const LABEL_LAYER: (&str, i16) = ("ROOM-LABELS", 3);
-const RECT_LAYER: (&str, i16) = ("ROOM-RECT", 8);
+pub(crate) const LABEL_LAYER: (&str, i16) = ("ROOM-LABELS", 3);
+pub(crate) const RECT_LAYER: (&str, i16) = ("ROOM-RECT", 8);
 /// Room label text height in millimetres of real size.
 const TEXT_MM: f64 = 125.0;
 
@@ -405,7 +405,7 @@ fn with_settings(s: &Session, p: &Value) -> Result<(Value, RoomSettings)> {
 
 /// The room type a typed name stands for: a two-letter code names its type, anything else is
 /// taken as typed.
-fn room_name(input: &str) -> String {
+pub(crate) fn room_name(input: &str) -> String {
     let t = input.trim();
     ROOM_TYPES.iter().find(|(code, _)| t.eq_ignore_ascii_case(code)).map(|(_, name)| (*name).to_string()).unwrap_or_else(|| t.to_string())
 }
