@@ -87,6 +87,8 @@ pub struct Tokens {
     pub icon_accent: Color32,
     pub icon_point: Color32,
     pub accent: Color32,
+    /// Text and marks drawn on an `accent` fill.
+    pub on_accent: Color32,
     pub selection: Color32,
     pub hover: Color32,
     pub grip: Color32,
@@ -136,9 +138,10 @@ impl Tokens {
         text_dim: Color32::from_rgb(0xb8, 0xba, 0xbf),
         text_faint: Color32::from_rgb(0x8e, 0x90, 0x96),
         icon: Color32::from_rgb(0xea, 0xea, 0xec),
-        icon_accent: Color32::from_rgb(0xff, 0x95, 0x2e),
+        icon_accent: Color32::from_rgb(0xf6, 0xf5, 0xf1),
         icon_point: Color32::from_rgb(0xf0, 0x7a, 0x3a),
-        accent: Color32::from_rgb(0xf2, 0x84, 0x1c),
+        accent: Color32::from_rgb(0xf6, 0xf5, 0xf1),
+        on_accent: Color32::from_rgb(0x17, 0x18, 0x1b),
         selection: Color32::from_rgb(0x4a, 0x8f, 0xff),
         hover: Color32::from_rgb(0x9c, 0xc6, 0xff),
         grip: Color32::from_rgb(0x2f, 0x6b, 0xff),
@@ -177,9 +180,10 @@ impl Tokens {
         text_dim: Color32::from_rgb(0x44, 0x46, 0x4c),
         text_faint: Color32::from_rgb(0x5e, 0x60, 0x66),
         icon: Color32::from_rgb(0x2a, 0x2c, 0x31),
-        icon_accent: Color32::from_rgb(0xc7, 0x5a, 0x00),
+        icon_accent: Color32::from_rgb(0x1b, 0x1c, 0x20),
         icon_point: Color32::from_rgb(0xd3, 0x5a, 0x1c),
-        accent: Color32::from_rgb(0xd9, 0x66, 0x0a),
+        accent: Color32::from_rgb(0x1b, 0x1c, 0x20),
+        on_accent: Color32::from_rgb(0xff, 0xff, 0xff),
         cmd_bg: Color32::from_rgba_unmultiplied_const(0xff, 0xff, 0xff, 0xf2),
         toggle_on: Color32::from_rgb(0xd9, 0x66, 0x0a),
         field: Color32::from_rgb(0xff, 0xff, 0xff),
@@ -359,6 +363,7 @@ fn visuals(theme: Theme) -> Visuals {
     v.widgets.hovered.weak_bg_fill = t.control_hover;
     v.widgets.active.bg_fill = t.accent;
     v.widgets.active.weak_bg_fill = t.accent;
+    v.widgets.active.fg_stroke.color = t.on_accent;
     v.selection.bg_fill = t.select_bg;
     v.window_stroke = egui::Stroke::new(1.0, t.border);
     let shadow = Color32::from_black_alpha(if theme == Theme::Dark { 90 } else { 40 });
@@ -385,4 +390,43 @@ pub fn apply(ctx: &egui::Context, theme: Theme) {
         s.text_styles.insert(egui::TextStyle::Heading, heading());
         s.text_styles.insert(egui::TextStyle::Monospace, mono());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lum(c: Color32) -> f64 {
+        let f = |v: u8| {
+            let v = f64::from(v) / 255.0;
+            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
+    }
+
+    fn contrast(a: Color32, b: Color32) -> f64 {
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn the_black_accent_is_legible_in_both_palettes() {
+        for theme in [Theme::Dark, Theme::Light] {
+            let t = Tokens::of(theme);
+            assert!(contrast(t.on_accent, t.accent) >= 4.5, "{theme:?}: text on the accent fill");
+            assert!(contrast(t.accent, t.panel) >= 3.0, "{theme:?}: accent outlines and marks on the panel");
+            assert!(contrast(t.icon_accent, t.panel) >= 3.0, "{theme:?}: accented icon strokes");
+            assert!(contrast(t.text, t.panel) >= 4.5, "{theme:?}: body text");
+        }
+    }
+
+    #[test]
+    fn the_accent_is_not_orange_any_more() {
+        for theme in [Theme::Dark, Theme::Light] {
+            let a = Tokens::of(theme).accent;
+            // Black or near-white: no colour channel stands out from the others.
+            let spread = a.r().max(a.g()).max(a.b()) - a.r().min(a.g()).min(a.b());
+            assert!(spread <= 8, "{theme:?}: accent {a:?}");
+        }
+    }
 }

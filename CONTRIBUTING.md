@@ -1,6 +1,6 @@
-# Contributing to AAD
+# Contributing to O-Draft
 
-AAD (Accelerated Architecture Drafting) is open source under MIT OR Apache-2.0. Contributions are
+O-Draft is open source under MIT OR Apache-2.0. Contributions are
 welcome under the same terms.
 
 1. Read [CLAUDE.md](CLAUDE.md): scope (2D only), the never-crash rules, clean-room and asset rules.
@@ -29,7 +29,7 @@ Report bugs and security issues through GitHub issues; for a security issue, ope
 
 ## Licence of contributions
 
-AAD is licensed under the MIT License or the Apache License 2.0, at the user's option (see
+O-Draft is licensed under the MIT License or the Apache License 2.0, at the user's option (see
 [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE) and [NOTICE](NOTICE)). Unless you say
 otherwise, any contribution you submit for inclusion is licensed under the same two licences,
 without additional terms or conditions, as the Apache License 2.0 section 5 describes. Only submit

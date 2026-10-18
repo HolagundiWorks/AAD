@@ -1,6 +1,6 @@
 //! The AORMS connection in the interface: the sign-in dialog, the status-bar chip and the background jobs behind them.
 //!
-//! Everything here is optional — signed out, AAD is a complete standalone drafting program. The network calls block (up to 60 s), so
+//! Everything here is optional — signed out, O-Draft is a complete standalone drafting program. The network calls block (up to 60 s), so
 //! they never run on the UI thread: a job takes the [`Client`] out of the session, runs on a worker thread and hands the client back
 //! with its result; [`poll`] collects it each frame. The drawing is only ever touched on the UI thread, through the `aorms.apply`
 //! command (one undo step), and only for project details and floors — never drawn geometry. The password lives in the dialog's text
@@ -84,7 +84,7 @@ pub struct AormsUi {
     pub message: Option<Message>,
     pub view: View,
     pub job: Option<Job>,
-    /// Signed in on this computer (another AORMS app's login) but AAD has no session of its own yet, or it was replaced.
+    /// Signed in on this computer (another AORMS app's login) but O-Draft has no session of its own yet, or it was replaced.
     pub needs_session: bool,
     /// The host turns this on to restore the shared sign-in once at start-up.
     pub auto_restore: bool,
@@ -172,7 +172,7 @@ pub fn chip(a: &AormsUi) -> Chip {
         return Chip {
             text: "AORMS · !".into(),
             tone: ChipTone::Warn,
-            tip: crate::tl!("Signed in to AORMS, but AAD isn't connected. Click to connect.").to_string(),
+            tip: crate::tl!("Signed in to AORMS, but O-Draft isn't connected. Click to connect.").to_string(),
         };
     }
     Chip { text: "AORMS".into(), tone: ChipTone::Dim, tip: crate::tl!("Community mode: not signed in to AORMS. Click to sign in.").to_string() }
@@ -183,23 +183,23 @@ pub fn chip(a: &AormsUi) -> Chip {
 pub fn explain(e: &AormsError) -> String {
     match e {
         AormsError::Network(_) => crate::tl!("Can't reach AORMS. Check your internet connection and try again.").to_string(),
-        AormsError::Contract(_) => crate::tl!("This AORMS server needs a newer version of AAD.").to_string(),
+        AormsError::Contract(_) => crate::tl!("This AORMS server needs a newer version of O-Draft.").to_string(),
         AormsError::SignedOut => crate::tl!("Your AORMS sign-in has ended. Sign in again.").to_string(),
-        AormsError::TooLarge => crate::tl!("AORMS sent more data than AAD accepts.").to_string(),
-        AormsError::Unavailable => crate::tl!("AORMS is not available in the web version of AAD.").to_string(),
-        AormsError::BadResponse(_) => crate::tl!("AORMS answered in a way AAD doesn't understand.").to_string(),
+        AormsError::TooLarge => crate::tl!("AORMS sent more data than O-Draft accepts.").to_string(),
+        AormsError::Unavailable => crate::tl!("AORMS is not available in the web version of O-Draft.").to_string(),
+        AormsError::BadResponse(_) => crate::tl!("AORMS answered in a way O-Draft doesn't understand.").to_string(),
         AormsError::Api { code, reason, retry_after, status, message } => match code.as_str() {
             "invalid_credentials" => crate::tl!("Invalid email or password.").to_string(),
             "not_linked" => crate::tl!("Sign in to AORMS on the web once with this account, then try again.").to_string(),
             "pending" => crate::tl!("Your studio hasn't approved your access yet.").to_string(),
             "rate_limited" => crate::tf!("Too many attempts. Try again in {seconds} seconds.", seconds = retry_after.unwrap_or(60)),
-            "session_replaced" => crate::tl!("You signed in to AAD on another computer. Connect here to continue.").to_string(),
+            "session_replaced" => crate::tl!("You signed in to O-Draft on another computer. Connect here to continue.").to_string(),
             "not_connected" => match reason.as_deref() {
-                Some("EXPIRED") => crate::tl!("Your studio's AORMS plan has expired. AAD keeps working without it.").to_string(),
-                Some("NO_STUDIO") => crate::tl!("This account has no studio in AORMS. AAD keeps working without it.").to_string(),
-                _ => crate::tl!("Your studio's AORMS plan doesn't include connected mode. AAD keeps working without it.").to_string(),
+                Some("EXPIRED") => crate::tl!("Your studio's AORMS plan has expired. O-Draft keeps working without it.").to_string(),
+                Some("NO_STUDIO") => crate::tl!("This account has no studio in AORMS. O-Draft keeps working without it.").to_string(),
+                _ => crate::tl!("Your studio's AORMS plan doesn't include connected mode. O-Draft keeps working without it.").to_string(),
             },
-            "role_not_allowed" => crate::tl!("Portal accounts can't use AAD. Sign in with a staff account.").to_string(),
+            "role_not_allowed" => crate::tl!("Portal accounts can't use O-Draft. Sign in with a staff account.").to_string(),
             _ if *status >= 500 => crate::tl!("AORMS isn't available right now. Try again shortly.").to_string(),
             _ => message.clone(),
         },
@@ -304,7 +304,7 @@ pub fn start_restore(app: &mut CadApp, ctx: &egui::Context) {
     );
 }
 
-/// "Connect here": starts this app's session (never silent — it replaces another computer's AAD session).
+/// "Connect here": starts this app's session (never silent — it replaces another computer's O-Draft session).
 pub fn start_connect(app: &mut CadApp, ctx: &egui::Context) {
     let label = engine::client_label();
     spawn(
@@ -405,7 +405,7 @@ fn finish(app: &mut CadApp, kind: Kind, outcome: Outcome) {
                 );
             }
             RestoreOutcome::NotConnected => {
-                say(app, Tone::Warn, crate::tl!("Your studio's AORMS plan doesn't include connected mode. AAD keeps working without it.").to_string())
+                say(app, Tone::Warn, crate::tl!("Your studio's AORMS plan doesn't include connected mode. O-Draft keeps working without it.").to_string())
             }
             RestoreOutcome::NoStoredSession | RestoreOutcome::SignedOut => {}
         },
@@ -623,10 +623,10 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     }
                 });
             } else if view.signed_in || needs_session {
-                ui.label(crate::tl!("You're signed in to AORMS on this computer, but AAD isn't connected yet."));
+                ui.label(crate::tl!("You're signed in to AORMS on this computer, but O-Draft isn't connected yet."));
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!busy, egui::Button::new(crate::tl!("Connect AAD"))).clicked() {
+                    if ui.add_enabled(!busy, egui::Button::new(crate::tl!("Connect O-Draft"))).clicked() {
                         act = Some(Act::Connect);
                     }
                     if ui.add_enabled(!busy, egui::Button::new(crate::tl!("Sign out"))).clicked() {
@@ -634,7 +634,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     }
                 });
             } else {
-                ui.label(crate::tl!("Sign in with your AORMS account to pull project information into your drawings. AAD keeps working without it."));
+                ui.label(crate::tl!("Sign in with your AORMS account to pull project information into your drawings. O-Draft keeps working without it."));
                 ui.add_space(6.0);
                 let enter = egui::Grid::new("aorms_signin_grid")
                     .num_columns(2)

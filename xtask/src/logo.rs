@@ -1,74 +1,59 @@
-//! `cargo xtask logo`: draw the AAD logo and write every icon the project ships.
+//! `cargo xtask logo`: draw the O-Draft logo and write every icon the project ships.
 //!
-//! The logo is straight lines, so it is drawn here directly (no image tools, no fonts): a blue
-//! square, a white "A" mark, and the white cursor crosshair and pick box, which are drawn in the
-//! opposite colour where they cross the mark. Everything under `assets/app-icon/` is generated:
+//! The mark is Human Centric Works' own artwork, the OSAS suite logo drawn in O-Draft's black: a
+//! half ring open to the right, a smaller half ring below the centre and a small ring at the
+//! centre, all white on a black plate. It is made of arcs, so it is drawn here directly (no image
+//! tools, no fonts): a pixel is white when its distance from the centre lies in a stroke's band
+//! and, for the half rings, its side of the centre is the drawn one. Everything under
+//! `assets/app-icon/` is generated:
 //!
-//! - `aad-logo.svg`: the vector source
+//! - `aad-logo.svg`: the vector source (the file names keep the project's code name)
 //! - `aad-1024.png`, `-256.png`, `-64.png`: the square icons
 //! - `aad-macos-512.png`: the rounded icon with a margin, for macOS
 //! - `hicolor/<n>x<n>/apps/io.github.holagundiworks.aad.png`: the Linux sizes
 //! - `aad.ico` (Windows) and `aad.icns` (macOS)
 //!
-//! Coordinates are those of the original 1254 x 1254 artwork. The PNG writer is a small deflate
-//! (fixed Huffman codes with greedy matching): the artwork is flat colour, so files stay small.
+//! Coordinates are those of a 194 x 194 box. The PNG writer is a small deflate (fixed Huffman
+//! codes with greedy matching): the artwork is flat colour, so files stay small.
 
 use std::path::Path;
 
-const ART: f64 = 1254.0;
-const BLUE: [f64; 3] = [0.0, 102.0, 255.0];
+/// The side of the artwork's box.
+const ART: f64 = 194.0;
+/// The plate, `#17181B`.
+const PLATE: [f64; 3] = [23.0, 24.0, 27.0];
 const WHITE: [f64; 3] = [255.0, 255.0, 255.0];
-/// The mark, clockwise from the top left of its top bar.
-const MARK: [(f64, f64); 8] =
-    [(740.0, 261.0), (934.0, 261.0), (934.0, 1043.0), (725.0, 1043.0), (725.0, 541.0), (210.0, 1043.0), (210.0, 783.0), (740.0, 261.0)];
-const CROSS_X: f64 = 897.5;
-const CROSS_Y: f64 = 342.0;
-const BOX: (f64, f64, f64, f64) = (872.0, 315.0, 925.0, 369.0);
-const STROKE: f64 = 1.6;
+/// The centre of the rings.
+const CENTRE: (f64, f64) = (107.0, 96.0);
+/// The C: the left half of a ring of radius 69 and stroke 18, from the top round the left.
+const C_BAND: (f64, f64) = (60.0, 78.0);
+/// The lower arc: the lower half of a ring of radius 50 and stroke 12.
+const ARC_BAND: (f64, f64) = (44.0, 56.0);
+/// The small ring: radius 18.5, stroke 5.
+const RING_BAND: (f64, f64) = (16.0, 21.0);
 
-pub const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" width="1254" height="1254">
-  <title>AAD - Accelerated Architecture Drafting</title>
-  <defs>
-    <clipPath id="mark"><path d="M740 261H934V1043H725V541L210 1043V783Z"/></clipPath>
-  </defs>
-  <rect width="1254" height="1254" fill="#0066ff"/>
-  <path d="M740 261H934V1043H725V541L210 1043V783Z" fill="#fff"/>
-  <g stroke="#fff" stroke-width="3.2" fill="none">
-    <line x1="0" y1="342" x2="1254" y2="342"/>
-    <line x1="897.5" y1="0" x2="897.5" y2="1254"/>
-  </g>
-  <g clip-path="url(#mark)" stroke="#0066ff" stroke-width="3.2" fill="none">
-    <line x1="0" y1="342" x2="1254" y2="342"/>
-    <line x1="897.5" y1="0" x2="897.5" y2="1254"/>
-    <rect x="872" y="315" width="53" height="54"/>
+pub const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 194 194" width="1254" height="1254">
+  <title>O-Draft</title>
+  <rect width="194" height="194" fill="#17181B"/>
+  <g fill="none" stroke="#fff">
+    <path d="M107 27A69 69 0 0 0 107 165" stroke-width="18"/>
+    <path d="M57 96A50 50 0 0 0 157 96" stroke-width="12"/>
+    <circle cx="107" cy="96" r="18.5" stroke-width="5"/>
   </g>
 </svg>
 "##;
 
+/// Whether the artwork point (x, y) is part of the white mark.
 fn in_mark(x: f64, y: f64) -> bool {
-    let mut inside = false;
-    let n = MARK.len() - 1;
-    for i in 0..n {
-        let ((x1, y1), (x2, y2)) = (MARK[i], MARK[i + 1]);
-        if (y1 > y) != (y2 > y) && x < x1 + (y - y1) * (x2 - x1) / (y2 - y1) {
-            inside = !inside;
-        }
-    }
-    inside
+    let (dx, dy) = (x - CENTRE.0, y - CENTRE.1);
+    let r = dx.hypot(dy);
+    let in_band = |band: (f64, f64)| r >= band.0 && r <= band.1;
+    (in_band(C_BAND) && dx <= 0.0) || (in_band(ARC_BAND) && dy >= 0.0) || in_band(RING_BAND)
 }
 
-fn on_crosshair(x: f64, y: f64) -> bool {
-    let (bx0, by0, bx1, by1) = BOX;
-    let line = (x - CROSS_X).abs() <= STROKE || (y - CROSS_Y).abs() <= STROKE;
-    let outer = x >= bx0 - STROKE && x <= bx1 + STROKE && y >= by0 - STROKE && y <= by1 + STROKE;
-    let inner = x > bx0 + STROKE && x < bx1 - STROKE && y > by0 + STROKE && y < by1 - STROKE;
-    line || (outer && !inner)
-}
-
-/// The colour of artwork point (x, y): blue or white.
-fn art(x: f64, y: f64, crosshair: bool) -> [f64; 3] {
-    let white = in_mark(x, y) ^ (crosshair && on_crosshair(x, y));
-    if white { WHITE } else { BLUE }
+/// The colour of artwork point (x, y): the black plate or the white mark.
+fn art(x: f64, y: f64) -> [f64; 3] {
+    if in_mark(x, y) { WHITE } else { PLATE }
 }
 
 /// One icon as RGBA. `mac`: the artwork sits in a rounded square with a margin on a transparent
@@ -78,8 +63,6 @@ fn render(size: u32, mac: bool) -> Vec<u8> {
     let s = f64::from(size);
     let (inner, off) = if mac { (s * 0.8125, s * 0.09375) } else { (s, 0.0) };
     let radius = if mac { inner * 0.2237 } else { 0.0 };
-    // The crosshair is too fine to read in a small icon.
-    let crosshair = size >= 128;
     let mut out = Vec::with_capacity((size * size * 4) as usize);
     for py in 0..size {
         for px in 0..size {
@@ -99,7 +82,7 @@ fn render(size: u32, mac: bool) -> Vec<u8> {
                             continue;
                         }
                     }
-                    let c = art(u / inner * ART, v / inner * ART, crosshair);
+                    let c = art(u / inner * ART, v / inner * ART);
                     for k in 0..3 {
                         acc[k] += c[k];
                     }
@@ -339,17 +322,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_mark_and_crosshair_follow_the_artwork() {
-        assert!(in_mark(800.0, 700.0), "the stem");
-        assert!(in_mark(400.0, 800.0), "the arm");
-        assert!(!in_mark(100.0, 100.0) && !in_mark(500.0, 400.0), "outside");
-        assert!(!in_mark(650.0, 900.0), "the notch under the arm");
-        // Blue ground, white mark; the crosshair is white on the ground and blue on the mark.
-        assert_eq!(art(100.0, 100.0, true), BLUE);
-        assert_eq!(art(800.0, 700.0, true), WHITE);
-        assert_eq!(art(CROSS_X, 100.0, true), WHITE);
-        assert_eq!(art(CROSS_X, 700.0, true), BLUE);
-        assert_eq!(art(CROSS_X, 700.0, false), WHITE);
+    fn the_mark_is_two_half_rings_and_a_small_ring_on_a_black_plate() {
+        // The C: the left half of the big ring, from the top (107, 27) round the left.
+        assert!(in_mark(107.0 - 69.0, 96.0), "left of the C");
+        assert!(in_mark(107.0, 27.0 + 1.0), "the top end of the C");
+        assert!(!in_mark(107.0 + 69.0, 96.0), "the big ring is open to the right");
+        // The lower arc: the lower half of the middle ring, from (57, 96) round the bottom to (157, 96).
+        assert!(in_mark(107.0, 96.0 + 50.0), "bottom of the lower arc");
+        assert!(in_mark(157.0 - 1.0, 96.0 + 1.0) && in_mark(57.0 + 1.0, 96.0 + 1.0), "its two ends");
+        assert!(!in_mark(107.0, 96.0 - 50.0), "no upper half");
+        // The small ring at the centre, hollow.
+        assert!(in_mark(107.0 + 18.5, 96.0) && in_mark(107.0, 96.0 - 18.5));
+        assert!(!in_mark(107.0, 96.0), "the middle of the small ring is empty");
+        assert!(!in_mark(5.0, 5.0), "the corner of the plate");
+        assert_eq!(art(5.0, 5.0), PLATE);
+        assert_eq!(art(107.0 - 69.0, 96.0), WHITE);
+    }
+
+    #[test]
+    fn the_plate_is_the_o_draft_black_and_the_svg_names_the_product() {
+        assert_eq!(PLATE, [23.0, 24.0, 27.0]);
+        assert!(SVG.contains("#17181B") && SVG.contains("<title>O-Draft</title>"));
+        assert!(!SVG.contains("Accelerated") && !SVG.contains("0066ff"));
+    }
+
+    #[test]
+    fn an_icon_is_black_with_a_white_mark_and_the_mac_icon_has_a_transparent_margin() {
+        let px = |rgba: &[u8], size: u32, x: u32, y: u32| {
+            let i = ((y * size + x) * 4) as usize;
+            [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+        };
+        let sq = render(256, false);
+        assert_eq!(px(&sq, 256, 3, 3), [23, 24, 27, 255], "plate");
+        assert_eq!(px(&sq, 256, 50, 127), [255, 255, 255, 255], "inside the C stroke");
+        let mac = render(256, true);
+        assert_eq!(px(&mac, 256, 2, 2)[3], 0, "margin");
+        assert_eq!(px(&mac, 256, 128, 128 + 5)[3], 255, "inside");
     }
 
     #[test]

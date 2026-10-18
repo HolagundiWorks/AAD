@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace Aad.WinUi;
 
-/// <summary>The AAD mark from <c>assets/app-icon</c>, copied beside the program.</summary>
+/// <summary>The O-Draft mark from <c>assets/app-icon</c>, copied beside the program.</summary>
 internal static class ShellIcon
 {
     public static void Apply(Window window)

@@ -558,7 +558,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     if ai_mode {
         let chip = Rect::from_min_size(pos2(bar.left() + 5.0, bar.top() + 4.0), vec2(22.0, h - 8.0));
         p.rect_filled(chip, 3.0, t.accent);
-        p.text(chip.center(), egui::Align2::CENTER_CENTER, "AI", crate::theme::small(), Color32::WHITE);
+        p.text(chip.center(), egui::Align2::CENTER_CENTER, "AI", crate::theme::small(), t.on_accent);
     } else {
         p.text(
             pos2(bar.left() + 8.0, bar.center().y),

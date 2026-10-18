@@ -23,7 +23,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packagingwindowspackage.ps1 
 4. Sign with `packaging/windows/sign.ps1` if signing secrets exist; otherwise the artifacts are
    unsigned and the script warns.
 
-Output: `dist/release/aad-<version>-windows-x64.msi` and `...-portable.zip`.
+Output: `dist/release/o-draft-<version>-windows-x64.msi` and `...-portable.zip`.
 
 ## Required at run time
 

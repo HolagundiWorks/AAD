@@ -4,7 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace Aad.WinUi;
 
-/// <summary>About AAD. The version comes from the host.</summary>
+/// <summary>About O-Draft. The version comes from the host.</summary>
 internal static class AboutWindow
 {
     private static Window? _window;
@@ -13,11 +13,11 @@ internal static class AboutWindow
     {
         var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
         var logo = new Image { Width = 64, Height = 64, HorizontalAlignment = HorizontalAlignment.Left, Source = ShellIcon.Logo() };
-        AutomationProperties.SetName(logo, "AAD");
+        AutomationProperties.SetName(logo, "O-Draft");
         var stack = new StackPanel { Spacing = 6, Margin = new Thickness(16) };
         stack.Children.Add(logo);
-        stack.Children.Add(new TextBlock { Text = "AAD", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        stack.Children.Add(new TextBlock { Text = "Accelerated Architecture Drafting" });
+        stack.Children.Add(new TextBlock { Text = "O-Draft", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        stack.Children.Add(new TextBlock { Text = "Drafting. Part of OSAS, the Open Source Architecture Suit." });
         if (version.Length > 0)
         {
             stack.Children.Add(new TextBlock { Text = "Version " + version });
@@ -28,7 +28,7 @@ internal static class AboutWindow
         _window?.Close();
         var window = new Window
         {
-            Title = "About AAD",
+            Title = "About O-Draft",
             Content = new Grid { RequestedTheme = theme, Children = { stack } },
         };
         ShellIcon.Apply(window);

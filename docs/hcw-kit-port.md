@@ -7,7 +7,7 @@ kit's README (`/HolagundiWorks/hcwCAD-KIT`). No C# source is included.
 
 ## Done
 
-| Area | AAD commands | Notes |
+| Area | O-Draft commands | Notes |
 |---|---|---|
 | Layer sets | `hcwlayers` `{set: hcw\|bp\|both}` | Creates missing layers only; unknown linetypes fall back to Continuous |
 | Room tools | `room.relabel`, `room.log`, `room.total`, `room.audit`, `room.check` | From `hcwtools.lsp` section 11 (MRELABEL, MSCHEDULE, MTOTAL, MAUDIT, MCHECK). The three lines of a room label are paired by position, not by drawing order, so a log and a total are right whatever order the labels were drawn in. MFLOOR is the active floor of `floors`, which `room` already uses |
@@ -33,7 +33,7 @@ measure cable length; `stair.plan` draws a plan only; no section is drawn from t
 ## To do (in order)
 
 1. Drawing tools: `DBCOUNT`, `DGRID`, `AUTOLABEL`, `INCARRAY`, `RENUMBERLAYOUTS`, `ROOMTEXTFIT`, `RTAG`, and the interactive prompt sequences for `txtalign` and `txtinc`.
-2. `WinLabel` (needs dynamic block properties, which AAD does not have), `TXTSTYLE` (a style picker; AAD has the text style commands).
+2. `WinLabel` (needs dynamic block properties, which O-Draft does not have), `TXTSTYLE` (a style picker; O-Draft has the text style commands).
 3. Notes and fields, title block.
 4. Wall edit, join, regenerate, hatch and adopt; escalators; column table; auto-dimension; sheet set and fit.
 

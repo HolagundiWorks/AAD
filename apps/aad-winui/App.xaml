@@ -7,6 +7,30 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- O-Draft's accent is black: ink #1B1C20 on the light theme and the light neutral #F6F5F1 on
+                 the dark theme, where black would not show. WinUI derives every accent fill, hover and
+                 pressed colour from these keys, so toggles, focus and selection follow. The values are
+                 the OSAS suite's Black accent (colour constants only, no code from Hcw.Ui). -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <Color x:Key="SystemAccentColor">#1B1C20</Color>
+                    <Color x:Key="SystemAccentColorLight1">#34363C</Color>
+                    <Color x:Key="SystemAccentColorLight2">#4B4E56</Color>
+                    <Color x:Key="SystemAccentColorLight3">#6B6E76</Color>
+                    <Color x:Key="SystemAccentColorDark1">#1B1C20</Color>
+                    <Color x:Key="SystemAccentColorDark2">#17181B</Color>
+                    <Color x:Key="SystemAccentColorDark3">#121316</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <Color x:Key="SystemAccentColor">#F6F5F1</Color>
+                    <Color x:Key="SystemAccentColorLight1">#F6F5F1</Color>
+                    <Color x:Key="SystemAccentColorLight2">#E4E3DE</Color>
+                    <Color x:Key="SystemAccentColorLight3">#D2D1CB</Color>
+                    <Color x:Key="SystemAccentColorDark1">#E4E3DE</Color>
+                    <Color x:Key="SystemAccentColorDark2">#D2D1CB</Color>
+                    <Color x:Key="SystemAccentColorDark3">#BEBDB7</Color>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

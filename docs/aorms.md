@@ -1,11 +1,11 @@
 # AORMS connection
 
-AAD can sign in to AORMS (the office-management web portal) and pull project information into a drawing. It is optional: signed out, AAD is a complete standalone drafting program. The wire contract and the rules shared with the other AORMS desktop app (AQC) are in `docs/esti/AORMS-SUITE-SIGNIN.md` in the AORMS repository (contract `2026-10-aqc-1`).
+O-Draft can sign in to AORMS (the office-management web portal) and pull project information into a drawing. It is optional: signed out, O-Draft is a complete standalone drafting program. The wire contract and the rules shared with the other AORMS desktop app (AQC) are in `docs/esti/AORMS-SUITE-SIGNIN.md` in the AORMS repository (contract `2026-10-aqc-1`).
 
 ## In the interface
 
 * **AORMS menu** (Sign in, Sign out, Status, Projects, Pull project info, Refresh project info, Drawings) — chosen from the menu or typed with no parameters, a command opens the **AORMS dialog**; the same command with JSON parameters (`app.run`, scripts, MCP, control channel) runs the engine command and never opens a dialog.
-* **Dialog:** signed out — e-mail, password (masked), a collapsible *Server* field (https, or http to this computer), *Sign in* (Enter also submits), Esc closes; errors are explained in words (wrong password, not linked, pending, rate limit with seconds, plan not connected with the reason, offline). Signed in — studio, e-mail · role · plan, the studio's project list with search, *Pull project info*, *Refresh* for the project this drawing is linked to, *Reload list*, *Sign out*. Signed in on this computer (another AORMS app's login) but AAD has no session — *Connect AAD* (never silent: it replaces another computer's AAD session).
+* **Dialog:** signed out — e-mail, password (masked), a collapsible *Server* field (https, or http to this computer), *Sign in* (Enter also submits), Esc closes; errors are explained in words (wrong password, not linked, pending, rate limit with seconds, plan not connected with the reason, offline). Signed in — studio, e-mail · role · plan, the studio's project list with search, *Pull project info*, *Refresh* for the project this drawing is linked to, *Reload list*, *Sign out*. Signed in on this computer (another AORMS app's login) but O-Draft has no session — *Connect O-Draft* (never silent: it replaces another computer's O-Draft session).
 * **Status-bar chip** left of the units button: `AORMS` (Community, not signed in) / `AORMS · <studio>` (connected) / `AORMS · !` (signed in, not connected) / `AORMS …` (working). Click opens the dialog.
 * **No freezing:** every network call runs on a worker thread (`crates/ui-egui/src/aorms_ui.rs`): the job takes the client out of the session, runs, and hands it back with the result; the drawing is only touched on the UI thread, through the `aorms.apply` command, so a pull is **one undo step** and changes only project details and floors, never geometry.
 * **Preferences** save the e-mail and server only. The password is cleared from the text field the moment the sign-in starts and is never stored, logged or saved; no token is ever in the preferences (the refresh token lives in the OS credential store).
@@ -18,7 +18,7 @@ Crate `aad-aorms` (layer 3, native only; the web build compiles it to "not avail
 
 | Command | Does |
 |---|---|
-| `aorms.signin {email, password, baseUrl?}` | Password sign-in, then this app's session (`app: "aad"`; one active session per user per app, so AAD and AQC do not replace each other). `baseUrl` must be https, or http to this computer; default `https://aorms.in` or `$AORMS_URL`. |
+| `aorms.signin {email, password, baseUrl?}` | Password sign-in, then this app's session (`app: "aad"`; one active session per user per app, so O-Draft and AQC do not replace each other). `baseUrl` must be https, or http to this computer; default `https://aorms.in` or `$AORMS_URL`. |
 | `aorms.restore` | Silent start-up from the shared sign-in. Never takes a session over. |
 | `aorms.signout` | Ends the shared sign-in (the other AORMS app finds it empty and asks to sign in). |
 | `aorms.status` | Signed in / connected, studio, role, plan, and the project this drawing is linked to. |
@@ -32,13 +32,13 @@ Rules: portal data reaches the drawing only on `aorms.open` / `aorms.pull`, only
 
 ## Licence
 
-The AORMS login is the licence: a studio on the Studio plan or higher, not expired, gets connected mode. Anything else gets a clear reason from `aorms.signin` and AAD carries on unchanged. The check is made by the server; AAD is open source, so a client-side check could be removed.
+The AORMS login is the licence: a studio on the Studio plan or higher, not expired, gets connected mode. Anything else gets a clear reason from `aorms.signin` and O-Draft carries on unchanged. The check is made by the server; O-Draft is open source, so a client-side check could be removed.
 
 ## Shared sign-in
 
 The refresh token is kept in one OS credential shared with other AORMS desktop apps: target `AORMS/Connect`, blob `{"v":1,"refreshToken","email","updatedAt"}` (`updatedAt` Unix seconds). Each app keeps only its own session id in its own entry (`AORMS/Connect/aad`). Refresh tokens rotate, so before refreshing the client re-reads the shared credential, writes the rotated token back immediately, and on a refusal retries once if the shared token changed in the meantime (implemented and unit-tested).
 
-The OS store (`KeyringStore`) is behind the cargo feature `keyring-store` (engine feature `aorms-keyring`); the desktop app turns it on, library users and CI do not (then the sign-in is kept in memory only and is lost when AAD closes). **Not yet verified:** the credential store itself on Windows, and two apps refreshing within seconds of each other.
+The OS store (`KeyringStore`) is behind the cargo feature `keyring-store` (engine feature `aorms-keyring`); the desktop app turns it on, library users and CI do not (then the sign-in is kept in memory only and is lost when O-Draft closes). **Not yet verified:** the credential store itself on Windows, and two apps refreshing within seconds of each other.
 
 ## Tested
 

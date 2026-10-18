@@ -1,6 +1,6 @@
 # Developer guide and rules for coding agents
 
-AAD (2D drafting fork) is an open-source, pure-Rust 2D computer-aided drafting application for
+O-Draft (2D drafting fork) is an open-source, pure-Rust 2D computer-aided drafting application for
 architectural and civil work. It is a Windows-only program for now: macOS, Linux and the web are later phases. Start with [README.md](README.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
 [docs/status.md](docs/status.md) (what exists and what is only planned).
 
@@ -24,7 +24,7 @@ A crash loses someone's drawing. **This outranks feature work.**
 
 ## Non-negotiables
 - **Clean-room.** Never read, disassemble or copy anything from Autodesk software; never copy Autodesk fonts (SHX), hatch patterns (`.pat`), linetypes (`.lin`), templates, CUI/PGP files, icons, artwork or help text; never commit files produced by AutoCAD. File formats come from public specifications (Autodesk's published DXF Reference, the Open Design Alliance's public DWG specification) and our own synthetic tests. Never copy or link GPL/LGPL/AGPL code (LibreDWG, LibreCAD, QCAD, SolveSpace, OpenCASCADE).
-- **Assets.** AAD contains no Autodesk, Adobe or Avid iconography, images, fonts, patterns or artwork. Every icon is drawn in code (`crates/ui-egui/src/icons.rs`), every hatch pattern and linetype is our own definition (`crates/doc/src/library.rs`), the drafting font is our own (`crates/fonts/src/stroke.rs`). Any file asset must be original, public domain/CC0, OSI-licensed or redistributable Creative Commons, and must have a row in `ATTRIBUTION.md` (`cargo xtask assets` enforces it).
+- **Assets.** O-Draft contains no Autodesk, Adobe or Avid iconography, images, fonts, patterns or artwork. Every icon is drawn in code (`crates/ui-egui/src/icons.rs`), every hatch pattern and linetype is our own definition (`crates/doc/src/library.rs`), the drafting font is our own (`crates/fonts/src/stroke.rs`). Any file asset must be original, public domain/CC0, OSI-licensed or redistributable Creative Commons, and must have a row in `ATTRIBUTION.md` (`cargo xtask assets` enforces it).
 - **Fonts** are never committed. They are an optional build input (`CRAFT_FONTS_DIR`); code and tests must work without them.
 - **Everything is a command.** User-visible behaviour is a command in `crates/engine/src/cmd/*` (`CommandSpec`: id, label, menu path, shortcut, aliases, params doc, `enabled`, JSON `run`, optional `interactive` prompt machine) with tests. UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools reach the same commands. New features reuse existing commands where possible.
 - **Programmatic calls never open dialogs.** `engine.execute` runs the JSON form with defaults; only menu or toolbar invocation starts the prompt sequence.

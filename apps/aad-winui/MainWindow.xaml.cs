@@ -1778,7 +1778,7 @@ public sealed partial class MainWindow : Window
         void ShowCommands() => CommandList.Show(this, Native.ReadText(_host, Native.TextMenu));
         commands.Click += (_, _) => ShowCommands();
         BindAccel(commands, "F1", ShowCommands, mapId: "");
-        var about = new MenuFlyoutItem { Text = "About AAD", Tag = "shell.about" };
+        var about = new MenuFlyoutItem { Text = "About O-Draft", Tag = "shell.about" };
         about.Click += (_, _) => AboutWindow.Show(this, VersionText());
         help.Items.Add(commands);
         help.Items.Add(about);

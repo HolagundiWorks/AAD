@@ -1,6 +1,6 @@
 [package]
 name = "aad"
-description = "AAD desktop app"
+description = "O-Draft desktop app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

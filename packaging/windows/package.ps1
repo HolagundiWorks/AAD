@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-  Build, sign and package AAD for Windows.
+  Build, sign and package O-Draft for Windows.
 
 .DESCRIPTION
   Produces, in $env:DIST (default: dist/release):
-    aad-<version>-windows-<arch>.msi            per-machine installer (WiX v5)
-    aad-<version>-windows-<arch>-portable.zip   aad.exe, aad-cli.exe, and on x64 the WinUI shell
+    o-draft-<version>-windows-<arch>.msi          per-machine installer (WiX v5)
+    o-draft-<version>-windows-<arch>-portable.zip   aad.exe, aad-cli.exe, and on x64 the WinUI shell
 
   The binaries link the C runtime statically (+crt-static), so neither the MSI nor the portable
   zip needs the Visual C++ redistributable. The WinUI shell is self-contained for the Windows
@@ -58,7 +58,7 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 if (-not $env:AAD_BUILD_SHA) { $env:AAD_BUILD_SHA = (git -C $Root rev-parse HEAD 2>$null) }
 if (-not $env:AAD_BUILD_DATE) { $env:AAD_BUILD_DATE = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd') }
 
-Write-Output "AAD $Version for Windows $Arch ($Target)"
+Write-Output "O-Draft $Version for Windows $Arch ($Target)"
 
 if (-not $SkipBuild) {
   # Static CRT: no VC++ redistributable needed. Scoped to the target so host build scripts and
@@ -169,11 +169,11 @@ if ($Assistant) {
 }
 
 # ---- MSI ---------------------------------------------------------------------------------------
-# Two editions: aad-<version> (the drafting application) and aad-ai-<version> (also the local
+# Two editions: o-draft-<version> (the drafting application) and o-draft-ai-<version> (also the local
 # assistant and its model). They are alternatives of one product: installing either replaces the
 # other in the same folder.
-$Edition = if ($Assistant) { "aad-ai" } else { "aad" }
-$ProductName = if ($Assistant) { "AAD with AI assistant" } else { "AAD" }
+$Edition = if ($Assistant) { "o-draft-ai" } else { "o-draft" }
+$ProductName = if ($Assistant) { "O-Draft with AI assistant" } else { "O-Draft" }
 $Msi = Join-Path $Dist "$Edition-$Version-windows-$Arch.msi"
 Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot 'aad.wxs') -arch $Arch -ext WixToolset.UI.wixext `

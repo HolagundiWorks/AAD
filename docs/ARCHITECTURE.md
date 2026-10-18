@@ -12,12 +12,12 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 |---|---|---|
 | L0 | `geom` | f64 vectors and matrices, bounds, lines, arcs and bulges, circles, ellipses, B-splines, intersections, tessellation, planar region tracing for HATCH and BOUNDARY |
 | L0 | `dxf` | Standalone DXF tag reader and writer (ASCII and binary), tag-count limits for hostile input |
-| L0 | `vdb` | AAD `.vdb` store on [ShilpiDB](https://github.com/HolagundiWorks/shilpidb): embedded codec + `SpatialGrid`, and `VdbClient` for `shilpid` ([aadt-shilpidb-architecture.md](architecture/aadt-shilpidb-architecture.md)) |
+| L0 | `vdb` | O-Draft `.vdb` store on [ShilpiDB](https://github.com/HolagundiWorks/shilpidb): embedded codec + `SpatialGrid`, and `VdbClient` for `shilpid` ([aadt-shilpidb-architecture.md](architecture/aadt-shilpidb-architecture.md)) |
 | L1 | `color` | Colour index table, true colour, ByLayer and ByBlock, display colour against the background |
 | L1 | `doc` | The drawing database: header, symbol tables, blocks, model space, layouts; copy-on-write `EntityStore`; hatch pattern and linetype library (`library.rs`) |
 | L2 | `fonts` | Single-stroke drafting font, TrueType/OpenType outlines through `skrifa`, text and MTEXT layout, font fallback |
 | L2 | `render` | Display lists (linetypes, hatches, text, blocks, dimension geometry, paper-space clipping); CPU rasteriser for PNG, plot preview and tests |
-| L3 | `io` | DXF to document mapping (`dxf_read.rs`, `dxf_write.rs`, AAD extension data in `dxf_ext.rs`), PDF plotting, SVG and PNG export |
+| L3 | `io` | DXF to document mapping (`dxf_read.rs`, `dxf_write.rs`, O-Draft extension data in `dxf_ext.rs`), PDF plotting, SVG and PNG export |
 | L3 | `dwg` | DWG through a DXF bridge: the `acadrust` crate (MPL-2.0, unmodified) converts DWG and DXF bytes; native builds only. The apps run the conversion in a worker process (`isolated.rs`) so a damaged file cannot abort the program |
 | standalone | `llm` | Offline language-model runtime facade (Qwen3 prompt format, model file check). The llama.cpp backend is behind the off-by-default `llama` feature and is not wired into the apps yet ([ai-agent.md](ai-agent.md)) |
 | L4 | `engine` | `Session`, the command registry (`cmd/*`), command-line parser and prompt machines, object snaps, selection, grips, associativity, system variables, units, undo, audit (`audit.rs`), flatten on import (`flatten.rs`) |
@@ -75,7 +75,7 @@ DXF is the native path: `dxf` parses tags, `io::dxf_read` maps them to the docum
 `io::dxf_write` writes an R2000 (AC1015) DXF. DWG is converted to DXF in memory by `acadrust` and
 read through the same path; saving DWG writes DXF and converts it back. AAD-only data
 (associativity details, layer states, plot style tables, table flags, hatch gradients) travels in
-extension data under the application name `AAD`. Object types AAD does not model are kept
+extension data under the application name `AAD`. Object types O-Draft does not model are kept
 as raw data when read and are not written back; saving reports them.
 
 ## Automation

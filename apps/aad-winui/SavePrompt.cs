@@ -28,7 +28,7 @@ internal static class SavePrompt
         stack.Children.Add(row);
         var window = new Window
         {
-            Title = "AAD",
+            Title = "O-Draft",
             Content = new Grid { RequestedTheme = theme, Children = { stack } },
         };
         var answered = false;

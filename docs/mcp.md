@@ -1,6 +1,6 @@
-# AAD and AI agents (MCP)
+# O-Draft and AI agents (MCP)
 
-AAD speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio.
+O-Draft speaks the [Model Context Protocol](https://modelcontextprotocol.io) over stdio.
 
 ## Start it
 

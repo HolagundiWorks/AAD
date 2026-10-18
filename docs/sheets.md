@@ -36,7 +36,7 @@ title block works too.
 
 A saved layout is everything on the sheet except its viewports (border, title block, notes), the
 blocks they use, and the page setup. `sheet.template.save {name, scope}` keeps it in the drawing
-(`drawing`, travels with the file) or as a file for the user (`user`, in the AAD settings folder, or
+(`drawing`, travels with the file) or as a file for the user (`user`, in the O-Draft settings folder, or
 in `folder` for a folder shared by an office). `sheet.template.apply {name, layout?, fields?}` sets
 the page up, places the objects and fills the fields. Applying again replaces what an earlier
 template put on that layout, never what you drew. A damaged template is refused and changes

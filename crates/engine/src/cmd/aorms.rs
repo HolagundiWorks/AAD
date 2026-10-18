@@ -136,7 +136,7 @@ fn client<'a>(s: &'a mut Session, cmd: &str, p: &Value) -> Result<&'a mut Client
 
 /// The label this computer shows in AORMS ("AAD <version> · <computer>").
 pub fn client_label() -> String {
-    format!("AAD {} · {}", env!("CARGO_PKG_VERSION"), computer())
+    format!("O-Draft {} · {}", env!("CARGO_PKG_VERSION"), computer())
 }
 
 fn computer() -> String {

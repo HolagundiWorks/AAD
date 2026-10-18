@@ -1,6 +1,6 @@
 # ShilpiDB layers and AI agents
 
-Guidance for storing AAD drawings in `.vdb` so assistants can reason over
+Guidance for storing O-Draft drawings in `.vdb` so assistants can reason over
 spatial hits. Implemented behaviour stays in [status.md](../status.md); this
 note is the convention the export payload and future codecs follow.
 

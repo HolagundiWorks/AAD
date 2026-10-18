@@ -13,7 +13,7 @@ separates what exists from what is planned ([status.md](status.md) holds the ove
 | Project data in the drawing (details, floors, heights, schedules) | `cmd/project.rs`, `Drawing::project` | Implemented |
 | Schedules and take-off | `cmd/schedule.rs`, `cmd/takeoff.rs` | Implemented; no opening *type* field, generated opening blocks or reconciliation report |
 | Sheets and batch plot | `cmd/sheet.rs`, `plot.batch` | Implemented; no title block or nameplate with fields |
-| File formats | `crates/io` | DXF read and write; DWG read. The project files AAD writes are DXF |
+| File formats | `crates/io` | DXF read and write; DWG read. The project files O-Draft writes are DXF |
 | Wizard UI, template manager, company profiles, nameplates, recovery | none | Not built (before this work) |
 
 Constraints found: identities in `project.aad.json` are names, not ids (renaming a floor breaks its

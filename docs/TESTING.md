@@ -1,6 +1,6 @@
 # Testing strategy
 
-How AAD is tested, what each layer is for, how to run it, and how to add to it. Windows is the
+How O-Draft is tested, what each layer is for, how to run it, and how to add to it. Windows is the
 supported platform for now.
 
 ## Run everything locally
