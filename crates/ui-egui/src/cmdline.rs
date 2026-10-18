@@ -412,6 +412,10 @@ fn space(app: &mut CadApp) {
         app.cmd.buffer = e.insert;
         submit(app);
     } else if crate::cmdinput::space_executes(&app.cmd.buffer, false) {
+        // A whole name or alias runs under its command name, as Enter does, so the history matches.
+        if let Some(name) = crate::cmdinput::exact_command(&app.cmd.buffer) {
+            app.cmd.buffer = name;
+        }
         submit(app);
     } else if let Some(first) = first_suggestion(app) {
         // A half-typed name: Space starts the first command in the list.

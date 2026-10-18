@@ -123,6 +123,15 @@ pub fn command_entries(prefix: &str) -> Vec<Entry> {
     v.into_iter().map(|(id, label)| Entry { insert: id, label: label.to_string(), dim: false, note: String::new(), reference: false }).collect()
 }
 
+/// The command name (upper case) for a whole command name or alias; `None` for anything else.
+pub fn exact_command(buffer: &str) -> Option<String> {
+    let t = buffer.trim();
+    command_entries(t).into_iter().next().map(|e| e.insert).filter(|id| {
+        id.eq_ignore_ascii_case(t)
+            || aad_engine::command_specs().iter().any(|c| c.id.eq_ignore_ascii_case(id) && c.aliases.iter().any(|a| a.eq_ignore_ascii_case(t)))
+    })
+}
+
 /// Replace the word being typed with `insert` plus a space, so the next word can follow.
 pub fn accept_reference(buffer: &str, insert: &str) -> String {
     let cut = buffer.len() - current_word(buffer).len();
