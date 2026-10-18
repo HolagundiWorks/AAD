@@ -255,7 +255,7 @@ pub struct Host {
     /// Set by `app.quit` on the control channel; the shell closes when chrome reports it.
     quit_requested: bool,
     /// A drawing being read on a worker thread: its path and the channel the result arrives on.
-    loading: Option<(String, std::sync::mpsc::Receiver<Result<aad_engine::doc::Drawing, String>>)>,
+    loading: Option<(String, std::sync::mpsc::Receiver<Result<aad_engine::cmd::file::Prepared, String>>)>,
     /// A drawing being written on a worker thread.
     saving: Option<(Arc<aad_engine::cmd::file::SaveJob>, std::sync::mpsc::Receiver<Result<usize, String>>)>,
     /// A plot being built on a worker thread.

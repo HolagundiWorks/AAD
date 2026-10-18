@@ -20,7 +20,7 @@ claim that a feature works; it lists where the documents and the code disagree o
 
 | Item | Where | Note |
 |---|---|---|
-| Open, save and plot ran on the UI thread (UI-003) | WinUI shell | Fixed for the file-picker path: worker threads behind `aad_host_*_start`/`_poll`. Launch-time files, control-channel calls, the batch plot and the PDF preview are still synchronous |
+| Open, save and plot ran on the UI thread (UI-003) | WinUI shell | Fixed for the file-picker path: worker threads behind `aad_host_*_start`/`_poll`. Launch-time files are opened the same way. Control-channel calls, the batch plot and the PDF preview are still synchronous |
 | DWG parse 1.2 to 1.5 s | `aad-dwg` worker | Not profiled below the worker boundary |
 | Viewport pan in layouts rebuilds every frame | `aad-render` | 52 ms at 100 000 entities |
 | Quality gate does not pass on the working tree | `cargo xtask ci` | `cargo fmt --check` fails on uncommitted files of the ShilpiDB work, and clippy reports `manual_range_contains` at `crates/vdb/src/file.rs:146` |

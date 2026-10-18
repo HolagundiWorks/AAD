@@ -167,14 +167,15 @@ public sealed partial class MainWindow : Window
         RefreshPanels();
         ApplyShellTheme();
         Listen();
-        OpenLaunchFiles();
+        _ = OpenLaunchFiles();
         StartLogo.Source = ShellIcon.Logo();
         ApplyAccess();
         PlaceCommandBar();
         CommandInput.Focus(FocusState.Programmatic);
     }
 
-    private void OpenLaunchFiles()
+    /// <summary>Open the files given on the command line, one after the other, without blocking the window.</summary>
+    private async Task OpenLaunchFiles()
     {
         foreach (var path in _launch.Files)
         {
@@ -182,12 +183,11 @@ public sealed partial class MainWindow : Window
             {
                 continue;
             }
-            if (Native.Execute(_host, "open", PathJson(path)) != 0)
+            if (!await OpenFileAsync(path))
             {
                 History.Text = Native.LastError(_host);
                 continue;
             }
-            Native.Execute(_host, "zoom.extents", "{}");
             _docKey = "";
         }
         if (_launch.Project is { } project && _launch.Files.Count > 0)
