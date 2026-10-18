@@ -187,10 +187,14 @@ fn dyn_boxes(prompt: &aad_engine::Prompt, frame: &aad_engine::dyninput::Frame, d
         let deg = (base.angle_to(aim).to_degrees() * 10.0).round() / 10.0;
         return ("Length".into(), "Angle".into(), dist(base.dist(aim)), format!("{deg:.1}°"), 0);
     }
-    if aim.is_finite() {
-        return ("X".into(), "Y".into(), dist(aim.x), dist(aim.y), 0);
-    }
-    ("X".into(), "Y".into(), String::new(), String::new(), 0)
+    // No live X and Y readout: the cursor shows what is being entered, not where it is.
+    (String::new(), String::new(), String::new(), String::new(), 0)
+}
+
+/// What is typed while no point is being asked for: the command name or the answer, near the cursor.
+fn draft_box(draft: &str, running: bool) -> (String, String, String, String, i32) {
+    let label = if running { "Input" } else { "Command" };
+    (label.into(), String::new(), draft.chars().take(24).collect(), String::new(), 0)
 }
 
 /// One editing session and, on Windows, its drawing surface.
@@ -416,13 +420,22 @@ impl Host {
         let Some(screen) = self.screen.filter(|point| point.is_finite()) else {
             return serde_json::json!({ "on": false });
         };
-        let Some(frame) = self.dyn_frame() else {
+        if !self.session.settings.dynmode || self.hot.is_some() || self.session.pending_window.is_some() {
             return serde_json::json!({ "on": false });
-        };
-        let Some(prompt) = self.session.current_prompt() else {
+        }
+        let running = self.session.running.is_some();
+        // Assistant requests (a `/` request or a sentence) are written in the command bar only.
+        if !running && matches!(bar::classify(&self.draft), bar::Kind::Reference | bar::Kind::Natural) {
             return serde_json::json!({ "on": false });
+        }
+        let (a_label, b_label, a, b, active) = match (self.session.current_prompt(), self.dyn_frame()) {
+            (Some(prompt), Some(frame)) => dyn_boxes(&prompt, &frame, &self.draft, self.aim),
+            _ if !self.draft.trim().is_empty() => draft_box(self.draft.trim_start(), running),
+            _ => return serde_json::json!({ "on": false }),
         };
-        let (a_label, b_label, a, b, active) = dyn_boxes(&prompt, &frame, &self.draft, self.aim);
+        if a.is_empty() && b.is_empty() {
+            return serde_json::json!({ "on": false });
+        }
         serde_json::json!({
             "on": true,
             "x": screen.x,
@@ -2203,6 +2216,35 @@ mod tests {
         assert_eq!(chrome["dyn"]["aLabel"], "Length");
         assert_eq!(chrome["dyn"]["bLabel"], "Angle");
         assert!(!chrome["dyn"]["a"].as_str().unwrap_or("").is_empty());
+    }
+
+    #[test]
+    fn dyn_chrome_shows_the_typed_command_not_the_coordinates_and_leaves_assistant_requests_to_the_bar() {
+        let mut host = Host::create(false);
+        let mv = |h: &mut Host| h.pointer(Pointer { x: 100.0, y: 40.0, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
+        let dynamic = |h: &Host| -> serde_json::Value { serde_json::from_str::<serde_json::Value>(&h.chrome_json()).unwrap()["dyn"].clone() };
+        // Idle with nothing typed: no X and Y readout follows the cursor.
+        mv(&mut host);
+        assert_eq!(dynamic(&host)["on"], false);
+        // A command being typed shows beside the cursor.
+        host.set_draft("lin").unwrap();
+        let d = dynamic(&host);
+        assert_eq!((d["on"].clone(), d["aLabel"].clone(), d["a"].clone(), d["bLabel"].clone()), (json!(true), json!("Command"), json!("lin"), json!("")));
+        assert_eq!(d["x"], 100.0);
+        // An assistant request, `/` or a sentence, stays in the command bar.
+        host.set_draft("/ what layers are there").unwrap();
+        assert_eq!(dynamic(&host)["on"], false);
+        host.set_draft("what is in this drawing").unwrap();
+        assert_eq!(dynamic(&host)["on"], false);
+        host.set_draft("").unwrap();
+        // While a command waits for a point with no base point yet there is still no coordinate readout.
+        host.submit("LINE").unwrap();
+        mv(&mut host);
+        assert_eq!(dynamic(&host)["on"], false);
+        // A typed answer shows as input, and the same words are not taken for a request while a command runs.
+        host.set_draft("what is this").unwrap();
+        let d = dynamic(&host);
+        assert_eq!((d["on"].clone(), d["a"].clone()), (json!(true), json!("what is this")));
     }
 
     #[test]

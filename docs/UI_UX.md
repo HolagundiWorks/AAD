@@ -62,7 +62,7 @@ window size is defined or documented.
 
 - Opening, saving and plotting run on the UI thread and have no progress display.
 - Files are opened through a platform file dialog supplied by the app; there is none in headless runs.
-- The Plot window and dynamic input have no automated UI test.
+- The Plot window has no automated UI test. Dynamic input is covered by host tests (`aad-host`: what shows beside the cursor, and that assistant requests do not).
 - No screenshot baselines are approved, so visual regressions are not detected automatically.
 
 ## Automation coverage
@@ -70,3 +70,12 @@ window size is defined or documented.
 Click-driven drawing workflow (`drawing_workflow`), a walk over every menu entry (`menu_integrity`),
 docking, workspaces, context menu, dialogs, widgets, status-bar geometry, and the control channel.
 See [TESTING.md](TESTING.md) and [UI_TESTING_STRATEGY.md](UI_TESTING_STRATEGY.md).
+
+## Dynamic input beside the cursor (WinUI)
+
+The cursor fields show what is being entered, not where the cursor is: there is no live X and Y
+readout. While a command asks for a point after its first point, Length and Angle follow the cursor
+and typed values replace them (`40`, `40<90`, `40,30`). A command name or answer typed at the
+command line shows beside the cursor as Command (nothing running) or Input (a command running). An
+assistant request, a line starting with `/` or a sentence typed with no command running, is
+written in the command bar only and never shown beside the cursor.
