@@ -218,7 +218,7 @@ fn run_schedule(s: &mut Session, p: &Value) -> Result<Value> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("hcwschedule", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": HCW_LAYERS.len(), "path": _path }));
+                Ok(json!({ "count": HCW_LAYERS.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("hcwschedule", "paths are not available on the web; omit `path` to get the CSV text"))

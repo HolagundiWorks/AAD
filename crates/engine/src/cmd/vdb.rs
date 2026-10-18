@@ -113,18 +113,18 @@ fn run_query(_s: &mut Session, p: &Value) -> Result<Value> {
         let mut hits = Vec::with_capacity(shown_ids.len());
         for id in &shown_ids {
             let mut hit = json!({ "id": id });
-            if let Some(record) = store.records().iter().find(|r| r.id == *id) {
-                if let Ok(text) = std::str::from_utf8(&record.payload) {
-                    let mut parts = text.split('\t');
-                    if let Some(handle) = parts.next() {
-                        hit["handle"] = json!(handle);
-                    }
-                    if let Some(kind) = parts.next() {
-                        hit["type"] = json!(kind);
-                    }
-                    if let Some(layer) = parts.next() {
-                        hit["layer"] = json!(layer);
-                    }
+            if let Some(record) = store.records().iter().find(|r| r.id == *id)
+                && let Ok(text) = std::str::from_utf8(&record.payload)
+            {
+                let mut parts = text.split('\t');
+                if let Some(handle) = parts.next() {
+                    hit["handle"] = json!(handle);
+                }
+                if let Some(kind) = parts.next() {
+                    hit["type"] = json!(kind);
+                }
+                if let Some(layer) = parts.next() {
+                    hit["layer"] = json!(layer);
                 }
             }
             hits.push(hit);

@@ -880,7 +880,7 @@ impl PlotJob {
     /// Build the PDF and, given a `path`, write it there; without one the result carries base64 `data`.
     pub fn run(&self) -> std::result::Result<Value, String> {
         let fail = |e: String| e;
-        let bytes = (self.hook)(&self.doc, &self.space, &self.opts).map_err(&fail)?;
+        let bytes = (self.hook)(&self.doc, &self.space, &self.opts).map_err(fail)?;
         let layout = match &self.space {
             Space::Model => "Model".to_string(),
             Space::Paper(n) => n.clone(),

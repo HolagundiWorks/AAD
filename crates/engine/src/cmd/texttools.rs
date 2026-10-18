@@ -270,7 +270,7 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("txtexport", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": hs.len(), "path": _path }));
+                Ok(json!({ "count": hs.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("txtexport", "paths are not available on the web; omit `path` to get the CSV text"))

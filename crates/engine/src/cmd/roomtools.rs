@@ -172,7 +172,7 @@ fn run_log(s: &mut Session, p: &Value) -> Result<Value> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("room.log", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": rooms.len(), "rooms": list, "path": _path }));
+                Ok(json!({ "count": rooms.len(), "rooms": list, "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("room.log", "paths are not available on the web; omit `path` to get the CSV text"))

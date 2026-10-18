@@ -476,7 +476,7 @@ fn run_report(s: &mut Session, p: &Value) -> Result<Value> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("bpltreport", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": counts.len(), "path": _path }));
+                Ok(json!({ "count": counts.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("bpltreport", "paths are not available on the web; omit `path` to get the CSV text"))

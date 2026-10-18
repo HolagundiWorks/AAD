@@ -24,10 +24,10 @@ const K: [u32; 64] = [
 /// SHA-256 of `data` (FIPS 180-4).
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut h: [u32; 8] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
-    let mut block = |chunk: &[u8]| {
+    let mut block = |chunk: &[u8; 64]| {
         let mut w = [0u32; 64];
-        for (i, word) in chunk.chunks_exact(4).enumerate().take(16) {
-            w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+        for (i, word) in chunk.as_chunks::<4>().0.iter().enumerate() {
+            w[i] = u32::from_be_bytes(*word);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
@@ -48,19 +48,18 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
             *a = a.wrapping_add(b);
         }
     };
-    let mut chunks = data.chunks_exact(64);
-    for chunk in &mut chunks {
+    let (chunks, rest) = data.as_chunks::<64>();
+    for chunk in chunks {
         block(chunk);
     }
     // Padding: 0x80, zeros, then the bit length as a big-endian u64.
-    let rest = chunks.remainder();
     let mut tail = [0u8; 128];
     tail[..rest.len()].copy_from_slice(rest);
     tail[rest.len()] = 0x80;
     let used = if rest.len() < 56 { 64 } else { 128 };
     let bits = (data.len() as u64).wrapping_mul(8);
     tail[used - 8..used].copy_from_slice(&bits.to_be_bytes());
-    for chunk in tail[..used].chunks_exact(64) {
+    for chunk in tail[..used].as_chunks::<64>().0 {
         block(chunk);
     }
     let mut out = [0u8; 32];
