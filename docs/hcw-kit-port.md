@@ -11,6 +11,7 @@ kit's README (`/HolagundiWorks/hcwCAD-KIT`). No C# source is included.
 |---|---|---|
 | Layer sets | `hcwlayers` `{set: hcw\|bp\|both}` | Creates missing layers only; unknown linetypes fall back to Continuous |
 | Room tools | `room.relabel`, `room.log`, `room.total`, `room.audit`, `room.check` | From `hcwtools.lsp` section 11 (MRELABEL, MSCHEDULE, MTOTAL, MAUDIT, MCHECK). The three lines of a room label are paired by position, not by drawing order, so a log and a total are right whatever order the labels were drawn in. MFLOOR is the active floor of `floors`, which `room` already uses |
+| Legacy toolkit | `vhlayers`, `layermap`, `deleteareatext`, `polyarea` | `vhlayers`: the 75-layer VH set. `layermap` takes a map of old to new layer names (no dialog), moves objects in every space, and can purge the emptied layers; objects on locked layers stay. `polyarea` closes open polylines first unless `close` is false |
 | Building permission (BPLT) | `bpltstart`, `bpltlayers`, `bpltcopy`, `bpltcheck`, `bpltarea`, `bpltreport`, `bplttitleblock` | From `hcwtools.lsp` section 6 and 9, for the BBMP BPAS / AutoPlan workflow: metres at 1:1, 65 BP- drafting layers and 27 non-plotting AP- marking layers. `bpltstart` scales the model to metres from `INSUNITS` once (skipping locked layers) and sets `BPLT-DIM`. `bpltcheck` and `bpltarea` read closed lightweight polylines only |
 | HCW layer tools | `hcwreset`, `hcwinfo`, `hcwlock`, `hcwunlock`, `hcwaudit2`, `hcwbyblock`, `hcwmove`, `hcwschedule`, `hcwlegend` | From `hcwtools.lsp` section 7 and 10. The standard has 36 layers (the toolkit says 35). HCWPURGE and HCWAUDIT are the existing `purge` and `audit`; HCWLAYERSTATE is `layerstate.*`. The legend is sized as for metres at 1:1 and scaled to the drawing units |
 | Text tools | `fixtxt`, `fixtxth`, `txtalign`, `txtdup`, `txtaudit`, `txtexport`, `txtinc` | From the AutoLISP toolkit `hcwtools.lsp` (same authors). `txtalign` sets the insertion point on one axis; `txtinc` is JSON-only (no prompt sequence yet) |
@@ -31,8 +32,8 @@ measure cable length; `stair.plan` draws a plan only; no section is drawn from t
 
 ## To do (in order)
 
-1. Drawing tools: `DBCOUNT`, `DGRID`, `AUTOLABEL`, `INCARRAY`, `RENUMBERLAYOUTS`, `ROOMTEXTFIT`, `RTAG`, polygon area.
-2. `VHLAYERS`, `LAYERMAP`, `TXTSTYLE`.
+1. Drawing tools: `DBCOUNT`, `DGRID`, `AUTOLABEL`, `INCARRAY`, `RENUMBERLAYOUTS`, `ROOMTEXTFIT`, `RTAG`, and the interactive prompt sequences for `txtalign` and `txtinc`.
+2. `WinLabel` (needs dynamic block properties, which AAD does not have), `TXTSTYLE` (a style picker; AAD has the text style commands).
 3. Notes and fields, title block.
 4. Wall edit, join, regenerate, hatch and adopt; escalators; column table; auto-dimension; sheet set and fit.
 

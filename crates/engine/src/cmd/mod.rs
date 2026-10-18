@@ -20,6 +20,7 @@ pub(crate) mod groups;
 mod hatch;
 mod hcw;
 mod bplt;
+mod legacytools;
 mod roomtools;
 mod hcwlayers;
 mod texttools;
@@ -198,6 +199,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(texttools::specs());
         v.extend(hcwlayers::specs());
         v.extend(bplt::specs());
+        v.extend(legacytools::specs());
         v.extend(roomtools::specs());
         v.extend(annot::specs());
         v.extend(project::specs());
