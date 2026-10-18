@@ -1753,10 +1753,10 @@ fn menu_node_for_control(node: &Value) -> Value {
     let children: Vec<Value> =
         node.get("items").and_then(Value::as_array).map(|items| items.iter().map(menu_node_for_control).collect()).unwrap_or_default();
     let mut out = serde_json::json!({ "label": label, "children": children });
-    if let (Some(id), Some(object)) = (node.get("id").and_then(Value::as_str), out.as_object_mut()) {
-        if !id.is_empty() {
-            object.insert("id".into(), Value::String(id.to_string()));
-        }
+    if let (Some(id), Some(object)) = (node.get("id").and_then(Value::as_str), out.as_object_mut())
+        && !id.is_empty()
+    {
+        object.insert("id".into(), Value::String(id.to_string()));
     }
     if let (Some(enabled), Some(object)) = (node.get("enabled"), out.as_object_mut()) {
         object.insert("enabled".into(), enabled.clone());
