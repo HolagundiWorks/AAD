@@ -1,6 +1,6 @@
 //! AAD desktop app.
 //!
-//! Usage: `aad [--control <port>] [--sample] [--egui] [files…]`
+//! Usage: `aad [--control <port>] [--project <id>] [--sample] [--egui] [files…]`
 //!
 //! On Windows the default binary only starts the WinUI shell (`Aad.WinUi.exe` beside the program
 //! or under `target/aad-winui`), forwarding `--sample`, `--control`, and drawing paths. It does
@@ -76,6 +76,18 @@ fn control_port_from(source: &str, value: Option<String>) -> Option<u16> {
     port
 }
 
+/// The project id from `--project <id>`: the AORMS project the drawings are expected to belong to.
+/// Letters, digits and hyphens, at most 64; anything else is logged and ignored.
+fn project_id_from(value: Option<String>) -> Option<String> {
+    let value = value?;
+    let id = value.trim();
+    if !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Some(id.to_string());
+    }
+    log::warn!("--project: {value:?} is not a project id; ignored");
+    None
+}
+
 /// `Aad.WinUi.exe` beside this program, or the unpackaged build under `target/aad-winui`.
 #[cfg(windows)]
 fn winui_executable() -> Option<std::path::PathBuf> {
@@ -90,7 +102,7 @@ fn winui_executable() -> Option<std::path::PathBuf> {
 }
 
 #[cfg(windows)]
-fn launch_winui(control_port: Option<u16>, sample: bool, files: &[String]) -> Result<(), i32> {
+fn launch_winui(control_port: Option<u16>, sample: bool, project: Option<&str>, files: &[String]) -> Result<(), i32> {
     let Some(path) = winui_executable() else {
         eprintln!(
             "AAD: WinUI shell not found (build apps/aad-winui into target/aad-winui, or set AAD_WINUI).\n\
@@ -105,6 +117,9 @@ fn launch_winui(control_port: Option<u16>, sample: bool, files: &[String]) -> Re
     if let Some(port) = control_port {
         cmd.arg("--control").arg(port.to_string());
         cmd.env("AAD_CONTROL_PORT", port.to_string());
+    }
+    if let Some(project) = project {
+        cmd.arg("--project").arg(project);
     }
     for file in files {
         cmd.arg(file);
@@ -129,12 +144,14 @@ fn main() {
     let mut control_port = control_port_from("AAD_CONTROL_PORT", std::env::var_os("AAD_CONTROL_PORT").map(|p| p.to_string_lossy().into_owned()));
     let mut files = Vec::new();
     let mut sample = false;
+    let mut project: Option<String> = None;
     let mut want_egui = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--control" => control_port = control_port_from("--control", args.next()),
             "--sample" => sample = true,
+            "--project" => project = project_id_from(args.next()),
             "--egui" => want_egui = true,
             "--version" | "-V" => {
                 println!("{}", version_string());
@@ -158,7 +175,7 @@ fn main() {
 
     #[cfg(windows)]
     if !want_egui {
-        if let Err(code) = launch_winui(control_port, sample, &files) {
+        if let Err(code) = launch_winui(control_port, sample, project.as_deref(), &files) {
             std::process::exit(code);
         }
         return;
@@ -167,7 +184,7 @@ fn main() {
     // Windows without `--features egui`: `--egui` is unavailable (WinUI is the default shell).
     #[cfg(all(windows, not(feature = "egui")))]
     {
-        let _ = (control_port, sample, files, want_egui);
+        let _ = (control_port, sample, files, want_egui, project);
         eprintln!(
             "AAD: this Windows build has no egui shell. Rebuild with:\n  cargo build -p aad --features egui\nthen run: aad --egui …"
         );
@@ -177,6 +194,9 @@ fn main() {
     #[cfg(any(not(windows), feature = "egui"))]
     {
         let _ = want_egui;
+        if project.is_some() {
+            log::warn!("--project is handled by the WinUI shell; the egui shell ignores it");
+        }
         if let Err(error) = egui_shell::run(control_port, sample, files) {
             eprintln!("AAD: {error}");
             std::process::exit(1);
@@ -186,12 +206,22 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_dir_from, control_port_from};
+    use super::{config_dir_from, control_port_from, project_id_from};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
     fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
         move |k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| OsString::from(v))
+    }
+
+    #[test]
+    fn project_ids_are_plain_ids_or_ignored() {
+        assert_eq!(project_id_from(Some("PRJ-000142".into())), Some("PRJ-000142".into()));
+        assert_eq!(project_id_from(Some(" a1b2 ".into())), Some("a1b2".into()));
+        for bad in ["", "  ", "a b", "a/b", "a;b", "..\\x", "ünï", &"x".repeat(65)] {
+            assert_eq!(project_id_from(Some(bad.into())), None, "{bad:?}");
+        }
+        assert_eq!(project_id_from(None), None);
     }
 
     #[test]

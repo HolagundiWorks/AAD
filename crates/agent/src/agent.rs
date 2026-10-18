@@ -83,6 +83,13 @@ impl Agent {
     /// drawing returns [`Outcome::NeedsConfirmation`] unless `confirmed` is true; the application
     /// sets `confirmed` only after the user agreed to exactly that call.
     pub fn propose(&mut self, session: &mut Session, call: &ToolCall, confirmed: bool) -> Outcome {
+        let before = self.log.len();
+        let outcome = self.propose_inner(session, call, confirmed);
+        persist(session, &self.log[before.min(self.log.len())..]);
+        outcome
+    }
+
+    fn propose_inner(&mut self, session: &mut Session, call: &ToolCall, confirmed: bool) -> Outcome {
         let started = Instant::now();
         if self.calls >= self.max_calls {
             return self.reject(call, format!("limit of {} tool calls per request reached", self.max_calls), started);
@@ -119,6 +126,58 @@ impl Agent {
         }
     }
 }
+
+/// The audit file kept beside a saved drawing: one JSON object per line.
+pub fn audit_path(drawing: &str) -> String {
+    format!("{drawing}.aadaudit.jsonl")
+}
+
+/// The file stops growing here; an assistant session does not write megabytes of audit lines.
+const MAX_AUDIT_BYTES: u64 = 8 << 20;
+
+impl AuditEntry {
+    /// The entry as a line of the audit file, naming the drawing revision it was made against.
+    pub fn to_json(&self, drawing: &str, revision: Option<&str>, unsaved: bool) -> Value {
+        json!({
+            "schema": 1,
+            "request": self.request,
+            "tool": self.tool,
+            "arguments": self.arguments,
+            "status": self.status,
+            "elapsedMs": u64::try_from(self.elapsed_ms).unwrap_or(u64::MAX),
+            "drawing": drawing,
+            "revision": revision,
+            "unsaved": unsaved,
+        })
+    }
+}
+
+/// Append `entries` to the audit file beside the active drawing. A drawing that was never saved
+/// has no file to sit beside, so nothing is written for it. Best effort: the audit file never
+/// makes a tool call fail.
+#[cfg(not(target_arch = "wasm32"))]
+fn persist(session: &Session, entries: &[AuditEntry]) {
+    use std::io::Write;
+    let Ok(state) = session.state() else { return };
+    let Some(path) = state.path.as_deref() else { return };
+    if entries.is_empty() {
+        return;
+    }
+    let file = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let revision = aad_engine::revision::read(path).map(|r| r.sha256);
+    let unsaved = !std::sync::Arc::ptr_eq(&state.doc, &state.saved);
+    let audit = audit_path(path);
+    if std::fs::metadata(&audit).is_ok_and(|m| m.len() > MAX_AUDIT_BYTES) {
+        return;
+    }
+    let Ok(mut out) = std::fs::OpenOptions::new().create(true).append(true).open(audit) else { return };
+    for e in entries {
+        let _ = writeln!(out, "{}", e.to_json(&file, revision.as_deref(), unsaved));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn persist(_session: &Session, _entries: &[AuditEntry]) {}
 
 /// A tool result as the structured message handed back to the model. The `data` is marked
 /// untrusted: it can contain text from the drawing.

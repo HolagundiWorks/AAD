@@ -19,7 +19,7 @@ mod parse;
 mod registry;
 mod schema;
 
-pub use agent::{Agent, AuditEntry, Outcome, tool_message};
+pub use agent::{Agent, AuditEntry, Outcome, audit_path, tool_message};
 pub use assistant::{Assistant, Event, Msg, Role, Step, system_message};
 pub use parse::{ParseError, ToolCall, parse_tool_call};
 pub use registry::{PLANNED, Risk, ToolDef, find, function_schemas, registry};

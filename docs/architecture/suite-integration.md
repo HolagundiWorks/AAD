@@ -77,22 +77,22 @@ Milestone 1 is "drawing to draft estimate". AAD's side, step by step:
 
 | Step | AAD today | Gap |
 |---|---|---|
-| Open the project's linked drawing | `app.open`, `aorms.open` | A launcher passing a project id to AAD; none exists |
+| Open the project's linked drawing | `app.open`, `aorms.open`, `aad --project <id> files…` | The launcher supplies the paths; AAD checks the link |
 | Resolve the same project in AQC | the AORMS office id is stored in the drawing | AQC side not audited |
 | Extract measurements | `takeoff.start` and `takeoff.*` over `MEASURE-*` layers | Needs a stated list of supported geometry; unsupported objects must be reported, not skipped silently (today `takeoff` reads the measure layers only) |
 | Pass them on | `bridge.export` | Done: carries the drawing revision and rooms (AQC side not verified) |
 | Calculate quantities and cost | AQC (not audited) | Not AAD's part |
 | Draft in AOS | AOS (not audited) | Not AAD's part |
-| Reject unauthorised writes, keep an audit trail | agent confirmation policy and audit log | Audit log is in memory per session; not persisted or shared |
+| Reject unauthorised writes, keep an audit trail | agent confirmation policy and audit log | Done: the audit is persisted beside the drawing (section 6, step 4); sharing it across applications is not built |
 
 ## 6. Order of work in AAD
 
 1. `DrawingRevision` at save, written beside the file; checked by `drawing.revision`. **Done.**
 2. Rooms and the revision in `bridge.export`, as additive keys of format version 1. **Done.** Whether AQC accepts the extra keys is not verified.
-3. Register the existing `takeoff.*`, `schedule` and `room.log` commands as agent tools (read-only
-   ones first), with schemas, in the existing registry.
-4. Persist the audit log next to the drawing revision it refers to.
-5. A project-id launch argument for `aad`, so a launcher can open the linked drawing.
+3. Register the existing take-off, room and revision commands as agent tools (read-only
+   ones first), with schemas, in the existing registry. **Done** for the read-only ones (`get_takeoff_result`, `get_room_log`, `get_room_area_total`, `get_drawing_revision`, `check_permit_layers`). Commands that draw into the drawing (`schedule`, running a take-off) stay planned.
+4. Persist the audit log next to the drawing revision it refers to. **Done**: `<drawing>.aadaudit.jsonl`, one line per proposed call.
+5. A project-id launch argument for `aad`. **Done** as a check, not an opener: `aad --project <id> files…` reports a drawing linked to a different project. AAD does not look up a project's drawing files itself; the launcher passes the paths.
 
 Each step lands with tests, and `docs/status.md` changes only when it exists.
 

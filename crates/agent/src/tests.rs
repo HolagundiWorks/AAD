@@ -66,6 +66,11 @@ fn schemas_are_offered_in_function_calling_format_and_only_for_built_tools() {
         names,
         [
             "get_drawing_summary",
+            "get_takeoff_result",
+            "get_room_log",
+            "get_room_area_total",
+            "get_drawing_revision",
+            "check_permit_layers",
             "get_spatial_overview",
             "find_objects_in_window",
             "find_nearest_objects",
@@ -334,4 +339,71 @@ fn the_spatial_tools_only_read_need_no_confirmation_and_reject_bad_arguments() {
         assert!(matches!(a.propose(&mut s, &bad, false), Outcome::Rejected { .. }), "{bad:?}");
     }
     assert_eq!(s.doc().unwrap().model.len(), 1, "nothing was changed");
+}
+
+// ---- the suite read tools ----
+
+#[test]
+fn the_take_off_room_revision_and_permit_tools_are_read_only_and_run_without_confirmation() {
+    for name in ["get_takeoff_result", "get_room_log", "get_room_area_total", "get_drawing_revision", "check_permit_layers"] {
+        let tool = find(name).unwrap_or_else(|| panic!("{name} is registered"));
+        assert_eq!((tool.risk)(&serde_json::Map::new()), Risk::Read, "{name}");
+        assert!(!Risk::Read.needs_confirmation());
+        assert!(!PLANNED.contains(&name), "{name} is built, not planned");
+    }
+    assert!(validate(&(find("get_takeoff_result").unwrap().schema)(), &json!({"name": "Bricks"})).is_ok());
+    assert!(validate(&(find("get_takeoff_result").unwrap().schema)(), &json!({"path": "C:/x"})).is_err(), "no way to name a file");
+    assert!(validate(&(find("get_room_area_total").unwrap().schema)(), &json!({"filter": "bed"})).is_ok());
+    assert!(validate(&(find("get_room_log").unwrap().schema)(), &json!({"path": "x.csv"})).is_err(), "the tool cannot write a file");
+}
+
+#[test]
+fn the_room_and_take_off_tools_report_what_the_engine_holds() {
+    let mut s = aad_engine::Session::new();
+    s.execute("room", &json!({"p1": [0, 0], "p2": [4, 3], "name": "br", "units": "m", "textHeight": 0.2})).unwrap();
+    let mut a = Agent::default();
+    a.begin_request();
+    match a.propose(&mut s, &call("get_room_area_total", json!({"filter": "bedroom"})), true) {
+        Outcome::Done { result, .. } => {
+            assert_eq!(result["total"], json!(12.0));
+        }
+        o => panic!("{o:?}"),
+    }
+    match a.propose(&mut s, &call("get_takeoff_result", json!({})), true) {
+        Outcome::Done { result, .. } => assert_eq!(result["takeoffs"], json!([])),
+        o => panic!("{o:?}"),
+    }
+    assert!(matches!(a.propose(&mut s, &call("get_takeoff_result", json!({"name": "Nothing"})), true), Outcome::Failed { .. }));
+}
+
+// ---- the audit file ----
+
+#[test]
+fn calls_on_a_saved_drawing_are_appended_to_an_audit_file_naming_its_revision() {
+    let dir = std::env::temp_dir().join(format!("aad-audit-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("plan.dxf").to_string_lossy().to_string();
+    std::fs::write(&path, b"saved bytes").unwrap();
+    let rev = aad_engine::revision::record(&path, b"saved bytes", 0).unwrap();
+    let mut s = aad_engine::Session::new();
+    s.state_mut().unwrap().path = Some(path.clone());
+    let mut a = Agent::default();
+    a.begin_request();
+    assert!(matches!(a.propose(&mut s, &call("get_drawing_revision", json!({})), false), Outcome::Done { .. }));
+    assert!(matches!(a.propose(&mut s, &call("delete_everything", json!({})), false), Outcome::Rejected { .. }));
+    let text = std::fs::read_to_string(audit_path(&path)).unwrap();
+    let lines: Vec<serde_json::Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    assert_eq!(lines.len(), 2, "done and rejected calls are both recorded");
+    assert_eq!(lines[0]["tool"], json!("get_drawing_revision"));
+    assert_eq!(lines[0]["status"], json!("done"));
+    assert_eq!(lines[0]["revision"], json!(rev.sha256));
+    assert_eq!(lines[0]["drawing"], json!("plan.dxf"));
+    assert!(lines[1]["status"].as_str().unwrap().starts_with("rejected"));
+    // A drawing that was never saved has nothing to sit beside.
+    let mut fresh = aad_engine::Session::new();
+    let mut b = Agent::default();
+    b.begin_request();
+    b.propose(&mut fresh, &call("get_drawing_revision", json!({})), false);
+    assert_eq!(b.log.len(), 1);
+    let _ = std::fs::remove_dir_all(dir);
 }

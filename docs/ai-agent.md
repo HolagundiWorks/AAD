@@ -22,7 +22,9 @@ work.
 | Bundling the model in the installer, and building the installer with the `assistant` feature | **Not done** |
 | Result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
-| Schedule of openings, quantity take-off tools | **Planned.** The engine commands exist (`schedule`, `openings.table`, `takeoff.*`, see [hcw-kit-port.md](hcw-kit-port.md)) but are not yet in the agent registry. The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
+| Read tools for take-off, rooms, drawing revision and permit layers | **Implemented and tested:** `get_takeoff_result` (`takeoff.list`), `get_room_log`, `get_room_area_total`, `get_drawing_revision`, `check_permit_layers`; all read-only, no file path in any schema |
+| Audit file | **Implemented and tested:** every proposed call on a saved drawing (done, failed, needs-confirmation, rejected) is appended as one JSON line to `<drawing>.aadaudit.jsonl` with the tool, arguments, status, time taken, the drawing file name, the recorded revision hash and whether the drawing had unsaved changes. A drawing that was never saved has no file to sit beside, so nothing is written. The file stops growing at 8 MiB and a failure to write never fails a call |
+| Schedule of openings, running a take-off | **Planned.** The engine commands exist (`schedule`, `openings.table`, `takeoff.*`, see [hcw-kit-port.md](hcw-kit-port.md)) but they draw into the drawing and are not yet in the agent registry. The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
 
 Requests such as "Prepare a schedule of openings" and "Run the built-in quantity takeoff" therefore
 cannot be carried out by the agent today, although the commands can be run directly. The agent must say so rather than answer.

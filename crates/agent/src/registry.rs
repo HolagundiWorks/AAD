@@ -42,7 +42,7 @@ pub struct ToolDef {
 /// Tools that are planned but not built. They are not offered to the model and a call to one is
 /// refused as not implemented.
 pub const PLANNED: &[&str] =
-    &["find_openings", "generate_schedule", "run_quantity_takeoff", "get_takeoff_result", "check_missing_attributes", "export_table"];
+    &["find_openings", "generate_schedule", "run_quantity_takeoff", "check_missing_attributes", "export_table"];
 
 fn exec(s: &mut Session, id: &str, args: Value) -> Result<Value, String> {
     s.execute(id, &args).map_err(|e| e.to_string())
@@ -72,6 +72,58 @@ pub fn registry() -> Vec<ToolDef> {
                 }
                 Ok(r)
             },
+        },
+        ToolDef {
+            name: "get_takeoff_result",
+            description: "List the saved quantity take-offs, or read one by name (the measured items with their lengths, areas and counts, as the take-off commands saved them). It reports what was measured; it never measures or estimates.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "name": { "type": "string", "maxLength": 64, "description": "the take-off to read, e.g. Bricks, Columns, Beams, Slab; omit to list the saved ones" } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Read a saved take-off".into(),
+            run: |s, a| exec(s, "takeoff.list", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "get_room_log",
+            description: "List the room labels in the current space: name, size text, area and position. Rooms are paired from the labels the ROOM command drew; nothing is calculated here.",
+            schema: empty_schema,
+            risk: |_| Risk::Read,
+            summary: |_| "Read the room log".into(),
+            run: |s, _| exec(s, "room.log", json!({})),
+        },
+        ToolDef {
+            name: "get_room_area_total",
+            description: "Add up the areas of the room labels in the current space, optionally only rooms whose name contains a word (for example BEDROOM).",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "filter": { "type": "string", "maxLength": 64, "description": "only rooms whose name contains this text; omit for all rooms" } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Add up room areas".into(),
+            run: |s, a| exec(s, "room.total", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "get_drawing_revision",
+            description: "Say whether the drawing file on disk is the one its last save recorded: current, changed since, or never recorded, with its SHA-256. Use it to name exactly which drawing a result came from.",
+            schema: empty_schema,
+            risk: |_| Risk::Read,
+            summary: |_| "Check the drawing file's revision".into(),
+            run: |s, _| exec(s, "drawing.revision", json!({})),
+        },
+        ToolDef {
+            name: "check_permit_layers",
+            description: "Check the building-permission AP- layers before an AutoPlan submission: which required layers have a closed polyline, and which have open ones. Reports PASS, WARN or FAIL.",
+            schema: empty_schema,
+            risk: |_| Risk::Read,
+            summary: |_| "Check the AP- permit layers".into(),
+            run: |s, _| exec(s, "bpltcheck", json!({})),
         },
         ToolDef {
             name: "get_spatial_overview",

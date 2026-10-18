@@ -50,6 +50,10 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{} → as aorms.open, for the project this drawing is linked to"),
         CommandSpec::new("aorms.apply", "Apply AORMS project info", run_apply)
             .params("{projectOfficeId, seed, settings} → as aorms.open. The drawing half of a pull whose network half ran elsewhere (the UI fetches on a worker thread); one undo step"),
+        CommandSpec::new("aorms.expect", "Check AORMS project link", run_expect)
+            .enabled(always)
+            .noundo()
+            .params("{projectOfficeId} → {status: linked|unlinked|other, linked?} (offline: compares the project this drawing is linked to with the one a launcher expects, and says so on the command line when they differ)"),
         CommandSpec::new("aorms.drawings", "AORMS drawings", run_drawings)
             .enabled(always)
             .noundo()
@@ -298,6 +302,21 @@ fn run_apply(s: &mut Session, p: &Value) -> Result<Value> {
     apply_project(s, &id, seed, &settings)
 }
 
+fn run_expect(s: &mut Session, p: &Value) -> Result<Value> {
+    let want = id_param("aorms.expect", text("aorms.expect", p, "projectOfficeId", 64)?)?;
+    let link = linked(s);
+    let have = link.get("projectOfficeId").and_then(Value::as_str).map(str::to_string);
+    let (status, message) = match have.as_deref() {
+        Some(h) if h == want => ("linked", None),
+        Some(h) => ("other", Some(format!("This drawing is linked to project {h}, not {want}."))),
+        None => ("unlinked", Some(format!("This drawing is not linked to project {want}; use aorms.open to link it."))),
+    };
+    if let Some(m) = message {
+        s.echo(m);
+    }
+    Ok(json!({ "status": status, "linked": have }))
+}
+
 fn run_pull(s: &mut Session, _p: &Value) -> Result<Value> {
     let link = linked(s);
     let id = link
@@ -419,6 +438,22 @@ mod tests {
         let st = s.execute("aorms.status", &json!({})).unwrap_or(Value::Null);
         assert_eq!(st["email"], "a@x.in");
         assert!(!st.to_string().contains("pw-secret"));
+    }
+
+    #[test]
+    fn expect_compares_the_linked_project_with_the_one_a_launcher_names() {
+        let mut s = session_with(&aorms());
+        let v = s.execute("aorms.expect", &json!({ "projectOfficeId": PID })).unwrap_or(Value::Null);
+        assert_eq!(v["status"], "unlinked");
+        assert!(s.log.iter().any(|l| l.contains("not linked")), "{:?}", s.log);
+        signin(&mut s);
+        s.execute("aorms.open", &json!({ "projectOfficeId": PID })).unwrap();
+        let v = s.execute("aorms.expect", &json!({ "projectOfficeId": PID })).unwrap_or(Value::Null);
+        assert_eq!((v["status"].as_str(), v["linked"].as_str()), (Some("linked"), Some(PID)));
+        let v = s.execute("aorms.expect", &json!({ "projectOfficeId": "OTHER-1" })).unwrap_or(Value::Null);
+        assert_eq!(v["status"], "other");
+        assert!(s.execute("aorms.expect", &json!({ "projectOfficeId": "bad id; drop" })).is_err());
+        assert!(s.execute("aorms.expect", &json!({})).is_err());
     }
 
     #[test]
