@@ -92,7 +92,7 @@ internal sealed class CommandChrome
         {
             if (_bar.Content is Border card)
             {
-                card.Background = new SolidColorBrush(dark ? Color(128, 24, 24, 24) : Color(128, 255, 255, 255));
+                card.Background = new SolidColorBrush(dark ? Color(220, 24, 24, 24) : Color(220, 255, 255, 255));
             }
         }
         Native.Frame(WindowNative.GetWindowHandle(_bar), dark ? 0x00242424 : 0x00FFFFFF, dark);
@@ -301,7 +301,7 @@ internal sealed class CommandChrome
         Windows.UI.Color.FromArgb(a, r, g, b);
 }
 
-/// <summary>Frosted fill at half opacity so the drawing stays visible.</summary>
+/// <summary>Frosted fill, mostly opaque so the command text keeps 4.5:1 contrast over any drawing, with the drawing still faintly visible.</summary>
 internal sealed class HalfAcrylic : SystemBackdrop
 {
     private readonly bool _dark;
@@ -315,9 +315,9 @@ internal sealed class HalfAcrylic : SystemBackdrop
         _acrylic = new DesktopAcrylicController
         {
             TintColor = _dark ? Color(255, 24, 24, 24) : Color(255, 255, 255, 255),
-            TintOpacity = 0.5f,
-            LuminosityOpacity = 0.5f,
-            FallbackColor = _dark ? Color(128, 24, 24, 24) : Color(128, 255, 255, 255),
+            TintOpacity = 0.8f,
+            LuminosityOpacity = 0.8f,
+            FallbackColor = _dark ? Color(220, 24, 24, 24) : Color(220, 255, 255, 255),
         };
         var configuration = GetDefaultSystemBackdropConfiguration(target, root);
         _acrylic.AddSystemBackdropTarget(target);

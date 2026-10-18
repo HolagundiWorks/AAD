@@ -441,6 +441,8 @@ internal static class ToolIcons
         public void Label(string text, double x, double y, double size, Brush brush)
         {
             var block = new TextBlock { Text = text, FontSize = size, Foreground = brush };
+            // A mark drawn inside an icon: the button already carries the name.
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAccessibilityView(block, Microsoft.UI.Xaml.Automation.Peers.AccessibilityView.Raw);
             Canvas.SetLeft(block, x - size * text.Length * 0.32);
             Canvas.SetTop(block, y - size * 0.7);
             _canvas.Children.Add(block);

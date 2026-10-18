@@ -208,7 +208,7 @@ internal static class CanvasMenu
     }
 
     private static Brush ThemeBrush(string key, Windows.UI.Color fallback) =>
-        Application.Current.Resources.TryGetValue(key, out var value) && value is Brush brush
+        Density.ThemeBrush(key) is { } brush
             ? brush
             : new SolidColorBrush(fallback);
 

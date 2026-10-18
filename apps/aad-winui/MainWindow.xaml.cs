@@ -1555,6 +1555,7 @@ public sealed partial class MainWindow : Window
         if (Content is FrameworkElement root)
         {
             root.RequestedTheme = _dark ? ElementTheme.Dark : ElementTheme.Light;
+            Density.Theme = root.RequestedTheme;
         }
         _chrome?.ApplyTheme(_dark ? ElementTheme.Dark : ElementTheme.Light);
         CanvasHost.Background = new SolidColorBrush(_dark ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
@@ -1562,7 +1563,7 @@ public sealed partial class MainWindow : Window
         var title = AppWindow.TitleBar;
         var bg = _dark ? Color(0x20, 0x20, 0x20) : Color(0xF3, 0xF3, 0xF3);
         var fg = _dark ? Microsoft.UI.Colors.White : Color(0x1A, 0x1A, 0x1A);
-        var inactive = _dark ? Color(0x9A, 0x9A, 0x9A) : Color(0x5C, 0x5C, 0x5C);
+        var inactive = _dark ? Color(0xAA, 0xAA, 0xAA) : Color(0x5C, 0x5C, 0x5C);
         var hover = _dark ? Color(0x2D, 0x2D, 0x2D) : Color(0xE5, 0xE5, 0xE5);
         var pressed = _dark ? Color(0x3A, 0x3A, 0x3A) : Color(0xD6, 0xD6, 0xD6);
         title.BackgroundColor = bg;
@@ -1577,6 +1578,9 @@ public sealed partial class MainWindow : Window
         title.ButtonHoverForegroundColor = fg;
         title.ButtonPressedBackgroundColor = pressed;
         title.ButtonPressedForegroundColor = fg;
+        // Panel text takes its colours from the theme at build time, so build it again.
+        _panelKey = "";
+        RefreshPanels();
         BuildTools();
     }
 
@@ -2331,7 +2335,8 @@ public sealed partial class MainWindow : Window
         {
             if (_leftWidth < 480)
             {
-                _leftWidth = 520;
+                // Wide enough for the layer table, but never more than about a third of a small window.
+                _leftWidth = Math.Min(520, Math.Max(380, Math.Round((Content as FrameworkElement)?.ActualWidth * 0.34 ?? 520)));
             }
             _leftCollapsed = false;
             _layersWindow.DetachBody();
@@ -2841,7 +2846,7 @@ public sealed partial class MainWindow : Window
 
     private static Brush? SelectedBlockBrush()
     {
-        if (Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out var value) && value is Brush brush)
+        if (Density.ThemeBrush("SubtleFillColorSecondaryBrush") is { } brush)
         {
             return brush;
         }
@@ -2905,7 +2910,7 @@ public sealed partial class MainWindow : Window
     private static TextBlock FieldLabel(string text)
     {
         Brush? brush = null;
-        if (Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var value) && value is Brush secondary)
+        if (Density.ThemeBrush("TextFillColorSecondaryBrush") is { } secondary)
         {
             brush = secondary;
         }
@@ -3516,7 +3521,7 @@ public sealed partial class MainWindow : Window
 
     private static Brush StripBrush()
     {
-        if (Application.Current.Resources.TryGetValue("SubtleFillColorSecondaryBrush", out var value) && value is Brush brush)
+        if (Density.ThemeBrush("SubtleFillColorSecondaryBrush") is { } brush)
         {
             return brush;
         }

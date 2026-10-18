@@ -72,11 +72,52 @@ internal static class Density
         }
     }
 
+    /// <summary>The theme the shell is showing. Brushes are looked up in this theme's dictionary.</summary>
+    public static ElementTheme Theme { get; set; } = ElementTheme.Default;
+
+    /// <summary>
+    /// A system brush for the theme the shell is showing. <c>Application.Current.Resources[key]</c> is
+    /// resolved against the application's theme, not the window's, so a light window got the dark
+    /// theme's pale text colours and its labels disappeared.
+    /// </summary>
+    public static Brush? ThemeBrush(string key)
+    {
+        var name = Theme == ElementTheme.Light ? "Light" : "Default";
+        if (FindThemed(Application.Current.Resources, name, key, 0) is { } brush)
+        {
+            return brush;
+        }
+        return Application.Current.Resources.TryGetValue(key, out var fallback) && fallback is Brush any ? any : null;
+    }
+
+    /// <summary>The system brushes live in merged dictionaries (WinUI's own), so search them too.</summary>
+    private static Brush? FindThemed(ResourceDictionary dictionary, string theme, string key, int depth)
+    {
+        if (depth > 8)
+        {
+            return null;
+        }
+        if (dictionary.ThemeDictionaries.TryGetValue(theme, out var themed)
+            && themed is ResourceDictionary inner
+            && inner.TryGetValue(key, out var value)
+            && value is Brush brush)
+        {
+            return brush;
+        }
+        foreach (var merged in dictionary.MergedDictionaries)
+        {
+            if (FindThemed(merged, theme, key, depth + 1) is { } found)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
     /// <summary>Secondary body text at full opacity (avoids Opacity &lt; 1 contrast failures).</summary>
     public static TextBlock Secondary(string text, TextWrapping wrap = TextWrapping.NoWrap)
     {
         var block = new TextBlock { Text = text, TextWrapping = wrap };
-        if (Application.Current.Resources.TryGetValue("TextFillColorSecondaryBrush", out var value) && value is Brush brush)
+        if (ThemeBrush("TextFillColorSecondaryBrush") is { } brush)
         {
             block.Foreground = brush;
         }

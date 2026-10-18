@@ -89,8 +89,8 @@ internal static class PointStyleWindow
             foreach (var (mode, button) in modeButtons)
             {
                 button.Background = mode == state.Mode
-                    ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
-                    : (Brush)Application.Current.Resources["ControlFillColorDefaultBrush"];
+                    ? Density.ThemeBrush("AccentFillColorDefaultBrush")!
+                    : Density.ThemeBrush("ControlFillColorDefaultBrush")!;
             }
         }
 
