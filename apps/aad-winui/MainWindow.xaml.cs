@@ -881,6 +881,48 @@ public sealed partial class MainWindow : Window
         await FinishPlot(id == "exportpdf" ? "exportpdf" : "plot", window: null);
     }
 
+    private async Task<bool> OpenFileAsync(string path)
+    {
+        if (!Native.OpenStart(_host, path))
+        {
+            return false;
+        }
+        int state;
+        while ((state = Native.OpenPoll(_host)) == 1)
+        {
+            await Task.Delay(30);
+        }
+        return state == 2;
+    }
+
+    private async Task<bool> SaveFileAsync(string? path)
+    {
+        if (!Native.SaveStart(_host, path))
+        {
+            return false;
+        }
+        int state;
+        while ((state = Native.SavePoll(_host)) == 1)
+        {
+            await Task.Delay(30);
+        }
+        return state == 2;
+    }
+
+    private async Task<bool> PlotFileAsync(string command, string parameters)
+    {
+        if (!Native.PlotStart(_host, command, parameters))
+        {
+            return false;
+        }
+        int state;
+        while ((state = Native.PlotPoll(_host)) == 1)
+        {
+            await Task.Delay(30);
+        }
+        return state == 2;
+    }
+
     private async Task FinishPlot(string command, double[]? window)
     {
         if (_host == IntPtr.Zero || _plotBusy)
@@ -920,7 +962,8 @@ public sealed partial class MainWindow : Window
             {
                 body["window"] = window;
             }
-            if (Native.Execute(_host, command, JsonSerializer.Serialize(body)) != 0)
+            History.Text = "Plotting...";
+            if (!await PlotFileAsync(command, JsonSerializer.Serialize(body)))
             {
                 History.Text = Native.LastError(_host);
                 AfterCommand();
@@ -1146,20 +1189,22 @@ public sealed partial class MainWindow : Window
             {
                 return false;
             }
-            if (Native.Execute(_host, "open", PathJson(file.Path)) != 0)
+            // The file is read on a worker thread so the window keeps responding; the host fits the view.
+            History.Text = "Opening " + file.Name + "...";
+            var opened = await OpenFileAsync(file.Path);
+            if (!opened)
             {
                 History.Text = Native.LastError(_host);
                 AfterCommand();
                 return false;
             }
-            Native.Execute(_host, "zoom.extents", "{}");
             _docKey = "";
             AfterCommand();
             return true;
         }
         if (id == "qsave")
         {
-            if (Native.Execute(_host, "qsave", "{}") == 0)
+            if (await SaveFileAsync(null))
             {
                 _docKey = "";
                 AfterCommand();
@@ -1183,7 +1228,7 @@ public sealed partial class MainWindow : Window
         {
             return false;
         }
-        if (Native.Execute(_host, "saveas", PathJson(chosen.Path)) != 0)
+        if (!await SaveFileAsync(chosen.Path))
         {
             History.Text = Native.LastError(_host);
             AfterCommand();

@@ -143,6 +143,6 @@ holes, and falls back to `triangulate_evenodd` when the result area differs from
 the input is hostile (too many loops or points). A per-glyph cache was tried and removed: the gain
 over ear clipping was small for the added key-quantisation risk.
 
-Still open: DWG parse (1.2 to 1.5 s), file open and save on the UI thread (UI-003), DXF write and
+Still open: DWG parse (1.2 to 1.5 s), DXF write and
 read (about 0.55 s), mesh upload (about 170 ms), viewport pan rebuild in layouts, first-pick spatial
 index build (70 to 140 ms).

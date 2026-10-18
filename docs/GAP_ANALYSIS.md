@@ -20,7 +20,7 @@ claim that a feature works; it lists where the documents and the code disagree o
 
 | Item | Where | Note |
 |---|---|---|
-| Open, save and plot block the window (UI-003) | `apps/aad-winui/MainWindow.xaml.cs` calls `open` synchronously | Needs an asynchronous open across the `aad-host` ABI and the shell |
+| Open, save and plot ran on the UI thread (UI-003) | WinUI shell | Fixed for the file-picker path: worker threads behind `aad_host_*_start`/`_poll`. Launch-time files, control-channel calls, the batch plot and the PDF preview are still synchronous |
 | DWG parse 1.2 to 1.5 s | `aad-dwg` worker | Not profiled below the worker boundary |
 | Viewport pan in layouts rebuilds every frame | `aad-render` | 52 ms at 100 000 entities |
 | Quality gate does not pass on the working tree | `cargo xtask ci` | `cargo fmt --check` fails on uncommitted files of the ShilpiDB work, and clippy reports `manual_range_contains` at `crates/vdb/src/file.rs:146` |
@@ -35,7 +35,7 @@ claim that a feature works; it lists where the documents and the code disagree o
 
 1. Done: glyph outlines by ear clipping, display list of the heavy drawing from about 1.0–1.6 s to
    about 0.32 s ([PERFORMANCE.md](PERFORMANCE.md)).
-2. Next: asynchronous open and save (read and flatten on a worker, commit on the UI thread).
+2. Done: asynchronous open, save and plot in the WinUI shell (parse and write on a worker, commit on the UI thread).
 3. Then: profile the DWG worker, build the mesh upload incrementally, reuse the viewport content
    while panning in a layout, build the spatial index off the first pick.
 Each step is accepted only with a before and after number from `apps/aad-cli/tests/perf_probe.rs`

@@ -849,7 +849,18 @@ impl Interactive for PlotWindowM {
 
 // ---------- plotting ----------
 
-fn run_plot(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
+/// A plot ready to run on a worker thread. Plotting only reads the drawing, so [`begin_plot`]
+/// (on the session's thread, where the arguments are checked) and [`PlotJob::run`] (anywhere) are
+/// all it takes.
+pub struct PlotJob {
+    hook: super::file::PlotHook,
+    doc: std::sync::Arc<aad_doc::Drawing>,
+    space: Space,
+    opts: Value,
+    path: Option<String>,
+}
+
+pub fn begin_plot(s: &Session, p: &Value, cmd: &str) -> Result<PlotJob> {
     let hook = io().and_then(|h| h.plot).ok_or_else(|| bad(cmd, "plotting is not available in this build"))?;
     let space = match str_param(p, "layout") {
         Some(n) if n.eq_ignore_ascii_case("model") => Space::Model,
@@ -862,26 +873,38 @@ fn run_plot(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
     if let (Some(w), Some(o)) = (window, opts.as_object_mut()) {
         o.insert("window".into(), json!(w));
     }
-    let bytes = hook(s.doc()?, &space, &opts).map_err(|e| bad(cmd, e))?;
-    let layout = match &space {
-        Space::Model => "Model".to_string(),
-        Space::Paper(n) => n.clone(),
-    };
-    match str_param(p, "path") {
-        Some(_path) => {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let path = _path;
-                let tmp = format!("{path}.aad-tmp");
-                std::fs::write(&tmp, &bytes).map_err(|e| bad(cmd, format!("{path}: {e}")))?;
-                std::fs::rename(&tmp, path).map_err(|e| bad(cmd, format!("{path}: {e}")))?;
-                Ok(json!({ "path": path, "bytes": bytes.len(), "layout": layout }))
+    Ok(PlotJob { hook, doc: s.state()?.doc.clone(), space, opts, path: str_param(p, "path").map(str::to_string) })
+}
+
+impl PlotJob {
+    /// Build the PDF and, given a `path`, write it there; without one the result carries base64 `data`.
+    pub fn run(&self) -> std::result::Result<Value, String> {
+        let fail = |e: String| e;
+        let bytes = (self.hook)(&self.doc, &self.space, &self.opts).map_err(&fail)?;
+        let layout = match &self.space {
+            Space::Model => "Model".to_string(),
+            Space::Paper(n) => n.clone(),
+        };
+        match self.path.as_deref() {
+            Some(_path) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let path = _path;
+                    let tmp = format!("{path}.aad-tmp");
+                    std::fs::write(&tmp, &bytes).map_err(|e| fail(format!("{path}: {e}")))?;
+                    std::fs::rename(&tmp, path).map_err(|e| fail(format!("{path}: {e}")))?;
+                    Ok(json!({ "path": path, "bytes": bytes.len(), "layout": layout }))
+                }
+                #[cfg(target_arch = "wasm32")]
+                Err(fail("paths are not available on the web; omit `path` to get the PDF as base64 `data`".into()))
             }
-            #[cfg(target_arch = "wasm32")]
-            Err(bad(cmd, "paths are not available on the web; omit `path` to get the PDF as base64 `data`"))
+            None => Ok(json!({ "data": base64_encode(&bytes), "bytes": bytes.len(), "layout": layout })),
         }
-        None => Ok(json!({ "data": base64_encode(&bytes), "bytes": bytes.len(), "layout": layout })),
     }
+}
+
+fn run_plot(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
+    begin_plot(s, p, cmd)?.run().map_err(|e| bad(cmd, e))
 }
 
 #[cfg(test)]
@@ -906,6 +929,7 @@ mod tests {
             .filter_map(|e| if let EntityKind::Viewport(v) = &e.kind { Some((e.handle, v.clone())) } else { None })
             .collect()
     }
+
 
     #[test]
     fn new_layout_gets_viewport_zoomed_to_extents() {

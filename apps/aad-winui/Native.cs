@@ -246,6 +246,80 @@ internal static class Native
             Marshal.FreeCoTaskMem(paramsPtr);
         }
     }
+    /// Start reading a drawing on a worker thread; returns at once.
+    public static bool OpenStart(IntPtr host, string path)
+    {
+        var pathPtr = Marshal.StringToCoTaskMemUTF8(path);
+        try
+        {
+            return aad_host_open_start(host, pathPtr) == 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(pathPtr);
+        }
+    }
+
+    /// 0 nothing loading, 1 reading, 2 opened and fitted, -1 failed (see LastError).
+    public static int OpenPoll(IntPtr host) => aad_host_open_poll(host);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_open_start(IntPtr host, IntPtr path);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_open_poll(IntPtr host);
+
+    /// Start writing the drawing on a worker thread: to path, or to its own file when null.
+    public static bool SaveStart(IntPtr host, string? path)
+    {
+        var pathPtr = path == null ? IntPtr.Zero : Marshal.StringToCoTaskMemUTF8(path);
+        try
+        {
+            return aad_host_save_start(host, pathPtr) == 0;
+        }
+        finally
+        {
+            if (pathPtr != IntPtr.Zero)
+            {
+                Marshal.FreeCoTaskMem(pathPtr);
+            }
+        }
+    }
+
+    /// 0 nothing saving, 1 writing, 2 saved, -1 failed (see LastError).
+    public static int SavePoll(IntPtr host) => aad_host_save_poll(host);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_save_start(IntPtr host, IntPtr path);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_save_poll(IntPtr host);
+
+    /// Start a plot (plot or exportpdf, parameters include path) on a worker thread.
+    public static bool PlotStart(IntPtr host, string command, string parameters)
+    {
+        var commandPtr = Marshal.StringToCoTaskMemUTF8(command);
+        var paramsPtr = Marshal.StringToCoTaskMemUTF8(parameters);
+        try
+        {
+            return aad_host_plot_start(host, commandPtr, paramsPtr) == 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(commandPtr);
+            Marshal.FreeCoTaskMem(paramsPtr);
+        }
+    }
+
+    /// 0 no plot running, 1 building, 2 written, -1 failed (see LastError).
+    public static int PlotPoll(IntPtr host) => aad_host_plot_poll(host);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_plot_start(IntPtr host, IntPtr command, IntPtr parameters);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_plot_poll(IntPtr host);
+
 
     public static Stats ReadStats(IntPtr host)
     {

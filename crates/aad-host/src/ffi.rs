@@ -555,3 +555,112 @@ fn copy_bytes(src: &[u8], buf: *mut u8, len: u32) -> i32 {
     }
     needed
 }
+
+/// Start reading a drawing file on a worker thread. Returns at once; poll with
+/// [`aad_host_open_poll`].
+///
+/// # Safety
+/// `host` is live. `path` is null-terminated UTF-8, at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_open_start(host: *mut Host, path: *const c_char) -> i32 {
+    call(host, |host| {
+        let path = read_text(path)?;
+        host.open_start(&path)
+    })
+}
+
+/// `0` nothing is loading, `1` still reading, `2` the drawing is open and fitted, `-1` the open
+/// failed (the message is in the host error).
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_open_poll(host: *mut Host) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return -1;
+    };
+    match std::panic::catch_unwind(AssertUnwindSafe(|| host.open_poll())) {
+        Ok(Ok(state)) => state,
+        Ok(Err(e)) => {
+            host.error = e;
+            -1
+        }
+        Err(_) => {
+            host.error = "internal error".into();
+            -1
+        }
+    }
+}
+
+/// Start writing the active drawing on a worker thread: to `path`, or to its own file when `path`
+/// is null or empty. Returns at once; poll with [`aad_host_save_poll`].
+///
+/// # Safety
+/// `host` is live. `path` is null or null-terminated UTF-8, at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_save_start(host: *mut Host, path: *const c_char) -> i32 {
+    call(host, |host| {
+        let path = if path.is_null() { String::new() } else { read_text(path)? };
+        host.save_start(if path.is_empty() { None } else { Some(path.as_str()) })
+    })
+}
+
+/// `0` nothing is saving, `1` still writing, `2` saved, `-1` failed (the message is in the host error).
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_save_poll(host: *mut Host) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return -1;
+    };
+    match std::panic::catch_unwind(AssertUnwindSafe(|| host.save_poll())) {
+        Ok(Ok(state)) => state,
+        Ok(Err(e)) => {
+            host.error = e;
+            -1
+        }
+        Err(_) => {
+            host.error = "internal error".into();
+            -1
+        }
+    }
+}
+
+/// Start a plot (`plot` or `exportpdf`) on a worker thread. `params` is the JSON of the command,
+/// including `path`. Returns at once; poll with [`aad_host_plot_poll`].
+///
+/// # Safety
+/// `host` is live. `command` and `params` are null-terminated UTF-8, each at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_plot_start(host: *mut Host, command: *const c_char, params: *const c_char) -> i32 {
+    call(host, |host| {
+        let command = read_text(command)?;
+        let params = read_text(params)?;
+        let value: Value = if params.is_empty() { Value::Null } else { serde_json::from_str(&params).map_err(|e| e.to_string())? };
+        host.plot_start(&command, &value)
+    })
+}
+
+/// `0` no plot is running, `1` still building, `2` the file is written, `-1` failed (the message is
+/// in the host error).
+///
+/// # Safety
+/// `host` is live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_plot_poll(host: *mut Host) -> i32 {
+    let Some(host) = (unsafe { host.as_mut() }) else {
+        return -1;
+    };
+    match std::panic::catch_unwind(AssertUnwindSafe(|| host.plot_poll())) {
+        Ok(Ok(state)) => state,
+        Ok(Err(e)) => {
+            host.error = e;
+            -1
+        }
+        Err(_) => {
+            host.error = "internal error".into();
+            -1
+        }
+    }
+}

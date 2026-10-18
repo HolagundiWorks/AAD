@@ -161,6 +161,11 @@ fn dyn_line(prompt: &aad_engine::Prompt, frame: Option<&aad_engine::dyninput::Fr
 fn dyn_boxes(prompt: &aad_engine::Prompt, frame: &aad_engine::dyninput::Frame, draft: &str, aim: Vec2) -> (String, String, String, String, i32) {
     let dist = |v: f64| aad_engine::units::format_distance(v, 2, 4);
     let clip = |text: String| text.chars().take(24).collect();
+    // The first point of a command, nothing typed: there is no distance to show, and the cursor's
+    // own X and Y are not shown.
+    if draft.trim().is_empty() && frame.base.is_none() {
+        return (String::new(), String::new(), String::new(), String::new(), 0);
+    }
     if let Some(entry) = aad_engine::dyninput::parse(draft, frame) {
         let held = aad_engine::dyninput::constrain(&entry, frame, aim);
         let (first_live, second_live) = frame.live(entry.format, held);
@@ -200,6 +205,9 @@ fn draft_box(draft: &str, running: bool) -> (String, String, String, String, i32
 /// One editing session and, on Windows, its drawing surface.
 pub struct Host {
     session: Session,
+    /// The view the drawing was last fitted to (centre x, y and height). While the view is still
+    /// exactly this one nobody has navigated, so a change of the drawing area refits it.
+    fitted: Option<(f64, f64, f64)>,
     width: u32,
     height: u32,
     error: String,
@@ -246,6 +254,12 @@ pub struct Host {
     control_stop: Option<Arc<AtomicBool>>,
     /// Set by `app.quit` on the control channel; the shell closes when chrome reports it.
     quit_requested: bool,
+    /// A drawing being read on a worker thread: its path and the channel the result arrives on.
+    loading: Option<(String, std::sync::mpsc::Receiver<Result<aad_engine::doc::Drawing, String>>)>,
+    /// A drawing being written on a worker thread.
+    saving: Option<(Arc<aad_engine::cmd::file::SaveJob>, std::sync::mpsc::Receiver<Result<usize, String>>)>,
+    /// A plot being built on a worker thread.
+    plotting: Option<std::sync::mpsc::Receiver<Result<Value, String>>>,
 }
 
 /// DXF and DWG read and write. The engine stays free of file formats; the host installs them
@@ -289,6 +303,7 @@ impl Host {
         let _ = session.zoom_extents();
         Host {
             session,
+            fitted: None,
             width: 1200,
             height: 800,
             error: String::new(),
@@ -324,6 +339,151 @@ impl Host {
             control_port: 0,
             control_stop: None,
             quit_requested: false,
+            loading: None,
+            saving: None,
+            plotting: None,
+        }
+    }
+
+    /// Start reading a drawing file on a worker thread. The window stays responsive; the shell
+    /// calls [`Host::open_poll`] until it reports the result.
+    pub fn open_start(&mut self, path: &str) -> Result<(), String> {
+        if self.loading.is_some() {
+            return Err("a drawing is already being opened".into());
+        }
+        if path.is_empty() || path.len() > 4096 {
+            return Err("missing path".into());
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let owned = path.to_string();
+        std::thread::Builder::new()
+            .name("aad-open".into())
+            .spawn(move || {
+                let read = std::panic::catch_unwind(|| aad_engine::cmd::file::read_drawing_file(&owned))
+                    .unwrap_or_else(|_| Err("internal error while reading the file".into()));
+                let _ = tx.send(read);
+            })
+            .map_err(|e| e.to_string())?;
+        self.loading = Some((path.to_string(), rx));
+        Ok(())
+    }
+
+    /// `Ok(0)` nothing is loading, `Ok(1)` still reading, `Ok(2)` the drawing is open and fitted.
+    /// A failed read or import is the error; the drawing that was open is untouched.
+    pub fn open_poll(&mut self) -> Result<i32, String> {
+        use std::sync::mpsc::TryRecvError;
+        let Some((path, rx)) = self.loading.as_ref() else {
+            return Ok(0);
+        };
+        let read = match rx.try_recv() {
+            Ok(read) => read,
+            Err(TryRecvError::Empty) => return Ok(1),
+            Err(TryRecvError::Disconnected) => Err("the file reader stopped".into()),
+        };
+        let path = path.clone();
+        self.loading = None;
+        let imported = read.and_then(|d| aad_engine::cmd::file::finish_open(&mut self.session, d, &path).map_err(|e| e.to_string()));
+        match imported {
+            Ok(_) => {
+                self.fit_view();
+                Ok(2)
+            }
+            Err(e) => {
+                self.session.echo(e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    /// Start writing the active drawing on a worker thread: to `path`, or to its own file when
+    /// `None`. The shell calls [`Host::save_poll`] until it reports the result.
+    pub fn save_start(&mut self, path: Option<&str>) -> Result<(), String> {
+        if self.saving.is_some() {
+            return Err("a drawing is already being saved".into());
+        }
+        if path.is_some_and(|p| p.is_empty() || p.len() > 4096) {
+            return Err("missing path".into());
+        }
+        let job = Arc::new(aad_engine::cmd::file::begin_save(&self.session, path).map_err(|e| e.to_string())?);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = job.clone();
+        std::thread::Builder::new()
+            .name("aad-save".into())
+            .spawn(move || {
+                let written = std::panic::catch_unwind(|| worker.run()).unwrap_or_else(|_| Err("internal error while saving the file".into()));
+                let _ = tx.send(written);
+            })
+            .map_err(|e| e.to_string())?;
+        self.saving = Some((job, rx));
+        Ok(())
+    }
+
+    /// `Ok(0)` nothing is saving, `Ok(1)` still writing, `Ok(2)` saved. A failed save is the error
+    /// and the drawing keeps its unsaved changes.
+    pub fn save_poll(&mut self) -> Result<i32, String> {
+        use std::sync::mpsc::TryRecvError;
+        let Some((_, rx)) = self.saving.as_ref() else {
+            return Ok(0);
+        };
+        let written = match rx.try_recv() {
+            Ok(written) => written,
+            Err(TryRecvError::Empty) => return Ok(1),
+            Err(TryRecvError::Disconnected) => Err("the file writer stopped".into()),
+        };
+        let Some((job, _)) = self.saving.take() else {
+            return Ok(0);
+        };
+        let done = written.and_then(|bytes| aad_engine::cmd::file::finish_save(&mut self.session, &job, bytes).map_err(|e| e.to_string()));
+        match done {
+            Ok(_) => Ok(2),
+            Err(e) => {
+                self.session.echo(e.clone());
+                Err(e)
+            }
+        }
+    }
+
+    /// Start a plot (`plot` or `exportpdf` with its parameters, `path` included) on a worker
+    /// thread. The shell calls [`Host::plot_poll`] until it reports the result.
+    pub fn plot_start(&mut self, command: &str, params: &Value) -> Result<(), String> {
+        if self.plotting.is_some() {
+            return Err("a plot is already running".into());
+        }
+        if command != "plot" && command != "exportpdf" {
+            return Err("unknown plot command".into());
+        }
+        let job = aad_engine::cmd::layout::begin_plot(&self.session, params, command).map_err(|e| e.to_string())?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("aad-plot".into())
+            .spawn(move || {
+                let done = std::panic::catch_unwind(|| job.run()).unwrap_or_else(|_| Err("internal error while plotting".into()));
+                let _ = tx.send(done);
+            })
+            .map_err(|e| e.to_string())?;
+        self.plotting = Some(rx);
+        Ok(())
+    }
+
+    /// `Ok(0)` no plot is running, `Ok(1)` still building, `Ok(2)` the file is written. A failure
+    /// is the error.
+    pub fn plot_poll(&mut self) -> Result<i32, String> {
+        use std::sync::mpsc::TryRecvError;
+        let Some(rx) = self.plotting.as_ref() else {
+            return Ok(0);
+        };
+        let done = match rx.try_recv() {
+            Ok(done) => done,
+            Err(TryRecvError::Empty) => return Ok(1),
+            Err(TryRecvError::Disconnected) => Err("the plot worker stopped".into()),
+        };
+        self.plotting = None;
+        match done {
+            Ok(_) => Ok(2),
+            Err(e) => {
+                self.session.echo(e.clone());
+                Err(e)
+            }
         }
     }
 
@@ -1473,7 +1633,7 @@ impl Host {
         let hwnd = window::create(parent, x, y, width, height, Arc::as_ptr(&self.bridge))?;
         self.hwnd = hwnd;
         self.apply_size(width, height);
-        let _ = self.session.zoom_extents();
+        self.fit_view();
         match gpu::Gpu::open(hwnd, self.width, self.height) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(e) => {
@@ -1556,12 +1716,29 @@ impl Host {
         gpu.present(key, &built, &uniform)
     }
 
+    /// Zoom to the extents and remember the view that gave, so a later change of the drawing area
+    /// (the window settling, a panel resized) refits it while nobody has navigated.
+    fn fit_view(&mut self) {
+        let _ = self.session.zoom_extents();
+        self.fitted = self.session.state().ok().map(|s| {
+            let v = s.view();
+            (v.center.x, v.center.y, v.height)
+        });
+    }
+
     fn apply_size(&mut self, width: u32, height: u32) {
+        let before = (self.width, self.height);
         self.width = width.clamp(1, 8192);
         self.height = height.clamp(1, 8192);
         self.session.viewport_px = (f64::from(self.width), f64::from(self.height));
+        // Nobody has navigated since the drawing was fitted: fit it to the new drawing area.
+        let untouched = self.session.state().ok().map(|s| s.view()).zip(self.fitted).is_some_and(|(v, f)| (v.center.x, v.center.y, v.height) == f);
+        if untouched && (self.width, self.height) != before {
+            self.fit_view();
+        }
     }
 }
+
 
 #[cfg(windows)]
 impl Drop for Host {
@@ -1614,6 +1791,22 @@ fn json_err(error: impl std::fmt::Display) -> Value {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn a_resize_refits_the_drawing_until_the_user_navigates() {
+        let mut host = Host::create(true);
+        host.apply_size(600, 600);
+        host.fit_view();
+        let narrow = host.stats().view_height;
+        host.apply_size(1600, 600);
+        let wide = host.stats().view_height;
+        assert!(wide < narrow, "a wider drawing area fits the sheet at a smaller view height ({wide} < {narrow})");
+        // Zoomed in by the user: a later resize leaves the view alone.
+        let _ = host.session.zoom_about(0.5, aad_engine::geom::Vec2::new(8.0, 3.0));
+        let zoomed = host.stats().view_height;
+        host.apply_size(900, 600);
+        assert_eq!(host.stats().view_height, zoomed, "the user's view is kept");
+    }
 
     #[test]
     fn sample_line_and_wheel_zoom() {
@@ -1708,6 +1901,67 @@ mod tests {
     }
 
     #[test]
+    fn an_open_started_on_a_worker_finishes_by_polling_and_a_bad_file_fails_cleanly() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let dxf = std::env::temp_dir().join(format!("aad-host-async-{}.dxf", std::process::id()));
+        host.execute("saveas", &json!({ "path": dxf.to_string_lossy() })).unwrap();
+        let wait = |h: &mut Host| {
+            for _ in 0..2000 {
+                match h.open_poll() {
+                    Ok(1) => std::thread::sleep(std::time::Duration::from_millis(5)),
+                    other => return other,
+                }
+            }
+            Err("timed out".into())
+        };
+        let mut opened = Host::create(false);
+        assert_eq!(opened.open_poll(), Ok(0));
+        opened.open_start(&dxf.to_string_lossy()).unwrap();
+        assert!(opened.open_start(&dxf.to_string_lossy()).is_err(), "one open at a time");
+        assert_eq!(wait(&mut opened), Ok(2));
+        assert!(opened.stats().entities >= 1);
+        assert_eq!(opened.open_poll(), Ok(0));
+        let before = opened.stats().entities;
+        opened.open_start("Z:/no/such/file.dxf").unwrap();
+        assert!(wait(&mut opened).is_err());
+        assert_eq!(opened.stats().entities, before, "a failed open leaves the drawing alone");
+        assert!(opened.open_start("").is_err());
+        let _ = std::fs::remove_file(dxf);
+    }
+
+    #[test]
+    fn a_save_started_on_a_worker_writes_the_file_and_a_bad_path_fails_cleanly() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let dxf = std::env::temp_dir().join(format!("aad-host-save-async-{}.dxf", std::process::id()));
+        let wait = |h: &mut Host| {
+            for _ in 0..2000 {
+                match h.save_poll() {
+                    Ok(1) => std::thread::sleep(std::time::Duration::from_millis(5)),
+                    other => return other,
+                }
+            }
+            Err("timed out".into())
+        };
+        assert_eq!(host.save_poll(), Ok(0));
+        assert!(host.save_start(None).is_err(), "a new drawing has no file name");
+        host.save_start(Some(&dxf.to_string_lossy())).unwrap();
+        assert!(host.save_start(Some(&dxf.to_string_lossy())).is_err(), "one save at a time");
+        assert_eq!(wait(&mut host), Ok(2));
+        let mut reopened = Host::create(false);
+        reopened.execute("open", &json!({ "path": dxf.to_string_lossy() })).unwrap();
+        assert!(reopened.stats().entities >= 1);
+        // The drawing now has a file name, so a quick save needs no path.
+        host.save_start(None).unwrap();
+        assert_eq!(wait(&mut host), Ok(2));
+        host.save_start(Some("Z:/no/such/dir/x.dxf")).unwrap();
+        assert!(wait(&mut host).is_err());
+        assert_eq!(host.save_poll(), Ok(0));
+        let _ = std::fs::remove_file(dxf);
+    }
+
+    #[test]
     fn saving_records_a_drawing_revision_and_the_command_notices_a_later_change() {
         let mut host = Host::create(false);
         let dir = std::env::temp_dir().join(format!("aad-host-rev-{}", std::process::id()));
@@ -1720,6 +1974,18 @@ mod tests {
         assert_eq!(r["status"], json!("current"));
         assert_eq!(r["recorded"]["entities"], json!(1));
         assert_eq!(r["recorded"]["file"], json!("plan.dxf"));
+        // The worker-thread save records one as well.
+        host.execute("line", &json!({ "points": [[0.0, 1.0], [5.0, 1.0]] })).unwrap();
+        host.save_start(None).unwrap();
+        for _ in 0..2000 {
+            if host.save_poll() != Ok(1) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let r = host.execute("drawing.revision", &json!({})).unwrap();
+        assert_eq!(r["status"], json!("current"));
+        assert_eq!(r["recorded"]["entities"], json!(2));
         std::fs::write(&path, b"edited elsewhere").unwrap();
         assert_eq!(host.execute("drawing.revision", &json!({})).unwrap()["status"], json!("changed"));
         let _ = std::fs::remove_dir_all(dir);
@@ -2033,6 +2299,34 @@ mod tests {
         assert_eq!(run("layer.delete", r#"{"name":"0"}"#), 1);
         assert!(ffi::error_text(host).contains("cannot delete"));
         unsafe { ffi::destroy(host) };
+    }
+
+    #[test]
+    fn a_plot_started_on_a_worker_writes_the_pdf_and_bad_arguments_fail_cleanly() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
+        let pdf = std::env::temp_dir().join(format!("aad-host-plot-async-{}.pdf", std::process::id()));
+        let wait = |h: &mut Host| {
+            for _ in 0..2000 {
+                match h.plot_poll() {
+                    Ok(1) => std::thread::sleep(std::time::Duration::from_millis(5)),
+                    other => return other,
+                }
+            }
+            Err("timed out".into())
+        };
+        assert_eq!(host.plot_poll(), Ok(0));
+        assert!(host.plot_start("line", &json!({})).is_err(), "only plotting commands");
+        assert!(host.plot_start("plot", &json!({ "window": [0.0, 0.0, 1.0] })).is_err(), "a malformed window is refused up front");
+        host.plot_start("plot", &json!({ "path": pdf.to_string_lossy() })).unwrap();
+        assert!(host.plot_start("plot", &json!({})).is_err(), "one plot at a time");
+        assert_eq!(wait(&mut host), Ok(2));
+        let bytes = std::fs::read(&pdf).unwrap();
+        assert!(bytes.starts_with(b"%PDF"));
+        host.plot_start("plot", &json!({ "path": "Z:/no/such/dir/x.pdf" })).unwrap();
+        assert!(wait(&mut host).is_err());
+        assert_eq!(host.plot_poll(), Ok(0));
+        let _ = std::fs::remove_file(pdf);
     }
 
     #[test]

@@ -91,6 +91,20 @@ pub(crate) fn open_bytes(s: &mut Session, bytes: &[u8], name: &str, path: Option
     import_drawing(s, d, name, path)
 }
 
+/// Read and parse a drawing file without a session, so a host can do it on a worker thread and
+/// hand the result to [`finish_open`] on the thread that owns the session.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_drawing_file(path: &str) -> std::result::Result<Drawing, String> {
+    let hooks = io().ok_or_else(|| "file formats are not available in this build".to_string())?;
+    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    (hooks.read)(&bytes, path)
+}
+
+/// Make a drawing read by [`read_drawing_file`] the active document, as `open` with a path does.
+pub fn finish_open(s: &mut Session, d: Drawing, path: &str) -> Result<usize> {
+    import_drawing(s, d, path, Some(path.to_string()))
+}
+
 /// Open a drawing read from a file, flattening it to 2D first. The flattening is applied to a
 /// working copy; the drawing as read stays the "saved" state and one undo step, so the import
 /// can be reverted and the file on disk is only replaced by an explicit save.
@@ -319,14 +333,71 @@ fn report_not_saved(s: &mut Session, r: &mut Value, lost: &std::collections::BTr
     }
 }
 
+/// A save split so the slow part (writing the format and the file) can run on a worker thread:
+/// [`begin_save`] on the session's thread, [`SaveJob::run`] anywhere, [`finish_save`] back on the
+/// session's thread. The job holds the drawing as it was when the save began, so edits made
+/// meanwhile stay unsaved.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct SaveJob {
+    doc: std::sync::Arc<Drawing>,
+    index: usize,
+    path: String,
+    lost: std::collections::BTreeMap<String, usize>,
+}
+
+/// Plan a save to `path`, or to the drawing's own file when `path` is `None`.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn begin_save(s: &Session, path: Option<&str>) -> Result<SaveJob> {
+    let path = match path {
+        Some(p) => p.to_string(),
+        None => s.state()?.path.clone().ok_or_else(|| bad("qsave", "drawing has no file name yet; use saveas {path}"))?,
+    };
+    let state = s.state()?;
+    Ok(SaveJob { doc: state.doc.clone(), index: s.active, lost: not_saved(&state.doc), path })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl SaveJob {
+    /// Write the file; returns the byte count.
+    pub fn run(&self) -> std::result::Result<usize, String> {
+        let hooks = io().ok_or_else(|| "file formats are not available in this build".to_string())?;
+        let bytes = (hooks.write)(&super::xref::without_overlays(&self.doc), &self.path)?;
+        store(&self.path, &bytes).map_err(|e| e.to_string())?;
+        if is_drawing_file(&self.path) {
+            // Advisory: a revision that cannot be written never fails the save.
+            let _ = crate::revision::record(&self.path, &bytes, self.doc.entity_count());
+        }
+        Ok(bytes.len())
+    }
+}
+
+/// Mark the drawing saved under the job's path and report what the file could not keep.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn finish_save(s: &mut Session, job: &SaveJob, bytes: usize) -> Result<Value> {
+    if is_drawing_file(&job.path) {
+        let st = s.docs.get_mut(job.index).ok_or_else(|| bad("save", "the drawing was closed while it was being saved"))?;
+        st.saved = job.doc.clone();
+        st.path = Some(job.path.clone());
+        st.title = file_name(&job.path);
+    }
+    let mut r = saved(&job.path, bytes);
+    after_save(s, &mut r, &job.lost);
+    Ok(r)
+}
+
 /// Save, then report the entities the file couldn't keep (nothing is dropped silently).
 fn save_reporting(s: &mut Session, p: &Value, run: fn(&mut Session, &Value) -> Result<Value>) -> Result<Value> {
     let lost = s.doc().map(not_saved).unwrap_or_default();
     let mut r = run(s, p)?;
-    if r.get("path").and_then(Value::as_str).is_some_and(is_drawing_file) {
-        report_not_saved(s, &mut r, &lost);
-    }
+    after_save(s, &mut r, &lost);
     Ok(r)
+}
+
+/// The report that follows a saved drawing file: what the file could not keep.
+fn after_save(s: &mut Session, r: &mut Value, lost: &std::collections::BTreeMap<String, usize>) {
+    if r.get("path").and_then(Value::as_str).is_some_and(is_drawing_file) {
+        report_not_saved(s, r, lost);
+    }
 }
 
 fn run_qsave_reporting(s: &mut Session, p: &Value) -> Result<Value> {

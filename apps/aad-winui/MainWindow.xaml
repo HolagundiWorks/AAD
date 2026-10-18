@@ -47,7 +47,7 @@
                         <TextBlock Text="Floor" />
                         <ComboBox x:Name="FloorBox" HorizontalAlignment="Stretch" MinHeight="32" SelectionChanged="OnFloorPicked" AutomationProperties.Name="Current floor" />
                         <TextBlock Text="Space" />
-                        <ComboBox x:Name="SpaceBox" HorizontalAlignment="Stretch" MinHeight="32" SelectionChanged="OnSpacePicked" AutomationProperties.Name="Drawing space" />
+                        <ComboBox x:Name="SpaceBox" HorizontalAlignment="Stretch" MinHeight="32" PlaceholderText="Current layers" SelectionChanged="OnSpacePicked" AutomationProperties.Name="Drawing space" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Top">
                         <Button x:Name="FloatLeftButton" Width="32" Height="32" Padding="0" Click="OnFloat" AutomationProperties.Name="Float side panels" ToolTipService.ToolTip="Float side panels">
