@@ -82,14 +82,14 @@
   <Fragment>
     <ComponentGroup Id="AadFiles" Directory="INSTALLFOLDER">
       <Component Id="AadApp" Guid="2AC18056-48DE-4079-AB79-4FDEF4FBB075">
-        <File Id="AadExe" Source="$(var.BinDir)\aad.exe" KeyPath="yes">
+        <File Id="AadExe" Source="$(var.BinDir)\o-draft.exe" KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="O-Draft"
               Description="O-Draft - Drafting. Part of OSAS." WorkingDirectory="INSTALLFOLDER" Advertise="yes"
               Icon="AadIcon.ico" IconIndex="0" />
         </File>
 
-        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\aad.exe" Value="[#AadExe]" Type="string" />
-        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\aad.exe\shell\open\command" Value="&quot;[#AadExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\o-draft.exe" Value="[#AadExe]" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\o-draft.exe\shell\open\command" Value="&quot;[#AadExe]&quot; &quot;%1&quot;" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\.dxf\OpenWithProgids" Name="AAD.Drawing" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\.dwg\OpenWithProgids" Name="AAD.Drawing" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\AAD.Drawing\shell\open\command" Value="&quot;[#AadExe]&quot; &quot;%1&quot;" Type="string" />
@@ -113,7 +113,7 @@
       <Component Id="DesktopShortcut" Directory="DesktopFolder" Guid="76029CD7-EBDB-420F-AC34-FF0E82A99E32"
           Condition="DESKTOPSHORTCUT = &quot;1&quot;">
         <Shortcut Id="DesktopShortcut" Name="O-Draft" Description="O-Draft - Drafting. Part of OSAS."
-            Target="[INSTALLFOLDER]aad.exe" WorkingDirectory="INSTALLFOLDER" Icon="AadIcon.ico" IconIndex="0" />
+            Target="[INSTALLFOLDER]o-draft.exe" WorkingDirectory="INSTALLFOLDER" Icon="AadIcon.ico" IconIndex="0" />
         <RegistryValue Root="HKCU" Key="Software\Human Centric Works\AAD" Name="DesktopShortcut"
             Value="1" Type="string" KeyPath="yes" />
       </Component>
@@ -122,7 +122,7 @@
 
   <?ifdef WinUiDir?>
   <Fragment>
-    <!-- Unpackaged WinUI shell + self-contained Windows App SDK, beside aad.exe. -->
+    <!-- Unpackaged WinUI shell + self-contained Windows App SDK, beside o-draft.exe. -->
     <ComponentGroup Id="AadWinUi" Directory="INSTALLFOLDER">
       <Files Include="$(var.WinUiDir)\**" />
     </ComponentGroup>

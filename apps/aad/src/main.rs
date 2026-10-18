@@ -2,7 +2,7 @@
 //!
 //! Usage: `aad [--control <port>] [--project <id>] [--sample] [--egui] [files…]`
 //!
-//! On Windows the default binary only starts the WinUI shell (`Aad.WinUi.exe` beside the program
+//! On Windows the default binary only starts the WinUI shell (`ODraft.WinUi.exe` beside the program
 //! or under `target/aad-winui`), forwarding `--sample`, `--control`, and drawing paths. It does
 //! not link eframe. Rebuild with `--features egui` and pass `--egui` for the optional egui window
 //! (widget automation, wasm/web still use `ui-egui`).
@@ -88,7 +88,7 @@ fn project_id_from(value: Option<String>) -> Option<String> {
     None
 }
 
-/// `Aad.WinUi.exe` beside this program, or the unpackaged build under `target/aad-winui`.
+/// `ODraft.WinUi.exe` (or the earlier name, `Aad.WinUi.exe`) beside this program, or the unpackaged build under `target/aad-winui`.
 #[cfg(windows)]
 fn winui_executable() -> Option<std::path::PathBuf> {
     if let Some(path) = std::env::var_os("AAD_WINUI") {
@@ -98,7 +98,7 @@ fn winui_executable() -> Option<std::path::PathBuf> {
         }
     }
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    [dir.join("Aad.WinUi.exe"), dir.join("../aad-winui/Aad.WinUi.exe")].into_iter().find(|path| path.is_file())
+    ["ODraft.WinUi.exe", "Aad.WinUi.exe"].into_iter().flat_map(|name| [dir.join(name), dir.join("../aad-winui").join(name)]).find(|path| path.is_file())
 }
 
 #[cfg(windows)]

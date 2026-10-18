@@ -42,7 +42,7 @@ moved to `dist/release`):
 | Check | Result |
 |---|---|
 | Build: `package.ps1 -Arch x64` | passed (release build 3.5 minutes); MSI 17 846 272 bytes, zip 22 689 850 bytes |
-| Portable zip, extracted to an empty folder | contains `aad.exe`, `aad-cli.exe`, `LICENSE-APACHE`, `LICENSE-MIT`, `README.md`; the CLI reports 0.6.0, reads a DXF, draws, saves and exports a PNG; the GUI starts on the GPU canvas, answers the control channel and quits; a damaged DWG (the BUG-001 fixture) is refused with a message by both the CLI and the GUI and the program stays up (the DWG worker works from the packaged executable) |
+| Portable zip, extracted to an empty folder | contains `o-draft.exe`, `aad-cli.exe`, `LICENSE-APACHE`, `LICENSE-MIT`, `README.md`; the CLI reports 0.6.0, reads a DXF, draws, saves and exports a PNG; the GUI starts on the GPU canvas, answers the control channel and quits; a damaged DWG (the BUG-001 fixture) is refused with a message by both the CLI and the GUI and the program stays up (the DWG worker works from the packaged executable) |
 | MSI administrative extract | the same two executables as the previous build |
 | MSI real install (silent, elevated) | exit 0; `C:\Program Files\AAD\` with both executables; "Add or remove programs" entry "AAD 0.6.0" by Human Centric Works; Start Menu shortcut; no desktop shortcut (opt-in) |
 | Installed programs | CLI runs and saves a DXF; GUI starts, shows 46 entities on the GPU canvas, exits cleanly |

@@ -135,7 +135,7 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/UI_TESTING_STRATEGY.md](docs/UI_TESTING_STRATEGY.md), [docs/UI_TEST_MATRIX.md](docs/UI_TEST_MATRIX.md) | UI test tooling, coverage |
 | [docs/WCAG_UI_AUDIT.md](docs/WCAG_UI_AUDIT.md) | Accessibility and interface audit of the WinUI shell: method, findings, fixes |
 | [docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) | What the documents promise and the code lacks; performance plan |
-| [docs/architecture/suite-integration.md](docs/architecture/suite-integration.md) | How O-Draft connects to O-Studio, O-Metra, ShilpiDB and AORMS |
+| [docs/architecture/suite-integration.md](docs/architecture/suite-integration.md) | How O-Draft connects to O-Studio, O-CoreOp, ShilpiDB and AORMS |
 | [docs/parity-checklist.md](docs/parity-checklist.md) | Generated menu-name comparison (`cargo xtask parity`) |
 | [CLAUDE.md](CLAUDE.md) | Rules for developers and coding agents |
 

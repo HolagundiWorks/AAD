@@ -4,6 +4,7 @@
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Aad.WinUi</RootNamespace>
+    <AssemblyName>ODraft.WinUi</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\app-icon\aad.ico</ApplicationIcon>
     <Platforms>x64</Platforms>

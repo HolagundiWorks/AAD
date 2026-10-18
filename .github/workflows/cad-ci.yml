@@ -72,5 +72,5 @@ jobs:
         shell: pwsh
         run: |
           dotnet build apps/aad-winui/Aad.WinUi.csproj -c Release -p:Platform=x64 -o target/aad-winui
-          if (-not (Test-Path target/aad-winui/Aad.WinUi.exe)) { throw 'Aad.WinUi.exe missing' }
-          if (-not (Test-Path target/aad-winui/aad_host.dll)) { throw 'aad_host.dll was not copied beside Aad.WinUi.exe' }
+          if (-not (Test-Path target/aad-winui/ODraft.WinUi.exe)) { throw 'ODraft.WinUi.exe missing' }
+          if (-not (Test-Path target/aad-winui/aad_host.dll)) { throw 'aad_host.dll was not copied beside ODraft.WinUi.exe' }

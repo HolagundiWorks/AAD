@@ -31,7 +31,7 @@ Outputs are in `target/debug` and `target/release` (`aad.exe`, `aad-cli.exe`).
 ## Run
 
 ```text
-cargo run --release -p aad -- --sample            # WinUI shell when target/aad-winui/Aad.WinUi.exe exists
+cargo run --release -p aad -- --sample            # WinUI shell when target/aad-winui/ODraft.WinUi.exe exists
 cargo run --release -p aad --features egui -- --egui --sample   # optional egui window (Windows)
 cargo run --release -p aad -- file.dxf            # WinUI opens the file (error if WinUI is missing)
 cargo run --release -p aad -- --control 47123     # WinUI + JSON control channel

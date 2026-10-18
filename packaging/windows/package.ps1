@@ -5,7 +5,7 @@
 .DESCRIPTION
   Produces, in $env:DIST (default: dist/release):
     o-draft-<version>-windows-<arch>.msi          per-machine installer (WiX v5)
-    o-draft-<version>-windows-<arch>-portable.zip   aad.exe, aad-cli.exe, and on x64 the WinUI shell
+    o-draft-<version>-windows-<arch>-portable.zip   o-draft.exe, aad-cli.exe, and on x64 the WinUI shell (ODraft.WinUi.exe)
 
   The binaries link the C runtime statically (+crt-static), so neither the MSI nor the portable
   zip needs the Visual C++ redistributable. The WinUI shell is self-contained for the Windows
@@ -107,7 +107,9 @@ foreach ($check in @(@('aad.exe', 2), @('aad-cli.exe', 3))) {
 $Stage = Join-Path $TargetDir "windows-package\$Arch"
 Remove-Item -Recurse -Force $Stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $Stage | Out-Null
-Copy-Item (Join-Path $Bin 'aad.exe'), (Join-Path $Bin 'aad-cli.exe') $Stage
+# The cargo binary is still called aad; it ships as o-draft.exe.
+Copy-Item (Join-Path $Bin 'aad.exe') (Join-Path $Stage 'o-draft.exe')
+Copy-Item (Join-Path $Bin 'aad-cli.exe') $Stage
 # Licence texts and notices, installed beside the program (the licence page of the wizard shows LICENSE-MIT).
 foreach ($n in 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE', 'THIRD_PARTY_LICENSES.md', 'ATTRIBUTION.md') { Copy-Item (Join-Path $Root $n) $Stage }
 
@@ -115,7 +117,7 @@ $WinUiDir = $null
 $WinUiDefine = @()
 if ($Arch -eq 'x64') {
   $WinUiPublish = Join-Path $TargetDir "aad-winui-publish\$Arch"
-  if (-not (Test-Path (Join-Path $WinUiPublish 'Aad.WinUi.exe'))) {
+  if (-not (Test-Path (Join-Path $WinUiPublish 'ODraft.WinUi.exe'))) {
     throw "WinUI publish output missing at $WinUiPublish (build without -SkipBuild, or publish Aad.WinUi first)"
   }
   $HostDll = Join-Path $Bin 'aad_host.dll'
@@ -125,16 +127,16 @@ if ($Arch -eq 'x64') {
   New-Item -ItemType Directory -Force -Path $WinUiDir | Out-Null
   Copy-Item (Join-Path $WinUiPublish '*') $WinUiDir -Recurse -Force
   Copy-Item $HostDll $WinUiDir -Force
-  # aad.exe looks for Aad.WinUi.exe beside itself (and aad_host.dll next to that exe).
-  Copy-Item (Join-Path $WinUiDir 'Aad.WinUi.exe') $Stage -Force
+  # o-draft.exe looks for ODraft.WinUi.exe beside itself (and aad_host.dll next to that exe).
+  Copy-Item (Join-Path $WinUiDir 'ODraft.WinUi.exe') $Stage -Force
   Copy-Item $HostDll $Stage -Force
   $WinUiDefine = @('-d', "WinUiDir=$WinUiDir")
   Write-Output "winui: staged from $WinUiPublish"
 }
 
-& (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'aad.exe') (Join-Path $Stage 'aad-cli.exe')
-if (Test-Path (Join-Path $Stage 'Aad.WinUi.exe')) {
-  & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'Aad.WinUi.exe') (Join-Path $Stage 'aad_host.dll')
+& (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'o-draft.exe') (Join-Path $Stage 'aad-cli.exe')
+if (Test-Path (Join-Path $Stage 'ODraft.WinUi.exe')) {
+  & (Join-Path $PSScriptRoot 'sign.ps1') (Join-Path $Stage 'ODraft.WinUi.exe') (Join-Path $Stage 'aad_host.dll')
 }
 
 # Typography presets: AAD_FONTS_DIR holds the font files (.ttf/.otf) and their licence texts, taken
