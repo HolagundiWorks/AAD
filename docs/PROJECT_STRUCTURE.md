@@ -2,15 +2,15 @@
 
 Where things are. For what the crates do and how they fit together read
 [ARCHITECTURE.md](ARCHITECTURE.md). Only significant directories are listed. Counts are tracked
-files on `main` after the cleanup of 2026-10-12.
+files on `main` on 2026-10-18.
 
 ## Top level
 
 | Path | Purpose |
 |---|---|
 | `Cargo.toml`, `Cargo.lock` | Workspace definition (members `crates/*`, `apps/*`, `xtask`), shared version, profiles. The lockfile is committed and `cargo build --locked` is used for packaging |
-| `crates/` | The 14 library crates |
-| `apps/` | `aad` (desktop app), `aad-cli` (command-line tool, MCP), `aad-web` (WASM build, compile-checked only) |
+| `crates/` | The 16 library crates |
+| `apps/` | `aad` (desktop app, shipped as `o-draft.exe`), `aad-cli` (command-line tool, MCP), `aad-web` (WASM build, compile-checked only), `aad-winui` (C# WinUI shell, `ODraft.WinUi.exe`; excluded from the Cargo workspace) |
 | `xtask/` | Repository tasks: `cargo xtask ci`, `layers`, `assets`, `wasm`, `parity`, `version`, `logo`, `stats`, `licenses`. `xtask/data/menu-catalog.txt` is the menu-name list used by `parity` |
 | `docs/` | Documentation (index in [README.md](../README.md)) |
 | `packaging/` | Installer and release scripts per platform (`windows/`, `macos/`, `linux/`, `web/`) |
@@ -35,22 +35,22 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 | `color` | colour table |
 | `doc` | `src/entity.rs` (entity types), `store.rs` (copy-on-write `EntityStore`), `tables.rs`, `header.rs`, `extents.rs`, `library.rs` (our own hatch patterns and linetypes), `plotstyle.rs`, `tests.rs` |
 | `fonts` | `src/stroke.rs` (our single-stroke font), TrueType/OpenType layout |
-| `render` | display lists, rasteriser; `tests/` (15 files), `benches/render.rs` |
+| `render` | display lists, rasteriser; `tests/` (16 files), `benches/render.rs` |
 | `io` | `dxf_read.rs`, `dxf_write.rs`, `dxf_ext.rs`, PDF/SVG/PNG export; `tests/` (18 files, includes `mutation_robustness.rs`); `benches/dxf.rs` |
 | `dwg` | `lib.rs` (bridge to `acadrust`), `isolated.rs` (worker process) |
-| `engine` | `src/lib.rs` (`Session`), `cmd/` (commands, 48 files plus subfolders `blocks/`, `layer/`, `layout/`, `props/`), `snap.rs` and `snap/`, `select.rs`, `spatial.rs`, `finite.rs`, `guard.rs`, `flatten.rs`, `audit.rs`, `assoc.rs`; `tests/` (81 files); `benches/` |
-| `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code); `tests/` (17 files) |
+| `engine` | `src/lib.rs` (`Session`), `cmd/` (commands, 60 files plus subfolders `blocks/`, `layer/`, `layout/`, `props/`), `snap.rs` and `snap/`, `select.rs`, `spatial.rs`, `finite.rs`, `guard.rs`, `flatten.rs`, `audit.rs`, `assoc.rs`; `tests/` (88 files); `benches/` |
+| `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code); `tests/` (22 files) |
 | `aad-host` | C ABI, registry menu, command line, pointer input, and Win32 child window for the WinUI shell. `apps/aad-winui` is the C# project and is excluded from the Cargo workspace |
 | `mcp`, `agent`, `llm` | MCP server, allow-listed tool layer, model runtime facade |
 | `aorms` | AORMS sign-in client and project calls (network, kept off the UI thread) |
+| `vdb` (`aad-vdb`) | `.vdb` store on ShilpiDB: `file.rs` (embedded codec and `SpatialGrid`), `client.rs` (`VdbClient` for a running `shilpid`). A library, not a program; the engine commands `vdb.export`, `vdb.info` and `vdb.query` use it |
 
 ## Entry points
 
 | Binary | File |
 |---|---|
-| `aad` | `apps/aad/src/main.rs` (the DWG worker mode is handled first in `main`). On Windows the default binary only starts `Aad.WinUi.exe` and does not link eframe; `--features egui` plus `--egui` is the optional egui shell. Non-Windows always links egui/eframe |
-| `aad-vdb` | `crates/vdb` — ShilpiDB-backed `.vdb` file + `VdbClient`; engine commands `vdb.export` / `vdb.info` / `vdb.query` |
-| `Aad.WinUi` | `apps/aad-winui` (C#, not a Cargo member) |
+| `aad` (shipped as `o-draft.exe`) | `apps/aad/src/main.rs` (the DWG worker mode is handled first in `main`). On Windows the default binary only starts `ODraft.WinUi.exe` (or the older `Aad.WinUi.exe`) beside it or under `target/aad-winui`, and does not link eframe; `--features egui` plus `--egui` is the optional egui shell. Non-Windows always links egui/eframe |
+| `ODraft.WinUi.exe` | `apps/aad-winui` (C#, not a Cargo member; assembly `ODraft.WinUi`, namespace `Aad.WinUi`) |
 | `aad-cli` | `apps/aad-cli/src/main.rs` |
 | `aad-web` | `apps/aad-web/src/main.rs` (WASM) |
 | `xtask` | `xtask/src/main.rs` |
@@ -74,7 +74,7 @@ The product is **O-Draft**, the drafting app of OSAS (the Open Source Architectu
 
 | Kept | Why |
 |---|---|
-| Crates and libraries `aad-*`, `aad_host.dll`, the `aad` and `aad-cli` executables, `Aad.WinUi.exe` | Other crates import them; the executable rename is a separate release step that must change the OSAS launcher in the same release |
+| Crates and libraries `aad-*`, `aad_host.dll`, the Cargo binary names `aad` and `aad-cli`, the C# namespace `Aad.WinUi` | Other crates and the shell import them |
 | Command ids, the command-line grammar, MCP tool names (`serverInfo.name` is `aad`), control-channel methods | Scripts and agents call them |
 | File formats: `AAD_PROJECT` extension data in DXF, `.vdb`, the `hcw-aqc-bridge` file (`source.app` is `AAD`) | Existing drawings and AQC import must keep working |
 | The AORMS session name `aad` and credential `AORMS/Connect/aad`, the application id `io.github.holagundiworks.aad` | The portal and the other apps read them |
@@ -82,4 +82,4 @@ The product is **O-Draft**, the drafting app of OSAS (the Open Source Architectu
 | The WiX UpgradeCode and the `AAD.Drawing` file association | An installed copy must still upgrade |
 | The repository name | Links and clones |
 
-The installer and its files are named `o-draft-<version>-windows-<arch>`. The logo is the OSAS suite mark in O-Draft's black, drawn by `cargo xtask logo`. The accent colour is black (`#1B1C20`) in the light palette and a light neutral (`#F6F5F1`) in the dark palette, where black would not show; the two palettes are `theme::Tokens` in `crates/ui-egui/src/theme.rs`, and the WinUI shell sets the same values in `apps/aad-winui/App.xaml`.
+The Windows programs ship as `o-draft.exe` (the `aad` binary, renamed by `packaging/windows/package.ps1`) and `ODraft.WinUi.exe`; `aad-cli.exe` keeps its name. The OSAS launcher finds both `o-draft.exe` and the older `aad.exe`. The installer and its files are named `o-draft-<version>-windows-<arch>`. The logo is the OSAS suite mark in O-Draft's black, drawn by `cargo xtask logo`. The accent colour is black (`#1B1C20`) in the light palette and a light neutral (`#F6F5F1`) in the dark palette, where black would not show; the two palettes are `theme::Tokens` in `crates/ui-egui/src/theme.rs`, and the WinUI shell sets the same values in `apps/aad-winui/App.xaml`.
