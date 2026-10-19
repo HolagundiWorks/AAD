@@ -78,7 +78,7 @@ fn new_id(salt: &str) -> String {
     format!("{:08x}-{:04x}-4{:03x}-8{:03x}-{:012x}", (a >> 32) as u32, (a >> 16) as u16, a & 0xfff, (b >> 52) & 0xfff, b & 0xffff_ffff_ffff)
 }
 
-fn iso_time() -> Option<String> {
+pub(crate) fn iso_time() -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     {
         None
@@ -161,6 +161,42 @@ fn box_mm(d: &aad_doc::Drawing, h: Option<aad_doc::Handle>, unit_mm: f64) -> [f6
     let b = aad_doc::entity_bounds(d, e, 0);
     let v = [b.min.x * unit_mm, b.min.y * unit_mm, b.max.x * unit_mm, b.max.y * unit_mm];
     if b.is_empty() || v.iter().any(|x| !x.is_finite()) { [0.0; 4] } else { [mm(v[0]), mm(v[1]), mm(v[2]), mm(v[3])] }
+}
+
+/// Nominal thickness of a wall measured on the full-brick and half-brick layers, in millimetres.
+const FULL_BRICK_MM: f64 = 230.0;
+const HALF_BRICK_MM: f64 = 115.0;
+
+/// The distance from a point to a measured line or polyline (straight segments), in drawing units.
+fn distance_to_entity(d: &aad_doc::Drawing, h: aad_doc::Handle, p: aad_geom::Vec2) -> Option<f64> {
+    let (pts, closed): (Vec<aad_geom::Vec2>, bool) = match &d.entity(h)?.kind {
+        EntityKind::Line(l) => (vec![aad_geom::Vec2::new(l.a.x, l.a.y), aad_geom::Vec2::new(l.b.x, l.b.y)], false),
+        EntityKind::LwPolyline(pl) => (pl.vertices.iter().map(|v| v.p).collect(), pl.closed),
+        _ => return None,
+    };
+    let seg = |a: aad_geom::Vec2, b: aad_geom::Vec2| {
+        let ab = b - a;
+        let len2 = ab.x * ab.x + ab.y * ab.y;
+        let t = if len2 > 0.0 { (((p.x - a.x) * ab.x + (p.y - a.y) * ab.y) / len2).clamp(0.0, 1.0) } else { 0.0 };
+        let q = aad_geom::Vec2::new(a.x + ab.x * t, a.y + ab.y * t);
+        ((p.x - q.x).powi(2) + (p.y - q.y).powi(2)).sqrt()
+    };
+    let mut best: Option<f64> = None;
+    let mut take = |x: f64| {
+        if x.is_finite() {
+            best = Some(best.map_or(x, |b| b.min(x)));
+        }
+    };
+    for w in pts.windows(2) {
+        take(seg(w[0], w[1]));
+    }
+    if closed && pts.len() > 2 {
+        take(seg(pts[pts.len() - 1], pts[0]));
+    }
+    if pts.len() == 1 {
+        take(seg(pts[0], pts[0]));
+    }
+    best
 }
 
 /// A rectangle's two spans in millimetres, when the outline is four right angles with straight sides.
@@ -261,7 +297,7 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
     let mut root = Map::new();
     root.insert("format".into(), json!(FORMAT));
     root.insert("version".into(), json!(1));
-    let mut source = json!({ "app": "AAD", "host": "AAD", "drawing_id": id });
+    let mut source = json!({ "app": "AAD", "host": "AAD", "drawing_id": id, "drawing": "(unsaved)" });
     if let Some(path) = &s.state()?.path {
         source["drawing"] = json!(std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path));
     }
@@ -289,10 +325,37 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
     if rooms.is_empty() {
         warnings.push("no room labels: run `room` to include rooms".into());
     }
+    // Each room carries its floor and its two sides: the exact sides of a rectangular outline, else the sides of the outline's
+    // box with `rectangular: false`. A room with no drawn outline sends its area only.
+    let mut room_rows = Vec::new();
+    let mut no_outline = 0usize;
     for r in &rooms {
-        items.push(Item { kind: KIND_ROOM, n: number_of(r.handle), row: r.row.clone(), bbox: box_mm(d, r.outline.or(Some(r.handle)), unit_mm) });
+        let mut row = r.row.clone();
+        row["level"] = json!(level);
+        match r.outline {
+            Some(h) => match rectangle_spans_mm(d, h, unit_mm) {
+                Some((length, breadth)) => {
+                    row["length_mm"] = json!(mm(length));
+                    row["breadth_mm"] = json!(mm(breadth));
+                    row["rectangular"] = json!(true);
+                }
+                None => {
+                    let b = box_mm(d, Some(h), unit_mm);
+                    let (w, ht) = (b[2] - b[0], b[3] - b[1]);
+                    row["length_mm"] = json!(mm(w.max(ht)));
+                    row["breadth_mm"] = json!(mm(w.min(ht)));
+                    row["rectangular"] = json!(false);
+                }
+            },
+            None => no_outline += 1,
+        }
+        items.push(Item { kind: KIND_ROOM, n: number_of(r.handle), row: row.clone(), bbox: box_mm(d, r.outline.or(Some(r.handle)), unit_mm) });
+        room_rows.push(row);
     }
-    root.insert("rooms".into(), Value::Array(rooms.iter().map(|r| r.row.clone()).collect()));
+    if no_outline > 0 {
+        warnings.push(format!("{no_outline} room(s) have no drawn outline on ROOM-RECT, so their sides are not sent (only the area)"));
+    }
+    root.insert("rooms".into(), Value::Array(room_rows));
 
     // Project details.
     let details = project::get(d, "details");
@@ -341,7 +404,8 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
     let kind_name = |k: &str| match k {
         "door" => "Door",
         "window" => "Window",
-        _ => "Ventilator",
+        // A ventilator is a window to the take-off contract; its mark and type still name it.
+        _ => "Window",
     };
     let mut counts_by_block = std::collections::BTreeMap::<String, u64>::new();
     let mut inserts = Vec::new();
@@ -403,7 +467,8 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
             let layer = if it["group"].as_str().is_some_and(|g| g.starts_with("HB")) { "MEASURE-HALFBRICK" } else { "MEASURE-FULLBRICK" };
             let handle = stable_handle(it);
             let wall_ref = handle.map_or_else(|| mark.to_string(), |h| format!("W{}", h.hex()));
-            let row = json!({ "ref": wall_ref, "level": level, "length_mm": mm(len * lf), "height_mm": mm(ceiling_mm), "layer": layer });
+            let thickness = if layer == "MEASURE-HALFBRICK" { HALF_BRICK_MM } else { FULL_BRICK_MM };
+            let row = json!({ "ref": wall_ref, "level": level, "length_mm": mm(len * lf), "height_mm": mm(ceiling_mm), "thickness_mm": thickness, "layer": layer });
             if let Some(h) = handle {
                 items.push(Item { kind: KIND_WALL, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
             } else {
@@ -429,7 +494,40 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
         items.push(Item { kind: KIND_WALL, n: number_of(*first), row: w.row.clone(), bbox: bbox.unwrap_or([0.0; 4]) });
         walls.push(w.row);
     }
+    if !walls.is_empty() {
+        warnings.push(format!("wall thickness is the nominal one the measure layer implies (full brick {FULL_BRICK_MM} mm, half brick {HALF_BRICK_MM} mm), not a measured value"));
+    }
     root.insert("walls".into(), Value::Array(walls.clone()));
+
+    // Which measured wall each opening sits in: the nearest wall within half its thickness and 150 mm of the opening's insertion point.
+    {
+        let wall_list: Vec<(String, aad_doc::Handle, f64)> = items
+            .iter()
+            .filter(|i| i.kind == KIND_WALL)
+            .filter_map(|i| Some((i.row["ref"].as_str()?.to_string(), aad_doc::Handle(i.n), i.row["thickness_mm"].as_f64().unwrap_or(FULL_BRICK_MM))))
+            .collect();
+        let mut unplaced = 0usize;
+        for it in items.iter_mut().filter(|i| i.kind == KIND_OPENING) {
+            let Some(EntityKind::Insert(ins)) = d.entity(aad_doc::Handle(it.n)).map(|e| &e.kind) else { continue };
+            let at = aad_geom::Vec2::new(ins.insert.x, ins.insert.y);
+            let best = wall_list
+                .iter()
+                .filter_map(|(r, h, t)| distance_to_entity(d, *h, at).map(|dist| (dist * unit_mm, r, *t)))
+                .filter(|(dist, _, t)| *dist <= t / 2.0 + 150.0)
+                .min_by(|a, b| a.0.total_cmp(&b.0));
+            match best {
+                Some((_, r, _)) => it.row["wall_ref"] = json!(r),
+                None => unplaced += 1,
+            }
+        }
+        if unplaced > 0 {
+            warnings.push(format!(
+                "{unplaced} opening(s) are not on a measured wall (none within its half thickness and 150 mm): no wall_ref is sent for them"
+            ));
+        }
+        let rows: Vec<Value> = items.iter().filter(|i| i.kind == KIND_OPENING).map(|i| i.row.clone()).collect();
+        root.insert("openings".into(), Value::Array(rows));
+    }
 
     // Columns.
     let mut columns = Vec::new();

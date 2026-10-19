@@ -270,6 +270,7 @@ fn install_formats() {
         write: |drawing, name| aad_io::write(drawing, name).map_err(|e| e.to_string()),
         plot: Some(|drawing, space, opts| aad_io::plot(drawing, space, opts).map_err(|e| e.to_string())),
     });
+    aad_engine::cmd::file::set_pdf_reader(|bytes, page| aad_io::pdfread::read_page(bytes, page).map_err(|e| e.to_string()));
     if let Some(worker) = dwg_worker() {
         let _ = aad_dwg::isolated::enable_with(worker);
     }
