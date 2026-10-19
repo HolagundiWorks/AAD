@@ -21,8 +21,8 @@
   <icon type="stock">io.github.holagundiworks.aad</icon>
   <!-- Only url types known to appstream 0.15 (Ubuntu 22.04, where CI validates): no vcs-browser. -->
   <url type="homepage">https://getartcraft.com/apps/aad</url>
-  <url type="bugtracker">https://github.com/HolagundiWorks/AADT/issues</url>
-  <url type="help">https://github.com/HolagundiWorks/AADT</url>
+  <url type="bugtracker">https://github.com/HolagundiWorks/AAD/issues</url>
+  <url type="help">https://github.com/HolagundiWorks/AAD</url>
   <categories>
     <category>Graphics</category>
     <category>Engineering</category>
@@ -36,7 +36,7 @@
   <screenshots>
     <screenshot type="default">
       <caption>A mechanical part drawing with dimensions, hatching and layers</caption>
-      <image>https://raw.githubusercontent.com/HolagundiWorks/AADT/main/docs/images/ui-bracket.png</image>
+      <image>https://raw.githubusercontent.com/HolagundiWorks/AAD/main/docs/images/ui-bracket.png</image>
     </screenshot>
   </screenshots>
   <branding>

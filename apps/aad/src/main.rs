@@ -98,7 +98,10 @@ fn winui_executable() -> Option<std::path::PathBuf> {
         }
     }
     let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    ["ODraft.WinUi.exe", "Aad.WinUi.exe"].into_iter().flat_map(|name| [dir.join(name), dir.join("../aad-winui").join(name)]).find(|path| path.is_file())
+    ["ODraft.WinUi.exe", "Aad.WinUi.exe"]
+        .into_iter()
+        .flat_map(|name| [dir.join(name), dir.join("../aad-winui").join(name)])
+        .find(|path| path.is_file())
 }
 
 #[cfg(windows)]
@@ -185,9 +188,7 @@ fn main() {
     #[cfg(all(windows, not(feature = "egui")))]
     {
         let _ = (control_port, sample, files, want_egui, project);
-        eprintln!(
-            "O-Draft: this Windows build has no egui shell. Rebuild with:\n  cargo build -p aad --features egui\nthen run: aad --egui …"
-        );
+        eprintln!("O-Draft: this Windows build has no egui shell. Rebuild with:\n  cargo build -p aad --features egui\nthen run: aad --egui …");
         std::process::exit(2);
     }
 

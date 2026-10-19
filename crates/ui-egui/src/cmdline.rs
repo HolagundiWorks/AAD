@@ -411,6 +411,12 @@ fn space(app: &mut CadApp) {
     if let Some(e) = chosen {
         app.cmd.buffer = e.insert;
         submit(app);
+    } else if crate::cmdinput::space_executes(&app.cmd.buffer, false) {
+        // A whole name or alias runs under its command name, as Enter does, so the history matches.
+        if let Some(name) = crate::cmdinput::exact_command(&app.cmd.buffer) {
+            app.cmd.buffer = name;
+        }
+        submit(app);
     } else if let Some(first) = first_suggestion(app) {
         // A half-typed name: Space starts the first command in the list.
         app.cmd.buffer = first;
@@ -476,7 +482,13 @@ pub fn submit(app: &mut CadApp) {
     let text = std::mem::take(&mut app.cmd.buffer);
     app.cmd.history_pos = None;
     if !text.trim().is_empty() && app.session.running.is_none() {
-        app.cmd.history.push(text.clone());
+        // A whole command name is kept as the command's own name (`line` is recalled as `LINE`).
+        let word = text.trim();
+        let named = (!word.starts_with('/') && !word.contains(char::is_whitespace))
+            .then(|| crate::cmdinput::command_entries(word).into_iter().find(|e| e.insert.eq_ignore_ascii_case(word)))
+            .flatten()
+            .map(|e| e.insert);
+        app.cmd.history.push(named.unwrap_or_else(|| text.clone()));
         if app.cmd.history.len() > 200 {
             app.cmd.history.remove(0);
         }

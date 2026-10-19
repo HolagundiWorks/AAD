@@ -16,19 +16,12 @@ pub struct VdbClient {
 impl VdbClient {
     /// Connect to `addr` (for example `"127.0.0.1:7420"`).
     pub fn connect(addr: impl ToSocketAddrs) -> Result<Self, ClientError> {
-        Ok(Self {
-            inner: Client::connect(addr)?,
-        })
+        Ok(Self { inner: Client::connect(addr)? })
     }
 
     /// Connect with an explicit per-operation timeout (`None` = block forever).
-    pub fn connect_with_timeout(
-        addr: impl ToSocketAddrs,
-        timeout: Option<Duration>,
-    ) -> Result<Self, ClientError> {
-        Ok(Self {
-            inner: Client::connect_with_timeout(addr, timeout)?,
-        })
+    pub fn connect_with_timeout(addr: impl ToSocketAddrs, timeout: Option<Duration>) -> Result<Self, ClientError> {
+        Ok(Self { inner: Client::connect_with_timeout(addr, timeout)? })
     }
 
     pub fn ping(&mut self) -> Result<(), ClientError> {

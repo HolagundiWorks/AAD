@@ -41,8 +41,7 @@ pub struct ToolDef {
 
 /// Tools that are planned but not built. They are not offered to the model and a call to one is
 /// refused as not implemented.
-pub const PLANNED: &[&str] =
-    &["find_openings", "generate_schedule", "run_quantity_takeoff", "check_missing_attributes", "export_table"];
+pub const PLANNED: &[&str] = &["find_openings", "generate_schedule", "run_quantity_takeoff", "check_missing_attributes", "export_table"];
 
 fn exec(s: &mut Session, id: &str, args: Value) -> Result<Value, String> {
     s.execute(id, &args).map_err(|e| e.to_string())

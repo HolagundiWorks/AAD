@@ -31,9 +31,9 @@
 
     <Icon Id="AadIcon.ico" SourceFile="$(var.IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="AadIcon.ico" />
-    <Property Id="ARPURLINFOABOUT" Value="https://github.com/HolagundiWorks/AADT" />
-    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/HolagundiWorks/AADT" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/HolagundiWorks/AADT/issues" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/HolagundiWorks/AAD" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/HolagundiWorks/AAD" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/HolagundiWorks/AAD/issues" />
 
     <!-- Open-source EULA (MIT OR Apache-2.0) and installer splash bitmaps. -->
     <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />

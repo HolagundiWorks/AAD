@@ -6,14 +6,14 @@
 use std::path::{Path, PathBuf};
 
 use aad_doc::{
-    entity_bounds, Common, EntityKind, Line, LwPolyline, Space, Text, MText, Insert, Circle, Arc,
+    Arc, Circle, Common, EntityKind, Insert, Line, LwPolyline, MText, Space, Text, entity_bounds,
 };
 use aad_geom::{PolyVertex, Vec2, Vec3};
 use aad_vdb::{
-    decode_payload, encode_payload, load_path, save_path, Bbox, EntityGeom, EntityPayload, VdbClient,
-    VdbRecord, VdbStore, FORMAT_VERSION, MAX_BLOCK_CHARS, MAX_POLY_VERTICES, MAX_TEXT_CHARS,
+    Bbox, EntityGeom, EntityPayload, FORMAT_VERSION, MAX_BLOCK_CHARS, MAX_POLY_VERTICES,
+    MAX_TEXT_CHARS, VdbClient, VdbRecord, VdbStore, decode_payload, encode_payload, load_path, save_path,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::*;
 use crate::{Result, Session};
@@ -505,10 +505,7 @@ fn path_param(p: &Value, key: &str, cmd: &str) -> Result<PathBuf> {
 }
 
 fn window_param(p: &Value, cmd: &str) -> Result<Bbox> {
-    let arr = p
-        .get("window")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| bad(cmd, "missing `window: [x0, y0, x1, y1]`"))?;
+    let arr = p.get("window").and_then(|v| v.as_array()).ok_or_else(|| bad(cmd, "missing `window: [x0, y0, x1, y1]`"))?;
     if arr.len() != 4 {
         return Err(bad(cmd, "`window` needs four numbers [x0, y0, x1, y1]"));
     }
@@ -540,17 +537,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp");
         let path = dir.path().join("sample.vdb");
         let mut s = Session::new();
-        s.doc_mut()
-            .expect("doc")
-            .add(
-                &Space::Model,
-                Common::default(),
-                EntityKind::Line(Line {
-                    a: Vec3::new(0.0, 0.0, 0.0),
-                    b: Vec3::new(10.0, 0.0, 0.0),
-                }),
-            )
-            .expect("add");
+        let a = Vec3::new(0.0, 0.0, 0.0);
+        let b = Vec3::new(10.0, 0.0, 0.0);
+        s.doc_mut().expect("doc").add(&Space::Model, Common::default(), EntityKind::Line(Line { a, b })).expect("add");
         let path_str = path.to_string_lossy().to_string();
         let exported = s.execute("vdb.export", &json!({ "path": path_str })).expect("export");
         assert_eq!(exported["count"], 1);

@@ -13,7 +13,7 @@
 
 use std::path::Path;
 
-use shilpidb::{Bbox, Error as CodecError, Point, Reader, SpatialGrid, Writer, MAGIC};
+use shilpidb::{Bbox, Error as CodecError, MAGIC, Point, Reader, SpatialGrid, Writer};
 
 use crate::{MAX_PAYLOAD, MAX_RECORDS};
 
@@ -55,18 +55,11 @@ impl VdbStore {
     /// Build from records (reindexes). Rejects oversized collections or payloads.
     pub fn from_records(records: Vec<VdbRecord>) -> Result<Self, Error> {
         if records.len() > MAX_RECORDS {
-            return Err(Error::TooManyRecords {
-                count: records.len(),
-                limit: MAX_RECORDS,
-            });
+            return Err(Error::TooManyRecords { count: records.len(), limit: MAX_RECORDS });
         }
         for record in &records {
             if record.payload.len() > MAX_PAYLOAD {
-                return Err(Error::PayloadTooLarge {
-                    id: record.id,
-                    len: record.payload.len(),
-                    limit: MAX_PAYLOAD,
-                });
+                return Err(Error::PayloadTooLarge { id: record.id, len: record.payload.len(), limit: MAX_PAYLOAD });
             }
             if !finite_bbox(record.bbox) {
                 return Err(Error::BadBbox(record.id));
@@ -120,10 +113,7 @@ impl Default for VdbStore {
 
 /// Encode the store to bytes.
 pub fn save_bytes(store: &VdbStore) -> Result<Vec<u8>, Error> {
-    let count = u32::try_from(store.records.len()).map_err(|_| Error::TooManyRecords {
-        count: store.records.len(),
-        limit: MAX_RECORDS,
-    })?;
+    let count = u32::try_from(store.records.len()).map_err(|_| Error::TooManyRecords { count: store.records.len(), limit: MAX_RECORDS })?;
     let mut w = Writer::new();
     w.raw(MAGIC);
     w.u32(FORMAT_VERSION);
@@ -148,10 +138,7 @@ pub fn load_bytes(bytes: &[u8]) -> Result<VdbStore, Error> {
     }
     let count = r.u32().map_err(Error::Codec)? as usize;
     if count > MAX_RECORDS {
-        return Err(Error::TooManyRecords {
-            count,
-            limit: MAX_RECORDS,
-        });
+        return Err(Error::TooManyRecords { count, limit: MAX_RECORDS });
     }
     let mut records = Vec::with_capacity(count);
     for _ in 0..count {
@@ -180,17 +167,10 @@ pub fn load_path(path: &Path) -> Result<VdbStore, Error> {
 
 fn write_record(w: &mut Writer, record: &VdbRecord) -> Result<(), Error> {
     if record.payload.len() > MAX_PAYLOAD {
-        return Err(Error::PayloadTooLarge {
-            id: record.id,
-            len: record.payload.len(),
-            limit: MAX_PAYLOAD,
-        });
+        return Err(Error::PayloadTooLarge { id: record.id, len: record.payload.len(), limit: MAX_PAYLOAD });
     }
-    let len = u32::try_from(record.payload.len()).map_err(|_| Error::PayloadTooLarge {
-        id: record.id,
-        len: record.payload.len(),
-        limit: MAX_PAYLOAD,
-    })?;
+    let len =
+        u32::try_from(record.payload.len()).map_err(|_| Error::PayloadTooLarge { id: record.id, len: record.payload.len(), limit: MAX_PAYLOAD })?;
     w.u64(record.id);
     w.f64(record.bbox.min.x);
     w.f64(record.bbox.min.y);
@@ -209,11 +189,7 @@ fn read_record(r: &mut Reader<'_>) -> Result<VdbRecord, Error> {
     let max_y = r.f64().map_err(Error::Codec)?;
     let len = r.u32().map_err(Error::Codec)? as usize;
     if len > MAX_PAYLOAD {
-        return Err(Error::PayloadTooLarge {
-            id,
-            len,
-            limit: MAX_PAYLOAD,
-        });
+        return Err(Error::PayloadTooLarge { id, len, limit: MAX_PAYLOAD });
     }
     let payload = r.raw(len).map_err(Error::Codec)?.to_vec();
     // Check raw floats before `from_corners`: f64::min/max drops NaN and would
@@ -253,20 +229,12 @@ mod tests {
     use super::*;
 
     fn rec(id: u64, x0: f64, y0: f64, x1: f64, y1: f64, payload: &[u8]) -> VdbRecord {
-        VdbRecord {
-            id,
-            bbox: Bbox::from_corners(x0, y0, x1, y1),
-            payload: payload.to_vec(),
-        }
+        VdbRecord { id, bbox: Bbox::from_corners(x0, y0, x1, y1), payload: payload.to_vec() }
     }
 
     #[test]
     fn round_trip_bytes_and_query() {
-        let store = VdbStore::from_records(vec![
-            rec(1, 0.0, 0.0, 1.0, 1.0, b"wall"),
-            rec(2, 5.0, 5.0, 6.0, 6.0, b"door"),
-        ])
-        .expect("build");
+        let store = VdbStore::from_records(vec![rec(1, 0.0, 0.0, 1.0, 1.0, b"wall"), rec(2, 5.0, 5.0, 6.0, 6.0, b"door")]).expect("build");
         let bytes = save_bytes(&store).expect("save");
         assert!(bytes.starts_with(MAGIC));
         let back = load_bytes(&bytes).expect("load");
