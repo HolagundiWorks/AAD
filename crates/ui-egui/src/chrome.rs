@@ -573,7 +573,7 @@ pub fn start_page(app: &mut CadApp, ui: &mut egui::Ui) {
     p.text(
         pos2(left.left() + 34.0, left.top() + 98.0),
         egui::Align2::LEFT_CENTER,
-        format!("Accelerated Architecture Drafting - {}", crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION"))),
+        format!("Drafting - {}", crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION"))),
         crate::theme::small(),
         t.text_faint,
     );
