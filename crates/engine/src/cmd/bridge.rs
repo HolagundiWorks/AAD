@@ -77,7 +77,7 @@ fn new_id(salt: &str) -> String {
     format!("{:08x}-{:04x}-4{:03x}-8{:03x}-{:012x}", (a >> 32) as u32, (a >> 16) as u16, a & 0xfff, (b >> 52) & 0xfff, b & 0xffff_ffff_ffff)
 }
 
-fn iso_time() -> Option<String> {
+pub(crate) fn iso_time() -> Option<String> {
     #[cfg(target_arch = "wasm32")]
     {
         None

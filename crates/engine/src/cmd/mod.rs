@@ -45,6 +45,7 @@ mod spline_opts;
 mod structure;
 mod symbols;
 mod takeoff;
+mod takeoffann;
 mod takeoffrec;
 mod texttools;
 mod trimextend;
@@ -207,6 +208,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(space::specs());
         v.extend(aorms::specs());
         v.extend(takeoff::specs());
+        v.extend(takeoffann::specs());
         v.extend(takeoffrec::specs());
         v.extend(schedule::specs());
         v.extend(electrical::specs());
