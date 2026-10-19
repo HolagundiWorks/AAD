@@ -404,9 +404,11 @@ fn finish(app: &mut CadApp, kind: Kind, outcome: Outcome) {
                     }),
                 );
             }
-            RestoreOutcome::NotConnected => {
-                say(app, Tone::Warn, crate::tl!("Your studio's AORMS plan doesn't include connected mode. O-Draft keeps working without it.").to_string())
-            }
+            RestoreOutcome::NotConnected => say(
+                app,
+                Tone::Warn,
+                crate::tl!("Your studio's AORMS plan doesn't include connected mode. O-Draft keeps working without it.").to_string(),
+            ),
             RestoreOutcome::NoStoredSession | RestoreOutcome::SignedOut => {}
         },
         Outcome::Projects(list) => {
@@ -634,7 +636,9 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
                     }
                 });
             } else {
-                ui.label(crate::tl!("Sign in with your AORMS account to pull project information into your drawings. O-Draft keeps working without it."));
+                ui.label(crate::tl!(
+                    "Sign in with your AORMS account to pull project information into your drawings. O-Draft keeps working without it."
+                ));
                 ui.add_space(6.0);
                 let enter = egui::Grid::new("aorms_signin_grid")
                     .num_columns(2)

@@ -206,14 +206,19 @@ fn run_schedule(s: &mut Session, p: &Value) -> Result<Value> {
     let mut csv = String::from("Layer,ACI,Linetype,LW_mm,Description,InDrawing,ObjectCount\n");
     for (name, aci, lt, lw, desc) in HCW_LAYERS {
         let exists = if d.layer(name).is_some() { "Yes" } else { "No" };
-        csv.push_str(&format!("{name},{aci},{lt},{:.2},{},{exists},{}\n", f64::from(*lw) / 100.0, csv_field(desc), counts.get(name).copied().unwrap_or(0)));
+        csv.push_str(&format!(
+            "{name},{aci},{lt},{:.2},{},{exists},{}\n",
+            f64::from(*lw) / 100.0,
+            csv_field(desc),
+            counts.get(name).copied().unwrap_or(0)
+        ));
     }
     match str_param(p, "path") {
         Some(_path) => {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("hcwschedule", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": HCW_LAYERS.len(), "path": _path }));
+                Ok(json!({ "count": HCW_LAYERS.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("hcwschedule", "paths are not available on the web; omit `path` to get the CSV text"))
@@ -229,7 +234,14 @@ fn legend_row(s: &mut Session, name: &str, description: &str, at: Vec2, k: f64) 
     add_on(s, name, lwpoly(rect_vertices(at, Vec2::new(at.x + swatch_w, at.y + swatch_h)), true))?;
     let mid = at.y + swatch_h / 2.0;
     add_on(s, name, line(Vec2::new(at.x, mid), Vec2::new(at.x + swatch_w, mid)))?;
-    let label = make_text(s, Vec2::new(at.x + swatch_w + text_dx, at.y + (swatch_h - text_h) / 2.0), &format!("{name}  {description}"), text_h, 0.0, (HAlign::Left, VAlign::Baseline));
+    let label = make_text(
+        s,
+        Vec2::new(at.x + swatch_w + text_dx, at.y + (swatch_h - text_h) / 2.0),
+        &format!("{name}  {description}"),
+        text_h,
+        0.0,
+        (HAlign::Left, VAlign::Baseline),
+    );
     add_on(s, "AN-TEXT", label)?;
     Ok(())
 }

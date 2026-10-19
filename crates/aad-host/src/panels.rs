@@ -51,9 +51,8 @@ pub fn panels_json(session: &Session) -> String {
     let blocks: Vec<Value> = blocks
         .iter()
         .map(|b| {
-            let (count, handles) = refs.get(&b.name).map_or((0u32, Vec::new()), |(total, list)| {
-                (*total, list.iter().map(|h| h.hex()).collect::<Vec<_>>())
-            });
+            let (count, handles) =
+                refs.get(&b.name).map_or((0u32, Vec::new()), |(total, list)| (*total, list.iter().map(|h| h.hex()).collect::<Vec<_>>()));
             let attributes: Vec<String> = b
                 .entities
                 .iter()
