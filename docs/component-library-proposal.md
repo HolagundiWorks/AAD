@@ -1,6 +1,6 @@
 # Component library in ShilpiDB: proposal
 
-Status: **proposal, 2026-10-19. Nothing here is built.** It needs the owner's decision (section 6) because it adds
+Status: **option B chosen by the owner, 2026-10-19. The store (`library.publish`, `library.list`) is built; the bridge from `aad-param`'s component types and the O-Draft merge on load (section 5) are not.** It needs the owner's decision (section 6) because it adds
 record kinds to the shared take-off database, and the kind numbers belong to the contract in the O-CoreOp
 repository (`TAKEOFF-SHILPIDB.md`: kinds 0, 2 and 10 to 255 are reserved; "adding a kind or an optional field is
 not a new version").
@@ -135,3 +135,24 @@ never by editing.
 3. Merge on load with the conflict warning; tests for identical, conflicting and missing definitions.
 4. Materials and finishes move from the enum lists in `schema.rs` to records, with the built-in lists as the
    fallback.
+
+## 8. Built (2026-10-19)
+
+- `library.publish {definitions, server?, path?}` and `library.list {kind?, server?, path?}` in
+  `crates/engine/src/cmd/library.rs`, reachable like every command. Target: the library server on
+  `127.0.0.1:7422` (gateway 7423, data `%LocalAppData%\OSAS\library\library.vdb`), started when nothing answers; a
+  named `server`; or a `.vdb` file. A file that is not a library database (an entity store, a take-off database)
+  is refused and left untouched.
+- Records as in section 4: kinds 1 header, 2 component type, 3 material, 4 finish, 5 preset, 6 graph template; id
+  `(kind << 56) | (hash24(id) << 32) | revision`, probed past a hash another definition holds. The header is
+  written `recording` and then `complete`, as in the take-off protocol.
+- Definitions are immutable: the same bytes again are `unchanged`, different bytes under the same id and
+  revision are reported as `conflicts` and not written, a change is a new revision. Input is validated before any
+  write (kind, id shape, revision of at least 1, payload version 1, size limits); a bad request writes nothing.
+- Tests: `crates/engine/tests/library.rs` (publish, list, immutability, new revision, refusal of other databases,
+  hostile input, nothing written on a bad request) and unit tests in `cmd/library.rs` (validation, immutability,
+  the probe). One ignored test runs against a real `shilpid`
+  (`AAD_SHILPID_ADDR=127.0.0.1:7432 cargo test -p aad-engine --test library -- --ignored`); it passed.
+- Not built: serialising `aad-param`'s `component_types()` to kind 2 records (`aad-param` is not yet committed to
+  the main line), O-Draft reading the library on load and merging it with the built-ins, materials and finishes
+  taken from records by the component selector, and O-CoreOp reading definitions.

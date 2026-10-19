@@ -44,6 +44,7 @@ mod spatialq;
 mod spline_opts;
 mod structure;
 mod symbols;
+mod library;
 mod takeoff;
 mod takeoffann;
 mod takeoffrec;
@@ -210,6 +211,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(takeoff::specs());
         v.extend(takeoffann::specs());
         v.extend(takeoffrec::specs());
+    v.extend(library::specs());
         v.extend(schedule::specs());
         v.extend(electrical::specs());
         v.extend(walls::specs());

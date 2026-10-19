@@ -53,7 +53,7 @@ pub fn specs() -> Vec<CommandSpec> {
 
 // ---------------- ids ----------------
 
-fn fnv32(bytes: &[u8]) -> u32 {
+pub(crate) fn fnv32(bytes: &[u8]) -> u32 {
     let mut h: u32 = 2_166_136_261;
     for b in bytes {
         h ^= u32::from(*b);
@@ -213,7 +213,7 @@ pub(crate) fn build(c: &Collected, slot: u32) -> Result<Built> {
 // ---------------- the database ----------------
 
 /// A ShilpiDB database, a file held in memory or a running server.
-trait Sink {
+pub(crate) trait Sink {
     fn ids(&mut self) -> Result<Vec<u64>>;
     fn payload(&mut self, id: u64) -> Result<Option<Vec<u8>>>;
     fn put(&mut self, recs: &[Rec]) -> Result<()>;
@@ -221,12 +221,12 @@ trait Sink {
     fn save(&mut self) -> Result<()>;
 }
 
-fn vdb_bbox(b: [f64; 4]) -> aad_vdb::Bbox {
+pub(crate) fn vdb_bbox(b: [f64; 4]) -> aad_vdb::Bbox {
     aad_vdb::Bbox::from_corners(b[0], b[1], b[2], b[3])
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct FileSink {
+pub(crate) struct FileSink {
     path: std::path::PathBuf,
     records: std::collections::BTreeMap<u64, aad_vdb::VdbRecord>,
 }
@@ -235,14 +235,24 @@ struct FileSink {
 impl FileSink {
     /// Open a take-off database file. An existing file must be a take-off database (some record is a header) or be
     /// empty, so an entity store is never overwritten by mistake.
-    fn open(path: &std::path::Path) -> Result<FileSink> {
+    pub(crate) fn open(path: &std::path::Path) -> Result<FileSink> {
+        FileSink::open_as(path, FORMAT, "take-off", "takeoff.record")
+    }
+
+    /// Open a database file whose header records carry `format`; `what` and `cmd` name it in errors.
+    pub(crate) fn open_as(path: &std::path::Path, format: &str, what: &str, cmd: &str) -> Result<FileSink> {
         let mut records = std::collections::BTreeMap::new();
         if path.exists() {
-            let store = aad_vdb::load_path(path).map_err(|e| bad("takeoff.record", format!("{}: {e}", path.display())))?;
-            if !store.is_empty() && !store.records().iter().any(|r| kind_of(r.id) == KIND_HEADER) {
+            let store = aad_vdb::load_path(path).map_err(|e| bad(cmd, format!("{}: {e}", path.display())))?;
+            let headers: Vec<_> = store.records().iter().filter(|r| kind_of(r.id) == KIND_HEADER).collect();
+            let foreign = headers.iter().any(|r| {
+                serde_json::from_slice::<Value>(&r.payload).ok().and_then(|v| v.get("format").and_then(Value::as_str).map(str::to_string)).as_deref()
+                    != Some(format)
+            });
+            if !store.is_empty() && (headers.is_empty() || foreign) {
                 return Err(bad(
-                    "takeoff.record",
-                    format!("{} is not a take-off database (it has no header record); choose another file", path.display()),
+                    cmd,
+                    format!("{} is not a {what} database (its header records are missing or of another format); choose another file", path.display()),
                 ));
             }
             records.extend(store.records().iter().map(|r| (r.id, r.clone())));
@@ -275,9 +285,18 @@ impl Sink for FileSink {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct ServerSink {
+pub(crate) struct ServerSink {
     addr: String,
     client: aad_vdb::VdbClient,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ServerSink {
+    pub(crate) fn connect(addr: &str, cmd: &str) -> Result<ServerSink> {
+        let client =
+            aad_vdb::VdbClient::connect_with_timeout(addr, Some(std::time::Duration::from_secs(10))).map_err(|e| bad(cmd, format!("{addr}: {e}")))?;
+        Ok(ServerSink { addr: addr.to_string(), client })
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -422,7 +441,7 @@ fn write_slot(
 
 /// Find a ShilpiDB program: `SHILPIDB_BIN` (a folder), `%LocalAppData%\ShilpiDB\bin`, then `PATH`.
 #[cfg(not(target_arch = "wasm32"))]
-fn find_program(name: &str) -> Option<std::path::PathBuf> {
+pub(crate) fn find_program(name: &str) -> Option<std::path::PathBuf> {
     let exe = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if let Some(d) = std::env::var_os("SHILPIDB_BIN") {
@@ -438,7 +457,7 @@ fn find_program(name: &str) -> Option<std::path::PathBuf> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn answers(addr: &str) -> bool {
+pub(crate) fn answers(addr: &str) -> bool {
     use std::net::ToSocketAddrs;
     addr.to_socket_addrs()
         .ok()
@@ -446,46 +465,52 @@ fn answers(addr: &str) -> bool {
         .is_some_and(|a| std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_millis(400)).is_ok())
 }
 
-/// Make sure the shared server answers: when nothing does, start `shilpid` and `shilpi-http` (they bind fixed
-/// ports, so a second starter by O-CoreOp fails harmlessly and the one that is up is used).
+/// Make sure the shared take-off server answers (see [`ensure_server`]).
 #[cfg(not(target_arch = "wasm32"))]
 fn ensure_shared_server() -> Result<()> {
-    if answers(SHARED_ADDR) {
+    ensure_server("takeoff.record", SHARED_ADDR, GATEWAY_ADDR, "takeoff", "takeoff.vdb")
+}
+
+/// Make sure the ShilpiDB server at `addr` answers: when nothing does, start `shilpid` on `%LocalAppData%\OSAS\<dir>\<file>`
+/// and `shilpi-http` on `gateway` (they bind fixed ports, so a second starter fails harmlessly and the one that is up is used).
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn ensure_server(cmd: &str, addr: &str, gateway: &str, dir: &str, file: &str) -> Result<()> {
+    if answers(addr) {
         return Ok(());
     }
     let shilpid = find_program("shilpid").ok_or_else(|| {
         bad(
-            "takeoff.record",
-            "no ShilpiDB server answers on 127.0.0.1:7420 and shilpid was not found (set SHILPIDB_BIN to its folder, or pass `server` or `path`)",
+            cmd,
+            format!("no ShilpiDB server answers on {addr} and shilpid was not found (set SHILPIDB_BIN to its folder, or pass `server` or `path`)"),
         )
     })?;
     let base = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    let dir = base.join("OSAS").join("takeoff");
-    std::fs::create_dir_all(&dir).map_err(|e| bad("takeoff.record", format!("{}: {e}", dir.display())))?;
-    let data = dir.join("takeoff.vdb");
-    let spawn = |cmd: &mut std::process::Command| {
-        cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    let dir = base.join("OSAS").join(dir);
+    std::fs::create_dir_all(&dir).map_err(|e| bad(cmd, format!("{}: {e}", dir.display())))?;
+    let data = dir.join(file);
+    let spawn = |c: &mut std::process::Command| {
+        c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             // No console window, and not part of this process's group.
-            cmd.creation_flags(0x0800_0000 | 0x0000_0200);
+            c.creation_flags(0x0800_0000 | 0x0000_0200);
         }
-        cmd.spawn()
+        c.spawn()
     };
-    spawn(std::process::Command::new(&shilpid).args(["--bind", SHARED_ADDR, "--data"]).arg(&data).args(["--autosave-secs", "5"]))
-        .map_err(|e| bad("takeoff.record", format!("could not start shilpid: {e}")))?;
+    spawn(std::process::Command::new(&shilpid).args(["--bind", addr, "--data"]).arg(&data).args(["--autosave-secs", "5"]))
+        .map_err(|e| bad(cmd, format!("could not start shilpid: {e}")))?;
     if let Some(http) = find_program("shilpi-http") {
-        // The gateway is for O-CoreOp; a failure to start it does not stop the recording.
-        let _ = spawn(std::process::Command::new(http).args(["--bind", GATEWAY_ADDR, "--backend", SHARED_ADDR]));
+        // The gateway is for readers such as O-CoreOp; a failure to start it does not stop the write.
+        let _ = spawn(std::process::Command::new(http).args(["--bind", gateway, "--backend", addr]));
     }
     for _ in 0..50 {
-        if answers(SHARED_ADDR) {
+        if answers(addr) {
             return Ok(());
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    Err(bad("takeoff.record", "shilpid was started but did not answer on 127.0.0.1:7420 within five seconds"))
+    Err(bad(cmd, format!("shilpid was started but did not answer on {addr} within five seconds")))
 }
 
 // ---------------- the command ----------------
