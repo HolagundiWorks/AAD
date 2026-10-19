@@ -222,7 +222,9 @@ fn run_start(s: &mut Session, p: &Value) -> Result<Value> {
         scaled = modify::transform_entities(s, &free, &m, false)?.len();
     }
     let d = s.doc_mut()?;
-    for (k, v) in [("LUNITS", 2), ("LUPREC", 3), ("AUNITS", 0), ("AUPREC", 2), ("INSUNITS", 6), ("MEASUREMENT", 1), ("PSLTSCALE", 1), ("MSLTSCALE", 1)] {
+    for (k, v) in
+        [("LUNITS", 2), ("LUPREC", 3), ("AUNITS", 0), ("AUPREC", 2), ("INSUNITS", 6), ("MEASUREMENT", 1), ("PSLTSCALE", 1), ("MSLTSCALE", 1)]
+    {
         d.header.set_i64(k, v);
     }
     d.header.set_f64("LTSCALE", 1.0);
@@ -261,7 +263,14 @@ fn legend_row(s: &mut Session, name: &str, description: &str, at: Vec2, k: f64) 
     let (w, h, text_h, dx) = (1.6 * k, 0.55 * k, 0.3 * k, 0.25 * k);
     add_on(s, name, lwpoly(rect_vertices(at, Vec2::new(at.x + w, at.y + h)), true))?;
     add_on(s, name, line(Vec2::new(at.x, at.y + h / 2.0), Vec2::new(at.x + w, at.y + h / 2.0)))?;
-    let label = make_text(s, Vec2::new(at.x + w + dx, at.y + (h - text_h) / 2.0), &format!("{name}  |  {description}"), text_h, 0.0, (HAlign::Left, VAlign::Baseline));
+    let label = make_text(
+        s,
+        Vec2::new(at.x + w + dx, at.y + (h - text_h) / 2.0),
+        &format!("{name}  |  {description}"),
+        text_h,
+        0.0,
+        (HAlign::Left, VAlign::Baseline),
+    );
     add_on(s, "BP-TEXT-GENERAL", label)?;
     Ok(())
 }
@@ -298,7 +307,14 @@ fn run_legend(s: &mut Session, p: &Value) -> Result<Value> {
         let x = at.x + i as f64 * col_w - 0.3 * k;
         add_on(s, "BP-TITLE-BLOCK", line(Vec2::new(x, at.y - 0.3 * k), Vec2::new(x, y1 + 0.3 * k)))?;
     }
-    let title = make_text(s, Vec2::new(at.x, y1 + 0.4 * k), "Building Permission Layer Tool - Layer Reference Legend v1.0", text_h * 1.8, 0.0, (HAlign::Left, VAlign::Baseline));
+    let title = make_text(
+        s,
+        Vec2::new(at.x, y1 + 0.4 * k),
+        "Building Permission Layer Tool - Layer Reference Legend v1.0",
+        text_h * 1.8,
+        0.0,
+        (HAlign::Left, VAlign::Baseline),
+    );
     add_on(s, "BP-TITLE-BLOCK", title)?;
     let notes = [
         "HOW TO USE WITH AUTOPLAN AUTHOR:",
@@ -412,7 +428,11 @@ fn run_area(s: &mut Session, p: &Value) -> Result<Value> {
             text.push_str(&format!("{layer:<26}{a:<14.3}\\P"));
         }
         text.push_str(&format!("{}\\P{:<26}{total:.3} m2", "-".repeat(38), "TOTAL"));
-        let style = s.doc()?.text_style("BPLT-TEXT").map(|t| t.name.clone()).unwrap_or_else(|| s.doc().map(|d| d.header.str("TEXTSTYLE", "Standard")).unwrap_or_else(|_| "Standard".into()));
+        let style = s
+            .doc()?
+            .text_style("BPLT-TEXT")
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| s.doc().map(|d| d.header.str("TEXTSTYLE", "Standard")).unwrap_or_else(|_| "Standard".into()));
         let k = EntityKind::MText(MText {
             insert: v3(at),
             height: 0.20 / u,
@@ -456,7 +476,7 @@ fn run_report(s: &mut Session, p: &Value) -> Result<Value> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("bpltreport", format!("{_path}: {e}")))?;
-                return Ok(json!({ "count": counts.len(), "path": _path }));
+                Ok(json!({ "count": counts.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("bpltreport", "paths are not available on the web; omit `path` to get the CSV text"))

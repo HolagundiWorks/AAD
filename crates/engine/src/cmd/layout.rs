@@ -880,7 +880,7 @@ impl PlotJob {
     /// Build the PDF and, given a `path`, write it there; without one the result carries base64 `data`.
     pub fn run(&self) -> std::result::Result<Value, String> {
         let fail = |e: String| e;
-        let bytes = (self.hook)(&self.doc, &self.space, &self.opts).map_err(&fail)?;
+        let bytes = (self.hook)(&self.doc, &self.space, &self.opts).map_err(fail)?;
         let layout = match &self.space {
             Space::Model => "Model".to_string(),
             Space::Paper(n) => n.clone(),
@@ -929,7 +929,6 @@ mod tests {
             .filter_map(|e| if let EntityKind::Viewport(v) = &e.kind { Some((e.handle, v.clone())) } else { None })
             .collect()
     }
-
 
     #[test]
     fn new_layout_gets_viewport_zoomed_to_extents() {

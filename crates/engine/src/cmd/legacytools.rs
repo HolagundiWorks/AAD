@@ -157,7 +157,11 @@ fn layer_in_use(d: &Drawing, layer: &str) -> bool {
 }
 
 fn run_layermap(s: &mut Session, p: &Value) -> Result<Value> {
-    let map = p.get("map").and_then(Value::as_object).filter(|m| !m.is_empty()).ok_or_else(|| bad("layermap", "`map` is required: {\"old layer\": \"target layer\", ...}"))?;
+    let map = p
+        .get("map")
+        .and_then(Value::as_object)
+        .filter(|m| !m.is_empty())
+        .ok_or_else(|| bad("layermap", "`map` is required: {\"old layer\": \"target layer\", ...}"))?;
     if map.len() > MAX_MAPPINGS {
         return Err(bad("layermap", format!("at most {MAX_MAPPINGS} mappings")));
     }
@@ -347,7 +351,9 @@ fn draw_table(s: &mut Session, at: Vec2, h: f64, prefix: &str, rows: &[(String, 
     let (row_h, head_h) = (h * 2.8, h * 3.5);
     let (x0, x1, x2, x3) = (at.x, at.x + col, at.x + col * 2.0, at.x + col * 3.0);
     let layer = TABLE_LAYER.0;
-    let rect = |s: &mut Session, xa: f64, ya: f64, xb: f64, yb: f64| add_on(s, layer, lwpoly(rect_vertices(Vec2::new(xa, ya), Vec2::new(xb, yb)), true)).map(|_| ());
+    let rect = |s: &mut Session, xa: f64, ya: f64, xb: f64, yb: f64| {
+        add_on(s, layer, lwpoly(rect_vertices(Vec2::new(xa, ya), Vec2::new(xb, yb)), true)).map(|_| ())
+    };
     let mid = |a: f64, b: f64| (a + b) / 2.0;
     let mut top = at.y;
     let mut bottom = top - head_h;
@@ -367,7 +373,10 @@ fn draw_table(s: &mut Session, at: Vec2, h: f64, prefix: &str, rows: &[(String, 
     } else {
         "Inches"
     };
-    let sub = format!("Drawing units: {units_name}   |   Areas in: {unit}{}", if prefix.is_empty() { String::new() } else { format!("   |   Prefix: {prefix}") });
+    let sub = format!(
+        "Drawing units: {units_name}   |   Areas in: {unit}{}",
+        if prefix.is_empty() { String::new() } else { format!("   |   Prefix: {prefix}") }
+    );
     coloured_text(s, layer, Vec2::new(mid(x0, x3), mid(top, bottom)), &sub, h * 0.75, 3)?;
     top = bottom;
     bottom = top - row_h;

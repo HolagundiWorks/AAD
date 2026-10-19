@@ -91,33 +91,53 @@ pub(crate) fn open_bytes(s: &mut Session, bytes: &[u8], name: &str, path: Option
     import_drawing(s, d, name, path)
 }
 
-/// Read and parse a drawing file without a session, so a host can do it on a worker thread and
-/// hand the result to [`finish_open`] on the thread that owns the session.
+/// A drawing read from a file and flattened to 2D, ready to become a document. Everything slow
+/// (the copy kept as the saved state, the flatten) is done when it is made, so a host can do it
+/// on a worker thread and only [`finish_open`] runs on the thread that owns the session.
+pub struct Prepared {
+    drawing: Drawing,
+    original: std::sync::Arc<Drawing>,
+    report: crate::flatten::FlattenReport,
+    units_unset: bool,
+}
+
+/// Flatten `d` to 2D. The flattening is applied to a working copy; the drawing as read stays the
+/// "saved" state and one undo step, so the import can be reverted and the file on disk is only
+/// replaced by an explicit save.
+pub fn prepare(mut d: Drawing) -> Prepared {
+    let original = std::sync::Arc::new(d.clone());
+    let report = crate::flatten::flatten_drawing(&mut d);
+    let units_unset = crate::annot::drawing_unit(&d).is_none();
+    Prepared { drawing: d, original, report, units_unset }
+}
+
+/// Read, parse and flatten a drawing file without a session.
 #[cfg(not(target_arch = "wasm32"))]
-pub fn read_drawing_file(path: &str) -> std::result::Result<Drawing, String> {
+pub fn read_drawing_file(path: &str) -> std::result::Result<Prepared, String> {
     let hooks = io().ok_or_else(|| "file formats are not available in this build".to_string())?;
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-    (hooks.read)(&bytes, path)
+    (hooks.read)(&bytes, path).map(prepare)
 }
 
 /// Make a drawing read by [`read_drawing_file`] the active document, as `open` with a path does.
-pub fn finish_open(s: &mut Session, d: Drawing, path: &str) -> Result<usize> {
-    import_drawing(s, d, path, Some(path.to_string()))
+pub fn finish_open(s: &mut Session, p: Prepared, path: &str) -> Result<usize> {
+    finish_import(s, p, path, Some(path.to_string()))
 }
 
-/// Open a drawing read from a file, flattening it to 2D first. The flattening is applied to a
-/// working copy; the drawing as read stays the "saved" state and one undo step, so the import
-/// can be reverted and the file on disk is only replaced by an explicit save.
-pub(crate) fn import_drawing(s: &mut Session, mut d: Drawing, name: &str, path: Option<String>) -> Result<usize> {
-    let original = std::sync::Arc::new(d.clone());
-    let report = crate::flatten::flatten_drawing(&mut d);
-    if crate::annot::drawing_unit(&d).is_none() {
+/// Open a drawing read from a file, flattening it to 2D first.
+pub(crate) fn import_drawing(s: &mut Session, d: Drawing, name: &str, path: Option<String>) -> Result<usize> {
+    finish_import(s, prepare(d), name, path)
+}
+
+fn finish_import(s: &mut Session, p: Prepared, name: &str, path: Option<String>) -> Result<usize> {
+    let Prepared { drawing, original, report, units_unset } = p;
+    if units_unset {
         s.echo(
             "The drawing's units are not set or not a length unit AAD knows. Choose them in the Units popup (status bar); nothing was assumed."
                 .to_string(),
         );
     }
-    let i = s.open_drawing(d, &file_name(name), path);
+    let i = s.open_drawing(drawing, &file_name(name), path);
     if report.flattened > 0 {
         let st = s.state_mut()?;
         st.saved = original.clone();
