@@ -441,22 +441,6 @@ pub fn propose(d: &Drawing, space: &Space, p: LayoutParams) -> Layout {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn nearest_scale_picks_standard_that_fits() {
-        let n = nearest_plot_scale(1.0 / 47.0);
-        assert_eq!(n.nearest, "1:50");
-        assert!(n.label.starts_with("1:"));
-        let tight = nearest_plot_scale(1.0 / 100.0);
-        assert_eq!(tight.nearest, "1:100");
-        let one = nearest_plot_scale(1.0);
-        assert_eq!(one.nearest, "1:1");
-    }
-}
-
 /// Translate a text object by `(dx, dy)`.
 pub fn translate_text(e: &mut Entity, dx: f64, dy: f64) {
     match &mut e.kind {
@@ -481,5 +465,21 @@ pub fn translate_text(e: &mut Entity, dx: f64, dy: f64) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nearest_scale_picks_standard_that_fits() {
+        let n = nearest_plot_scale(1.0 / 47.0);
+        assert_eq!(n.nearest, "1:50");
+        assert!(n.label.starts_with("1:"));
+        let tight = nearest_plot_scale(1.0 / 100.0);
+        assert_eq!(tight.nearest, "1:100");
+        let one = nearest_plot_scale(1.0);
+        assert_eq!(one.nearest, "1:1");
     }
 }

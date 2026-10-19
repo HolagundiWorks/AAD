@@ -125,7 +125,7 @@ pub fn load_bytes(bytes: &[u8]) -> Result<VdbStore, Error> {
         return Err(Error::NotVdb);
     }
     let version = r.u32().map_err(Error::Codec)?;
-    if version < MIN_FORMAT_VERSION || version > FORMAT_VERSION {
+    if !(MIN_FORMAT_VERSION..=FORMAT_VERSION).contains(&version) {
         return Err(Error::UnsupportedVersion(version));
     }
     let count = r.u32().map_err(Error::Codec)? as usize;

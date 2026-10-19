@@ -161,8 +161,7 @@ fn next_layout_name(d: &Drawing) -> String {
 /// The page setup new layouts get: ANSI A landscape (imperial) or ISO A4 landscape (metric),
 /// fitted to the paper by default.
 fn default_page(d: &Drawing) -> PageSetup {
-    let mut p = PageSetup::default();
-    p.scale_to_fit = true;
+    let mut p = PageSetup { scale_to_fit: true, ..PageSetup::default() };
     if aad_render::paper::paper_unit_mm(d) == 1.0
         && let Some(a4) = aad_render::paper_size("A4")
     {

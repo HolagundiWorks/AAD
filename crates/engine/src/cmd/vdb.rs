@@ -141,11 +141,11 @@ fn run_query(_s: &mut Session, p: &Value) -> Result<Value> {
         let mut hits = Vec::with_capacity(shown_ids.len());
         for id in &shown_ids {
             let mut hit = json!({ "id": id });
-            if let Some(record) = store.records().iter().find(|r| r.id == *id) {
-                if let Ok(payload) = decode_payload(&record.payload) {
-                    hit["type"] = json!(payload.geom.type_name());
-                    hit["layer"] = json!(payload.layer);
-                }
+            if let Some(record) = store.records().iter().find(|r| r.id == *id)
+                && let Ok(payload) = decode_payload(&record.payload)
+            {
+                hit["type"] = json!(payload.geom.type_name());
+                hit["layer"] = json!(payload.layer);
             }
             hits.push(hit);
         }
@@ -305,10 +305,8 @@ fn store_from_drawing_ref(s: &Session) -> Result<(VdbStore, bool, usize)> {
 
 fn import_store(s: &mut Session, store: &VdbStore, replace: bool) -> Result<(usize, usize)> {
     let drawing = s.doc_mut()?;
-    if replace {
-        if let Some(model) = drawing.space_mut(&Space::Model) {
-            *model = aad_doc::EntityStore::new();
-        }
+    if replace && let Some(model) = drawing.space_mut(&Space::Model) {
+        *model = aad_doc::EntityStore::new();
     }
     let mut added = 0usize;
     let mut skipped = 0usize;
