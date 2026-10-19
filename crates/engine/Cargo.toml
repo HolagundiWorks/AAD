@@ -19,6 +19,7 @@ aad-doc = { workspace = true }
 aad-fonts = { workspace = true }
 aad-render = { workspace = true }
 aad-aorms = { workspace = true }
+aad-office = { workspace = true }
 aad-vdb = { workspace = true }
 aad-param = { workspace = true }
 serde = { workspace = true }

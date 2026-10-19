@@ -14,7 +14,9 @@ is missing and what the first milestone needs.
 | Data | System of record | O-Draft's part |
 |---|---|---|
 | Drawing geometry, layers, blocks, layouts, undo, DXF/DWG | O-Draft (`aad-doc`, `aad-engine`) | Owns it. Other applications read it through commands, never through the document model |
-| Project identity, studio, client, fees | AOS / AORMS portal (not audited) | Pulls project details and floors on request (`aorms.open`, `aorms.pull`); never writes to the portal |
+| Company details (name, address, registrations) | OSAS company file | Reads them (`companyfile`), prints them in the title block; never writes |
+| Project name, site, client | O-Studio, in the company file | Reads them (`companyfile`); never writes |
+| Project identity, studio, client, fees (portal) | AOS / AORMS portal (not audited) | Pulls project details and floors on request (`aorms.open`, `aorms.pull`); never writes to the portal |
 | Quantities and costs | AQC (not audited) | Produces measured quantities (`takeoff.*`) and a hand-off file (`bridge.export`); does not price |
 | Reusable details and spatial records | ShilpiDB | Exports a drawing's entities to `.vdb`, queries it, imports it, and can push to or pull from a running `shilpid` (`vdb.*`) |
 | AI conversation, tool permissions, audit | Shared AI runtime (not built) | O-Draft has its own tool registry and audit log (`aad-agent`) for its own tools |
