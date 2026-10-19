@@ -107,16 +107,45 @@ fn find_rooms(d: &Drawing, space: &aad_doc::Space) -> Vec<Room> {
     rooms
 }
 
-/// The rooms of a space as the AQC hand-off lists them: name, size text and area in square metres.
-/// Areas drawn in square feet are converted.
-pub(crate) fn rooms_for_export(d: &Drawing, space: &aad_doc::Space) -> Vec<Value> {
+/// A room as the AQC hand-off lists it: the row, the name text that identifies it (its handle is the
+/// row's stable id) and the room's box when one is drawn (the geometry for the bounding box).
+pub(crate) struct RoomRow {
+    pub row: Value,
+    pub handle: Handle,
+    pub outline: Option<Handle>,
+}
+
+/// The rooms of a space as the AQC hand-off lists them: a stable `ref` from the name text's handle,
+/// name, size text and area in square metres. Areas drawn in square feet are converted.
+pub(crate) fn rooms_for_export(d: &Drawing, space: &aad_doc::Space) -> Vec<RoomRow> {
     let mut rooms = find_rooms(d, space);
     rooms.sort_by(|a, b| a.name.cmp(&b.name).then(a.at.y.total_cmp(&b.at.y)).then(a.at.x.total_cmp(&b.at.x)));
+    let rects: Vec<(Handle, aad_geom::Bounds2)> = d
+        .space(space)
+        .map(|st| {
+            st.iter()
+                .filter(|e| e.common.layer.eq_ignore_ascii_case(RECT_LAYER.0))
+                .filter_map(|e| match &e.kind {
+                    EntityKind::LwPolyline(pl) if pl.closed => {
+                        Some((e.handle, aad_geom::Polyline { vertices: pl.vertices.clone(), closed: true }.bounds()))
+                    }
+                    _ => None,
+                })
+                .take(MAX_TEXTS)
+                .collect()
+        })
+        .unwrap_or_default();
     rooms
         .iter()
         .map(|r| {
             let m2 = if r.unit.starts_with("sq ft") { r.area * 0.092_903_04 } else { r.area };
-            json!({ "name": r.name, "size": r.size, "area_m2": (m2 * 1000.0).round() / 1000.0 })
+            let outline =
+                rects.iter().find(|(_, b)| r.at.x >= b.min.x && r.at.x <= b.max.x && r.at.y >= b.min.y && r.at.y <= b.max.y).map(|(h, _)| *h);
+            RoomRow {
+                row: json!({ "ref": format!("R{}", r.name_text.hex()), "name": r.name, "size": r.size, "area_m2": (m2 * 1000.0).round() / 1000.0 }),
+                handle: r.name_text,
+                outline,
+            }
         })
         .collect()
 }
