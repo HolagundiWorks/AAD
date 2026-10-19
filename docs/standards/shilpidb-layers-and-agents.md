@@ -10,11 +10,15 @@ note is the convention the export payload and future codecs follow.
 
 - **Id** — the entity handle as `u64`
 - **Bbox** — `aad_doc::entity_bounds`
-- **Payload** — UTF-8 `handle\ttype\tlayer` (tab-separated)
+- **Payload** — format **v2** binary (`EntityPayload`: layer + geometry for Line,
+  Circle, Arc, LwPolyline, Text, MText, Insert; other kinds as stub type name).
+  Legacy v1 UTF-8 `handle\ttype\tlayer` remains readable.
 
-`vdb.query` returns those fields for hits in a window. Agents should still use
-`spatial.*` on the live drawing for geometry detail; `.vdb` is the durable
-spatial index / shareable store.
+`vdb.query` returns ids and decoded labels for hits in a window. Agents should
+still use `spatial.*` on the live drawing for geometry detail; `.vdb` is the
+durable spatial index / shareable store. Allow-listed agent tools:
+`export_shilpidb`, `query_shilpidb`, `import_shilpidb`, `connect_shilpidb`,
+`disconnect_shilpidb`, `push_shilpidb`, `pull_shilpidb`.
 
 ## Layer names
 
@@ -24,6 +28,7 @@ plus layer is enough to classify an object without opening DXF.
 
 ## Planned (not implemented)
 
-- Payload codec with enough geometry to rebuild simple entities
-- Live sync from the session into an embedded or `shilpid` store
+- Continuous edit-time sync into `shilpid`
+- Replacing DXF/DWG as the primary document format
 - Embedding fields beside the spatial grid (ShilpiDB roadmap)
+- Upstream ShilpiDB entity schema migration (O-Draft keeps host payloads until that stabilizes)

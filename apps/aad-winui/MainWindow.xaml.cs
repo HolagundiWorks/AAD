@@ -79,6 +79,7 @@ public sealed partial class MainWindow : Window
     private Window? _batchPlotWindow;
     private Window? _dimStyleWindow;
     private Window? _linetypeWindow;
+    private Window? _hatchWindow;
     private Window? _pointStyleWindow;
     private Window? _mleaderStyleWindow;
     private Window? _roomSettingsWindow;
@@ -91,6 +92,7 @@ public sealed partial class MainWindow : Window
     private string _command = "";
     private bool _qpmode;
     private bool _literalSpace;
+    private bool _escapeHeld;
     private CommandChrome? _chrome;
     private bool _shellClosing;
     private bool _armSpace;
@@ -160,6 +162,7 @@ public sealed partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        SplashLogo.Source = ShellIcon.Logo();
         OpenCommandChrome();
         LoadShell();
         BuildMenus();
@@ -172,6 +175,19 @@ public sealed partial class MainWindow : Window
         ApplyAccess();
         PlaceCommandBar();
         CommandInput.Focus(FocusState.Programmatic);
+        _ = HideSplashSoon();
+    }
+
+    private async Task HideSplashSoon()
+    {
+        try
+        {
+            await Task.Delay(900);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+        SplashOverlay.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>Open the files given on the command line, one after the other, without blocking the window.</summary>
@@ -270,6 +286,7 @@ public sealed partial class MainWindow : Window
         if (e.Key == Windows.System.VirtualKey.Escape)
         {
             e.Handled = true;
+            _escapeHeld = true;
             if (!CanvasMenu.Dismiss())
             {
                 CancelCommand();
@@ -308,6 +325,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         CommandInput.Text = "";
+        _armSpace = false;
         if (Native.Cancel(_host) != 0)
         {
             Status.Text = Native.LastError(_host);
@@ -315,6 +333,37 @@ public sealed partial class MainWindow : Window
         RefreshChrome();
         RefreshPanels();
         BuildMenus();
+    }
+
+    /// <summary>
+    /// Escape while the Win32 drawing child has focus never reaches XAML PreviewKeyDown.
+    /// Edge-detect the key here so an active command or busy assistant still cancels.
+    /// </summary>
+    private void PollEscapeCancel()
+    {
+        var down = KeyDown(Windows.System.VirtualKey.Escape);
+        if (down && !_escapeHeld)
+        {
+            if (Content is FrameworkElement root && root.XamlRoot != null)
+            {
+                var focused = FocusManager.GetFocusedElement(root.XamlRoot);
+                if (focused is TextBox box && !ReferenceEquals(box, CommandInput))
+                {
+                    _escapeHeld = true;
+                    return;
+                }
+                if (focused is ComboBox)
+                {
+                    _escapeHeld = true;
+                    return;
+                }
+            }
+            if (!CanvasMenu.Dismiss())
+            {
+                CancelCommand();
+            }
+        }
+        _escapeHeld = down;
     }
 
     private void OnMenuCommand(object sender, RoutedEventArgs e)
@@ -335,6 +384,16 @@ public sealed partial class MainWindow : Window
         if (id is "open" or "qsave" or "saveas")
         {
             _ = PickFile(id);
+            return;
+        }
+        if (id is "vdb.export" or "vdb.import")
+        {
+            _ = PickVdb(id);
+            return;
+        }
+        if (id is "vdb.connect" or "vdb.disconnect" or "vdb.push" or "vdb.pull" or "vdb.sidecar")
+        {
+            RunShilpiCommand(id);
             return;
         }
         if (id == "close")
@@ -447,6 +506,11 @@ public sealed partial class MainWindow : Window
             OpenLinetype();
             return;
         }
+        if (id is "hatchedit" or "he" or "hatch.patterns")
+        {
+            OpenHatch();
+            return;
+        }
         if (id == "ddptype")
         {
             OpenPointStyle();
@@ -498,9 +562,10 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        if (e.Key == Windows.System.VirtualKey.Escape && (CanvasMenu.IsOpen || _command.Length > 0 || !Typing()))
+        if (e.Key == Windows.System.VirtualKey.Escape)
         {
             e.Handled = true;
+            _escapeHeld = true;
             if (!CanvasMenu.Dismiss())
             {
                 CancelCommand();
@@ -606,6 +671,12 @@ public sealed partial class MainWindow : Window
             {
                 e.Handled = true;
             }
+            else if (e.Key == Windows.System.VirtualKey.Space)
+            {
+                // Canvas focus: TextBox will not receive the key, so insert the space here.
+                InsertCommandSpace();
+                e.Handled = true;
+            }
             return;
         }
         _armSpace = false;
@@ -696,6 +767,16 @@ public sealed partial class MainWindow : Window
             _ = PickFile(id);
             return;
         }
+        if (id is "vdb.export" or "vdb.import")
+        {
+            _ = PickVdb(id);
+            return;
+        }
+        if (id is "vdb.connect" or "vdb.disconnect" or "vdb.push" or "vdb.pull" or "vdb.sidecar")
+        {
+            RunShilpiCommand(id);
+            return;
+        }
         if (id is "pasteclip" or "pasteblock")
         {
             _ = Paste(id);
@@ -710,19 +791,28 @@ public sealed partial class MainWindow : Window
         StartCommand(id);
     }
 
-    /// <summary>Enter, or Space when it confirms. One path so the two keys cannot run a line twice.</summary>
+    /// <summary>Enter, or Space when it confirms. One path so the two keys cannot run a line twice.
+    /// With a leading `/`, Space types a space (assistant sentence). Without `/`, Space runs the command.</summary>
     private bool SubmitKey(Windows.System.VirtualKey key)
     {
-        if (key == Windows.System.VirtualKey.Space && _literalSpace)
+        if (key == Windows.System.VirtualKey.Space)
         {
-            _armSpace = false;
-            return false;
-        }
-        if (key == Windows.System.VirtualKey.Space && string.IsNullOrEmpty(CommandInput.Text))
-        {
-            if (!_armSpace)
+            var text = CommandInput.Text ?? "";
+            // Prefer the live buffer: `/…` keeps spaces even before chrome refreshes LiteralSpace.
+            if (text.TrimStart().StartsWith('/') || _literalSpace || (_host != IntPtr.Zero && Native.SpaceLiteral(_host, text)))
             {
-                _armSpace = true;
+                _armSpace = false;
+                return false;
+            }
+            if (string.IsNullOrEmpty(text))
+            {
+                if (!_armSpace)
+                {
+                    _armSpace = true;
+                    return true;
+                }
+                _armSpace = false;
+                SubmitLine();
                 return true;
             }
             _armSpace = false;
@@ -732,6 +822,22 @@ public sealed partial class MainWindow : Window
         _armSpace = false;
         SubmitLine();
         return true;
+    }
+
+    private void InsertCommandSpace()
+    {
+        var text = CommandInput.Text ?? "";
+        var start = CommandInput.SelectionStart;
+        if (start < 0 || start > text.Length)
+        {
+            start = text.Length;
+        }
+        CommandInput.Text = text.Insert(start, " ");
+        CommandInput.SelectionStart = start + 1;
+        if (_host != IntPtr.Zero)
+        {
+            Native.Draft(_host, CommandInput.Text);
+        }
     }
 
     private void Remember(string text)
@@ -854,6 +960,7 @@ public sealed partial class MainWindow : Window
             or "plot.batch"
             or "dimstyle"
             or "linetype" or "lt" or "ltype"
+            or "hatchedit" or "he" or "hatch.patterns"
             or "ddptype"
             or "mleaderstyle" or "mls"
             or "room.settings"
@@ -879,34 +986,6 @@ public sealed partial class MainWindow : Window
             return;
         }
         await FinishPlot(id == "exportpdf" ? "exportpdf" : "plot", window: null);
-    }
-
-    private async Task<bool> OpenFileAsync(string path)
-    {
-        if (!Native.OpenStart(_host, path))
-        {
-            return false;
-        }
-        int state;
-        while ((state = Native.OpenPoll(_host)) == 1)
-        {
-            await Task.Delay(30);
-        }
-        return state == 2;
-    }
-
-    private async Task<bool> SaveFileAsync(string? path)
-    {
-        if (!Native.SaveStart(_host, path))
-        {
-            return false;
-        }
-        int state;
-        while ((state = Native.SavePoll(_host)) == 1)
-        {
-            await Task.Delay(30);
-        }
-        return state == 2;
     }
 
     private async Task<bool> PlotFileAsync(string command, string parameters)
@@ -1175,6 +1254,82 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async Task PickVdb(string id)
+    {
+        try
+        {
+            await PickVdbCore(id);
+        }
+        catch (Exception ex)
+        {
+            History.Text = ex.Message;
+        }
+    }
+
+    private async Task PickVdbCore(string id)
+    {
+        var hwnd = WindowNative.GetWindowHandle(this);
+        if (id == "vdb.import")
+        {
+            var open = new FileOpenPicker();
+            InitializeWithWindow.Initialize(open, hwnd);
+            open.FileTypeFilter.Add(".vdb");
+            var file = await open.PickSingleFileAsync();
+            if (file == null)
+            {
+                return;
+            }
+            if (Native.Execute(_host, "vdb.import", PathJson(file.Path)) != 0)
+            {
+                History.Text = Native.LastError(_host);
+            }
+            AfterCommand();
+            return;
+        }
+        var save = new FileSavePicker();
+        InitializeWithWindow.Initialize(save, hwnd);
+        save.FileTypeChoices.Add("ShilpiDB", new List<string> { ".vdb" });
+        save.SuggestedFileName = "drawing";
+        var chosen = await save.PickSaveFileAsync();
+        if (chosen == null)
+        {
+            return;
+        }
+        if (Native.Execute(_host, "vdb.export", PathJson(chosen.Path)) != 0)
+        {
+            History.Text = Native.LastError(_host);
+        }
+        AfterCommand();
+    }
+
+    private async Task<bool> OpenFileAsync(string path)
+    {
+        if (!Native.OpenStart(_host, path))
+        {
+            return false;
+        }
+        int state;
+        while ((state = Native.OpenPoll(_host)) == 1)
+        {
+            await Task.Delay(30);
+        }
+        return state == 2;
+    }
+
+    private async Task<bool> SaveFileAsync(string? path)
+    {
+        if (!Native.SaveStart(_host, path))
+        {
+            return false;
+        }
+        int state;
+        while ((state = Native.SavePoll(_host)) == 1)
+        {
+            await Task.Delay(30);
+        }
+        return state == 2;
+    }
+
     private async Task<bool> PickFileCore(string id)
     {
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -1184,10 +1339,26 @@ public sealed partial class MainWindow : Window
             InitializeWithWindow.Initialize(picker, hwnd);
             picker.FileTypeFilter.Add(".dxf");
             picker.FileTypeFilter.Add(".dwg");
+            picker.FileTypeFilter.Add(".vdb");
             var file = await picker.PickSingleFileAsync();
             if (file == null)
             {
                 return false;
+            }
+            if (file.Path.EndsWith(".vdb", StringComparison.OrdinalIgnoreCase))
+            {
+                // Open replaces model space so a .vdb is not merged onto the current drawing.
+                var import = "{\"path\":" + JsonSerializer.Serialize(file.Path) + ",\"replace\":true}";
+                if (Native.Execute(_host, "vdb.import", import) != 0)
+                {
+                    History.Text = Native.LastError(_host);
+                    AfterCommand();
+                    return false;
+                }
+                Native.Execute(_host, "zoom.extents", "{}");
+                _docKey = "";
+                AfterCommand();
+                return true;
             }
             // The file is read on a worker thread so the window keeps responding; the host fits the view.
             History.Text = "Opening " + file.Name + "...";
@@ -1204,7 +1375,7 @@ public sealed partial class MainWindow : Window
         }
         if (id == "qsave")
         {
-            if (await SaveFileAsync(null))
+            if (Native.Execute(_host, "qsave", "{}") == 0)
             {
                 _docKey = "";
                 AfterCommand();
@@ -1228,7 +1399,7 @@ public sealed partial class MainWindow : Window
         {
             return false;
         }
-        if (!await SaveFileAsync(chosen.Path))
+        if (Native.Execute(_host, "saveas", PathJson(chosen.Path)) != 0)
         {
             History.Text = Native.LastError(_host);
             AfterCommand();
@@ -1760,8 +1931,120 @@ public sealed partial class MainWindow : Window
     {
         RefreshChrome();
         RefreshPanels();
+        RefreshShilpiChip();
         BuildMenus();
         CommandInput.Focus(FocusState.Programmatic);
+    }
+
+    private void RefreshShilpiChip()
+    {
+        if (_host == IntPtr.Zero || ShilpiChip == null)
+        {
+            return;
+        }
+        if (Native.Execute(_host, "vdb.status", "{}") != 0)
+        {
+            ShilpiChip.Content = "ShilpiDB";
+            ToolTipService.SetToolTip(ShilpiChip, "Connect to a local shilpid server");
+            ShilpiChip.Visibility = Visibility.Visible;
+            return;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(Native.ReadResult(_host));
+            var root = doc.RootElement;
+            var connected = root.TryGetProperty("connected", out var c) && c.GetBoolean();
+            var addr = root.TryGetProperty("addr", out var a) ? a.GetString() ?? "" : "";
+            var sidecar = root.TryGetProperty("sidecar", out var sc) && sc.GetBoolean();
+            if (connected)
+            {
+                ShilpiChip.Content = string.IsNullOrEmpty(addr) ? "ShilpiDB" : "ShilpiDB " + addr;
+                ToolTipService.SetToolTip(ShilpiChip, "Connected" + (sidecar ? "; sidecar on save" : "") + ". Click for Push / Pull / Disconnect.");
+            }
+            else
+            {
+                ShilpiChip.Content = sidecar ? "ShilpiDB (sidecar)" : "ShilpiDB";
+                ToolTipService.SetToolTip(ShilpiChip, "Click to connect to shilpid (127.0.0.1:7420)");
+            }
+            ShilpiChip.Visibility = Visibility.Visible;
+        }
+        catch (JsonException)
+        {
+            ShilpiChip.Content = "ShilpiDB";
+            ShilpiChip.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void OnShilpiChip(object sender, RoutedEventArgs e)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        var flyout = new MenuFlyout();
+        void Add(string label, string id)
+        {
+            var item = new MenuFlyoutItem { Text = label, Tag = id };
+            item.Click += (_, _) => RunShilpiCommand(id);
+            flyout.Items.Add(item);
+        }
+        var connected = false;
+        if (Native.Execute(_host, "vdb.status", "{}") == 0)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(Native.ReadResult(_host));
+                connected = doc.RootElement.TryGetProperty("connected", out var c) && c.GetBoolean();
+            }
+            catch (JsonException)
+            {
+            }
+        }
+        if (connected)
+        {
+            Add("Push drawing (replace server)", "vdb.push");
+            Add("Pull into drawing (replace)", "vdb.pull");
+            Add("Disconnect", "vdb.disconnect");
+        }
+        else
+        {
+            Add("Connect 127.0.0.1:7420", "vdb.connect");
+        }
+        Add("Toggle sidecar on save", "vdb.sidecar");
+        flyout.ShowAt(ShilpiChip);
+    }
+
+    private void RunShilpiCommand(string id)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        var parameters = id switch
+        {
+            "vdb.connect" => "{\"addr\":\"127.0.0.1:7420\"}",
+            "vdb.push" => "{\"replace\":true}",
+            "vdb.pull" => "{\"replace\":true}",
+            "vdb.sidecar" => "{\"toggle\":true}",
+            _ => "{}",
+        };
+        if (Native.Execute(_host, id, parameters) != 0)
+        {
+            History.Text = Native.LastError(_host);
+            Status.Text = Native.LastError(_host);
+        }
+        else if (id is "vdb.connect" or "vdb.push" or "vdb.pull" or "vdb.disconnect" or "vdb.sidecar")
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(Native.ReadResult(_host));
+                History.Text = doc.RootElement.GetRawText();
+            }
+            catch (JsonException)
+            {
+            }
+        }
+        AfterCommand();
     }
 
     private void BuildMenus()
@@ -2270,6 +2553,21 @@ public sealed partial class MainWindow : Window
         Native.ShowWindow(WindowNative.GetWindowHandle(_linetypeWindow), 8);
     }
 
+    private void OpenHatch()
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (_hatchWindow == null)
+        {
+            _hatchWindow = HatchWindow.Open(this, _host, AfterCommand);
+            _hatchWindow.Closed += (_, _) => _hatchWindow = null;
+        }
+        _hatchWindow.Activate();
+        Native.ShowWindow(WindowNative.GetWindowHandle(_hatchWindow), 8);
+    }
+
     private void OpenPointStyle()
     {
         if (_host == IntPtr.Zero)
@@ -2534,6 +2832,11 @@ public sealed partial class MainWindow : Window
             });
             AddChoice("Transparency", new[] { "ByLayer", "ByBlock", "0", "30", "50", "70", "90" }, Text(root, "transparency"), value => CommitChoice(handles, "transparency", value));
             AddNumber(handles, "ltscale", "Linetype scale", Text(root, "ltscale"));
+            var patterns = Names(root, "patterns");
+            if (patterns.Count > 0)
+            {
+                AddChoice("Pattern", patterns, Text(root, "pattern"), value => CommitChoice(handles, "pattern", value));
+            }
             var fields = new Dictionary<string, TextBox>(StringComparer.Ordinal);
             if (root.TryGetProperty("fields", out var rows) && rows.ValueKind == JsonValueKind.Array)
             {
@@ -2543,6 +2846,11 @@ public sealed partial class MainWindow : Window
                     var label = row.TryGetProperty("label", out var labelValue) && labelValue.ValueKind == JsonValueKind.String ? labelValue.GetString() ?? key : key;
                     var value = row.TryGetProperty("value", out var fieldValue) && fieldValue.ValueKind == JsonValueKind.String ? fieldValue.GetString() ?? "" : "";
                     var text = row.TryGetProperty("text", out var kind) && kind.ValueKind == JsonValueKind.True;
+                    // Pattern is shown as a combo when the library list is present.
+                    if (key == "pattern" && patterns.Count > 0)
+                    {
+                        continue;
+                    }
                     if (key.Length == 0)
                     {
                         PropertiesPanel.Children.Add(FieldLabel(label));
@@ -3160,6 +3468,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
             CanvasMenu.DismissOutsideClick();
+            PollEscapeCancel();
             if (Native.Pump(_host) != 0)
             {
                 Status.Text = Native.LastError(_host);
@@ -3286,7 +3595,7 @@ public sealed partial class MainWindow : Window
         _documents.Clear();
         _documents.AddRange(state.Documents);
         var active = _documents.FirstOrDefault(doc => doc.Active);
-        Title = active == null || active.Title.Length == 0 ? "AAD" : "AAD — " + active.Title;
+        Title = active == null || active.Title.Length == 0 ? "O-Draft" : "O-Draft — " + active.Title;
         var key = (_start ? "start\n" : "draw\n") + string.Join("\n", _documents.Select(doc => doc.Index + ":" + doc.Title + ":" + doc.Dirty + ":" + doc.Active));
         if (key == _docKey)
         {

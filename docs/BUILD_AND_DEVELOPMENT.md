@@ -23,10 +23,26 @@ the application; the headless UI tests render without a window.
 cargo build --workspace                 # debug (covered by `cargo xtask ci`; not run on its own)
 cargo build --workspace --release       # verified (3.7 minutes from a clean `target/`)
 cargo build --release -p aad       # just the desktop app, verified
-LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p aad --features assistant   # with the language model runtime, verified (about 2.5 minutes)
+# Local assistant (llama.cpp). Needs CMake, MSVC, and LIBCLANG_PATH (see Prerequisites).
+LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p aad-host --features assistant
+LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p aad-cli --features assistant
+LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p aad --features egui,assistant
 ```
 
-Outputs are in `target/debug` and `target/release` (`aad.exe`, `aad-cli.exe`).
+Outputs are in `target/debug` and `target/release` (`aad.exe`, `aad-cli.exe`, `aad_host.dll`; the Windows package ships `aad.exe` as `o-draft.exe`).
+
+### Local model file
+
+The weights are not in the repository. Place `Qwen3-1.7B-Q4_K_M.gguf` (about 1.1 GB, from
+`unsloth/Qwen3-1.7B-GGUF`) where the runtime looks ([ai-agent.md](ai-agent.md)):
+
+1. `AAD_MODEL` (full path to the `.gguf`), or
+2. `%APPDATA%\O-Draft\models\Qwen3-1.7B-Q4_K_M.gguf`, or
+3. `models\Qwen3-1.7B-Q4_K_M.gguf` beside the program or in the working directory.
+
+Without the `assistant` feature, or without a model file, `/` requests and natural-language
+sentences in the command bar report that the assistant is not included or that the model is missing;
+ordinary CAD still works.
 
 ## Run
 
@@ -36,9 +52,19 @@ cargo run --release -p aad --features egui -- --egui --sample   # optional egui 
 cargo run --release -p aad -- file.dxf            # WinUI opens the file (error if WinUI is missing)
 cargo run --release -p aad -- --control 47123     # WinUI + JSON control channel
 cargo run --release -p aad-cli -- info examples/apartment.dxf
+cargo run --release -p aad-cli --features assistant -- ask --sample "What is in this drawing?"
 ```
 
-The WinUI shell is built separately: `cargo build -p aad-host`, then `dotnet build apps/aad-winui/Aad.WinUi.csproj -c Debug -p:Platform=x64 -o target/aad-winui` (the project copies `aad_host.dll` beside the exe when it finds it under `target`). That build needs the .NET 8 SDK.
+The WinUI shell is built separately. For the command-bar assistant, build the host **with** the
+model runtime, then the C# shell (it copies `aad_host.dll` beside the exe):
+
+```text
+LIBCLANG_PATH="C:/Program Files/LLVM/bin" cargo build --release -p aad-host --features assistant
+dotnet build apps/aad-winui/Aad.WinUi.csproj -c Debug -p:Platform=x64 -o target/aad-winui
+```
+
+Without `--features assistant`, `cargo build -p aad-host` still produces a host that runs CAD; `/`
+requests then say the assistant is not in the build. That build needs the .NET 8 SDK.
 
 The control channel is described in [control-protocol.md](control-protocol.md).
 

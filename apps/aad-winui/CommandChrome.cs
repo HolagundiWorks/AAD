@@ -312,28 +312,69 @@ internal sealed class HalfAcrylic : SystemBackdrop
     protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop target, XamlRoot root)
     {
         base.OnTargetConnected(target, root);
-        _acrylic = new DesktopAcrylicController
+        try
         {
-            TintColor = _dark ? Color(255, 24, 24, 24) : Color(255, 255, 255, 255),
-            TintOpacity = 0.8f,
-            LuminosityOpacity = 0.8f,
-            FallbackColor = _dark ? Color(220, 24, 24, 24) : Color(220, 255, 255, 255),
-        };
-        var configuration = GetDefaultSystemBackdropConfiguration(target, root);
-        _acrylic.AddSystemBackdropTarget(target);
-        _acrylic.SetSystemBackdropConfiguration(configuration);
+            _acrylic?.Dispose();
+            _acrylic = new DesktopAcrylicController
+            {
+                TintColor = _dark ? Color(255, 24, 24, 24) : Color(255, 255, 255, 255),
+                TintOpacity = 0.8f,
+                LuminosityOpacity = 0.8f,
+                FallbackColor = _dark ? Color(220, 24, 24, 24) : Color(220, 255, 255, 255),
+            };
+            var configuration = GetDefaultSystemBackdropConfiguration(target, root);
+            _acrylic.AddSystemBackdropTarget(target);
+            _acrylic.SetSystemBackdropConfiguration(configuration);
+        }
+        catch (Exception)
+        {
+            _acrylic?.Dispose();
+            _acrylic = null;
+        }
     }
 
     protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop target)
     {
-        base.OnTargetDisconnected(target);
+        try
+        {
+            base.OnTargetDisconnected(target);
+        }
+        catch (Exception)
+        {
+            // Target may already be invalid while the shell is closing.
+        }
         if (_acrylic == null)
         {
             return;
         }
-        _acrylic.RemoveSystemBackdropTarget(target);
+        try
+        {
+            _acrylic.RemoveSystemBackdropTarget(target);
+        }
+        catch (Exception)
+        {
+            // Ignore a stale composition target.
+        }
         _acrylic.Dispose();
         _acrylic = null;
+    }
+
+    protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot)
+    {
+        // WinUI can call this with a stale target when another top-level window (or owner focus)
+        // changes; never let that take down the process.
+        if (_acrylic is null || target is null || xamlRoot is null)
+        {
+            return;
+        }
+        try
+        {
+            _acrylic.SetSystemBackdropConfiguration(GetDefaultSystemBackdropConfiguration(target, xamlRoot));
+        }
+        catch (Exception)
+        {
+            // Keep the previous configuration.
+        }
     }
 
     private static Windows.UI.Color Color(byte a, byte r, byte g, byte b) =>

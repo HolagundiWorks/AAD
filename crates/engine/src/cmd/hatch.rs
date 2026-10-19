@@ -14,7 +14,14 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("hatch", "Hatch...", run_hatch).menu(&["Draw", "Hatch..."]).alias(&["h", "bh", "-hatch"]).params("{points?: [[x,y]] (internal points) | handles?: [hex] (closed objects), pattern?: \"ANSI31\", scale?, angle? (degrees), associative?}").interactive(|s| Ok(Box::new(HatchM::new(s, false)))),
         CommandSpec::new("boundary", "Boundary...", run_boundary).menu(&["Draw", "Boundary..."]).alias(&["bo", "bpoly"]).params("{points: [[x,y]]}").interactive(|_| Ok(Box::new(BoundaryM { region: false }))),
         CommandSpec::new("region", "Region", run_region).menu(&["Draw", "Region"]).alias(&["reg"]).params("{handles?}"),
-        CommandSpec::new("hatchedit", "Hatch Edit", run_hatchedit).menu(&["Modify", "Object", "Hatch..."]).alias(&["he"]).params("{handles?, pattern?, scale?, angle?}"),
+        CommandSpec::new("hatchedit", "Hatch Edit", run_hatchedit)
+            .menu(&["Modify", "Object", "Hatch..."])
+            .alias(&["he"])
+            .params("{handles?, pattern?, scale?, angle?} (edit selected hatches; WinUI opens the Hatch Manager)"),
+        CommandSpec::new("hatch.patterns", "Hatch Patterns", run_hatch_patterns)
+            .menu(&["Format", "Hatch..."])
+            .params("{} → {patterns: [{name, description}], defaults: {pattern, scale, angle}} (library + current HPNAME/HPSCALE/HPANG)")
+            .noundo(),
     ]
 }
 
@@ -266,11 +273,46 @@ fn run_region(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
     let hs = targets(s, p)?;
+    // Only hatch objects are edited; other picks are skipped.
+    let hatch_hs: Vec<Handle> = {
+        let d = s.doc()?;
+        hs.into_iter()
+            .filter(|h| d.entity(*h).is_some_and(|e| matches!(e.kind, EntityKind::Hatch(_))))
+            .collect()
+    };
+    if hatch_hs.is_empty() {
+        return Err(bad("hatchedit", "select one or more hatch objects"));
+    }
+    let has_edit = p.get("pattern").is_some() || p.get("scale").is_some() || p.get("angle").is_some();
+    if !has_edit {
+        // Interactive selection alone: report the selection for a manager UI.
+        return Ok(json!({
+            "handles": hatch_hs.iter().map(|h| h.hex()).collect::<Vec<_>>(),
+            "count": hatch_hs.len(),
+        }));
+    }
     let mut q = p.clone();
     if let Some(o) = q.as_object_mut() {
-        o.insert("handles".into(), json!(hs.iter().map(|h| h.hex()).collect::<Vec<_>>()));
+        o.insert("handles".into(), json!(hatch_hs.iter().map(|h| h.hex()).collect::<Vec<_>>()));
     }
+    // Call properties.set body through execute so validation stays in one place.
     s.execute("properties.set", &q)
+}
+
+fn run_hatch_patterns(s: &mut Session, _p: &Value) -> Result<Value> {
+    let d = s.doc()?;
+    let patterns: Vec<Value> = aad_doc::library::standard_patterns()
+        .into_iter()
+        .map(|pat| json!({ "name": pat.name, "description": pat.description }))
+        .collect();
+    Ok(json!({
+        "patterns": patterns,
+        "defaults": {
+            "pattern": d.header.str("HPNAME", "ANSI31"),
+            "scale": d.header.f64("HPSCALE", 1.0),
+            "angle": d.header.f64("HPANG", 0.0).to_degrees(),
+        },
+    }))
 }
 
 /// What a HATCH sub-prompt asks for.

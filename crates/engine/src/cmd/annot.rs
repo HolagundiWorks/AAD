@@ -155,10 +155,11 @@ fn run_plot_validate(s: &mut Session, p: &Value) -> Result<Value> {
     let fits = ew <= pw + 1e-9 && eh <= ph + 1e-9;
     if !fits {
         let need = (ew / pw.max(1e-9)).max(eh / ph.max(1e-9)) * scale.0;
+        let nearest = annot::nearest_plot_scale(1.0 / need.max(1e-12));
         warnings.push(format!(
-            "the drawing is {ew:.0} x {eh:.0} mm at {}, larger than the printable {pw:.0} x {ph:.0} mm; it fits at about 1:{:.0} or smaller",
+            "the drawing is {ew:.0} x {eh:.0} mm at {}, larger than the printable {pw:.0} x {ph:.0} mm; nearest scale that fits is {}",
             scale.label(),
-            need.ceil()
+            nearest.nearest
         ));
     }
     let mut small = Vec::new();

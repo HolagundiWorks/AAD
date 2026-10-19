@@ -464,6 +464,18 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
                     }
                 });
                 ui.end_row();
+                if page.scale_to_fit {
+                    let b = d.extents(&aad_doc::Space::Paper(name.clone()));
+                    if let Some(sheet) = aad_render::sheet(d, name)
+                        && !b.is_empty()
+                    {
+                        let s = (sheet.printable.width() / b.width().max(1e-12)).min(sheet.printable.height() / b.height().max(1e-12));
+                        let n = aad_engine::annot::nearest_plot_scale(s);
+                        ui.label("");
+                        ui.label(RichText::new(format!("Nearest scale that fits: {}", n.nearest)).color(t.text_dim));
+                        ui.end_row();
+                    }
+                }
                 ui.label("");
                 let mut center = page.center;
                 if ui.checkbox(&mut center, "Center the plot").changed() {

@@ -1,6 +1,6 @@
-# AAD - Accelerated Architecture Drafting
+# O-Draft
 
-AAD is a 2D computer-aided drafting application written in Rust, aimed at architectural and civil
+O-Draft (formerly AAD, Accelerated Architecture Drafting) is the drafting app of OSAS, the Open Source Architecture Suit, alongside O-Studio (office management) and O-CoreOp (quantities, estimates and billing). It is a 2D computer-aided drafting application written in Rust, aimed at architectural and civil
 drafting. It reads and writes DXF and DWG and can be driven from scripts and agents. **Windows is
 the only supported platform for now**; macOS, Linux and the web build come in later phases (the
 code stays portable, but only Windows is built, tested and packaged). This repository is a fork of
@@ -36,7 +36,7 @@ cargo run --release -p aad -- file.dxf              # forwards the path to WinUI
 cargo run --release -p aad --features egui -- --egui --sample   # optional egui window
 ```
 
-The WinUI shell needs the .NET 8 SDK. The default Windows `aad` binary does not link eframe; rebuild with `--features egui` for `aad --egui` (widget automation). Copy `target/debug/aad_host.dll` next to `Aad.WinUi.exe` after building the host.
+The WinUI shell needs the .NET 8 SDK. The default Windows `aad` binary does not link eframe; rebuild with `--features egui` for `aad --egui` (widget automation). Copy `target/debug/aad_host.dll` next to `ODraft.WinUi.exe` after building the host.
 
 Type commands at the command line, for example:
 
@@ -88,19 +88,18 @@ widgets under Tools ([docs/widgets.md](docs/widgets.md)).
 
 ## Local AI assistant
 
-An offline assistant can call a fixed set of validated tools (summary, flatten, audit, purge, recover, units, plot configuration). It runs a local Qwen3-1.7B model through llama.cpp and is **not part of the default build**: build with `--features assistant` (`cargo build --release -p aad --features assistant`; needs CMake, a C++ toolchain and LLVM) and put the model file in `%APPDATA%AADmodels`. Type a request in the command bar (a leading `/`, a `/reference` such as `/layers`, or a plain sentence; see [docs/COMMAND_BAR.md](docs/COMMAND_BAR.md)), or use `aad-cli ask "request"`. A tool that changes the drawing asks first. The model file is not bundled with the installer yet. See
-[docs/ai-agent.md](docs/ai-agent.md), including what was observed with the real model.
+An offline assistant can call a fixed set of validated tools (summary, flatten, audit, purge, recover, units, plot configuration). It runs a local Qwen3-1.7B model through llama.cpp and is **not part of the default build**: build with `--features assistant` (`cargo build --release -p aad --features assistant`; needs CMake, a C++ toolchain and LLVM) and put the model file in `%APPDATA%\O-Draft\models`. Type a request in the command bar (a leading `/`, a `/reference` such as `/layers`, or a plain sentence; see [docs/COMMAND_BAR.md](docs/COMMAND_BAR.md)), or use `aad-cli ask "request"`. A tool that changes the drawing asks first. The Windows **AI installer** bundles the runtime and model: `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/windows/package.ps1 -Arch x64 -Assistant` (needs the model at `%APPDATA%\O-Draft\models\Qwen3-1.7B-Q4_K_M.gguf` or `AAD_MODEL_FILE`). Output: `dist/release/o-draft-ai-<version>-windows-x64.msi` and a portable zip. The plain installer (`package.ps1` without `-Assistant`) stays drafting-only. Both are open source (MIT OR Apache-2.0); the wizard shows `packaging/windows/EULA.rtf`. See [docs/ai-agent.md](docs/ai-agent.md).
 
 ## Configuration
 
-- Fonts: AAD ships none and uses the TrueType/OpenType fonts installed on the system. SHX fonts
+- Fonts: O-Draft ships none and uses the TrueType/OpenType fonts installed on the system. SHX fonts
   are not read; text in an SHX style is drawn with the built-in stroke font. `FONTALT` and
   `FONTFALLBACK` (or `AAD_FONTALT`, `AAD_FONTFALLBACK`) name a replacement font and the
   fonts tried first for characters a font lacks. `.` clears either.
 - Logs: the desktop app writes to standard error and to `logs/aad.log` in the settings
   directory (`~/.config/aad/` on Linux and the BSDs, `~/Library/Application Support/AAD/`
-  on macOS, `%APPDATA%\AAD\` on Windows). `AAD_CONFIG_DIR` overrides the directory and
-  `RUST_LOG` sets the levels (default `info` for AAD's crates, `warn` for the rest). Each launch
+  on macOS, `%APPDATA%\O-Draft\` on Windows). `AAD_CONFIG_DIR` overrides the directory and
+  `RUST_LOG` sets the levels (default `info` for O-Draft's crates, `warn` for the rest). Each launch
   rotates the previous log; the file stops growing at 16 MiB.
 - Theme: one light/dark toggle (View menu, status bar). Dark has a black drawing area, light a
   white one. There is no other colour customisation.

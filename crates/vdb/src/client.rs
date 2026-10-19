@@ -76,13 +76,25 @@ impl VdbClient {
     }
 
     /// Push every record from an embedded [`VdbStore`] in one round-trip.
-    pub fn push_store(&mut self, store: &VdbStore) -> Result<(), ClientError> {
+    ///
+    /// When `replace` is true, delete every id currently on the server that is not in `store`
+    /// (after upsert), so the server mirrors model space instead of keeping orphans.
+    pub fn push_store(&mut self, store: &VdbStore, replace: bool) -> Result<(), ClientError> {
         let records: Vec<(u64, Bbox, Vec<u8>)> = store
             .records()
             .iter()
             .map(|r| (r.id, r.bbox, r.payload.clone()))
             .collect();
-        self.inner.insert_many(records)
+        self.inner.insert_many(records)?;
+        if replace {
+            let keep: std::collections::HashSet<u64> = store.records().iter().map(|r| r.id).collect();
+            for id in self.inner.list()? {
+                if !keep.contains(&id) {
+                    let _ = self.inner.delete(id)?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Pull all ids and boxes, then fetch payloads into a [`VdbStore`].

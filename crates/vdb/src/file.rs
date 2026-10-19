@@ -18,7 +18,12 @@ use shilpidb::{Bbox, Error as CodecError, Point, Reader, SpatialGrid, Writer, MA
 use crate::{MAX_PAYLOAD, MAX_RECORDS};
 
 /// Host format version written after [`MAGIC`]. Bump when the record layout changes.
-pub const FORMAT_VERSION: u32 = 1;
+///
+/// - **1** — tab-separated `handle\ttype\tlayer` payloads (legacy).
+/// - **2** — binary [`crate::payload`] entity payloads (current write format).
+pub const FORMAT_VERSION: u32 = 2;
+/// Oldest readable host format.
+pub const MIN_FORMAT_VERSION: u32 = 1;
 
 /// One spatial record: opaque id, bbox, and host payload.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,14 +38,17 @@ pub struct VdbRecord {
 pub struct VdbStore {
     records: Vec<VdbRecord>,
     grid: SpatialGrid,
+    /// Host format version this store was loaded from or will be written as.
+    format_version: u32,
 }
 
 impl VdbStore {
-    /// Empty store.
+    /// Empty store (current write format).
     pub fn new() -> Self {
         Self {
             records: Vec::new(),
             grid: SpatialGrid::build(Vec::new()),
+            format_version: FORMAT_VERSION,
         }
     }
 
@@ -68,6 +76,7 @@ impl VdbStore {
         Ok(Self {
             grid: SpatialGrid::build(boxes),
             records,
+            format_version: FORMAT_VERSION,
         })
     }
 
@@ -85,6 +94,11 @@ impl VdbStore {
 
     pub fn grid(&self) -> &SpatialGrid {
         &self.grid
+    }
+
+    /// Format version loaded from disk, or [`FORMAT_VERSION`] for a newly built store.
+    pub fn format_version(&self) -> u32 {
+        self.format_version
     }
 
     /// Ids whose box intersects `rect`.
@@ -129,7 +143,7 @@ pub fn load_bytes(bytes: &[u8]) -> Result<VdbStore, Error> {
         return Err(Error::NotVdb);
     }
     let version = r.u32().map_err(Error::Codec)?;
-    if version != FORMAT_VERSION {
+    if version < MIN_FORMAT_VERSION || version > FORMAT_VERSION {
         return Err(Error::UnsupportedVersion(version));
     }
     let count = r.u32().map_err(Error::Codec)? as usize;
@@ -149,7 +163,7 @@ pub fn load_bytes(bytes: &[u8]) -> Result<VdbStore, Error> {
         Ok(grid) if grid.len() == records.len() => grid,
         _ => SpatialGrid::build(records.iter().map(|rec| (rec.id, rec.bbox)).collect()),
     };
-    Ok(VdbStore { records, grid })
+    Ok(VdbStore { records, grid, format_version: version })
 }
 
 /// Write a `.vdb` file.
@@ -202,10 +216,12 @@ fn read_record(r: &mut Reader<'_>) -> Result<VdbRecord, Error> {
         });
     }
     let payload = r.raw(len).map_err(Error::Codec)?.to_vec();
-    let bbox = Bbox::from_corners(min_x, min_y, max_x, max_y);
-    if !finite_bbox(bbox) {
+    // Check raw floats before `from_corners`: f64::min/max drops NaN and would
+    // silently accept hostile non-finite boxes.
+    if ![min_x, min_y, max_x, max_y].iter().all(|v| v.is_finite()) {
         return Err(Error::BadBbox(id));
     }
+    let bbox = Bbox::from_corners(min_x, min_y, max_x, max_y);
     Ok(VdbRecord { id, bbox, payload })
 }
 
@@ -255,6 +271,7 @@ mod tests {
         assert!(bytes.starts_with(MAGIC));
         let back = load_bytes(&bytes).expect("load");
         assert_eq!(back.len(), 2);
+        assert_eq!(back.format_version(), FORMAT_VERSION);
         assert_eq!(back.query_bbox(Bbox::from_corners(0.2, 0.2, 0.8, 0.8)), vec![1]);
         assert_eq!(back.records()[1].payload, b"door");
     }
@@ -273,6 +290,75 @@ mod tests {
     fn rejects_bad_magic() {
         assert!(matches!(load_bytes(b"NOTVDB!!"), Err(Error::NotVdb)));
         assert!(load_bytes(b"short").is_err());
+        // Same length as MAGIC but wrong bytes.
+        assert!(matches!(load_bytes(b"XXXXXXXX"), Err(Error::NotVdb)));
+    }
+
+    #[test]
+    fn rejects_huge_record_count() {
+        let mut w = Writer::new();
+        w.raw(MAGIC);
+        w.u32(FORMAT_VERSION);
+        w.u32(u32::try_from(MAX_RECORDS + 1).expect("count fits u32"));
+        let bytes = w.into_bytes();
+        assert!(matches!(
+            load_bytes(&bytes),
+            Err(Error::TooManyRecords { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_nan_bbox_on_build_and_load() {
+        // Build a NaN box without `Bbox::from_corners` (that API drops NaNs via f64::min/max).
+        let nan_rec = VdbRecord {
+            id: 1,
+            bbox: Bbox {
+                min: Point::new(f64::NAN, 0.0),
+                max: Point::new(1.0, 1.0),
+            },
+            payload: b"x".to_vec(),
+        };
+        assert!(matches!(
+            VdbStore::from_records(vec![nan_rec]),
+            Err(Error::BadBbox(1))
+        ));
+        assert!(matches!(
+            VdbStore::from_records(vec![rec(2, 0.0, 0.0, f64::INFINITY, 1.0, b"x")]),
+            Err(Error::BadBbox(2))
+        ));
+
+        let mut w = Writer::new();
+        w.raw(MAGIC);
+        w.u32(FORMAT_VERSION);
+        w.u32(1);
+        w.u64(7);
+        w.f64(f64::NAN);
+        w.f64(0.0);
+        w.f64(1.0);
+        w.f64(1.0);
+        w.u32(1);
+        w.raw(b"x");
+        let bytes = w.into_bytes();
+        assert!(matches!(load_bytes(&bytes), Err(Error::BadBbox(7))));
+    }
+
+    #[test]
+    fn rejects_oversized_payload_len() {
+        let mut w = Writer::new();
+        w.raw(MAGIC);
+        w.u32(FORMAT_VERSION);
+        w.u32(1);
+        w.u64(1);
+        w.f64(0.0);
+        w.f64(0.0);
+        w.f64(1.0);
+        w.f64(1.0);
+        w.u32(u32::try_from(MAX_PAYLOAD + 1).expect("len fits u32"));
+        let bytes = w.into_bytes();
+        assert!(matches!(
+            load_bytes(&bytes),
+            Err(Error::PayloadTooLarge { .. })
+        ));
     }
 
     #[test]

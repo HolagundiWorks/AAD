@@ -324,6 +324,8 @@ pub struct Settings {
     pub polar_flags: u32,
     /// POLARADDANG: additional polar tracking angles (radians), used with POLARMODE bit 4.
     pub polaraddang: Vec<f64>,
+    /// When true, a successful DXF/DWG save also writes `<stem>.vdb` beside the drawing.
+    pub vdb_sidecar: bool,
 }
 
 impl Default for Settings {
@@ -354,6 +356,7 @@ impl Default for Settings {
             qpmode: false,
             polar_flags: 0,
             polaraddang: Vec::new(),
+            vdb_sidecar: false,
         }
     }
 }
@@ -501,6 +504,8 @@ pub struct Session {
     /// A plot window chosen by `plot.window` for the application to finish (it asks where to save,
     /// then calls `plot`). Taken with [`Session::take_plot_request`].
     pub plot_request: Option<PlotRequest>,
+    /// Address of a connected `shilpid` (`vdb.connect`), e.g. `127.0.0.1:7420`.
+    pub vdb_addr: Option<String>,
 }
 
 impl Default for Session {
@@ -541,6 +546,7 @@ impl Session {
             clipboard_source: None,
             aorms: cmd::aorms::AormsState::default(),
             plot_request: None,
+            vdb_addr: None,
         }
     }
     pub fn new_drawing(&mut self, metric: bool) -> usize {
@@ -774,6 +780,11 @@ impl Session {
     /// Give an input to the running command. With no command running, `Enter` repeats the last
     /// command (as in AutoCAD) and points do nothing.
     pub fn input(&mut self, input: Input) -> Result<()> {
+        let drawn = self.doc().ok().and_then(annot::drawing_unit);
+        units::with_drawn_unit(drawn, || self.input_inner(input))
+    }
+
+    fn input_inner(&mut self, input: Input) -> Result<()> {
         if self.running.is_none() {
             if input == Input::Enter
                 && let Some(last) = self.last_command.clone()
@@ -1023,10 +1034,15 @@ impl Session {
 
     /// One token typed while a command runs.
     fn typed(&mut self, t: &str) -> Result<()> {
+        let drawn = self.doc().ok().and_then(annot::drawing_unit);
+        units::with_drawn_unit(drawn, || self.typed_inner(t))
+    }
+
+    fn typed_inner(&mut self, t: &str) -> Result<()> {
         let Some(prompt) = self.current_prompt() else { return Ok(()) };
         let tt = t.trim();
         if tt.is_empty() {
-            return self.input(Input::Enter);
+            return self.input_inner(Input::Enter);
         }
         // FROM, M2P, point filters, `<a` (before `'`: `'_from` is a modifier).
         if let Some(r) = self.typed_modifier(&prompt, tt) {
@@ -1043,11 +1059,11 @@ impl Session {
             && let Some(k) = prompt.match_keyword(tt)
             && !(prompt.accept.number && tt.parse::<f64>().is_ok())
         {
-            return self.input(Input::Keyword(k));
+            return self.input_inner(Input::Keyword(k));
         }
         if prompt.accept.point {
             if let Some(p) = prompt::parse_point_with(tt, self.last_point, &self.angle_settings()) {
-                return self.input(Input::Point(p));
+                return self.input_inner(Input::Point(p));
             }
             // Direct distance entry along the rubber band.
             if let (Some(base), Some(dist)) = (prompt.base, units::parse_distance(tt))
@@ -1055,7 +1071,7 @@ impl Session {
             {
                 // Along the tracking path the cursor is on, from the point it comes from.
                 if let Some((from, dir)) = self.tracking.last.as_ref().filter(|t| t.point.near(self.cursor, 1e-9)).and_then(|t| t.along()) {
-                    return self.input(Input::Point(from + dir * dist));
+                    return self.input_inner(Input::Point(from + dir * dist));
                 }
                 let mut c = self.cursor;
                 if self.settings.orthomode {
@@ -1063,10 +1079,10 @@ impl Session {
                 }
                 let dir = (c - base).normalized();
                 let dir = if dir == Vec2::ZERO { Vec2::X } else { dir };
-                return self.input(Input::Point(base + dir * dist));
+                return self.input_inner(Input::Point(base + dir * dist));
             }
         }
-        self.input(Input::Text(tt.to_string()))
+        self.input_inner(Input::Text(tt.to_string()))
     }
 
     /// Run a script: one input per line; within a line, spaces separate inputs except at text

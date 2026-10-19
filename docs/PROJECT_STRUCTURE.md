@@ -48,8 +48,8 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 
 | Binary | File |
 |---|---|
-| `aad` | `apps/aad/src/main.rs` (the DWG worker mode is handled first in `main`). On Windows the default binary only starts `Aad.WinUi.exe` and does not link eframe; `--features egui` plus `--egui` is the optional egui shell. Non-Windows always links egui/eframe |
-| `aad-vdb` | `crates/vdb` — ShilpiDB-backed `.vdb` file + `VdbClient`; engine commands `vdb.export` / `vdb.info` / `vdb.query` |
+| `aad` | `apps/aad/src/main.rs` (the DWG worker mode is handled first in `main`). On Windows the default binary only starts `ODraft.WinUi.exe` and does not link eframe; `--features egui` plus `--egui` is the optional egui shell. Non-Windows always links egui/eframe |
+| `aad-vdb` | `crates/vdb` — ShilpiDB-backed `.vdb` file (format v2) + `VdbClient`; engine commands `vdb.export` / `import` / `info` / `query` / `connect` / `disconnect` / `push` / `pull` / `sidecar` / `status` |
 | `Aad.WinUi` | `apps/aad-winui` (C#, not a Cargo member) |
 | `aad-cli` | `apps/aad-cli/src/main.rs` |
 | `aad-web` | `apps/aad-web/src/main.rs` (WASM) |
@@ -74,7 +74,7 @@ The product is **O-Draft**, the drafting app of OSAS (the Open Source Architectu
 
 | Kept | Why |
 |---|---|
-| Crates and libraries `aad-*`, `aad_host.dll`, the `aad` and `aad-cli` executables, `Aad.WinUi.exe` | Other crates import them; the executable rename is a separate release step that must change the OSAS launcher in the same release |
+| Crates and libraries `aad-*`, `aad_host.dll`, the cargo binaries `aad` and `aad-cli` | Other crates import them. The Windows package renames the two programs it ships: `aad` becomes `o-draft.exe` and the WinUI shell is `ODraft.WinUi.exe`; the OSAS launcher looks for `o-draft.exe` first and `aad.exe` as a fallback for old installs |
 | Command ids, the command-line grammar, MCP tool names (`serverInfo.name` is `aad`), control-channel methods | Scripts and agents call them |
 | File formats: `AAD_PROJECT` extension data in DXF, `.vdb`, the `hcw-aqc-bridge` file (`source.app` is `AAD`) | Existing drawings and AQC import must keep working |
 | The AORMS session name `aad` and credential `AORMS/Connect/aad`, the application id `io.github.holagundiworks.aad` | The portal and the other apps read them |

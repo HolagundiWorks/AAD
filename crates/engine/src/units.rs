@@ -1,6 +1,28 @@
 //! Linear and angular unit formatting and parsing (LUNITS/LUPREC, AUNITS/AUPREC).
 
+use std::cell::Cell;
 use std::f64::consts::PI;
+
+use crate::annot::Unit;
+
+thread_local! {
+    /// Drawing unit used to convert typed unit suffixes while a session reads input.
+    static DRAWN_UNIT: Cell<Option<Unit>> = const { Cell::new(None) };
+}
+
+/// Run `f` with `unit` as the target for distance suffixes (`mm`, `cm`, `m`, `'`, `"`).
+pub fn with_drawn_unit<R>(unit: Option<Unit>, f: impl FnOnce() -> R) -> R {
+    DRAWN_UNIT.with(|c| {
+        let prev = c.replace(unit);
+        let out = f();
+        c.set(prev);
+        out
+    })
+}
+
+fn active_drawn_unit() -> Option<Unit> {
+    DRAWN_UNIT.with(Cell::get)
+}
 
 /// Format a distance per LUNITS (1 scientific, 2 decimal, 3 engineering, 4 architectural,
 /// 5 fractional) and LUPREC.
@@ -89,8 +111,16 @@ pub fn format_angle(a: f64, aunits: i64, auprec: i64) -> String {
     }
 }
 
-/// Parse a distance typed by the user: decimal, `1'6"`, `1'-6 1/2"`, `6 1/2`, `3/4`, `1e3`.
+/// Parse a distance typed by the user: decimal, `1'6"`, `1'-6 1/2"`, `6 1/2`, `3/4`, `1e3`,
+/// and multi-unit suffixes `mm` / `cm` / `m`. When a drawing unit is active (see
+/// [`with_drawn_unit`]), suffixes convert into that unit; otherwise feet/inches stay in inches and
+/// metric suffixes stay in the unit written (`5m` → 5, `100mm` → 100).
 pub fn parse_distance(s: &str) -> Option<f64> {
+    parse_distance_as(s, active_drawn_unit())
+}
+
+/// Parse a distance, converting unit suffixes into `drawn` when it is set.
+pub fn parse_distance_as(s: &str, drawn: Option<Unit>) -> Option<f64> {
     let t = s.trim();
     if t.is_empty() {
         return None;
@@ -98,23 +128,61 @@ pub fn parse_distance(s: &str) -> Option<f64> {
     if let Ok(v) = t.parse::<f64>() {
         return v.is_finite().then_some(v);
     }
-    let (neg, t) = match t.strip_prefix('-') {
+    let (neg, body) = match t.strip_prefix('-') {
         Some(r) => (true, r.trim()),
         None => (false, t),
     };
-    let mut total = 0.0;
-    let mut rest = t;
-    if let Some(i) = rest.find('\'') {
-        let ft: f64 = rest.get(..i)?.trim().parse().ok()?;
-        total += ft * 12.0;
-        rest = rest.get(i + 1..)?.trim_start_matches('-').trim();
+    let lower = body.to_ascii_lowercase();
+    // Metric suffixes (longest first). Allow a space: `5 m`, `12.5cm`.
+    for (suffix, unit) in [("mm", Unit::Mm), ("cm", Unit::Cm), ("m", Unit::M)] {
+        if let Some(num) = lower.strip_suffix(suffix) {
+            let num = num.trim();
+            if num.is_empty() {
+                continue;
+            }
+            // Reject bare `m` matching the end of `mm`/`cm` already handled; also reject if more letters remain.
+            if num.chars().any(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            let v: f64 = parse_mixed(num)?;
+            let out = convert_from(unit, v, drawn)?;
+            let out = if neg { -out } else { out };
+            return out.is_finite().then_some(out);
+        }
     }
-    let rest = rest.trim_end_matches('"').trim();
-    if !rest.is_empty() {
-        total += parse_mixed(rest)?;
+    // Feet and inches: `1'6"`, `1'-6 1/2"`, `10"`, `2'`.
+    if body.contains('\'') || body.contains('"') {
+        let mut total_in = 0.0;
+        let mut rest = body;
+        if let Some(i) = rest.find('\'') {
+            let ft: f64 = rest.get(..i)?.trim().parse().ok()?;
+            total_in += ft * 12.0;
+            rest = rest.get(i + 1..)?.trim_start_matches('-').trim();
+        }
+        let rest = rest.trim_end_matches('"').trim();
+        if !rest.is_empty() {
+            total_in += parse_mixed(rest)?;
+        } else if !body.contains('\'') {
+            return None;
+        }
+        let out = convert_from(Unit::In, total_in, drawn)?;
+        let out = if neg { -out } else { out };
+        return out.is_finite().then_some(out);
     }
-    let v = if neg { -total } else { total };
+    // Mixed fraction without a unit: `6 1/2`, `3/4`.
+    let v = parse_mixed(body)?;
+    let v = if neg { -v } else { v };
     v.is_finite().then_some(v)
+}
+
+/// Convert a value measured in `from` into drawing units (`drawn`), or leave it in `from` when unset.
+fn convert_from(from: Unit, value: f64, drawn: Option<Unit>) -> Option<f64> {
+    let Some(drawn) = drawn else {
+        return value.is_finite().then_some(value);
+    };
+    let metres = value * from.metres();
+    let out = metres / drawn.metres();
+    out.is_finite().then_some(out)
 }
 
 fn parse_mixed(s: &str) -> Option<f64> {
@@ -286,9 +354,23 @@ mod tests {
         assert_eq!(parse_distance("1'6\""), Some(18.0));
         assert_eq!(parse_distance("1'-6 1/2\""), Some(18.5));
         assert_eq!(parse_distance("3/4"), Some(0.75));
+        assert_eq!(parse_distance("100mm"), Some(100.0));
+        assert_eq!(parse_distance("5cm"), Some(5.0));
+        assert_eq!(parse_distance("2m"), Some(2.0));
         assert_eq!(parse_distance("1/0"), None);
         assert_eq!(parse_distance("abc"), None);
         assert_eq!(parse_distance(""), None);
+        // With a millimetre drawing, metres and feet convert.
+        assert!((parse_distance_as("5m", Some(Unit::Mm)).unwrap() - 5000.0).abs() < 1e-9);
+        assert!((parse_distance_as("50cm", Some(Unit::Mm)).unwrap() - 500.0).abs() < 1e-9);
+        assert!((parse_distance_as("100mm", Some(Unit::Mm)).unwrap() - 100.0).abs() < 1e-9);
+        assert!((parse_distance_as("1'6\"", Some(Unit::Mm)).unwrap() - 457.2).abs() < 1e-9);
+        assert!((parse_distance_as("2m", Some(Unit::M)).unwrap() - 2.0).abs() < 1e-9);
+        // Active drawing unit (as while a session reads typed input) converts suffixes.
+        let v = with_drawn_unit(Some(Unit::Mm), || parse_distance("2m")).unwrap();
+        assert!((v - 2000.0).abs() < 1e-9);
+        let inch = with_drawn_unit(Some(Unit::Mm), || parse_distance("10\"")).unwrap();
+        assert!((inch - 254.0).abs() < 1e-9);
     }
 
     #[test]

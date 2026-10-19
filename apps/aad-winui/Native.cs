@@ -135,6 +135,20 @@ internal static class Native
         }
     }
 
+    /// True when Space should insert a space (assistant `/` request, sentence, text prompt).
+    public static bool SpaceLiteral(IntPtr host, string text)
+    {
+        var textPtr = Marshal.StringToCoTaskMemUTF8(text ?? "");
+        try
+        {
+            return aad_host_space_literal(host, textPtr) != 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
     public static string? DynTab(IntPtr host, string text)
     {
         var textPtr = Marshal.StringToCoTaskMemUTF8(text);
@@ -232,20 +246,6 @@ internal static class Native
         }
     }
 
-    public static int Execute(IntPtr host, string command, string parameters)
-    {
-        var commandPtr = Marshal.StringToCoTaskMemUTF8(command);
-        var paramsPtr = Marshal.StringToCoTaskMemUTF8(parameters);
-        try
-        {
-            return aad_host_execute(host, commandPtr, paramsPtr);
-        }
-        finally
-        {
-            Marshal.FreeCoTaskMem(commandPtr);
-            Marshal.FreeCoTaskMem(paramsPtr);
-        }
-    }
     /// Start reading a drawing on a worker thread; returns at once.
     public static bool OpenStart(IntPtr host, string path)
     {
@@ -320,6 +320,20 @@ internal static class Native
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_plot_poll(IntPtr host);
 
+    public static int Execute(IntPtr host, string command, string parameters)
+    {
+        var commandPtr = Marshal.StringToCoTaskMemUTF8(command);
+        var paramsPtr = Marshal.StringToCoTaskMemUTF8(parameters);
+        try
+        {
+            return aad_host_execute(host, commandPtr, paramsPtr);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(commandPtr);
+            Marshal.FreeCoTaskMem(paramsPtr);
+        }
+    }
 
     public static Stats ReadStats(IntPtr host)
     {
@@ -421,6 +435,9 @@ internal static class Native
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_draft(IntPtr host, IntPtr text);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_space_literal(IntPtr host, IntPtr text);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_dyn_tab(IntPtr host, IntPtr text, IntPtr buffer, uint length);

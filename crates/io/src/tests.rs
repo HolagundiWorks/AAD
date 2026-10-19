@@ -484,6 +484,8 @@ fn pdf_model_fitted_to_sheet() {
 fn pdf_layout_one_to_one_with_viewport() {
     let mut d = sample();
     let paper = Space::Paper("Layout1".into());
+    // Fixed 1:1 (new drawings default to fit-to-paper).
+    d.layouts[0].page.scale_to_fit = false;
     d.layouts[0].page.lineweights = true;
     d.add(
         &paper,

@@ -184,6 +184,48 @@ impl PlotScale {
     }
 }
 
+/// Common 1:N denominators for architectural and civil plot scales.
+pub const STANDARD_SCALE_DENOMS: &[f64] = &[
+    1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 40.0, 50.0, 75.0, 100.0, 125.0, 150.0, 200.0, 250.0, 400.0, 500.0, 750.0, 1000.0, 1250.0,
+    1500.0, 2000.0, 2500.0, 5000.0, 10000.0,
+];
+
+/// A fit scale expressed as paper units per drawing unit, with a standard 1:N (or N:1) label.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NearestScale {
+    /// Exact ratio as a label (`1:47.62` or `2:1`).
+    pub label: String,
+    /// Nearest standard scale that still fits when shrinking (`1:50`), or nearest when enlarging.
+    pub nearest: String,
+    /// Denominator of `nearest` when it is `1:N` (else 1 / N for `N:1`).
+    pub denom: f64,
+}
+
+/// Nearest standard plot scale for a fit factor (paper units per drawing unit).
+pub fn nearest_plot_scale(paper_per_du: f64) -> NearestScale {
+    if !(paper_per_du.is_finite() && paper_per_du > 0.0) {
+        return NearestScale { label: String::new(), nearest: String::new(), denom: 0.0 };
+    }
+    if paper_per_du <= 1.0 {
+        let need = 1.0 / paper_per_du;
+        let label = if (need - need.round()).abs() < 1e-6 * need.max(1.0) {
+            format!("1:{}", need.round())
+        } else {
+            format!("1:{need:.2}")
+        };
+        // Smallest standard denominator that still fits (ceil in the scale list).
+        let denom = STANDARD_SCALE_DENOMS.iter().copied().find(|&d| d + 1e-9 >= need).unwrap_or_else(|| need.ceil().max(1.0));
+        let nearest = if (denom - denom.round()).abs() < 1e-9 { format!("1:{}", denom.round()) } else { format!("1:{denom:.2}") };
+        NearestScale { label, nearest, denom }
+    } else {
+        let n = paper_per_du;
+        let label = if (n - n.round()).abs() < 1e-9 { format!("{}:1", n.round()) } else { format!("{n:.2}:1") };
+        let denom = STANDARD_SCALE_DENOMS.iter().copied().min_by(|a, b| (a - n).abs().total_cmp(&(b - n).abs())).unwrap_or(n.round().max(1.0));
+        let nearest = if (denom - denom.round()).abs() < 1e-9 { format!("{}:1", denom.round()) } else { format!("{denom:.2}:1") };
+        NearestScale { label, nearest, denom }
+    }
+}
+
 /// Annotation sizes in drawing units for a printed size in millimetres, at a plot scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnnotationSizes {
@@ -401,6 +443,22 @@ pub fn propose(d: &Drawing, space: &Space, p: LayoutParams) -> Layout {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nearest_scale_picks_standard_that_fits() {
+        let n = nearest_plot_scale(1.0 / 47.0);
+        assert_eq!(n.nearest, "1:50");
+        assert!(n.label.starts_with("1:"));
+        let tight = nearest_plot_scale(1.0 / 100.0);
+        assert_eq!(tight.nearest, "1:100");
+        let one = nearest_plot_scale(1.0);
+        assert_eq!(one.nearest, "1:1");
+    }
 }
 
 /// Translate a text object by `(dx, dy)`.

@@ -20,13 +20,19 @@ public partial class App : Application
             catch (IOException)
             {
             }
-            e.Handled = false;
+            // Backdrop / composition races must not kill the shell.
+            if (e.Exception is ArgumentException)
+            {
+                e.Handled = true;
+            }
         };
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         // The window must stay rooted. A local variable is collected and the window closes.
+        // Splash is drawn inside MainWindow (not a second top-level window) so acrylic on the
+        // command bar is not torn down by a competing Activate/Close.
         _window = new MainWindow(Program.Launch);
         ShellIcon.Apply(_window);
         _window.Activate();

@@ -60,6 +60,23 @@ pub unsafe extern "C" fn aad_host_draft(host: *mut Host, text: *const c_char) ->
     })
 }
 
+/// `1` when Space should type a space (assistant `/` request, sentence, text prompt); `0` when Space
+/// submits. Negative or other values are unused.
+///
+/// # Safety
+/// `host` is live. `text` is null-terminated UTF-8, at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_space_literal(host: *mut Host, text: *const c_char) -> i32 {
+    let Some(host) = (unsafe { host.as_ref() }) else {
+        return 0;
+    };
+    let text = match read_text(text) {
+        Ok(text) => text,
+        Err(_) => return 0,
+    };
+    if crate::bar::space_is_literal(&host.session, &text) { 1 } else { 0 }
+}
+
 /// Tab at a point prompt. Copies the text with the Dynamic Input separator appended.
 /// Returns 0 when Tab does not apply. A negative length means `buf` was too small.
 ///

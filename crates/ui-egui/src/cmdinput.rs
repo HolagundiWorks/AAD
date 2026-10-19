@@ -55,15 +55,19 @@ pub fn classify(buffer: &str) -> Kind {
 }
 
 /// Whether the request should go to the assistant rather than the command engine.
+/// Only a leading `/` or a `/reference` word (see [`Kind::Reference`]); plain sentences stay CAD.
 pub fn is_ai(kind: Kind) -> bool {
-    matches!(kind, Kind::Reference | Kind::Natural)
+    matches!(kind, Kind::Reference)
 }
 
-/// Space with no command waiting for input: execute only when the whole text is one resolved
-/// command, or a suggestion was explicitly chosen; otherwise it is a space.
+/// Space with no command waiting: run the line unless it is an assistant `/` request, or a
+/// suggestion was chosen. A leading `/` keeps Space as an ordinary space for the sentence.
 pub fn space_executes(buffer: &str, suggestion_chosen: bool) -> bool {
     let t = buffer.trim();
-    suggestion_chosen || (!t.is_empty() && !t.contains(char::is_whitespace) && command_known(t))
+    if suggestion_chosen {
+        return true;
+    }
+    !t.is_empty() && !t.starts_with('/')
 }
 
 /// One row of the suggestion menu.
@@ -158,18 +162,19 @@ mod tests {
         assert_eq!(classify("open /tmp/x.dxf"), Kind::Native, "a path is not a reference");
         assert_eq!(classify("0,0 10,10"), Kind::Partial, "coordinates are input for a command");
         assert_eq!(classify("{\"a\": 1}"), Kind::Partial);
-        assert!(is_ai(Kind::Natural) && is_ai(Kind::Reference) && !is_ai(Kind::Native) && !is_ai(Kind::Partial));
+        assert!(is_ai(Kind::Reference) && !is_ai(Kind::Natural) && !is_ai(Kind::Native) && !is_ai(Kind::Partial));
     }
 
     #[test]
-    fn space_executes_only_a_whole_resolved_command_or_a_chosen_suggestion() {
+    fn space_executes_without_a_leading_slash_or_a_chosen_suggestion() {
         assert!(space_executes("line", false));
         assert!(space_executes("l", false), "an alias");
-        assert!(!space_executes("lin", false), "a partial name is just text");
-        assert!(!space_executes("audit this", false), "a sentence keeps its spaces");
+        assert!(space_executes("lin", false), "without / Space runs the line");
+        assert!(space_executes("audit this", false), "without / Space runs the line as a command");
+        assert!(space_executes("circle 5", false));
         assert!(!space_executes("", false));
+        assert!(!space_executes("/ what layers", false), "a / request keeps its spaces");
         assert!(space_executes("lin", true), "an explicitly chosen suggestion runs");
-        assert!(!space_executes("circle 5", false), "arguments typed after the name are not a command word");
     }
 
     #[test]

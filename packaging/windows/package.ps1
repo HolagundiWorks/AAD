@@ -69,7 +69,8 @@ if (-not $SkipBuild) {
   $env:AAD_REQUIRE_WINRES = '1'
   $Features = @()
   if ($Assistant) {
-    $Features = @('--features', 'aad/assistant,aad-cli/assistant')
+    # WinUI loads aad_host.dll; the CLI and optional egui host need their own feature flags.
+    $Features = @('--features', 'aad/assistant,aad-cli/assistant,aad-host/assistant')
     $Llvm = 'C:\Program Files\LLVM\bin'
     if (-not $env:LIBCLANG_PATH -and (Test-Path $Llvm)) { $env:LIBCLANG_PATH = $Llvm }
     # llama.cpp must use the same static C runtime as the rest of the program (+crt-static above).
@@ -177,9 +178,18 @@ if ($Assistant) {
 $Edition = if ($Assistant) { "o-draft-ai" } else { "o-draft" }
 $ProductName = if ($Assistant) { "O-Draft with AI assistant" } else { "O-Draft" }
 $Msi = Join-Path $Dist "$Edition-$Version-windows-$Arch.msi"
+$LicenseRtf = Join-Path $PSScriptRoot 'EULA.rtf'
+$DialogBmp = Join-Path $PSScriptRoot 'WixUIDialogBmp.bmp'
+$BannerBmp = Join-Path $PSScriptRoot 'WixUIBannerBmp.bmp'
+foreach ($need in @($LicenseRtf, $DialogBmp, $BannerBmp)) {
+  if (-not (Test-Path $need)) { throw "installer asset missing: $need" }
+}
+# Also ship the EULA text beside the program (wizard shows the RTF; install folder keeps a copy).
+Copy-Item $LicenseRtf (Join-Path $Stage 'EULA.rtf') -Force
 Invoke-Native 'wix build' {
   wix build (Join-Path $PSScriptRoot 'aad.wxs') -arch $Arch -ext WixToolset.UI.wixext `
     -d "Version=$MsiVersion" -d "ProductName=$ProductName" -d "BinDir=$Stage" -d "IconPath=$(Join-Path $Root 'assets\app-icon\aad.ico')" `
+    -d "LicenseRtf=$LicenseRtf" -d "DialogBmp=$DialogBmp" -d "BannerBmp=$BannerBmp" `
     @FontsDefine @ModelDefine @WinUiDefine -o $Msi
 }
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
@@ -206,6 +216,7 @@ foreach ($f in 'README.md', 'LICENSE', 'LICENSE-MIT', 'LICENSE-APACHE', 'NOTICE'
   $p = Join-Path $Root $f
   if (Test-Path $p) { Copy-Item $p $Portable }
 }
+if (Test-Path (Join-Path $Stage 'EULA.rtf')) { Copy-Item (Join-Path $Stage 'EULA.rtf') $Portable }
 # Builds made with craft-fonts (CRAFT_FONTS_DIR) embed its fonts: ship their licences.
 if ($env:CRAFT_FONTS_DIR) {
   foreach ($ofl in Get-ChildItem -Path (Join-Path $env:CRAFT_FONTS_DIR 'fonts\*\OFL.txt') -ErrorAction SilentlyContinue) {

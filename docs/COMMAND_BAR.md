@@ -14,8 +14,8 @@ Tests: `crates/ui-egui/tests/command_bar.rs`, `crates/engine/tests/context_refs.
 
 | Key | Behaviour |
 | --- | --- |
-| Space | A half-typed command name (one word): starts the first command in the list under the bar, or the one chosen with the arrows (AutoCAD style). A whole name or alias runs. On an empty bar it repeats the previous command. Otherwise an ordinary space: a sentence keeps its spaces, and `/` starts a request for the assistant. While a command waits for input it acts as Enter; when that prompt offers a list (the room types) it picks the first match. |
-| Enter | The same as Space for a half-typed name (the first listed command) and, on an empty bar, repeats the previous command, so Enter then Enter runs a command and runs it again. Accepts a chosen reference into the bar; otherwise submits: a native command to the engine, a request to the assistant. A request typed while the assistant is busy stays in the bar. |
+| Space | Without a leading `/`: runs the command line (CAD habit; empty bar repeats the previous command). With a leading `/`: an ordinary space so you can type an assistant sentence. While a command waits for input it acts as Enter; when that prompt offers a list it picks the first match. A half-typed name may still be completed from the suggestion list (egui) before it runs. |
+| Enter | Submits the line: a native command, or an assistant request when the text starts with `/` (or contains a `/reference`). On an empty bar, repeats the previous command. A request typed while the assistant is busy stays in the bar. |
 | Tab | Accepts the highlighted (or first) suggestion without executing it. |
 | Up / Down | Move through the suggestions while a menu is open; otherwise through the history. |
 | Ctrl+Space | Opens the suggestions (an empty bar starts a `/` reference). |
@@ -26,11 +26,11 @@ Text from an input method (IME composition) never triggers Space or Enter action
 
 ## What is a request
 
-`cmdinput::classify` decides: text with a leading `/`, or containing a `/reference` word, or a
-sentence whose first word is not a command, is a request. A first word that is a command or alias
-stays a command (`open /tmp/x.dxf` is a command). While a command is running, the text is its input.
-Without an assistant a sentence is an unknown command, and a `/` request says the assistant is not
-included in this build.
+`cmdinput::classify` / host `bar::classify` decide: text with a leading `/`, or containing a
+`/reference` word, is a request for the assistant. Everything else stays on the command line
+(Space/Enter run CAD). A first word that is a command or alias runs that command
+(`open /tmp/x.dxf` is a command; a path is not a reference). While a command is running, the text
+is its input. Without an assistant a `/` request says the assistant is not included in this build.
 
 ## References
 

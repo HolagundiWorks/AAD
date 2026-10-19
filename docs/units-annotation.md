@@ -16,6 +16,10 @@ Implemented in `crates/engine/src/annot.rs` (pure functions, no UI) and `crates/
   length unit O-Draft knows, commands that need it fail with a message and a file import says so on the
   command line (`import_drawing`). Nothing is guessed.
 - Feet-and-inches uses the architectural format with the drawing measured in inches.
+- Typed distances accept multi-unit suffixes: `'` / `"` (feet and inches), `mm`, `cm`, `m`. Bare
+  numbers stay in drawing units. With `INSUNITS` set, suffixes convert into that unit (`5m` → 5000
+  in a millimetre drawing); without it, feet/inches stay in inches and metric suffixes stay in the
+  unit written (`5m` → 5).
 - Display units apply to dimension styles. Per-dimension overrides (xdata) are not rewritten, and
   the cursor readout still follows the drawing's `LUNITS` and `INSUNITS`.
 

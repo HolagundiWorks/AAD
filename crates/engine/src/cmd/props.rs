@@ -14,7 +14,11 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("properties", "Properties", run_get).menu(&["Modify", "Properties"]).alias(&["pr", "props", "ch"]).params("{handles?} → properties of the selection").noundo(),
         CommandSpec::new("properties.set", "Set Properties", run_set).params("{handles?, layer?, color?, linetype?, lineweight?, ltscale?, transparency?: \"ByLayer\" | \"ByBlock\" | 0..90, visible?, <geometry fields: radius, center, start, end, text, height, rotation…>}"),
-        CommandSpec::new("matchprop", "Match Properties", run_matchprop).menu(&["Modify", "Match Properties"]).alias(&["ma", "painter"]).params("{source, targets: [hex]}"),
+        CommandSpec::new("matchprop", "Match Properties", run_matchprop)
+            .menu(&["Modify", "Match Properties"])
+            .alias(&["ma", "painter"])
+            .params("{source, targets: [hex]} (copies common properties; when kinds match also hatch/text/dimension fields)")
+            .interactive(|_| Ok(Box::new(MatchPropM::default()))),
         CommandSpec::new("color", "Color...", run_color).menu(&["Format", "Color..."]).alias(&["col", "colour"]).params("{color: \"ByLayer\" | \"red\" | 1..255 | \"r,g,b\"}"),
         CommandSpec::new("linetype", "Linetype...", run_linetype).menu(&["Format", "Linetype..."]).alias(&["lt", "ltype"]).params("{current?: name, load?: name | \"*\"}"),
         CommandSpec::new("lweight", "Lineweight...", run_lweight).menu(&["Format", "Lineweight..."]).alias(&["lw", "lineweight"]).params("{lineweight: mm | ByLayer}"),
@@ -352,25 +356,145 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn run_matchprop(s: &mut Session, p: &Value) -> Result<Value> {
-    let src = p.get("source").and_then(Value::as_str).and_then(aad_doc::Handle::parse_hex).ok_or_else(|| bad("matchprop", "`source` is required"))?;
+    let src = p
+        .get("source")
+        .and_then(Value::as_str)
+        .and_then(aad_doc::Handle::parse_hex)
+        .ok_or_else(|| bad("matchprop", "`source` is required"))?;
     let tg: Vec<aad_doc::Handle> = p
         .get("targets")
         .and_then(Value::as_array)
         .map(|a| a.iter().filter_map(|v| v.as_str().and_then(aad_doc::Handle::parse_hex)).collect())
         .unwrap_or_default();
+    if tg.is_empty() {
+        return Err(bad("matchprop", "`targets` is required"));
+    }
+    let before = tg.len();
+    let tg: Vec<aad_doc::Handle> = tg.into_iter().filter(|h| !curves::is_locked(s, *h)).collect();
+    let skipped_locked = before - tg.len();
+    if tg.is_empty() {
+        return Err(bad("matchprop", "the destination objects are on locked layers"));
+    }
+    let (common, src_kind) = {
+        let d = s.doc()?;
+        let e = d.entity(src).ok_or_else(|| bad("matchprop", "no such source"))?;
+        (e.common.clone(), e.kind.clone())
+    };
     let d = s.doc_mut()?;
-    let c = d.entity(src).map(|e| e.common.clone()).ok_or_else(|| bad("matchprop", "no such source"))?;
     for h in &tg {
         d.modify_entity(*h, |e| {
-            e.common.layer = c.layer.clone();
-            e.common.color = c.color;
-            e.common.linetype = c.linetype.clone();
-            e.common.lineweight = c.lineweight;
-            e.common.ltscale = c.ltscale;
-            e.common.transparency = c.transparency;
+            e.common.layer = common.layer.clone();
+            e.common.color = common.color;
+            e.common.linetype = common.linetype.clone();
+            e.common.lineweight = common.lineweight;
+            e.common.ltscale = common.ltscale;
+            e.common.transparency = common.transparency;
+            match_special(&src_kind, &mut e.kind);
         })?;
     }
-    Ok(json!({ "changed": tg.len() }))
+    Ok(json!({ "changed": tg.len(), "skippedLocked": skipped_locked }))
+}
+
+/// Copy type-specific fields when the destination kind matches the source.
+fn match_special(src: &EntityKind, dst: &mut EntityKind) {
+    match (src, dst) {
+        (EntityKind::Hatch(from), EntityKind::Hatch(to)) => {
+            to.pattern = from.pattern.clone();
+            to.solid = from.solid;
+            to.scale = from.scale;
+            to.angle = from.angle;
+            to.style = from.style;
+            to.associative = from.associative;
+            to.origin = from.origin;
+            to.gradient = from.gradient.clone();
+            to.background = from.background;
+            to.pattern_lines = from.pattern_lines.clone();
+        }
+        (EntityKind::Text(from), EntityKind::Text(to)) => {
+            to.style = from.style.clone();
+            to.height = from.height;
+            to.width_factor = from.width_factor;
+            to.oblique = from.oblique;
+        }
+        (EntityKind::MText(from), EntityKind::MText(to)) => {
+            to.style = from.style.clone();
+            to.height = from.height;
+            to.width = from.width;
+        }
+        (EntityKind::Dimension(from), EntityKind::Dimension(to)) => {
+            to.style = from.style.clone();
+            to.block = None;
+        }
+        (EntityKind::LwPolyline(from), EntityKind::LwPolyline(to)) => {
+            to.const_width = from.const_width;
+            to.plinegen = from.plinegen;
+        }
+        _ => {}
+    }
+}
+
+/// Interactive MATCHPROP: pick a source object, then destination objects.
+#[derive(Default)]
+struct MatchPropM {
+    source: Option<aad_doc::Handle>,
+    targets: machines::SelectPhase,
+}
+
+impl crate::Interactive for MatchPropM {
+    fn name(&self) -> &'static str {
+        "MATCHPROP"
+    }
+    fn begin(&mut self, s: &mut Session) -> crate::Result<crate::Step> {
+        s.set_selection(Vec::new());
+        Ok(crate::Step::Continue)
+    }
+    fn prompt(&self, _s: &Session) -> crate::Prompt {
+        if self.source.is_none() {
+            crate::Prompt::new("Select source object", crate::Accept::SELECT)
+        } else {
+            self.targets.prompt()
+        }
+    }
+    fn input(&mut self, s: &mut Session, i: crate::Input) -> crate::Result<crate::Step> {
+        if self.source.is_none() {
+            match i {
+                crate::Input::Pick(hs) => {
+                    let Some(h) = hs.first().copied() else {
+                        s.echo("0 found");
+                        return Ok(crate::Step::Continue);
+                    };
+                    self.source = Some(h);
+                    s.echo(format!("Source: {}", h.hex()));
+                    s.set_selection(Vec::new());
+                    self.targets = machines::SelectPhase::default();
+                    Ok(crate::Step::Continue)
+                }
+                crate::Input::Enter => Ok(crate::Step::Done),
+                _ => Ok(crate::Step::Continue),
+            }
+        } else {
+            match self.targets.feed(s, &i)? {
+                machines::SelOutcome::More => Ok(crate::Step::Continue),
+                machines::SelOutcome::Empty => Ok(crate::Step::Done),
+                machines::SelOutcome::Done(hs) => {
+                    let src = self.source.ok_or_else(|| bad("matchprop", "no source"))?;
+                    // Call the body directly so the running command is one undo step.
+                    let r = run_matchprop(
+                        s,
+                        &json!({
+                            "source": src.hex(),
+                            "targets": hs.iter().map(|h| h.hex()).collect::<Vec<_>>(),
+                        }),
+                    )?;
+                    if let Some(n) = r.get("changed").and_then(Value::as_u64) {
+                        s.echo(format!("{n} object(s) changed."));
+                    }
+                    s.set_selection(Vec::new());
+                    Ok(crate::Step::Done)
+                }
+            }
+        }
+    }
 }
 
 fn run_color(s: &mut Session, p: &Value) -> Result<Value> {

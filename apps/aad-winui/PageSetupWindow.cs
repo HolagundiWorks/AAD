@@ -41,10 +41,12 @@ internal static class PageSetupWindow
             plotArea.Items.Add(area);
         }
         Density.Name(plotArea, "Plot area");
-        var fit = new CheckBox { Content = "Fit to paper", MinHeight = Density.MinTarget };
+        var fit = new CheckBox { Content = "Fit to paper", MinHeight = Density.MinTarget, IsChecked = true };
         Density.Name(fit, "Fit to paper");
         var scale = new TextBox { MinHeight = Density.MinTarget, Width = 120 };
         Density.Name(scale, "Scale");
+        var nearest = Density.Secondary("", TextWrapping.Wrap);
+        Density.Name(nearest, "Nearest scale");
         var center = new CheckBox { Content = "Center the plot", MinHeight = Density.MinTarget };
         Density.Name(center, "Center the plot");
         var lineweights = new CheckBox { Content = "Plot object lineweights", MinHeight = Density.MinTarget };
@@ -67,6 +69,7 @@ internal static class PageSetupWindow
         right.Children.Add(Labeled("Plot area", plotArea));
         right.Children.Add(fit);
         right.Children.Add(Labeled("Scale", scale));
+        right.Children.Add(nearest);
         right.Children.Add(center);
         right.Children.Add(lineweights);
         right.Children.Add(sizeLabel);
@@ -108,6 +111,7 @@ internal static class PageSetupWindow
                 if (layout?.Page == null)
                 {
                     propsHeading.Text = "Page setup";
+                    nearest.Text = "";
                     return;
                 }
                 propsHeading.Text = "Page setup of " + layout.Name;
@@ -122,8 +126,21 @@ internal static class PageSetupWindow
                 landscape.IsChecked = page.Landscape;
                 plotArea.SelectedItem = PlotAreas.FirstOrDefault(a => a.Equals(page.PlotArea, StringComparison.OrdinalIgnoreCase)) ?? "layout";
                 fit.IsChecked = page.ScaleToFit;
-                scale.Text = page.Scale.ToString("0.####", CultureInfo.InvariantCulture);
                 scale.IsEnabled = !page.ScaleToFit;
+                if (page.ScaleToFit && layout.Fit != null && !string.IsNullOrEmpty(layout.Fit.Nearest))
+                {
+                    scale.Text = layout.Fit.Nearest;
+                    nearest.Text = string.IsNullOrEmpty(layout.Fit.Label) || layout.Fit.Label == layout.Fit.Nearest
+                        ? "Nearest scale that fits: " + layout.Fit.Nearest
+                        : "Fits at " + layout.Fit.Label + " · nearest: " + layout.Fit.Nearest;
+                }
+                else
+                {
+                    scale.Text = page.Scale.ToString("0.####", CultureInfo.InvariantCulture);
+                    nearest.Text = layout.Fit != null && !string.IsNullOrEmpty(layout.Fit.Nearest)
+                        ? "Nearest scale that fits: " + layout.Fit.Nearest
+                        : "";
+                }
                 center.IsChecked = page.Center;
                 lineweights.IsChecked = page.Lineweights;
                 var w = page.Landscape ? page.HeightMm : page.WidthMm;
@@ -329,6 +346,14 @@ internal static class PageSetupWindow
     {
         public string Name { get; set; } = "";
         public PageRow? Page { get; set; }
+        public FitRow? Fit { get; set; }
+    }
+
+    private sealed class FitRow
+    {
+        public double Scale { get; set; } = 1;
+        public string Label { get; set; } = "";
+        public string Nearest { get; set; } = "";
     }
 
     private sealed class PageRow
@@ -338,7 +363,7 @@ internal static class PageSetupWindow
         public double HeightMm { get; set; }
         public bool Landscape { get; set; }
         public string PlotArea { get; set; } = "layout";
-        public bool ScaleToFit { get; set; }
+        public bool ScaleToFit { get; set; } = true;
         public double Scale { get; set; } = 1;
         public bool Center { get; set; }
         public bool Lineweights { get; set; } = true;

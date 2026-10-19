@@ -158,9 +158,11 @@ fn next_layout_name(d: &Drawing) -> String {
     (1..=10_000).map(|i| format!("Layout{i}")).find(|n| d.layout(n).is_none()).unwrap_or_else(|| "Layout".into())
 }
 
-/// The page setup new layouts get: ANSI A landscape (imperial) or ISO A4 landscape (metric).
+/// The page setup new layouts get: ANSI A landscape (imperial) or ISO A4 landscape (metric),
+/// fitted to the paper by default.
 fn default_page(d: &Drawing) -> PageSetup {
     let mut p = PageSetup::default();
+    p.scale_to_fit = true;
     if aad_render::paper::paper_unit_mm(d) == 1.0
         && let Some(a4) = aad_render::paper_size("A4")
     {
@@ -169,6 +171,21 @@ fn default_page(d: &Drawing) -> PageSetup {
         p.height_mm = a4.height_mm;
     }
     p
+}
+
+/// Fit scale of a layout's paper-space contents (paper units per drawing unit) and nearest label.
+fn layout_fit_info(d: &Drawing, layout: &str) -> Value {
+    let Some(sheet) = aad_render::sheet(d, layout) else {
+        return Value::Null;
+    };
+    let b = d.extents(&Space::Paper(layout.to_string()));
+    if b.is_empty() {
+        return json!({ "scale": 1.0, "label": "1:1", "nearest": "1:1" });
+    }
+    let s = (sheet.printable.width() / b.width().max(1e-12)).min(sheet.printable.height() / b.height().max(1e-12));
+    let s = if s.is_finite() && s > 0.0 { s } else { 1.0 };
+    let n = crate::annot::nearest_plot_scale(s);
+    json!({ "scale": s, "label": n.label, "nearest": n.nearest })
 }
 
 /// LAYOUT.NEW from the menu or command line: asks for the name (Enter takes the next free one).
@@ -700,10 +717,14 @@ fn run_pagesetup(s: &mut Session, p: &Value) -> Result<Value> {
         if changes {
             return Err(bad(cmd, "pass `layout` (model-space page setups are not stored yet)"));
         }
-        // Report every layout's page setup.
+        // Report every layout's page setup and the nearest fit scale for its contents.
         let d = s.doc()?;
         return Ok(json!({
-            "layouts": d.layouts.iter().map(|l| json!({"name": l.name, "page": serde_json::to_value(&l.page).unwrap_or(Value::Null)})).collect::<Vec<_>>(),
+            "layouts": d.layouts.iter().map(|l| json!({
+                "name": l.name,
+                "page": serde_json::to_value(&l.page).unwrap_or(Value::Null),
+                "fit": layout_fit_info(d, &l.name),
+            })).collect::<Vec<_>>(),
             "papers": aad_render::PAPER_SIZES.iter().map(|p| p.name).collect::<Vec<_>>(),
             "plotStyleTables": aad_doc::BUILTIN_PLOT_STYLE_TABLES,
         }));
@@ -770,7 +791,8 @@ fn run_pagesetup(s: &mut Session, p: &Value) -> Result<Value> {
         }
         s.touch();
     }
-    Ok(json!({ "layout": name, "page": serde_json::to_value(&page).unwrap_or(Value::Null) }))
+    let fit = layout_fit_info(s.doc()?, &name);
+    Ok(json!({ "layout": name, "page": serde_json::to_value(&page).unwrap_or(Value::Null), "fit": fit }))
 }
 
 // ---------- the plot window ----------
@@ -930,6 +952,17 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn new_layout_fits_to_paper_by_default_and_reports_nearest_scale() {
+        let mut s = session_with_model();
+        let r = s.execute("layout.new", &json!({})).unwrap();
+        let name = r["name"].as_str().unwrap();
+        assert!(s.doc().unwrap().layout(name).unwrap().page.scale_to_fit);
+        let report = s.execute("pagesetup", &json!({})).unwrap();
+        let layout = report["layouts"].as_array().unwrap().iter().find(|l| l["name"] == name).unwrap();
+        assert!(layout["page"]["scaleToFit"].as_bool().unwrap());
+        assert!(layout["fit"]["nearest"].as_str().unwrap().starts_with("1:"));
+    }
 
     #[test]
     fn new_layout_gets_viewport_zoomed_to_extents() {

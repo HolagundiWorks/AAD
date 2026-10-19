@@ -3,7 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Aad.WinUi"
-    Title="AAD">
+    Title="O-Draft">
     <Grid Loaded="OnLoaded" PreviewKeyDown="OnShellKey" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -83,7 +83,7 @@
             <Border x:Name="CanvasHost" Grid.Column="3" Background="Black" SizeChanged="OnCanvasSize" AutomationProperties.Name="Drawing" />
             <Grid x:Name="StartPage" Grid.Column="3" Visibility="Collapsed" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" AutomationProperties.Name="Start">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
-                    <Image x:Name="StartLogo" Width="72" Height="72" HorizontalAlignment="Center" AutomationProperties.Name="AAD" />
+                    <Image x:Name="StartLogo" Width="72" Height="72" HorizontalAlignment="Center" AutomationProperties.Name="O-Draft" />
                     <TextBlock x:Name="StartHeading" Text="O-Draft" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" AutomationProperties.HeadingLevel="Level1" />
                     <TextBlock Text="Drafting. Part of OSAS, the Open Source Architecture Suit." Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,0,0,12" />
                     <Button Content="New drawing" Click="OnStartNew" AutomationProperties.Name="New drawing" />
@@ -200,8 +200,18 @@
                     <local:DrawnIcon Kind="moon" />
                 </Button>
                 <Button x:Name="AormsButton" Content="AORMS" MinHeight="32" Click="OnAorms" AutomationProperties.Name="AORMS sign-in and projects" ToolTipService.ToolTip="AORMS" />
+                <Button x:Name="ShilpiChip" Content="ShilpiDB" MinHeight="32" Padding="8,0" Click="OnShilpiChip" Visibility="Collapsed" AutomationProperties.Name="ShilpiDB connection" ToolTipService.ToolTip="Connect to a local shilpid server" />
                 <TextBlock x:Name="ControlPort" VerticalAlignment="Center" AutomationProperties.Name="Control channel" />
                 <TextBlock x:Name="Status" VerticalAlignment="Center" AutomationProperties.Name="Drawing status" />
+            </StackPanel>
+        </Grid>
+        <!-- In-window splash (not a second top-level window — that broke acrylic on the command bar). -->
+        <Grid x:Name="SplashOverlay" Grid.RowSpan="8" Background="#17181B" Canvas.ZIndex="1000" AutomationProperties.Name="Splash">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <Image x:Name="SplashLogo" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.Name="O-Draft" />
+                <TextBlock Text="O-Draft" FontSize="28" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" />
+                <TextBlock Text="Drafting. Part of OSAS, the Open Source Architecture Suit." FontSize="14" Foreground="White" HorizontalAlignment="Center" />
+                <TextBlock Text="Open source · MIT OR Apache-2.0" FontSize="12" Foreground="White" HorizontalAlignment="Center" Margin="0,8,0,0" />
             </StackPanel>
         </Grid>
     </Grid>

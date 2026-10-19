@@ -55,7 +55,9 @@ In model space, `plot` and `exportpdf` first ask what to plot: **Specify first c
 window** (then the opposite corner), or **Extents** (Enter) for the whole drawing, or **Display**
 for what is on screen. A rubber-band rectangle shows the window. Only then does the file dialog ask
 where to save, and the PDF contains only that window, fitted to the printable area. Cancelling at
-either step plots nothing. In a layout there is nothing to ask: the sheet is plotted as it is.
+either step plots nothing. In a layout there is nothing to ask: the sheet is plotted using the
+layout's page setup (fit to paper by default; the Page Setup Manager shows the nearest standard
+scale that fits).
 
 `plot` and `exportpdf` take `window: [x0, y0, x1, y1]` (model space, any corner order) for scripts,
 the control channel and MCP; they never open a dialog. A window that is not four finite numbers

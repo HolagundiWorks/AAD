@@ -561,7 +561,7 @@ impl Host {
 
     pub fn chrome_json(&self) -> String {
         let cursor = self.screen.filter(|point| point.is_finite()).map(|_| self.aim);
-        let mut value: Value = serde_json::from_str(&chrome::chrome_json(&self.session, cursor)).unwrap_or(Value::Null);
+        let mut value: Value = serde_json::from_str(&chrome::chrome_json(&self.session, cursor, &self.draft)).unwrap_or(Value::Null);
         if let Some(object) = value.as_object_mut() {
             object.insert("assistant".into(), Value::String(self.assistant.phase().to_string()));
             object.insert("assistantPrompt".into(), Value::String(self.assistant.prompt().to_string()));
@@ -667,10 +667,10 @@ impl Host {
             return Err(message);
         }
         if self.session.running.is_none() && self.hot.is_none() {
-            match bar::classify(text) {
-                bar::Kind::Reference => return self.ask_assistant(text),
-                bar::Kind::Natural if self.assistant.available() => return self.ask_assistant(text),
-                _ => {}
+            // Assistant requests need a leading `/` (or a `/reference` word). Plain sentences stay
+            // on the command line so Space/Enter run CAD commands.
+            if matches!(bar::classify(text), bar::Kind::Reference) {
+                return self.ask_assistant(text);
             }
         }
         let finished = self.finish_dyn(text);
@@ -1493,9 +1493,12 @@ impl Host {
     /// A split entry (`40,30`, `40<90`) is completed from the cursor before it is submitted.
     fn finish_dyn(&self, text: &str) -> String {
         let Some(frame) = self.dyn_frame() else { return text.to_string() };
-        aad_engine::dyninput::parse(text, &frame)
-            .and_then(|entry| aad_engine::dyninput::complete(&entry, &frame, self.aim, self.session.last_point))
-            .unwrap_or_else(|| text.to_string())
+        let drawn = self.session.doc().ok().and_then(aad_engine::annot::drawing_unit);
+        aad_engine::units::with_drawn_unit(drawn, || {
+            aad_engine::dyninput::parse(text, &frame)
+                .and_then(|entry| aad_engine::dyninput::complete(&entry, &frame, self.aim, self.session.last_point))
+                .unwrap_or_else(|| text.to_string())
+        })
     }
 
     /// The line drawn beside the cursor while a command is running.
@@ -1738,7 +1741,6 @@ impl Host {
         }
     }
 }
-
 
 #[cfg(windows)]
 impl Drop for Host {

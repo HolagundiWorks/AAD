@@ -411,11 +411,11 @@ fn space(app: &mut CadApp) {
     if let Some(e) = chosen {
         app.cmd.buffer = e.insert;
         submit(app);
-    } else if crate::cmdinput::space_executes(&app.cmd.buffer, false) {
-        submit(app);
     } else if let Some(first) = first_suggestion(app) {
         // A half-typed name: Space starts the first command in the list.
         app.cmd.buffer = first;
+        submit(app);
+    } else if crate::cmdinput::space_executes(&app.cmd.buffer, false) {
         submit(app);
     } else {
         app.cmd.buffer.push(' ');
@@ -465,7 +465,10 @@ pub fn submit(app: &mut CadApp) {
     if let Some(f) = dyn_frame(app) {
         let cursor = app.canvas.cursor.unwrap_or(app.session.cursor);
         let last = app.session.last_point;
-        let done = crate::dyninput::parse(&app.cmd.buffer, &f).and_then(|e| crate::dyninput::complete(&e, &f, cursor, last));
+        let drawn = app.session.doc().ok().and_then(aad_engine::annot::drawing_unit);
+        let done = aad_engine::units::with_drawn_unit(drawn, || {
+            crate::dyninput::parse(&app.cmd.buffer, &f).and_then(|e| crate::dyninput::complete(&e, &f, cursor, last))
+        });
         if let Some(text) = done {
             app.cmd.buffer = text;
         }

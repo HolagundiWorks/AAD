@@ -1,6 +1,7 @@
 //! Vector PDF plotting (PLOT / EXPORTPDF): a minimal PDF 1.4 writer of our own.
 //!
-//! One page per plot: model-space extents fitted to a sheet, or a layout at 1:1 on its paper
+//! One page per plot: model-space or layout extents fitted to a sheet by default (`scale_to_fit`),
+//! or a fixed scale when fit is off
 //! (paper units are millimetres in metric drawings, inches otherwise). Lines are stroked paths
 //! (`m`/`l`/`S`), fills are `f` paths, colours are RGB with colour 7 printing black on white
 //! paper, and line widths come from lineweights when enabled. The page setup's plot style
@@ -32,7 +33,8 @@ pub struct PdfOptions {
     /// Custom paper size in millimetres (portrait width, height).
     pub paper_mm: Option<(f64, f64)>,
     pub landscape: Option<bool>,
-    /// Fit the drawing to the printable area. Default: on for model space, off for layouts (1:1).
+    /// Fit the drawing to the printable area. Default: the page setup's `scale_to_fit` (on for new
+    /// drawings), and always on for a model-space plot window.
     pub fit: Option<bool>,
     /// Plot scale in paper units per drawing unit (when not fitting).
     pub scale: Option<f64>,
@@ -141,21 +143,25 @@ pub fn pdf(d: &Drawing, space: &Space, o: &PdfOptions) -> Result<Vec<u8>> {
     let ropts = aad_render::Options { tolerance: 0.001, min_dash: 0.0, text: true, fill: true, lineweights, view_height: 0.0, plot_style_table };
     let k = unit_mm * PT_PER_MM;
     let window = o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty());
-    let fit = window.is_some() || o.fit.unwrap_or(matches!(space, Space::Model));
+    let fit = window.is_some() || o.fit.unwrap_or(page.scale_to_fit || matches!(space, Space::Model));
+    let scale = o.scale.filter(|s| s.is_finite() && *s > 0.0).or_else(|| {
+        (!fit && page.scale.is_finite() && page.scale > 0.0).then_some(page.scale)
+    });
     // Chord tolerance: about 0.05 mm on paper.
-    let est = plot_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, fit, o.scale);
+    let est = plot_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, fit, scale);
     let tol = 0.05 / unit_mm / est.max(1e-300);
     let tolerance = if tol.is_finite() && tol > 0.0 { tol } else { ropts.tolerance };
     // Relative point sizes follow the plotted window (else the extents).
     let view_height = window.map(|w| w.height()).unwrap_or(0.0);
     let list = aad_render::build_plot(d, space, &aad_render::Options { tolerance, view_height, ..ropts });
     let b = window.unwrap_or(list.bounds);
-    let s = plot_scale(&b, &sheet, fit, o.scale);
+    let s = plot_scale(&b, &sheet, fit, scale);
     let map = if fit || matches!(space, Space::Model) {
         let from = if b.is_empty() { Vec2::ZERO } else { b.center() };
         Map { from, s, to: sheet.printable.center(), k }
     } else {
-        Map { from: Vec2::ZERO, s: 1.0, to: Vec2::ZERO, k }
+        // Layout at the page scale from the paper origin (1:1 when scale is 1).
+        Map { from: Vec2::ZERO, s, to: Vec2::ZERO, k }
     };
     let media = sheet.size * k;
     let clip_pt = if fit || matches!(space, Space::Model) {

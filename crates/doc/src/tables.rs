@@ -553,7 +553,7 @@ impl Default for PageSetup {
             margins_mm: [6.35, 6.35, 6.35, 6.35],
             landscape: true,
             plot_area: "layout".into(),
-            scale_to_fit: false,
+            scale_to_fit: true,
             scale: 1.0,
             plot_style_table: String::new(),
             center: false,

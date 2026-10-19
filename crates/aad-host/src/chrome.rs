@@ -170,7 +170,8 @@ fn command_item(session: &Session, id: &str, label: Option<&str>) -> Option<serd
 }
 
 /// Prompt, history, the layout tabs and the drafting modes the status bar shows.
-pub fn chrome_json(session: &Session, cursor: Option<aad_geom::Vec2>) -> String {
+/// `draft` is the unsubmitted command-line text (Space is literal for `/` requests and sentences).
+pub fn chrome_json(session: &Session, cursor: Option<aad_geom::Vec2>, draft: &str) -> String {
     let log = &session.log;
     let start = log.len().saturating_sub(500);
     let history: Vec<&str> = log[start..].iter().map(String::as_str).collect();
@@ -226,18 +227,12 @@ pub fn chrome_json(session: &Session, cursor: Option<aad_geom::Vec2>) -> String 
         "transparency": settings.transparency_display,
         "qpmode": settings.qpmode,
         "command": session.running.as_ref().map(|running| running.id.as_str()).unwrap_or(""),
-        "literalSpace": literal_space(session),
+        "literalSpace": crate::bar::space_is_literal(session, draft),
         "version": env!("CARGO_PKG_VERSION"),
         "units": units_label(session),
         "cursor": cursor.map(|point| format!("{:.4}, {:.4}", point.x, point.y)).unwrap_or_default(),
     })
     .to_string()
-}
-
-/// Space is part of the answer only when the prompt wants text and nothing else (a text string).
-/// Everywhere else it confirms, the same as Enter.
-fn literal_space(session: &Session) -> bool {
-    session.current_prompt().is_some_and(|prompt| prompt.accept.text && !prompt.accept.point && !prompt.accept.number && prompt.options.is_empty())
 }
 
 fn units_label(session: &Session) -> String {

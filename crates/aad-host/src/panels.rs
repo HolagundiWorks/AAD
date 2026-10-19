@@ -196,9 +196,28 @@ fn quick(doc: &aad_engine::doc::Drawing, selection: &[Handle]) -> Value {
             EntityKind::Dimension(dim) => {
                 text_field(&mut fields, "textOverride", "Text override", &dim.text);
             }
+            EntityKind::Hatch(hatch) => {
+                text_field(&mut fields, "pattern", "Pattern", &hatch.pattern);
+                number_field(&mut fields, "scale", "Scale", hatch.scale);
+                number_field(&mut fields, "angle", "Angle", hatch.angle.to_degrees());
+            }
             _ => {}
         }
     }
+    // Hatch pattern choices when every selected object is a hatch (combo in the shell).
+    let patterns = if same_type && type_name == "Hatch" {
+        aad_engine::doc::library::standard_patterns().into_iter().map(|p| p.name.to_string()).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let pattern = if same_type && type_name == "Hatch" {
+        shared_owned(ents.iter().filter_map(|entity| match &entity.kind {
+            EntityKind::Hatch(h) => Some(h.pattern.clone()),
+            _ => None,
+        }))
+    } else {
+        String::new()
+    };
     json!({
         "title": title,
         "handles": handles,
@@ -210,6 +229,8 @@ fn quick(doc: &aad_engine::doc::Drawing, selection: &[Handle]) -> Value {
         "ltscale": ltscale,
         "linetypes": linetypes,
         "layers": doc.layers.iter().take(400).map(|layer| layer.name.clone()).collect::<Vec<_>>(),
+        "patterns": patterns,
+        "pattern": pattern,
         "fields": fields,
     })
 }

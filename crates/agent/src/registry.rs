@@ -199,6 +199,124 @@ pub fn registry() -> Vec<ToolDef> {
             run: |s, a| exec(s, "spatial.describe", Value::Object(a.clone())),
         },
         ToolDef {
+            name: "export_shilpidb",
+            description: "Export the open drawing's model-space entities to a ShilpiDB .vdb spatial store (format v2 payloads). Does not change the drawing.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "path": { "type": "string", "minLength": 1, "maxLength": 1024, "description": "destination .vdb path" } },
+                    "required": ["path"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Open,
+            summary: |a| format!("Export ShilpiDB {}", a.get("path").and_then(Value::as_str).unwrap_or(".vdb")),
+            run: |s, a| exec(s, "vdb.export", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "query_shilpidb",
+            description: "Query a ShilpiDB .vdb file for entity ids whose bounds intersect a window (drawing units, Y up).",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                        "window": { "type": "array", "items": { "type": "number" }, "maxItems": 4, "description": "[x0, y0, x1, y1]" },
+                        "limit": { "type": "integer", "minimum": 1, "maximum": 200 }
+                    },
+                    "required": ["path", "window"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Read,
+            summary: |_| "Query a ShilpiDB .vdb window".into(),
+            run: |s, a| exec(s, "vdb.query", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "import_shilpidb",
+            description: "Import geometry from a ShilpiDB .vdb into model space (best-effort for Line, Circle, Arc, LwPolyline, Text, MText, Insert). One undo step. replace=true clears model space first.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                        "replace": { "type": "boolean" }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Mutating,
+            summary: |a| format!("Import ShilpiDB {}", a.get("path").and_then(Value::as_str).unwrap_or(".vdb")),
+            run: |s, a| exec(s, "vdb.import", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "connect_shilpidb",
+            description: "Ping a local shilpid server and remember its address for push/pull (default 127.0.0.1:7420). Does not change the drawing.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "addr": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 260,
+                            "description": "host:port of shilpid (default 127.0.0.1:7420)"
+                        }
+                    },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Open,
+            summary: |a| format!(
+                "Connect ShilpiDB {}",
+                a.get("addr").and_then(Value::as_str).unwrap_or("127.0.0.1:7420")
+            ),
+            run: |s, a| exec(s, "vdb.connect", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "disconnect_shilpidb",
+            description: "Forget the connected shilpid address. Does not change the drawing or the server data.",
+            schema: empty_schema,
+            risk: |_| Risk::Read,
+            summary: |_| "Disconnect ShilpiDB server".into(),
+            run: |s, _| exec(s, "vdb.disconnect", json!({})),
+        },
+        ToolDef {
+            name: "push_shilpidb",
+            description: "Push the open drawing's model space to the connected shilpid server and save it there. Requires connect_shilpidb first. replace=true deletes server ids not in the drawing so the server mirrors model space. Does not change the drawing.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "replace": { "type": "boolean", "description": "remove server ids that are not in the drawing (default false: upsert only)" } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Open,
+            summary: |a| {
+                if a.get("replace") == Some(&Value::Bool(true)) {
+                    "Push drawing to ShilpiDB (replace server)".into()
+                } else {
+                    "Push drawing to ShilpiDB server".into()
+                }
+            },
+            run: |s, a| exec(s, "vdb.push", Value::Object(a.clone())),
+        },
+        ToolDef {
+            name: "pull_shilpidb",
+            description: "Pull records from the connected shilpid into model space (best-effort geometry). Requires connect_shilpidb first. One undo step. replace=true clears model space first.",
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": { "replace": { "type": "boolean" } },
+                    "additionalProperties": false
+                })
+            },
+            risk: |_| Risk::Mutating,
+            summary: |_| "Pull ShilpiDB server into the drawing".into(),
+            run: |s, a| exec(s, "vdb.pull", Value::Object(a.clone())),
+        },
+        ToolDef {
             name: "flatten_drawing",
             description: "Flatten the whole open drawing to 2D (elevations, thickness and z values removed). Reports 3D objects that cannot be flattened. One undo step.",
             schema: empty_schema,

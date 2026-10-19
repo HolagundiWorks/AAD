@@ -10,20 +10,19 @@ work.
 | Part | State |
 |---|---|
 | Tool registry, strict parsing, schema validation, confirmation policy, loop limits, audit log (`crates/agent`) | **Implemented and tested** (13 unit tests) |
-| Tools: `get_drawing_summary`, `get_spatial_overview`, `find_objects_in_window`, `find_nearest_objects`, `describe_objects`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, `set_drawing_units`, `set_display_units`, `set_plot_configuration`, `validate_plot_layout`, `analyze_annotation_collisions`, `preview_layout_changes`, `calculate_annotation_layout`, `apply_layout_changes` | **Implemented and tested**, each one an existing engine command |
+| Tools: `get_drawing_summary`, spatial query tools, ShilpiDB `export` / `query` / `import` / `connect` / `disconnect` / `push` / `pull`, `flatten_drawing`, `audit_drawing`, `purge_unused`, `recover_file`, units/plot/annotation layout tools | **Implemented and tested**, each one an existing engine command |
 | Qwen3 chat format, model-file discovery and checks, generation settings (`crates/llm`) | **Implemented and tested** (7 tests, no model needed) |
 | Assistant conversation state machine: tool list prompt, strict parse, one retry, confirmation, step and history limits (`agent::Assistant`) | **Implemented and tested** with scripted model replies (8 tests) |
 | llama.cpp runtime (`aad-llm` with feature `llama`) | **Builds and runs** (2026-10-12, LLVM 23.1.3 from `winget install LLVM.LLVM`, `LIBCLANG_PATH=C:\Program Files\LLVM\bin`, CMake, MSVC). Tests and `clippy -D warnings` pass with the feature. The model loads in about 1 s (memory-mapped) and generates about 17 tokens per second on this machine's CPU (no GPU backend) |
-| Model on this machine | `Qwen3-1.7B-Q4_K_M.gguf`, 1 107 409 472 bytes, from `unsloth/Qwen3-1.7B-GGUF`, SHA-256 `b139949c...a181897` (equals the hash Hugging Face publishes), in `%APPDATA%\AAD\models`. Not in the repository |
+| Model on this machine | `Qwen3-1.7B-Q4_K_M.gguf`, 1 107 409 472 bytes, from `unsloth/Qwen3-1.7B-GGUF`, SHA-256 `b139949c...a181897` (equals the hash Hugging Face publishes), in `%APPDATA%\O-Draft\models`. Not in the repository |
 | Background worker (`aad_llm::worker`): loads on the first request, one request at a time, Stop, panic contained | **Implemented**; a unit test covers the no-model path |
 | `driver` (`aad_agent::driver`): runs the Assistant against a model for hosts that can wait | **Implemented** |
 | `aad-cli ask [--file f \| --sample] [--yes] [--save out.dxf] "request"` (build with `--features assistant`) | **Implemented, run with the real model** (below) |
-| Assistant through the unified command bar (`aad --features assistant`; see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline in the bar, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented, run with the real model** (below); bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend |
-| Bundling the model in the installer, and building the installer with the `assistant` feature | **Not done** |
+| Assistant through the unified command bar (see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline in the bar, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented** for WinUI (`aad-host --features assistant`, Allow/Decline in the bar) and for optional egui (`aad --features egui,assistant`). Bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend; host unit test covers the no-runtime path |
+| Bundling the model in the installer, and building the installer with the `assistant` feature | **Implemented:** `packaging/windows/package.ps1 -Arch x64 -Assistant` builds `o-draft-ai-<version>-windows-x64.msi` (and a portable zip) with `aad` / `aad-cli` / `aad-host` linked for the assistant, the model under `<install>\models\`, open-source EULA page, and installer splash bitmaps. Needs the model at `%APPDATA%\O-Draft\models\Qwen3-1.7B-Q4_K_M.gguf` or `AAD_MODEL_FILE`, plus CMake, a C++ toolchain and LLVM libclang |
 | Result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
 | Read tools for take-off, rooms, drawing revision and permit layers | **Implemented and tested:** `get_takeoff_result` (`takeoff.list`), `get_room_log`, `get_room_area_total`, `get_drawing_revision`, `check_permit_layers`; all read-only, no file path in any schema |
-| Audit file | **Implemented and tested:** every proposed call on a saved drawing (done, failed, needs-confirmation, rejected) is appended as one JSON line to `<drawing>.aadaudit.jsonl` with the tool, arguments, status, time taken, the drawing file name, the recorded revision hash and whether the drawing had unsaved changes. A drawing that was never saved has no file to sit beside, so nothing is written. The file stops growing at 8 MiB and a failure to write never fails a call |
 | Schedule of openings, running a take-off | **Planned.** The engine commands exist (`schedule`, `openings.table`, `takeoff.*`, see [hcw-kit-port.md](hcw-kit-port.md)) but they draw into the drawing and are not yet in the agent registry. The names are reserved in `agent::PLANNED` and any call to them is refused as "not implemented". |
 
 Requests such as "Prepare a schedule of openings" and "Run the built-in quantity takeoff" therefore
@@ -170,6 +169,13 @@ by read-only, bounded engine queries (`crates/engine/src/cmd/spatialq.rs`, teste
 | `find_objects_in_window {window, mode?, layers?, types?, limit?}` | `spatial.query` | The objects touching or inside a rectangle: handle, type, layer, bounds, centre and key geometry; `matched` and `truncated` say when the list was cut |
 | `find_nearest_objects {point, count?, layers?, types?}` | `spatial.nearest` | The objects closest to a point, with the distance to their bounds |
 | `describe_objects {handles}` | `spatial.describe` | Details by handle: a line's ends and length, a circle's centre and radius, a text's words and position, a block's name |
+| `export_shilpidb {path}` | `vdb.export` | Write model-space entities to a ShilpiDB `.vdb` (format v2 payloads). Does not change the drawing |
+| `query_shilpidb {path, window, limit?}` | `vdb.query` | Ids and labels whose bounds intersect a window in a `.vdb` file |
+| `import_shilpidb {path, replace?}` | `vdb.import` | Best-effort geometry from a `.vdb` into model space (one undo step) |
+| `connect_shilpidb {addr?}` | `vdb.connect` | Ping a local `shilpid` (default `127.0.0.1:7420`) and remember the address |
+| `disconnect_shilpidb {}` | `vdb.disconnect` | Forget the remembered server address |
+| `push_shilpidb {replace?}` | `vdb.push` | Upsert model space to the connected server; `replace=true` deletes server ids not in the drawing |
+| `pull_shilpidb {replace?}` | `vdb.pull` | Pull server records into model space (one undo step; needs connect first) |
 
 The references add positions too: `/view` (the visible window and the objects in it), `/selection`
 (each object's bounds), `/rooms` (each label's position) and `/drawing` (extents and view).

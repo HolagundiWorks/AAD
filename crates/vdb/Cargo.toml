@@ -10,6 +10,8 @@ workspace = true
 
 [dependencies]
 # Pinned to one ShilpiDB commit so the embedded engine and the client share one type.
+# To bump: set the same `rev` on both crates, refresh Cargo.lock, then
+# `cargo test -p aad-vdb` (see docs/architecture/aadt-shilpidb-architecture.md).
 shilpidb = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "0797da6bb10954aff8dce604451c92d73374946e" }
 shilpi-client = { git = "https://github.com/HolagundiWorks/shilpidb", rev = "0797da6bb10954aff8dce604451c92d73374946e" }
 thiserror = { workspace = true }

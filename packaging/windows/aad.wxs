@@ -35,6 +35,11 @@
     <Property Id="ARPURLUPDATEINFO" Value="https://github.com/HolagundiWorks/AADT" />
     <Property Id="ARPHELPLINK" Value="https://github.com/HolagundiWorks/AADT/issues" />
 
+    <!-- Open-source EULA (MIT OR Apache-2.0) and installer splash bitmaps. -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.DialogBmp)" />
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.BannerBmp)" />
+
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="O-Draft">
         <?ifdef FontsDir?>
@@ -102,6 +107,7 @@
       <Component Id="AadNotices" Guid="B7C3E1A2-5D4F-4A86-9E21-3F7A8C0D6B15">
         <File Id="LicenseMit" Source="$(var.BinDir)\LICENSE-MIT" KeyPath="yes" />
         <File Id="LicenseApache" Source="$(var.BinDir)\LICENSE-APACHE" />
+        <File Id="EulaRtf" Source="$(var.BinDir)\EULA.rtf" />
         <File Id="NoticeFile" Source="$(var.BinDir)\NOTICE" />
         <File Id="ThirdPartyLicenses" Source="$(var.BinDir)\THIRD_PARTY_LICENSES.md" />
         <File Id="AttributionFile" Source="$(var.BinDir)\ATTRIBUTION.md" />
@@ -130,9 +136,8 @@
   <?endif?>
 
   <!--
-    Setup wizard: WixUI_InstallDir's flow (WiX v5, ext/UI/wixlib/WixUI_InstallDir.wxs) without the
-    licence and folder pages, plus a Shortcuts page:
-      install:     Welcome > Shortcuts > Ready to install > Progress > Finish
+    Setup wizard: Welcome splash, open-source EULA, Shortcuts, then Ready:
+      install:     Welcome > Licence > Shortcuts > Ready to install > Progress > Finish
       maintenance: Maintenance welcome > Repair/Remove > Ready > Progress > Finish
   -->
   <Fragment>
@@ -151,6 +156,9 @@
       <DialogRef Id="ProgressDlg" />
       <DialogRef Id="ResumeDlg" />
       <DialogRef Id="UserExit" />
+      <DialogRef Id="WelcomeDlg" />
+      <DialogRef Id="LicenseAgreementDlg" />
+      <DialogRef Id="VerifyReadyDlg" />
 
       <Dialog Id="ShortcutsDlg" Width="370" Height="270" Title="!(loc.InstallDirDlg_Title)">
         <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)" />
@@ -175,10 +183,13 @@
 
       <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999" />
 
-      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="ShortcutsDlg" Condition="NOT Installed" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg" Condition="NOT Installed" />
       <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Condition="Installed AND PATCH" />
 
-      <Publish Dialog="ShortcutsDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="ShortcutsDlg" />
+
+      <Publish Dialog="ShortcutsDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg" />
       <Publish Dialog="ShortcutsDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" />
 
       <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ShortcutsDlg" Order="1" Condition="NOT Installed" />
