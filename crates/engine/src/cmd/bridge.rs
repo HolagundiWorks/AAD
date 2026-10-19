@@ -319,6 +319,10 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
             warnings.push("the drawing has unsaved changes: this export reflects them, the saved revision does not".into());
         }
     }
+    // The project in the company file that this drawing was linked to (`companyfile`): O-CoreOp matches the take-off to its project by it.
+    if let Some(reference) = super::companyfile::company(s.doc()?).get("project_ref").filter(|r| r.is_object()) {
+        source["project_ref"] = reference.clone();
+    }
     root.insert("source".into(), source);
     root.insert("units".into(), json!("mm"));
     let rooms = super::roomtools::rooms_for_export(d, &s.space());

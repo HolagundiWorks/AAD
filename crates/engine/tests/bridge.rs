@@ -226,3 +226,21 @@ fn export_names_the_saved_drawing_revision_and_lists_rooms() {
     assert!(file["source"].get("revision").is_none());
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn the_export_names_the_company_file_project_the_drawing_is_linked_to() {
+    let mut s = session();
+    let (_, before) = export(&mut s);
+    assert!(before["source"].get("project_ref").is_none(), "a drawing not linked to the company file names no project");
+
+    let context = json!({
+        "v": 1, "prepared_on": "2026-10-20",
+        "company": { "name": "Studio One" },
+        "project": { "project": { "name": "Mehta residence", "code": "P-007", "site_address": "Plot 4, Hospet" }, "client": { "name": "Mehta family" },
+                     "project_ref": { "v": 1, "company_uuid": "u-1", "project_id": 7 } }
+    });
+    s.execute("companyfile", &json!({ "context": context })).unwrap();
+    let (_, linked) = export(&mut s);
+    assert_eq!(linked["source"]["project_ref"], json!({ "v": 1, "company_uuid": "u-1", "project_id": 7 }));
+    assert_eq!(linked["project"]["title"].as_str().or(linked["project"]["name"].as_str()), Some("Mehta residence"), "{}", linked["project"]);
+}

@@ -41,7 +41,7 @@ Everything is millimetres, whatever the drawing units. The id is `(kind << 56) |
 
 | Kind | Record |
 |---|---|
-| 1 | Header, one per drawing, `n = 0`: `format` `hcw-takeoff-shilpi`, `version` 1, `units` `mm`, `state`, `source` (`app` `O-Draft`, `drawing`, `drawing_id`, `project_office_id` while the drawing is linked to an AORMS project, `exported`, `revision_sha256` while the saved file still matches its recorded revision), and the bridge file's `project`, `levels`, `beam_depths_mm`, `opening_schedule`; `annotated_pdf` (`sha256`, `bytes`, `chunks`, `pages`, `generated`) once a PDF is stored |
+| 1 | Header, one per drawing, `n = 0`: `format` `hcw-takeoff-shilpi`, `version` 1, `units` `mm`, `state`, `source` (`app` `O-Draft`, `drawing`, `drawing_id`, `project_office_id` while the drawing is linked to an AORMS project, `project_ref` (the suite's `ProjectRef`) while the drawing is linked to a project in the OSAS company file, `exported`, `revision_sha256` while the saved file still matches its recorded revision), and the bridge file's `project`, `levels`, `beam_depths_mm`, `opening_schedule`; `annotated_pdf` (`sha256`, `bytes`, `chunks`, `pages`, `generated`) once a PDF is stored |
 | 3 to 8 | Wall, opening, column, lintel, room, slab: the payload is the bridge row as written; the box is the item's bounds in millimetres (the room's box when one is drawn, else its name text; zeros when it has no geometry) |
 | 9 | A chunk of the annotated PDF: raw bytes, at most 512 KiB, `n` from 0, zero box; at most 64 MiB in all |
 

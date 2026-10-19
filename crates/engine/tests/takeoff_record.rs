@@ -476,3 +476,27 @@ fn rows_carry_what_o_coreop_needs_to_use_them_without_guessing() {
     assert!(again["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("1 opening(s) are not on a measured wall"))));
     cleanup(&path);
 }
+
+#[test]
+fn the_header_names_the_company_file_project_so_o_coreop_can_match_the_take_off() {
+    let mut s = session("mm");
+    scene(&mut s);
+    let path = temp("project-ref");
+    let db = read(&path_after(&mut s, &path));
+    assert!(db[&header_id(&db)].0["source"].get("project_ref").is_none(), "an unlinked drawing names no project");
+
+    let context = json!({
+        "v": 1, "prepared_on": "2026-10-20", "company": { "name": "Studio One" },
+        "project": { "project": { "name": "Mehta residence" }, "client": { "name": "Mehta family" }, "project_ref": { "v": 1, "company_uuid": "u-1", "project_id": 7 } }
+    });
+    s.execute("companyfile", &json!({ "context": context })).unwrap();
+    let db = read(&path_after(&mut s, &path));
+    assert_eq!(db[&header_id(&db)].0["source"]["project_ref"], json!({ "v": 1, "company_uuid": "u-1", "project_id": 7 }));
+    cleanup(&path);
+}
+
+/// Records the take-off and returns where it went.
+fn path_after(s: &mut Session, path: &std::path::Path) -> std::path::PathBuf {
+    record(s, path);
+    path.to_path_buf()
+}

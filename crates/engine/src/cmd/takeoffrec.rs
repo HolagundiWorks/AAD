@@ -145,7 +145,7 @@ pub(crate) fn header(root: &Map<String, Value>, project_office_id: Option<&str>,
     let mut source = Map::new();
     source.insert("app".into(), json!("O-Draft"));
     if let Some(src) = root.get("source") {
-        for key in ["drawing", "drawing_id", "exported"] {
+        for key in ["drawing", "drawing_id", "exported", "project_ref"] {
             if let Some(v) = src.get(key) {
                 source.insert(key.into(), v.clone());
             }
