@@ -15,8 +15,8 @@ mod payload;
 pub use client::VdbClient;
 pub use file::{FORMAT_VERSION, MIN_FORMAT_VERSION, VdbRecord, VdbStore, load_bytes, load_path, save_bytes, save_path};
 pub use payload::{
-    EntityGeom, EntityPayload, KindTag, MAX_BLOCK_CHARS, MAX_LAYER_CHARS, MAX_POLY_VERTICES,
-    MAX_TEXT_CHARS, MAX_TYPE_CHARS, PAYLOAD_VERSION, decode as decode_payload, encode as encode_payload,
+    EntityGeom, EntityPayload, KindTag, MAX_BLOCK_CHARS, MAX_LAYER_CHARS, MAX_POLY_VERTICES, MAX_TEXT_CHARS, MAX_TYPE_CHARS, PAYLOAD_VERSION,
+    decode as decode_payload, encode as encode_payload,
 };
 pub use shilpi_client::{Error as ClientError, Record as ClientRecord, Stats as ClientStats};
 pub use shilpidb::{Bbox, Error as CodecError, MAGIC, Point, Reader, SpatialGrid, Writer};

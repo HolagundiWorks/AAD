@@ -5,13 +5,11 @@
 
 use std::path::{Path, PathBuf};
 
-use aad_doc::{
-    Arc, Circle, Common, EntityKind, Insert, Line, LwPolyline, MText, Space, Text, entity_bounds,
-};
+use aad_doc::{Arc, Circle, Common, EntityKind, Insert, Line, LwPolyline, MText, Space, Text, entity_bounds};
 use aad_geom::{PolyVertex, Vec2, Vec3};
 use aad_vdb::{
-    Bbox, EntityGeom, EntityPayload, FORMAT_VERSION, MAX_BLOCK_CHARS, MAX_POLY_VERTICES,
-    MAX_TEXT_CHARS, VdbClient, VdbRecord, VdbStore, decode_payload, encode_payload, load_path, save_path,
+    Bbox, EntityGeom, EntityPayload, FORMAT_VERSION, MAX_BLOCK_CHARS, MAX_POLY_VERTICES, MAX_TEXT_CHARS, VdbClient, VdbRecord, VdbStore,
+    decode_payload, encode_payload, load_path, save_path,
 };
 use serde_json::{Value, json};
 
@@ -195,17 +193,12 @@ fn run_push(s: &mut Session, p: &Value) -> Result<Value> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let addr = s
-            .vdb_addr
-            .clone()
-            .ok_or_else(|| bad("vdb.push", "not connected; run vdb.connect first"))?;
+        let addr = s.vdb_addr.clone().ok_or_else(|| bad("vdb.push", "not connected; run vdb.connect first"))?;
         let replace = bool_or(p, "replace", false);
         let (store, truncated, _skipped) = store_from_drawing(s)?;
         let count = store.len();
         let mut client = VdbClient::connect(&addr).map_err(|e| bad("vdb.push", e.to_string()))?;
-        client
-            .push_store(&store, replace)
-            .map_err(|e| bad("vdb.push", e.to_string()))?;
+        client.push_store(&store, replace).map_err(|e| bad("vdb.push", e.to_string()))?;
         client.save().map_err(|e| bad("vdb.push", e.to_string()))?;
         Ok(json!({ "addr": addr, "count": count, "truncated": truncated, "replaced": replace }))
     }
@@ -219,10 +212,7 @@ fn run_pull(s: &mut Session, p: &Value) -> Result<Value> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let addr = s
-            .vdb_addr
-            .clone()
-            .ok_or_else(|| bad("vdb.pull", "not connected; run vdb.connect first"))?;
+        let addr = s.vdb_addr.clone().ok_or_else(|| bad("vdb.pull", "not connected; run vdb.connect first"))?;
         let replace = bool_or(p, "replace", false);
         let mut client = VdbClient::connect(&addr).map_err(|e| bad("vdb.pull", e.to_string()))?;
         let store = client.pull_store().map_err(|e| bad("vdb.pull", e.to_string()))?;
@@ -346,49 +336,19 @@ fn import_store(s: &mut Session, store: &VdbStore, replace: bool) -> Result<(usi
 fn entity_to_payload(entity: &aad_doc::Entity) -> Option<EntityPayload> {
     let layer = entity.common.layer.clone();
     let geom = match &entity.kind {
-        EntityKind::Line(l) => EntityGeom::Line {
-            x0: l.a.x,
-            y0: l.a.y,
-            x1: l.b.x,
-            y1: l.b.y,
-        },
-        EntityKind::Circle(c) => EntityGeom::Circle {
-            cx: c.center.x,
-            cy: c.center.y,
-            radius: c.radius,
-        },
-        EntityKind::Arc(a) => EntityGeom::Arc {
-            cx: a.center.x,
-            cy: a.center.y,
-            radius: a.radius,
-            start: a.start,
-            end: a.end,
-        },
+        EntityKind::Line(l) => EntityGeom::Line { x0: l.a.x, y0: l.a.y, x1: l.b.x, y1: l.b.y },
+        EntityKind::Circle(c) => EntityGeom::Circle { cx: c.center.x, cy: c.center.y, radius: c.radius },
+        EntityKind::Arc(a) => EntityGeom::Arc { cx: a.center.x, cy: a.center.y, radius: a.radius, start: a.start, end: a.end },
         EntityKind::LwPolyline(p) => {
-            let vertices: Vec<(f64, f64)> = p
-                .vertices
-                .iter()
-                .take(MAX_POLY_VERTICES)
-                .map(|v| (v.p.x, v.p.y))
-                .collect();
-            EntityGeom::LwPolyline {
-                closed: p.closed,
-                vertices,
-            }
+            let vertices: Vec<(f64, f64)> = p.vertices.iter().take(MAX_POLY_VERTICES).map(|v| (v.p.x, v.p.y)).collect();
+            EntityGeom::LwPolyline { closed: p.closed, vertices }
         }
-        EntityKind::Text(t) => EntityGeom::Text {
-            x: t.insert.x,
-            y: t.insert.y,
-            height: t.height,
-            rotation: t.rotation,
-            value: truncate_chars(&t.value, MAX_TEXT_CHARS),
-        },
-        EntityKind::MText(t) => EntityGeom::MText {
-            x: t.insert.x,
-            y: t.insert.y,
-            height: t.height,
-            contents: truncate_chars(&t.contents, MAX_TEXT_CHARS),
-        },
+        EntityKind::Text(t) => {
+            EntityGeom::Text { x: t.insert.x, y: t.insert.y, height: t.height, rotation: t.rotation, value: truncate_chars(&t.value, MAX_TEXT_CHARS) }
+        }
+        EntityKind::MText(t) => {
+            EntityGeom::MText { x: t.insert.x, y: t.insert.y, height: t.height, contents: truncate_chars(&t.contents, MAX_TEXT_CHARS) }
+        }
         EntityKind::Insert(i) => EntityGeom::Insert {
             x: i.insert.x,
             y: i.insert.y,
@@ -397,9 +357,7 @@ fn entity_to_payload(entity: &aad_doc::Entity) -> Option<EntityPayload> {
             sy: i.scale.y,
             block: truncate_chars(&i.block, MAX_BLOCK_CHARS),
         },
-        other => EntityGeom::Stub {
-            type_name: other.type_name().to_string(),
-        },
+        other => EntityGeom::Stub { type_name: other.type_name().to_string() },
     };
     Some(EntityPayload { layer, geom })
 }
@@ -407,43 +365,19 @@ fn entity_to_payload(entity: &aad_doc::Entity) -> Option<EntityPayload> {
 fn payload_to_kind(geom: &EntityGeom) -> Option<EntityKind> {
     Some(match geom {
         EntityGeom::Stub { .. } => return None,
-        EntityGeom::Line { x0, y0, x1, y1 } => EntityKind::Line(Line {
-            a: Vec3::new(*x0, *y0, 0.0),
-            b: Vec3::new(*x1, *y1, 0.0),
-        }),
-        EntityGeom::Circle { cx, cy, radius } => EntityKind::Circle(Circle {
-            center: Vec3::new(*cx, *cy, 0.0),
-            radius: *radius,
-        }),
-        EntityGeom::Arc {
-            cx,
-            cy,
-            radius,
-            start,
-            end,
-        } => EntityKind::Arc(Arc {
-            center: Vec3::new(*cx, *cy, 0.0),
-            radius: *radius,
-            start: *start,
-            end: *end,
-        }),
+        EntityGeom::Line { x0, y0, x1, y1 } => EntityKind::Line(Line { a: Vec3::new(*x0, *y0, 0.0), b: Vec3::new(*x1, *y1, 0.0) }),
+        EntityGeom::Circle { cx, cy, radius } => EntityKind::Circle(Circle { center: Vec3::new(*cx, *cy, 0.0), radius: *radius }),
+        EntityGeom::Arc { cx, cy, radius, start, end } => {
+            EntityKind::Arc(Arc { center: Vec3::new(*cx, *cy, 0.0), radius: *radius, start: *start, end: *end })
+        }
         EntityGeom::LwPolyline { closed, vertices } => EntityKind::LwPolyline(LwPolyline {
-            vertices: vertices
-                .iter()
-                .map(|(x, y)| PolyVertex::new(Vec2::new(*x, *y)))
-                .collect(),
+            vertices: vertices.iter().map(|(x, y)| PolyVertex::new(Vec2::new(*x, *y))).collect(),
             closed: *closed,
             const_width: 0.0,
             elevation: 0.0,
             plinegen: false,
         }),
-        EntityGeom::Text {
-            x,
-            y,
-            height,
-            rotation,
-            value,
-        } => EntityKind::Text(Text {
+        EntityGeom::Text { x, y, height, rotation, value } => EntityKind::Text(Text {
             insert: Vec3::new(*x, *y, 0.0),
             align_pt: None,
             height: (*height).max(1e-9),
@@ -455,12 +389,7 @@ fn payload_to_kind(geom: &EntityGeom) -> Option<EntityKind> {
             halign: Default::default(),
             valign: Default::default(),
         }),
-        EntityGeom::MText {
-            x,
-            y,
-            height,
-            contents,
-        } => EntityKind::MText(MText {
+        EntityGeom::MText { x, y, height, contents } => EntityKind::MText(MText {
             insert: Vec3::new(*x, *y, 0.0),
             height: (*height).max(1e-9),
             width: 0.0,
@@ -471,14 +400,7 @@ fn payload_to_kind(geom: &EntityGeom) -> Option<EntityKind> {
             line_spacing: 1.0,
             line_spacing_exact: false,
         }),
-        EntityGeom::Insert {
-            x,
-            y,
-            rotation,
-            sx,
-            sy,
-            block,
-        } => EntityKind::Insert(Insert {
+        EntityGeom::Insert { x, y, rotation, sx, sy, block } => EntityKind::Insert(Insert {
             block: block.clone(),
             insert: Vec3::new(*x, *y, 0.0),
             scale: Vec3::new(*sx, *sy, 1.0),
@@ -546,9 +468,7 @@ mod tests {
         assert_eq!(exported["version"], FORMAT_VERSION);
 
         let mut t = Session::new();
-        let imported = t
-            .execute("vdb.import", &json!({ "path": path_str, "replace": true }))
-            .expect("import");
+        let imported = t.execute("vdb.import", &json!({ "path": path_str, "replace": true })).expect("import");
         assert_eq!(imported["added"], 1);
         let n = t.doc().expect("doc").space(&Space::Model).map(|m| m.len()).unwrap_or(0);
         assert_eq!(n, 1);
@@ -560,35 +480,17 @@ mod tests {
         let path = dir.path().join("q.vdb");
         let mut s = Session::new();
         assert_eq!(s.execute("vdb.sidecar", &json!({})).unwrap()["enabled"], false);
-        assert_eq!(
-            s.execute("vdb.sidecar", &json!({ "enabled": true })).unwrap()["enabled"],
-            true
-        );
+        assert_eq!(s.execute("vdb.sidecar", &json!({ "enabled": true })).unwrap()["enabled"], true);
         assert!(s.settings.vdb_sidecar);
-        assert_eq!(
-            s.execute("vdb.sidecar", &json!({ "toggle": true })).unwrap()["enabled"],
-            false
-        );
+        assert_eq!(s.execute("vdb.sidecar", &json!({ "toggle": true })).unwrap()["enabled"], false);
 
         s.doc_mut()
             .expect("doc")
-            .add(
-                &Space::Model,
-                Common::default(),
-                EntityKind::Line(Line {
-                    a: Vec3::new(0.0, 0.0, 0.0),
-                    b: Vec3::new(5.0, 0.0, 0.0),
-                }),
-            )
+            .add(&Space::Model, Common::default(), EntityKind::Line(Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(5.0, 0.0, 0.0) }))
             .expect("add");
         let path_str = path.to_string_lossy().to_string();
         s.execute("vdb.export", &json!({ "path": path_str })).expect("export");
-        let q = s
-            .execute(
-                "vdb.query",
-                &json!({ "path": path_str, "window": [-1.0, -1.0, 6.0, 1.0], "limit": 10 }),
-            )
-            .expect("query");
+        let q = s.execute("vdb.query", &json!({ "path": path_str, "window": [-1.0, -1.0, 6.0, 1.0], "limit": 10 })).expect("query");
         assert_eq!(q["matched"], 1);
         assert_eq!(q["hits"].as_array().expect("hits").len(), 1);
         assert_eq!(q["hits"][0]["type"], "Line");
@@ -601,9 +503,7 @@ mod tests {
     #[test]
     fn connect_without_server_reports_error() {
         let mut s = Session::new();
-        let err = s
-            .execute("vdb.connect", &json!({ "addr": "127.0.0.1:1" }))
-            .expect_err("nothing listens on port 1");
+        let err = s.execute("vdb.connect", &json!({ "addr": "127.0.0.1:1" })).expect_err("nothing listens on port 1");
         assert!(err.to_string().contains("vdb.connect"), "{err}");
         assert_eq!(s.execute("vdb.status", &json!({})).unwrap()["connected"], false);
     }

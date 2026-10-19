@@ -35,12 +35,7 @@ fn matchprop_copies_hatch_pattern_scale_and_angle() {
     let mut s = Session::new();
     let src = s.add_entity(square_hatch("ANSI31", 2.0, 45.0)).unwrap();
     let dst = s.add_entity(square_hatch("SOLID", 1.0, 0.0)).unwrap();
-    let r = s
-        .execute(
-            "matchprop",
-            &json!({ "source": src.hex(), "targets": [dst.hex()] }),
-        )
-        .unwrap();
+    let r = s.execute("matchprop", &json!({ "source": src.hex(), "targets": [dst.hex()] })).unwrap();
     assert_eq!(r["changed"], 1);
     let d = s.doc().unwrap();
     let EntityKind::Hatch(h) = &d.entity(dst).unwrap().kind else {
@@ -55,18 +50,8 @@ fn matchprop_copies_hatch_pattern_scale_and_angle() {
 #[test]
 fn matchprop_interactive_prompts_for_source_then_targets() {
     let mut s = Session::new();
-    let a = s
-        .add_entity(EntityKind::Line(Line {
-            a: Vec3::new(0.0, 0.0, 0.0),
-            b: Vec3::new(1.0, 0.0, 0.0),
-        }))
-        .unwrap();
-    let b = s
-        .add_entity(EntityKind::Line(Line {
-            a: Vec3::new(0.0, 1.0, 0.0),
-            b: Vec3::new(1.0, 1.0, 0.0),
-        }))
-        .unwrap();
+    let a = s.add_entity(EntityKind::Line(Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(1.0, 0.0, 0.0) })).unwrap();
+    let b = s.add_entity(EntityKind::Line(Line { a: Vec3::new(0.0, 1.0, 0.0), b: Vec3::new(1.0, 1.0, 0.0) })).unwrap();
     s.doc_mut()
         .unwrap()
         .modify_entity(a, |e| {
@@ -76,11 +61,7 @@ fn matchprop_interactive_prompts_for_source_then_targets() {
     s.start("matchprop").unwrap();
     assert!(s.prompt_text().to_ascii_lowercase().contains("source"), "{}", s.prompt_text());
     s.input(Input::Pick(vec![a])).unwrap();
-    assert!(
-        s.prompt_text().to_ascii_lowercase().contains("object"),
-        "{}",
-        s.prompt_text()
-    );
+    assert!(s.prompt_text().to_ascii_lowercase().contains("object"), "{}", s.prompt_text());
     s.input(Input::Pick(vec![b])).unwrap();
     s.input(Input::Enter).unwrap();
     assert!(s.running.is_none());

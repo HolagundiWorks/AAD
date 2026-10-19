@@ -57,7 +57,8 @@ pub fn space_executes(buffer: &str) -> bool {
 /// Whether Space should type a space rather than submit.
 /// Assistant requests start with `/` and keep their spaces; everything else is CAD (Space runs).
 pub fn space_is_literal(session: &Session, buffer: &str) -> bool {
-    if session.current_prompt().is_some_and(|prompt| prompt.accept.text && !prompt.accept.point && !prompt.accept.number && prompt.options.is_empty()) {
+    if session.current_prompt().is_some_and(|prompt| prompt.accept.text && !prompt.accept.point && !prompt.accept.number && prompt.options.is_empty())
+    {
         return true;
     }
     if session.running.is_some() {
