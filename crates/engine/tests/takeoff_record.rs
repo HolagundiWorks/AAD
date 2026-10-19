@@ -453,12 +453,19 @@ fn rows_carry_what_o_coreop_needs_to_use_them_without_guessing() {
     for w in rows(3) {
         assert_eq!(w["thickness_mm"], json!(230.0), "{w}");
     }
-    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("nominal"))), "the thickness is said to be nominal");
+    assert!(
+        r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("nominal"))),
+        "the thickness is said to be nominal"
+    );
 
     // Rooms: level and both sides, rectangular.
     let room = &rows(7)[0];
     assert_eq!(room["level"], "Ground");
-    assert_eq!((room["length_mm"].as_f64(), room["breadth_mm"].as_f64(), room["rectangular"].as_bool()), (Some(4000.0), Some(3000.0), Some(true)), "{room}");
+    assert_eq!(
+        (room["length_mm"].as_f64(), room["breadth_mm"].as_f64(), room["rectangular"].as_bool()),
+        (Some(4000.0), Some(3000.0), Some(true)),
+        "{room}"
+    );
 
     // Openings: both sit on the front wall (y = 0).
     let front = format!("W{}", scene.wall_a.hex());
@@ -471,7 +478,8 @@ fn rows_carry_what_o_coreop_needs_to_use_them_without_guessing() {
     s.execute("wall.window", &json!({"at": [4500, 3000], "name": "W3", "width": 1200, "angle": 0})).unwrap();
     let again = record(&mut s, &path);
     let db = read(&path);
-    let stray: Vec<Value> = db.iter().filter(|(id, _)| kind(**id) == 4).map(|(_, (p, _))| p.clone()).filter(|o| o.get("wall_ref").is_none()).collect();
+    let stray: Vec<Value> =
+        db.iter().filter(|(id, _)| kind(**id) == 4).map(|(_, (p, _))| p.clone()).filter(|o| o.get("wall_ref").is_none()).collect();
     assert_eq!(stray.len(), 1, "{stray:?}");
     assert!(again["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("1 opening(s) are not on a measured wall"))));
     cleanup(&path);
