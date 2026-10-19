@@ -54,6 +54,7 @@ dependencies = [
  "aad-io",
  "aad-llm",
  "aad-mcp",
+ "aad-vdb",
  "serde_json",
 ]
 

@@ -692,4 +692,66 @@ mod tests {
         full.0.insert(header_id(0x00FF_FFFF), header_of("other"));
         assert_eq!(find_slot(&mut full, last, Some(0x00FF_FFFF)).unwrap(), 1);
     }
+
+    /// A database that fails its `n`th write, to see what a recording that dies half way leaves behind.
+    struct FailAt {
+        inner: Mem,
+        puts_left: usize,
+    }
+    impl Sink for FailAt {
+        fn ids(&mut self) -> Result<Vec<u64>> {
+            self.inner.ids()
+        }
+        fn payload(&mut self, id: u64) -> Result<Option<Vec<u8>>> {
+            self.inner.payload(id)
+        }
+        fn put(&mut self, recs: &[Rec]) -> Result<()> {
+            if self.puts_left == 0 {
+                return Err(bad("takeoff.record", "the server went away"));
+            }
+            self.puts_left -= 1;
+            self.inner.put(recs)
+        }
+        fn delete(&mut self, id: u64) -> Result<bool> {
+            self.inner.delete(id)
+        }
+        fn save(&mut self) -> Result<()> {
+            self.inner.save()
+        }
+    }
+
+    fn collected() -> Collected {
+        let item = |kind: u8, n: u64| Item { kind, n, row: json!({ "ref": format!("W{n:X}"), "length_mm": 1000.0 }), bbox: [0.0, 0.0, 1000.0, 0.0] };
+        let mut root = Map::new();
+        root.insert("source".into(), json!({ "drawing": "house.dxf", "drawing_id": "0b7d9c34-1e6f-4f0b-8a13-9b2c7d5e41aa" }));
+        Collected {
+            root,
+            warnings: Vec::new(),
+            drawing_id: "0b7d9c34-1e6f-4f0b-8a13-9b2c7d5e41aa".into(),
+            items: vec![item(KIND_WALL, 0x10), item(KIND_WALL, 0x11)],
+            counts: json!({}),
+        }
+    }
+
+    fn state_of(db: &Mem, slot: u32) -> String {
+        let p = db.0.get(&header_id(slot)).expect("a header");
+        serde_json::from_slice::<Value>(p).unwrap()["state"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn a_recording_that_dies_half_way_leaves_the_drawing_recording_and_the_next_one_completes_it() {
+        let c = collected();
+        let slot = slot_for(&c.drawing_id);
+        let built = build(&c, slot).unwrap();
+        // The claim, the rows and the final header are three writes; fail the last.
+        let mut db = FailAt { inner: Mem::default(), puts_left: 2 };
+        assert!(write_slot(&mut db, &c, &built, None, None, None, false).is_err());
+        assert_eq!(state_of(&db.inner, slot), "recording", "a reader must refuse this drawing");
+        assert_eq!(db.inner.0.keys().filter(|id| kind_of(**id) == KIND_WALL).count(), 2, "the rows are there but the header does not vouch for them");
+        // Recording again, with the server back, completes the same slot.
+        db.puts_left = usize::MAX;
+        let done = write_slot(&mut db, &c, &built, None, Some(slot), None, false).unwrap();
+        assert_eq!(done.slot, slot);
+        assert_eq!(state_of(&db.inner, slot), "complete");
+    }
 }

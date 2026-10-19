@@ -437,3 +437,42 @@ fn the_annotated_drawing_marks_what_was_measured_and_is_stored_in_chunks() {
     assert!(db[&header_id(&db)].0.get("annotated_pdf").is_none());
     cleanup(&path);
 }
+
+/// What O-CoreOp asked for after reading the first recording: rooms carry their level and sides, openings name their
+/// wall, walls carry a thickness, and a ventilator is a window.
+#[test]
+fn rows_carry_what_o_coreop_needs_to_use_them_without_guessing() {
+    let mut s = session("mm");
+    let scene = scene(&mut s);
+    let path = temp("needs");
+    let r = record(&mut s, &path);
+    let db = read(&path);
+    let rows = |k: u64| -> Vec<Value> { db.iter().filter(|(id, _)| kind(**id) == k).map(|(_, (p, _))| p.clone()).collect() };
+
+    // Walls: the thickness the layer implies.
+    for w in rows(3) {
+        assert_eq!(w["thickness_mm"], json!(230.0), "{w}");
+    }
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("nominal"))), "the thickness is said to be nominal");
+
+    // Rooms: level and both sides, rectangular.
+    let room = &rows(7)[0];
+    assert_eq!(room["level"], "Ground");
+    assert_eq!((room["length_mm"].as_f64(), room["breadth_mm"].as_f64(), room["rectangular"].as_bool()), (Some(4000.0), Some(3000.0), Some(true)), "{room}");
+
+    // Openings: both sit on the front wall (y = 0).
+    let front = format!("W{}", scene.wall_a.hex());
+    for o in rows(4) {
+        assert_eq!(o["wall_ref"], json!(front), "{o}");
+    }
+    assert!(!r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("not on a measured wall"))));
+
+    // An opening far from every measured wall gets no wall_ref, and the export says so.
+    s.execute("wall.window", &json!({"at": [4500, 3000], "name": "W3", "width": 1200})).unwrap();
+    let again = record(&mut s, &path);
+    let db = read(&path);
+    let stray: Vec<Value> = db.iter().filter(|(id, _)| kind(**id) == 4).map(|(_, (p, _))| p.clone()).filter(|o| o.get("wall_ref").is_none()).collect();
+    assert_eq!(stray.len(), 1, "{stray:?}");
+    assert!(again["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("1 opening(s) are not on a measured wall"))));
+    cleanup(&path);
+}

@@ -23,3 +23,6 @@ aad-llm = { workspace = true }
 # The local language model runtime (llama.cpp). Off by default: building it needs CMake, a C++
 # toolchain and LLVM's libclang (see docs/BUILD_AND_DEVELOPMENT.md).
 assistant = ["aad-llm/llama"]
+
+[dev-dependencies]
+aad-vdb = { workspace = true }

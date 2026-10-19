@@ -76,16 +76,23 @@ One more test is ignored (it needs the server program): it records to a running 
 after erasing a wall (`AAD_SHILPID_ADDR=127.0.0.1:7430 cargo test -p aad-engine --test takeoff_record -- --ignored`,
 with `shilpid --bind 127.0.0.1:7430 --data x.vdb`).
 
+## Rows O-CoreOp asked for (done)
+
+After reading a database O-Draft wrote, O-CoreOp asked for four changes (`HANDOFF-O-DRAFT-TAKEOFF.md` section 8). All four are in `bridge.export` and therefore in `takeoff.record`:
+
+- **Rooms** carry `level`, `length_mm` and `breadth_mm`, and `rectangular`: the exact sides of a rectangular `ROOM-RECT` outline, else the sides of the outline's box with `"rectangular": false`. A room with no drawn outline sends its area only and the export warns.
+- **Openings** carry `wall_ref`: the measured wall nearest to the opening's insertion point, within half the wall's thickness plus 150 mm. An opening that is on no measured wall gets none and the export warns.
+- **Walls** carry `thickness_mm`: 230 mm on `MEASURE-FULLBRICK` and 115 mm on `MEASURE-HALFBRICK`. This is the nominal thickness the layer implies, not a measured value, and the export says so in a warning.
+- A ventilator is written as `Window`; `source.drawing` is `(unsaved)` for a drawing that has not been saved.
+
+Checked: `rows_carry_what_o_coreop_needs_to_use_them_without_guessing`; the failure test `a_recording_that_dies_half_way_leaves_the_drawing_recording_and_the_next_one_completes_it`; and `apps/aad-cli/tests/takeoff_pdf.rs`, which uses the real plotter: the PDF is stored in chunks that reassemble to the bytes and SHA-256 the header names, and an ignored test run against a real `shilpid` recorded two drawings with their PDFs.
+
 ## Not done
 
 - **PDF underlay and calibration.** O-CoreOp's PDF panel is gone; O-Draft has no PDF underlay or scale
   calibration yet, so a project that only has PDF drawings cannot be measured. That is the next piece of work.
-- Not checked against O-CoreOp's reader: no database O-Draft wrote has been read by O-CoreOp yet, and the
-  annotated PDF has been produced only with a stand-in plotter in the engine tests (the desktop app's plotter
-  has not been run on it).
-- `wall_ref` on openings (the wall each opening belongs to) is not written.
-- The header's `levels` rows also carry `ceiling_mm` and `lintel_bottom_mm` from the bridge file; the contract
-  lists only name, height, slab thickness and beam depth.
+- Not checked by O-CoreOp yet: the database with a real PDF and two drawings (O-Draft checked them itself, section "Rows O-CoreOp asked for").
+- The header's `levels` rows also carry `ceiling_mm` and `lintel_bottom_mm` from the bridge file; O-CoreOp ignores them.
 - No menu entry yet in the WinUI shell other than the engine registry's (the commands appear under
   Architecture > Take-off from the registry).
 - Reading a recorded take-off back into the drawing, and selecting the measured item from its box.
