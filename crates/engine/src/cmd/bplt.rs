@@ -504,12 +504,36 @@ fn run_titleblock(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.doc_mut()?;
     d.modify_entity(border, |e| e.common.lineweight = Lineweight::Mm100(50))?;
     d.modify_entity(title, |e| e.common.lineweight = Lineweight::Mm100(25))?;
-    let labels = [
-        ("PROJECT NAME".to_string(), Vec2::new(at.x + 0.010 * k, at.y + strip + 0.005 * k), 0.012 * k),
+    // What the title block prints comes from the company file when the drawing has been linked to it (the `companyfile` command), and
+    // otherwise from the project details typed into the drawing. Nothing here is kept as a separate copy.
+    let details = super::project::get(s.doc()?, "details");
+    let firm = super::companyfile::company(s.doc()?);
+    let pick = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+    let project_name = pick(&details, "title").unwrap_or_else(|| "PROJECT NAME".to_string());
+    let mut labels = vec![
+        (project_name, Vec2::new(at.x + 0.010 * k, at.y + strip + 0.005 * k), 0.012 * k),
         ("DRAWING TITLE".to_string(), Vec2::new(at.x + 0.010 * k, at.y + strip + 0.020 * k), 0.010 * k),
         (format!("Sheet: {size}"), Vec2::new(at.x + w - 0.120 * k, at.y + 0.010 * k), 0.008 * k),
         ("Rev: A0".to_string(), Vec2::new(at.x + w - 0.060 * k, at.y + 0.010 * k), 0.008 * k),
     ];
+    if let Some(name) = pick(&firm, "name") {
+        labels.push((name, Vec2::new(at.x + 0.010 * k, at.y + 0.040 * k), 0.010 * k));
+    }
+    let contact = [pick(&firm, "address"), pick(&firm, "phone"), pick(&firm, "email")].into_iter().flatten().collect::<Vec<_>>().join("  |  ");
+    if !contact.is_empty() {
+        labels.push((contact, Vec2::new(at.x + 0.010 * k, at.y + 0.026 * k), 0.005 * k));
+    }
+    let site = [pick(&details, "owner").map(|o| format!("Client: {o}")), pick(&details, "address").map(|a| format!("Site: {a}"))]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("  |  ");
+    if !site.is_empty() {
+        labels.push((site, Vec2::new(at.x + 0.010 * k, at.y + 0.010 * k), 0.006 * k));
+    }
+    if let Some(date) = pick(&details, "date") {
+        labels.push((format!("Date: {date}"), Vec2::new(at.x + w - 0.230 * k, at.y + 0.010 * k), 0.008 * k));
+    }
     for (text, pos, height) in labels {
         let t = make_text(s, pos, &text, height, 0.0, (HAlign::Left, VAlign::Baseline));
         add_on(s, "BP-TITLE-BLOCK", t)?;
@@ -649,6 +673,44 @@ mod tests {
         let csv = r["csv"].as_str().unwrap();
         assert!(csv.contains("AP-ROOM,AP,1,9.0000,No"));
         assert!(!csv.contains("NOT-BPLT"));
+    }
+
+    fn texts(s: &Session) -> Vec<String> {
+        s.doc()
+            .unwrap()
+            .model
+            .iter()
+            .filter_map(|e| match &e.kind {
+                EntityKind::Text(t) => Some(t.value.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_title_block_prints_the_company_file_details_and_follows_a_change() {
+        let mut s = metres();
+        let context = json!({
+            "v": 1, "prepared_on": "2026-10-19",
+            "company": { "name": "Studio One", "address": "12 MG Road, Hospet", "phone": "+91 99999", "email": "a@b.in", "architect_name": "Aditi Rao" },
+            "project": { "project": { "name": "Mehta residence", "code": "P-007", "site_address": "Plot 4, Hospet" }, "client": { "name": "Mehta family" }, "project_ref": { "v": 1 } }
+        });
+        s.execute("companyfile", &json!({ "context": context })).unwrap();
+        s.execute("bplttitleblock", &json!({ "at": [0, 0] })).unwrap();
+        let printed = texts(&s);
+        assert!(printed.iter().any(|t| t == "Mehta residence"), "{printed:?}");
+        assert!(printed.iter().any(|t| t == "Studio One"));
+        assert!(printed.iter().any(|t| t.contains("12 MG Road, Hospet") && t.contains("+91 99999")));
+        assert!(printed.iter().any(|t| t == "Client: Mehta family  |  Site: Plot 4, Hospet"));
+        assert!(printed.iter().any(|t| t == "Date: 2026-10-19"));
+        assert!(!printed.iter().any(|t| t == "PROJECT NAME"), "the placeholder is replaced");
+    }
+
+    #[test]
+    fn without_a_company_file_the_title_block_keeps_its_placeholders() {
+        let mut s = metres();
+        s.execute("bplttitleblock", &json!({ "at": [0, 0] })).unwrap();
+        assert!(texts(&s).iter().any(|t| t == "PROJECT NAME"));
     }
 
     #[test]

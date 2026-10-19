@@ -501,6 +501,8 @@ pub struct Session {
     pub clipboard_source: Option<cmd::clipboard::ClipSource>,
     /// The AORMS connection (sign-in, session); `None` until the first sign-in. Optional: AAD works fully without it.
     pub aorms: cmd::aorms::AormsState,
+    /// The link to the OSAS company file, once `companyfile` has opened it. Read-only.
+    pub(crate) office: Option<aad_office::Link>,
     /// A plot window chosen by `plot.window` for the application to finish (it asks where to save,
     /// then calls `plot`). Taken with [`Session::take_plot_request`].
     pub plot_request: Option<PlotRequest>,
@@ -545,6 +547,7 @@ impl Session {
             last_used: LastUsed::default(),
             clipboard_source: None,
             aorms: cmd::aorms::AormsState::default(),
+            office: None,
             plot_request: None,
             vdb_addr: None,
         }

@@ -10,6 +10,7 @@ mod blocks;
 mod bplt;
 mod bridge;
 pub mod clipboard;
+mod companyfile;
 pub mod context;
 mod draw;
 mod draw2;
@@ -204,6 +205,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(roomtools::specs());
         v.extend(annot::specs());
         v.extend(project::specs());
+        v.extend(companyfile::specs());
         v.extend(space::specs());
         v.extend(aorms::specs());
         v.extend(takeoff::specs());
