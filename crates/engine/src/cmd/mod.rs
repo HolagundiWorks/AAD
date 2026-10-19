@@ -29,6 +29,7 @@ mod mleader_content;
 mod modify;
 pub(crate) mod modify2;
 mod mtext_opts;
+mod param;
 mod pline_opts;
 pub(crate) mod project;
 mod projfile;
@@ -211,6 +212,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(schedule::specs());
         v.extend(electrical::specs());
         v.extend(walls::specs());
+        v.extend(param::specs());
         v.extend(structure::specs());
         v.extend(symbols::specs());
         v.extend(bridge::specs());

@@ -506,6 +506,8 @@ pub struct Session {
     pub plot_request: Option<PlotRequest>,
     /// Address of a connected `shilpid` (`vdb.connect`), e.g. `127.0.0.1:7420`.
     pub vdb_addr: Option<String>,
+    /// Node results of the last parametric evaluation (`param.*`); disposable, never saved.
+    pub param_cache: aad_param::Cache,
 }
 
 impl Default for Session {
@@ -547,6 +549,7 @@ impl Session {
             aorms: cmd::aorms::AormsState::default(),
             plot_request: None,
             vdb_addr: None,
+            param_cache: aad_param::Cache::default(),
         }
     }
     pub fn new_drawing(&mut self, metric: bool) -> usize {

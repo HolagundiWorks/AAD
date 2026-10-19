@@ -5,12 +5,13 @@ architectural and civil work. It is a Windows-only program for now: macOS, Linux
 [docs/status.md](docs/status.md) (what exists and what is only planned).
 
 ## Scope: 2D only
-3D features, parametric constraints and mechanical-engineering commands are out of scope and have
-been removed (see [docs/status.md](docs/status.md)). DXF import projects 3D polylines and 3D faces onto
-XY, skips meshes, flattens every entity, and reports 3D solids it cannot flatten
-([docs/maintenance.md](docs/maintenance.md)). Points keep a `z` field for DXF round-trip fidelity; do
-not add 3D behaviour or mechanical features. Keep the general drafting, annotation, layer, block,
-hatch, layout and plot commands.
+3D features, CAD parametric constraints (solver-based) and mechanical-engineering commands are out
+of scope and have been removed (see [docs/status.md](docs/status.md)). A Grasshopper-style parametric
+graph for walls and take-off exists separately ([docs/parametric.md](docs/parametric.md)); do not
+add a constraint solver. DXF import projects 3D polylines and 3D faces onto XY, skips meshes,
+flattens every entity, and reports 3D solids it cannot flatten ([docs/maintenance.md](docs/maintenance.md)).
+Points keep a `z` field for DXF round-trip fidelity; do not add 3D behaviour or mechanical features.
+Keep the general drafting, annotation, layer, block, hatch, layout and plot commands.
 
 ## Never crash
 A crash loses someone's drawing. **This outranks feature work.**
@@ -28,7 +29,7 @@ A crash loses someone's drawing. **This outranks feature work.**
 - **Fonts** are never committed. They are an optional build input (`CRAFT_FONTS_DIR`); code and tests must work without them.
 - **Everything is a command.** User-visible behaviour is a command in `crates/engine/src/cmd/*` (`CommandSpec`: id, label, menu path, shortcut, aliases, params doc, `enabled`, JSON `run`, optional `interactive` prompt machine) with tests. UI-only commands live in `crates/ui-egui/src/menus.rs` (`UI_COMMANDS`). The command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools reach the same commands. New features reuse existing commands where possible.
 - **Programmatic calls never open dialogs.** `engine.execute` runs the JSON form with defaults; only menu or toolbar invocation starts the prompt sequence.
-- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, `dxf` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `host`, `mcp`, `agent` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. The UI crate is swappable. `aad-host` may use wgpu. The C# shell calls only that ABI.
+- **Layering** is enforced by `cargo xtask layers`: L0 `geom`, standalone `dxf` / `dwg` / `vdb` / `param` / `llm` → L1 `color`, `doc` → L2 `fonts`, `render` → L3 `io` → L4 `engine` → L5 `ui-egui`, `host`, `mcp`, `agent` → apps. Nothing below L5 depends on egui/eframe/winit/wgpu/rfd. The UI crate is swappable. `aad-host` may use wgpu. The C# shell calls only that ABI.
 - **The UI is thin:** panels read engine state and act through `app.run(id, params)`, `app.start(id)` and `app.cmdline(text)`. Colours come from `theme::Tokens`; there are two palettes (dark with a black drawing area, light with a white one) and no other colour customisation.
 - **The AI never calculates or repairs.** The model only proposes calls to allow-listed tools; geometry, repairs and quantities come from deterministic engine commands ([docs/ai-agent.md](docs/ai-agent.md)).
 - **The engine stays Rust.** The Windows shell may be C# in `apps/aad-winui`, calling `aad-host`. No handwritten JS/TS. The wasm check (`cargo xtask wasm`) stays in CI. The WinUI shell is Windows-only; do not add engine features that only build there.

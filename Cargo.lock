@@ -98,6 +98,8 @@ dependencies = [
  "aad-doc",
  "aad-fonts",
  "aad-geom",
+ "aad-io",
+ "aad-param",
  "aad-render",
  "aad-vdb",
  "criterion",
@@ -180,6 +182,15 @@ dependencies = [
  "aad-render",
  "log",
  "serde_json",
+]
+
+[[package]]
+name = "aad-param"
+version = "0.6.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

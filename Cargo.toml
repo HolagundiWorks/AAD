@@ -29,6 +29,7 @@ aad-mcp = { path = "crates/mcp" }
 aad-agent = { path = "crates/agent" }
 aad-llm = { path = "crates/llm" }
 aad-vdb = { path = "crates/vdb" }
+aad-param = { path = "crates/param" }
 
 # foundation
 thiserror = "2"

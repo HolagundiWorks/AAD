@@ -20,6 +20,7 @@ aad-fonts = { workspace = true }
 aad-render = { workspace = true }
 aad-aorms = { workspace = true }
 aad-vdb = { workspace = true }
+aad-param = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -28,6 +29,7 @@ log = { workspace = true }
 rstar = { version = "0.12", default-features = false }
 
 [dev-dependencies]
+aad-io = { workspace = true }
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 proptest = "1"
 tempfile = "3"

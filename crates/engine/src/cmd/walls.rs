@@ -19,7 +19,7 @@ use super::*;
 use crate::annot::{self as ua};
 use crate::{Result, Session};
 
-const WALL: &str = "A-WALL";
+pub(crate) const WALL: &str = "A-WALL";
 const DOOR: &str = "A-DOOR";
 const WINDOW: &str = "A-WIND";
 const DEDUCT: &str = "MEASURE-DEDUCT";
@@ -59,7 +59,7 @@ fn normal(a: Vec2, b: Vec2) -> Vec2 {
 }
 
 /// The offset of a centre line by `h` to the left (negative: right), with mitred corners.
-fn offset_path(pts: &[Vec2], closed: bool, h: f64) -> Vec<Vec2> {
+pub(crate) fn offset_path(pts: &[Vec2], closed: bool, h: f64) -> Vec<Vec2> {
     let n = pts.len();
     let mut out = Vec::new();
     for i in 0..n {

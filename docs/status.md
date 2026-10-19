@@ -2,9 +2,10 @@
 
 This page separates what exists (and is tested) from what is only planned. If a feature is not in
 the first table it is not implemented. Scope: 2D drafting for architecture and civil work.
-Out of scope and removed: 3D modelling and viewing, parametric constraints, and
-mechanical-engineering commands (mass properties, ordinate and arc-length dimensions, centre
-marks, isometric drafting).
+Out of scope and removed: 3D modelling and viewing, CAD parametric constraints (solver-based
+dimensional), and mechanical-engineering commands (mass properties, ordinate and arc-length
+dimensions, centre marks, isometric drafting). A separate Grasshopper-style parametric graph for
+architectural walls and take-off is implemented; see [parametric.md](parametric.md).
 
 ## Implemented
 
@@ -20,6 +21,7 @@ marks, isometric drafting).
 | Architecture: layers and rooms | `hcwlayers` (HCW and building-permission layer sets), `room` (room labels with area), `rarea` ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Architecture: text tools | `fixtxt`, `fixtxth` (uniform height, no overlap), `txtalign`, `txtdup`, `txtaudit`, `txtexport` (CSV), `txtinc` (copy and count up a numbered label); ported from the HCW AutoLISP toolkit ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Architecture: walls and openings | `wall.draw` (mitred faces and end caps), `wall.door`, `wall.window` (cut the wall lines, place a block that carries a deduction line, link the schedule entry), `wall.clean` |
+| Parametric walls (graph engine) | Standalone crate `aad-param`: typed nodes and ports, units, formulas, cycle detection, incremental evaluation and cache, wall component schema `osas.wall` v1. Engine commands `param.graph`, `param.library`, `param.wall.new`, `param.set`, `param.evaluate`, `param.commit`, `param.status`, `param.detach`, `param.deps`, `param.takeoff`. Graph and links in drawing project data (`parametric`); preview does not change the drawing; commit writes `A-WALL` faces (one undo step), refuses stale revisions and hand-edited lines unless `force`. Linked walls feed `bridge.export` / `takeoff.record` as measured facts with `thickness_mm` and provenance. No node editor UI yet. [parametric.md](parametric.md). O-CoreOp hand-off: [HANDOFF-O-COREOP-PARAMETRIC-TAKEOFF.md](HANDOFF-O-COREOP-PARAMETRIC-TAKEOFF.md) |
 | Architecture: structure | `grid.axis`, `column.place`, `column.schedule`, `lintel.draw`, `stair.plan` (straight or dogleg, risers, goings, concrete volume), `lift.shaft`, `rail.draw` |
 | Architecture: levels and symbols | `level.mark`, `level.schedule`, `section.marker`, `elevation.marker`, `north.arrow`, `slope.arrow` |
 | Project data | `project`, `floors`, `beams`, `levels`: kept in the drawing (DXF extension data `AAD_PROJECT`) and restored on open |
@@ -56,6 +58,7 @@ marks, isometric drafting).
 | Result tables and highlighting; retrieval | [ai-agent.md](ai-agent.md) |
 | Remaining hcwCAD-KIT tools | Drawing tools (`INCARRAY`, `DGRID`, `AUTOLABEL`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Agent tools for take-off and schedules | The engine commands exist; the agent registry does not expose them yet ([ai-agent.md](ai-agent.md)) |
+| Parametric node editor and more components | WinUI/egui graph editor; ShilpiDB-hosted component library; columns, beams and slabs; async evaluation ABI ([parametric.md](parametric.md)) |
 | Xref and floor-project interface | Floor selector in the toolbar, setup wizard dialog, Floor View Manager, opening-block generation and reconciliation ([projects.md](projects.md)) |
 | Panels for Opening Schedule, Drawing Explorer, Xrefs, Measurement and Project Navigator; guarding block-definition edits against locked layers; export and import of drawing spaces | [ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md), section 4 |
 | Conversion of 3D solids, surfaces and meshes | They are kept as raw data and reported on import, not converted |

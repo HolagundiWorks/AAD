@@ -6,8 +6,9 @@
 //! opening schedule and the door and window blocks placed in the drawing, and the saved take-off
 //! results for walls, columns, lintels and slabs, and the rooms. Rows carry a `ref` made from the
 //! entity handle they were measured from, so it is the same on every run. Take-off sections that
-//! were never run are reported, not guessed. Not exported: wall thickness (the take-off measures
-//! centre lines).
+//! were never run are reported, not guessed. Brick take-off walls carry no thickness (the take-off
+//! measures centre lines); walls committed from the parametric graph (`param.commit`) carry
+//! `thickness_mm` and a `ref` made from their instance id.
 //!
 //! `bridge.import` reads AQC's file. It never changes geometry. Without `apply` it only reports what
 //! would change; with `apply` it updates the project data. A project field already filled in is
@@ -395,24 +396,38 @@ pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
 
     // Walls from the brick take-off.
     let mut walls = Vec::new();
-    match saved(d, "Bricks") {
-        Some(t) => {
-            let (lf, _) = factors(&t);
-            for it in t["items"].as_array().into_iter().flatten() {
-                let (Some(mark), Some(len)) = (it["mark"].as_str(), it["length"].as_f64()) else { continue };
-                let layer = if it["group"].as_str().is_some_and(|g| g.starts_with("HB")) { "MEASURE-HALFBRICK" } else { "MEASURE-FULLBRICK" };
-                let handle = stable_handle(it);
-                let wall_ref = handle.map_or_else(|| mark.to_string(), |h| format!("W{}", h.hex()));
-                let row = json!({ "ref": wall_ref, "level": level, "length_mm": mm(len * lf), "height_mm": mm(ceiling_mm), "layer": layer });
-                if let Some(h) = handle {
-                    items.push(Item { kind: KIND_WALL, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
-                } else {
-                    unstable += 1;
-                }
-                walls.push(row);
+    if let Some(t) = saved(d, "Bricks") {
+        let (lf, _) = factors(&t);
+        for it in t["items"].as_array().into_iter().flatten() {
+            let (Some(mark), Some(len)) = (it["mark"].as_str(), it["length"].as_f64()) else { continue };
+            let layer = if it["group"].as_str().is_some_and(|g| g.starts_with("HB")) { "MEASURE-HALFBRICK" } else { "MEASURE-FULLBRICK" };
+            let handle = stable_handle(it);
+            let wall_ref = handle.map_or_else(|| mark.to_string(), |h| format!("W{}", h.hex()));
+            let row = json!({ "ref": wall_ref, "level": level, "length_mm": mm(len * lf), "height_mm": mm(ceiling_mm), "layer": layer });
+            if let Some(h) = handle {
+                items.push(Item { kind: KIND_WALL, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
+            } else {
+                unstable += 1;
             }
+            walls.push(row);
         }
-        None => warnings.push("no saved brick take-off: run `takeoff.brick` to include walls".into()),
+    }
+    // Walls committed from the parametric graph.
+    let (param_walls, param_warnings) = super::param::takeoff_walls(d, &level);
+    warnings.extend(param_warnings);
+    if walls.is_empty() && param_walls.is_empty() {
+        warnings.push("no saved brick take-off: run `takeoff.brick` to include walls".into());
+    }
+    for w in param_walls {
+        let Some(first) = w.handles.first() else { continue };
+        let bbox = w
+            .handles
+            .iter()
+            .map(|h| box_mm(d, Some(*h), unit_mm))
+            .filter(|b| b.iter().any(|v| *v != 0.0))
+            .fold(None, |acc: Option<[f64; 4]>, b| Some(acc.map_or(b, |a| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])));
+        items.push(Item { kind: KIND_WALL, n: number_of(*first), row: w.row.clone(), bbox: bbox.unwrap_or([0.0; 4]) });
+        walls.push(w.row);
     }
     root.insert("walls".into(), Value::Array(walls.clone()));
 

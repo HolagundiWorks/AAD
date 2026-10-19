@@ -13,6 +13,7 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 | L0 | `geom` | f64 vectors and matrices, bounds, lines, arcs and bulges, circles, ellipses, B-splines, intersections, tessellation, planar region tracing for HATCH and BOUNDARY |
 | L0 | `dxf` | Standalone DXF tag reader and writer (ASCII and binary), tag-count limits for hostile input |
 | L0 | `vdb` | O-Draft `.vdb` store on [ShilpiDB](https://github.com/HolagundiWorks/shilpidb): embedded codec + `SpatialGrid`, and `VdbClient` for `shilpid` ([aadt-shilpidb-architecture.md](architecture/aadt-shilpidb-architecture.md)) |
+| L0 | `param` | Standalone parametric graph: typed nodes and ports, units, formulas, validation, incremental evaluation. No drawing I/O ([parametric.md](parametric.md)) |
 | L1 | `color` | Colour index table, true colour, ByLayer and ByBlock, display colour against the background |
 | L1 | `doc` | The drawing database: header, symbol tables, blocks, model space, layouts; copy-on-write `EntityStore`; hatch pattern and linetype library (`library.rs`) |
 | L2 | `fonts` | Single-stroke drafting font, TrueType/OpenType outlines through `skrifa`, text and MTEXT layout, font fallback |
@@ -20,7 +21,7 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 | L3 | `io` | DXF to document mapping (`dxf_read.rs`, `dxf_write.rs`, O-Draft extension data in `dxf_ext.rs`), PDF plotting, SVG and PNG export |
 | L3 | `dwg` | DWG through a DXF bridge: the `acadrust` crate (MPL-2.0, unmodified) converts DWG and DXF bytes; native builds only. The apps run the conversion in a worker process (`isolated.rs`) so a damaged file cannot abort the program |
 | standalone | `llm` | Offline language-model runtime facade (Qwen3 prompt format, model file check). The llama.cpp backend is the off-by-default `llama` feature (`aad-host` / `aad` / `aad-cli` `--features assistant`) ([ai-agent.md](ai-agent.md)) |
-| L4 | `engine` | `Session`, the command registry (`cmd/*`), command-line parser and prompt machines, object snaps, selection, grips, associativity, system variables, units, undo, audit (`audit.rs`), flatten on import (`flatten.rs`) |
+| L4 | `engine` | `Session` (including disposable `param_cache`), the command registry (`cmd/*`, including `param.*`), command-line parser and prompt machines, object snaps, selection, grips, associativity, system variables, units, undo, audit (`audit.rs`), flatten on import (`flatten.rs`) |
 | L5 | `ui-egui` | The egui front end: GPU canvas, menus, command line, palettes, dialogs, icons drawn in code, light/dark theme, interface string catalog. Used by `aad --egui`, the control channel, the assistant and the web build |
 | L5 | `host` | Windows shell host: a session, the shared canvas mesh, pointer clicks, pan, wheel, snaps, grips, dynamic input, the registry menu, the command line, form descriptions, a revision-tagged properties/layers/blocks snapshot, the last command result, the assistant step machine (it may call `agent`; `agent` does not call `host`), a loopback JSON control channel for the engine methods, and the C ABI `apps/aad-winui` calls. The drawing is a Win32 child because wgpu 30 has no SwapChainPanel surface |
 | L5 | `mcp` | MCP server (JSON-RPC 2.0 over stdio) on a headless session or bridged to a running app |
@@ -49,8 +50,8 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 
 Every user-visible action is a `CommandSpec` (`crates/engine/src/cmd/mod.rs`): id (the command name
 in lower case), label, menu path, shortcut, aliases, a JSON `run`, an `enabled` check and an
-optional interactive prompt machine. There are 351 engine commands (135 with interactive prompts;
-`aad-cli commands` lists them) and 47 UI-only commands in `crates/ui-egui/src/menus.rs`. The
+optional interactive prompt machine. Count with `aad-cli commands` (includes `param.*`; see
+[parametric.md](parametric.md)). UI-only commands live in `crates/ui-egui/src/menus.rs`. The
 command line, menus, toolbar, tool sets, scripts, CLI, control channel, MCP and the agent tools all
 reach the same commands. JSON calls never open dialogs.
 

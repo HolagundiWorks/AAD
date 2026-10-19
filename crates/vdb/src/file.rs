@@ -45,11 +45,7 @@ pub struct VdbStore {
 impl VdbStore {
     /// Empty store (current write format).
     pub fn new() -> Self {
-        Self {
-            records: Vec::new(),
-            grid: SpatialGrid::build(Vec::new()),
-            format_version: FORMAT_VERSION,
-        }
+        Self { records: Vec::new(), grid: SpatialGrid::build(Vec::new()), format_version: FORMAT_VERSION }
     }
 
     /// Build from records (reindexes). Rejects oversized collections or payloads.
@@ -66,11 +62,7 @@ impl VdbStore {
             }
         }
         let boxes: Vec<(u64, Bbox)> = records.iter().map(|r| (r.id, r.bbox)).collect();
-        Ok(Self {
-            grid: SpatialGrid::build(boxes),
-            records,
-            format_version: FORMAT_VERSION,
-        })
+        Ok(Self { grid: SpatialGrid::build(boxes), records, format_version: FORMAT_VERSION })
     }
 
     pub fn len(&self) -> usize {
@@ -133,7 +125,7 @@ pub fn load_bytes(bytes: &[u8]) -> Result<VdbStore, Error> {
         return Err(Error::NotVdb);
     }
     let version = r.u32().map_err(Error::Codec)?;
-    if version < MIN_FORMAT_VERSION || version > FORMAT_VERSION {
+    if !(MIN_FORMAT_VERSION..=FORMAT_VERSION).contains(&version) {
         return Err(Error::UnsupportedVersion(version));
     }
     let count = r.u32().map_err(Error::Codec)? as usize;
@@ -269,31 +261,15 @@ mod tests {
         w.u32(FORMAT_VERSION);
         w.u32(u32::try_from(MAX_RECORDS + 1).expect("count fits u32"));
         let bytes = w.into_bytes();
-        assert!(matches!(
-            load_bytes(&bytes),
-            Err(Error::TooManyRecords { .. })
-        ));
+        assert!(matches!(load_bytes(&bytes), Err(Error::TooManyRecords { .. })));
     }
 
     #[test]
     fn rejects_nan_bbox_on_build_and_load() {
         // Build a NaN box without `Bbox::from_corners` (that API drops NaNs via f64::min/max).
-        let nan_rec = VdbRecord {
-            id: 1,
-            bbox: Bbox {
-                min: Point::new(f64::NAN, 0.0),
-                max: Point::new(1.0, 1.0),
-            },
-            payload: b"x".to_vec(),
-        };
-        assert!(matches!(
-            VdbStore::from_records(vec![nan_rec]),
-            Err(Error::BadBbox(1))
-        ));
-        assert!(matches!(
-            VdbStore::from_records(vec![rec(2, 0.0, 0.0, f64::INFINITY, 1.0, b"x")]),
-            Err(Error::BadBbox(2))
-        ));
+        let nan_rec = VdbRecord { id: 1, bbox: Bbox { min: Point::new(f64::NAN, 0.0), max: Point::new(1.0, 1.0) }, payload: b"x".to_vec() };
+        assert!(matches!(VdbStore::from_records(vec![nan_rec]), Err(Error::BadBbox(1))));
+        assert!(matches!(VdbStore::from_records(vec![rec(2, 0.0, 0.0, f64::INFINITY, 1.0, b"x")]), Err(Error::BadBbox(2))));
 
         let mut w = Writer::new();
         w.raw(MAGIC);
@@ -323,10 +299,7 @@ mod tests {
         w.f64(1.0);
         w.u32(u32::try_from(MAX_PAYLOAD + 1).expect("len fits u32"));
         let bytes = w.into_bytes();
-        assert!(matches!(
-            load_bytes(&bytes),
-            Err(Error::PayloadTooLarge { .. })
-        ));
+        assert!(matches!(load_bytes(&bytes), Err(Error::PayloadTooLarge { .. })));
     }
 
     #[test]

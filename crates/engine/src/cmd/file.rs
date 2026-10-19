@@ -417,10 +417,10 @@ fn save_reporting(s: &mut Session, p: &Value, run: fn(&mut Session, &Value) -> R
 fn after_save(s: &mut Session, r: &mut Value, lost: &std::collections::BTreeMap<String, usize>) {
     if r.get("path").and_then(Value::as_str).is_some_and(is_drawing_file) {
         report_not_saved(s, r, lost);
-        if let Some(path) = r.get("path").and_then(Value::as_str) {
-            if let Err(e) = super::vdb::write_sidecar_if_enabled(s, std::path::Path::new(path)) {
-                s.echo(format!("ShilpiDB sidecar: {e}"));
-            }
+        if let Some(path) = r.get("path").and_then(Value::as_str)
+            && let Err(e) = super::vdb::write_sidecar_if_enabled(s, std::path::Path::new(path))
+        {
+            s.echo(format!("ShilpiDB sidecar: {e}"));
         }
     }
 }

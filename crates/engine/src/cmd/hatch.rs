@@ -276,9 +276,7 @@ fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
     // Only hatch objects are edited; other picks are skipped.
     let hatch_hs: Vec<Handle> = {
         let d = s.doc()?;
-        hs.into_iter()
-            .filter(|h| d.entity(*h).is_some_and(|e| matches!(e.kind, EntityKind::Hatch(_))))
-            .collect()
+        hs.into_iter().filter(|h| d.entity(*h).is_some_and(|e| matches!(e.kind, EntityKind::Hatch(_)))).collect()
     };
     if hatch_hs.is_empty() {
         return Err(bad("hatchedit", "select one or more hatch objects"));
@@ -301,10 +299,8 @@ fn run_hatchedit(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn run_hatch_patterns(s: &mut Session, _p: &Value) -> Result<Value> {
     let d = s.doc()?;
-    let patterns: Vec<Value> = aad_doc::library::standard_patterns()
-        .into_iter()
-        .map(|pat| json!({ "name": pat.name, "description": pat.description }))
-        .collect();
+    let patterns: Vec<Value> =
+        aad_doc::library::standard_patterns().into_iter().map(|pat| json!({ "name": pat.name, "description": pat.description })).collect();
     Ok(json!({
         "patterns": patterns,
         "defaults": {

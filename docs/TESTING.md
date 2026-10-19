@@ -143,6 +143,7 @@ treat them as unverified until the first run is green.
 |---|---|
 | `crates/engine/tests/layer_protection.rs` | 22 editing calls, by handle and by selection, on a locked and on a frozen layer change nothing; the same calls work on an unlocked drawing (so "refused" is not a bad call); drawing on a locked layer is refused |
 | `crates/engine/tests/drawing_space.rs` | independent visible/frozen/locked, switching back and forth restores states, geometry untouched, protection after activation, dirty status, rename/delete/new layers, current-layer rules, undo, validation, hostile parameters, floors |
+| `crates/param` (unit) and `crates/engine/tests/param.rs` | Graph units/formulas/cycles/cache; wall preview → commit → undo; stale detection; hostile params; DXF round-trip; bridge take-off rows ([parametric.md](parametric.md)) |
 | `apps/aad-cli/tests/drawing_space_file.rs` | spaces and layer states survive a DXF save and reopen, and still protect |
 | `crates/ui-egui/tests/context_bar.rs` | both workspaces show the bar; layer, floor and space selectors by clicks; editor saves the saved space only; large changes ask first |
 | `crates/ui-egui/tests/workspace_modes.rs` | per-mode arrangement, pin and toolbar state; reset; broken saved slot; tab switching leaves selection and command state alone |

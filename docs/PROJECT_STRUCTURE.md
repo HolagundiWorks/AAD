@@ -2,14 +2,14 @@
 
 Where things are. For what the crates do and how they fit together read
 [ARCHITECTURE.md](ARCHITECTURE.md). Only significant directories are listed. Counts are tracked
-files on `main` on 2026-10-18.
+files on `main` on 2026-10-19.
 
 ## Top level
 
 | Path | Purpose |
 |---|---|
 | `Cargo.toml`, `Cargo.lock` | Workspace definition (members `crates/*`, `apps/*`, `xtask`), shared version, profiles. The lockfile is committed and `cargo build --locked` is used for packaging |
-| `crates/` | The 16 library crates |
+| `crates/` | The 17 library crates |
 | `apps/` | `aad` (desktop app, shipped as `o-draft.exe`), `aad-cli` (command-line tool, MCP), `aad-web` (WASM build, compile-checked only), `aad-winui` (C# WinUI shell, `ODraft.WinUi.exe`; excluded from the Cargo workspace) |
 | `xtask/` | Repository tasks: `cargo xtask ci`, `layers`, `assets`, `wasm`, `parity`, `version`, `logo`, `stats`, `licenses`. `xtask/data/menu-catalog.txt` is the menu-name list used by `parity` |
 | `docs/` | Documentation (index in [README.md](../README.md)) |
@@ -38,12 +38,13 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 | `render` | display lists, rasteriser; `tests/` (16 files), `benches/render.rs` |
 | `io` | `dxf_read.rs`, `dxf_write.rs`, `dxf_ext.rs`, PDF/SVG/PNG export; `tests/` (18 files, includes `mutation_robustness.rs`); `benches/dxf.rs` |
 | `dwg` | `lib.rs` (bridge to `acadrust`), `isolated.rs` (worker process) |
-| `engine` | `src/lib.rs` (`Session`), `cmd/` (commands, 60 files plus subfolders `blocks/`, `layer/`, `layout/`, `props/`), `snap.rs` and `snap/`, `select.rs`, `spatial.rs`, `finite.rs`, `guard.rs`, `flatten.rs`, `audit.rs`, `assoc.rs`; `tests/` (88 files); `benches/` |
+| `engine` | `src/lib.rs` (`Session`, including `param_cache`), `cmd/` (commands, 62 files plus subfolders `blocks/`, `layer/`, `layout/`, `props/`; includes `param.rs`), `snap.rs` and `snap/`, `select.rs`, `spatial.rs`, `finite.rs`, `guard.rs`, `flatten.rs`, `audit.rs`, `assoc.rs`; `tests/` (91 files, includes `param.rs`); `benches/` |
 | `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code); `tests/` (22 files) |
 | `aad-host` | C ABI, registry menu, command line, pointer input, and Win32 child window for the WinUI shell. `apps/aad-winui` is the C# project and is excluded from the Cargo workspace |
 | `mcp`, `agent`, `llm` | MCP server, allow-listed tool layer, model runtime facade |
 | `aorms` | AORMS sign-in client and project calls (network, kept off the UI thread) |
 | `vdb` (`aad-vdb`) | `.vdb` store on ShilpiDB: `file.rs` (embedded codec and `SpatialGrid`), `client.rs` (`VdbClient` for a running `shilpid`). A library, not a program; the engine commands `vdb.export`, `vdb.info` and `vdb.query` use it |
+| `param` (`aad-param`) | Parametric graph engine: `graph.rs`, `nodes.rs`, `schema.rs`, `units.rs`, `formula.rs`, `eval.rs`, `template.rs`; no drawing I/O. Engine `param.*` commands commit walls and take-off facts ([parametric.md](parametric.md)) |
 
 ## Entry points
 
@@ -51,6 +52,7 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 |---|---|
 | `aad` (shipped as `o-draft.exe`) | `apps/aad/src/main.rs` (the DWG worker mode is handled first in `main`). On Windows the default binary only starts `ODraft.WinUi.exe` (or the older `Aad.WinUi.exe`) beside it or under `target/aad-winui`, and does not link eframe; `--features egui` plus `--egui` is the optional egui shell. Non-Windows always links egui/eframe |
 | `aad-vdb` | `crates/vdb` — ShilpiDB-backed `.vdb` file (format v2) + `VdbClient`; engine commands `vdb.export` / `import` / `info` / `query` / `connect` / `disconnect` / `push` / `pull` / `sidecar` / `status` |
+| `aad-param` | `crates/param` — parametric graph library; engine commands `param.*` ([parametric.md](parametric.md)) |
 | `ODraft.WinUi.exe` | `apps/aad-winui` (C#, not a Cargo member; assembly `ODraft.WinUi`, namespace `Aad.WinUi`) |
 | `aad-cli` | `apps/aad-cli/src/main.rs` |
 | `aad-web` | `apps/aad-web/src/main.rs` (WASM) |

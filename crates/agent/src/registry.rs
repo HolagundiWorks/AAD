@@ -267,10 +267,7 @@ pub fn registry() -> Vec<ToolDef> {
                 })
             },
             risk: |_| Risk::Open,
-            summary: |a| format!(
-                "Connect ShilpiDB {}",
-                a.get("addr").and_then(Value::as_str).unwrap_or("127.0.0.1:7420")
-            ),
+            summary: |a| format!("Connect ShilpiDB {}", a.get("addr").and_then(Value::as_str).unwrap_or("127.0.0.1:7420")),
             run: |s, a| exec(s, "vdb.connect", Value::Object(a.clone())),
         },
         ToolDef {

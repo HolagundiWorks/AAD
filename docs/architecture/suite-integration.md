@@ -34,7 +34,8 @@ changes the drawing it came from; imported text and tool results are data, not i
 | Typed agent tools with schema validation, risk classes, confirmation and an audit log | `crates/agent` | Implemented for O-Draft's own tools. Quantity take-off tools are reserved but not registered (`agent::PLANNED`) |
 | AORMS sign-in shared with AQC (contract `2026-10-aqc-1`), project pull | `crates/aorms`, `engine/src/cmd/aorms.rs` | Implemented and unit-tested against a scripted server. The credential store on Windows and two apps refreshing at once are **not verified** |
 | Quantity take-off from drawn geometry, rates, bill, opening schedule | `takeoff.*`, `schedule`, `openings.*` ([hcw-kit-port.md](../hcw-kit-port.md)) | Implemented; reads `MEASURE-*` layers |
-| Hand-off to and from AQC | `bridge.export`, `bridge.import`; file `hcw-aqc-bridge` version 1, millimetres, beside the drawing as `name.aqc.json` | Implemented. Import previews first and never changes geometry. Rooms are not exported |
+| Parametric wall graph → measured facts | `aad-param`, `param.*` ([parametric.md](../parametric.md)) | Implemented (Rust evaluate/commit/undo; no node editor UI). Committed walls feed `bridge.export` / `takeoff.record` |
+| Hand-off to and from AQC | `bridge.export`, `bridge.import`; file `hcw-aqc-bridge` version 1, millimetres, beside the drawing as `name.aqc.json` | Implemented. Import previews first and never changes geometry. Rooms are not exported. Wall rows may come from brick take-off and/or parametric commit |
 | Spatial index and ShilpiDB exchange | `aad-vdb`, `vdb.*` | Implemented; see [aadt-shilpidb-architecture.md](aadt-shilpidb-architecture.md) |
 | Spatial AI tools (overview, window, nearest, describe) | `crates/agent` | Implemented |
 | Drawing-level change record (revision, checksum) | `revision.rs`, `drawing.revision`, `<file>.aadrev.json` | Implemented |

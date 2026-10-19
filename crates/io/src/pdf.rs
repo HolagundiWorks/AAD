@@ -144,9 +144,7 @@ pub fn pdf(d: &Drawing, space: &Space, o: &PdfOptions) -> Result<Vec<u8>> {
     let k = unit_mm * PT_PER_MM;
     let window = o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty());
     let fit = window.is_some() || o.fit.unwrap_or(page.scale_to_fit || matches!(space, Space::Model));
-    let scale = o.scale.filter(|s| s.is_finite() && *s > 0.0).or_else(|| {
-        (!fit && page.scale.is_finite() && page.scale > 0.0).then_some(page.scale)
-    });
+    let scale = o.scale.filter(|s| s.is_finite() && *s > 0.0).or_else(|| (!fit && page.scale.is_finite() && page.scale > 0.0).then_some(page.scale));
     // Chord tolerance: about 0.05 mm on paper.
     let est = plot_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, fit, scale);
     let tol = 0.05 / unit_mm / est.max(1e-300);

@@ -28,14 +28,23 @@ reachable from scripts, the control channel and MCP).
 | `(kind << 56) \| n` | One row: 3 wall, 4 opening, 5 column, 6 lintel, 7 room, 8 slab. The payload is the bridge row as written; the box is the item's bounds in millimetres (the room's box when one is drawn, else its name text; zeros when it has no geometry) |
 
 `n` is the entity handle of the measured thing: the measured line or polyline of a take-off row, the
-block insert of an opening, the room's name text. Each row's `ref` is a letter and that handle in hex
-(`W1A2`, `O3F`, `C41`, `L52`, `R6B`, `S77`), so the same thing gets the same `ref` and id every time,
-including after the take-off is run again. A saved take-off row without a handle keeps its old
-position-based `ref`, is not recorded, and the export warns about it.
+block insert of an opening, the room's name text, or the first face line of a committed parametric
+wall. Each row's `ref` is a letter and that handle in hex (`W1A2`, `O3F`, `C41`, `L52`, `R6B`,
+`S77`), or `PW-<instanceId>` for a parametric wall, so the same thing gets the same `ref` and id
+every time, including after the take-off is run again. A saved take-off row without a handle keeps
+its old position-based `ref`, is not recorded, and the export warns about it.
 
 Everything is millimetres, whatever the drawing units. A rectangular slab (four right angles, straight
 sides) also carries `length_mm`, `breadth_mm` and `"rectangular": true`; any other outline carries only
 `area_m2`. Only measured facts are recorded: no finishes, rates or costs.
+
+### Parametric walls
+
+Walls committed with `param.commit` are collected by the same `bridge.collect` step. Linked, current
+instances become wall rows with `thickness_mm`, `layer` `A-WALL` and `ref` `PW-<instanceId>`; stale
+and detached instances are left out with a warning. Brick take-off walls still omit thickness (they
+measure centre lines). Details: [parametric.md](parametric.md). Hand-off for the O-CoreOp team:
+[HANDOFF-O-COREOP-PARAMETRIC-TAKEOFF.md](HANDOFF-O-COREOP-PARAMETRIC-TAKEOFF.md).
 
 ## Tests
 

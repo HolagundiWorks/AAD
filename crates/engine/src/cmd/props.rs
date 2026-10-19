@@ -356,11 +356,7 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn run_matchprop(s: &mut Session, p: &Value) -> Result<Value> {
-    let src = p
-        .get("source")
-        .and_then(Value::as_str)
-        .and_then(aad_doc::Handle::parse_hex)
-        .ok_or_else(|| bad("matchprop", "`source` is required"))?;
+    let src = p.get("source").and_then(Value::as_str).and_then(aad_doc::Handle::parse_hex).ok_or_else(|| bad("matchprop", "`source` is required"))?;
     let tg: Vec<aad_doc::Handle> = p
         .get("targets")
         .and_then(Value::as_array)
@@ -449,11 +445,7 @@ impl crate::Interactive for MatchPropM {
         Ok(crate::Step::Continue)
     }
     fn prompt(&self, _s: &Session) -> crate::Prompt {
-        if self.source.is_none() {
-            crate::Prompt::new("Select source object", crate::Accept::SELECT)
-        } else {
-            self.targets.prompt()
-        }
+        if self.source.is_none() { crate::Prompt::new("Select source object", crate::Accept::SELECT) } else { self.targets.prompt() }
     }
     fn input(&mut self, s: &mut Session, i: crate::Input) -> crate::Result<crate::Step> {
         if self.source.is_none() {
