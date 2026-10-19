@@ -20,6 +20,10 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 miniz_oxide = "0.8"
 
+# Reads the vector paths of a PDF page for the underlay (MIT, pure Rust). Native only: its random-number dependency has no web backend.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lopdf = { version = "0.45", default-features = false }
+
 [dev-dependencies]
 criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 

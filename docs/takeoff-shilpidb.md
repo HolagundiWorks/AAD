@@ -89,7 +89,7 @@ Checked: `rows_carry_what_o_coreop_needs_to_use_them_without_guessing`; the fail
 
 ## Not done
 
-- **PDF underlay and calibration.** O-CoreOp's PDF panel is gone; O-Draft has no PDF underlay or scale
+- **PDF underlay and calibration**: built for vector PDFs, see [pdf-underlay.md](pdf-underlay.md); scanned PDFs are not supported. (Old text follows.) O-CoreOp's PDF panel is gone; O-Draft had no PDF underlay or scale
   calibration yet, so a project that only has PDF drawings cannot be measured. That is the next piece of work.
 - Not checked by O-CoreOp yet: the database with a real PDF and two drawings (O-Draft checked them itself, section "Rows O-CoreOp asked for").
 - The header's `levels` rows also carry `ceiling_mm` and `lintel_bottom_mm` from the bridge file; O-CoreOp ignores them.

@@ -47,6 +47,7 @@ mod symbols;
 mod library;
 mod takeoff;
 mod takeoffann;
+mod underlay;
 mod takeoffrec;
 mod texttools;
 mod trimextend;
@@ -212,6 +213,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(takeoffann::specs());
         v.extend(takeoffrec::specs());
     v.extend(library::specs());
+    v.extend(underlay::specs());
         v.extend(schedule::specs());
         v.extend(electrical::specs());
         v.extend(walls::specs());

@@ -7,6 +7,8 @@ mod dxf_image;
 mod dxf_read;
 mod dxf_write;
 pub mod pdf;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod pdfread;
 pub mod svg;
 
 use aad_doc::{Drawing, Space};

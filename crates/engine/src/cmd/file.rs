@@ -26,6 +26,20 @@ static IO: OnceLock<IoHooks> = OnceLock::new();
 pub fn set_io(h: IoHooks) {
     let _ = IO.set(h);
 }
+
+/// Read page `page` (from 1) of a PDF: `{pages, width_pt, height_pt, paths: [{pts, closed, filled, stroked, rgb, width_pt}], skipped, truncated}`.
+/// Optional, like the plotter: builds without a PDF reader report "not available".
+pub type PdfReadHook = fn(&[u8], u32) -> std::result::Result<Value, String>;
+
+static PDF_READ: OnceLock<PdfReadHook> = OnceLock::new();
+
+pub fn set_pdf_reader(h: PdfReadHook) {
+    let _ = PDF_READ.set(h);
+}
+
+pub fn pdf_reader() -> Option<PdfReadHook> {
+    PDF_READ.get().copied()
+}
 pub fn io() -> Option<&'static IoHooks> {
     IO.get()
 }

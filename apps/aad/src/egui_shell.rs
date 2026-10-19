@@ -72,6 +72,7 @@ pub fn install_io() {
         write: |d, name| aad_io::write(d, name).map_err(|e| e.to_string()),
         plot: Some(|d, space, opts| aad_io::plot(d, space, opts).map_err(|e| e.to_string())),
     });
+    aad_engine::cmd::file::set_pdf_reader(|bytes, page| aad_io::pdfread::read_page(bytes, page).map_err(|e| e.to_string()));
 }
 
 fn services() -> Services {

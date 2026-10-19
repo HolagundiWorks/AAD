@@ -27,7 +27,8 @@ fn house() -> Session {
     install_io();
     let mut s = Session::new();
     s.execute("drawing.units", &json!({"units": "mm", "mode": "metadata"})).unwrap();
-    s.execute("floors", &json!({"floors": [{"name": "Ground", "floorToFloor": 3.15, "ceiling": 3.0, "lintel": 2.1, "slab": 150, "beam": 450}]})).unwrap();
+    s.execute("floors", &json!({"floors": [{"name": "Ground", "floorToFloor": 3.15, "ceiling": 3.0, "lintel": 2.1, "slab": 150, "beam": 450}]}))
+        .unwrap();
     s.execute("openings.std", &json!({})).unwrap();
     s.execute("wall.draw", &json!({"points": [[0, 0], [9000, 0], [9000, 6000], [0, 6000], [0, 0]], "thickness": 230})).unwrap();
     s.execute("wall.door", &json!({"at": [2000, 0], "name": "D2", "width": 900})).unwrap();
