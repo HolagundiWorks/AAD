@@ -4,9 +4,10 @@
 //!
 //! `bridge.export` writes what the drawing knows: project details, floors, beam depths, the
 //! opening schedule and the door and window blocks placed in the drawing, and the saved take-off
-//! results for walls, columns, lintels and slabs. Take-off sections that were never run are
-//! reported, not guessed. Not exported: rooms (there is no room log yet) and wall thickness
-//! (the take-off measures centre lines).
+//! results for walls, columns, lintels and slabs, and the rooms. Rows carry a `ref` made from the
+//! entity handle they were measured from, so it is the same on every run. Take-off sections that
+//! were never run are reported, not guessed. Not exported: wall thickness (the take-off measures
+//! centre lines).
 //!
 //! `bridge.import` reads AQC's file. It never changes geometry. Without `apply` it only reports what
 //! would change; with `apply` it updates the project data. A project field already filled in is
@@ -121,7 +122,111 @@ fn factors(t: &Value) -> (f64, f64) {
     (len, area)
 }
 
+/// One measured thing: what kind it is, its stable number, the row as the bridge file carries it, and its box
+/// in millimetres in the drawing's coordinates (`[min x, min y, max x, max y]`; all zero when it has no geometry).
+pub(crate) struct Item {
+    pub kind: u8,
+    pub n: u64,
+    pub row: Value,
+    pub bbox: [f64; 4],
+}
+
+/// Everything `bridge.export` knows: the file's content as an object, what it could not include, and the rows with the
+/// numbers and boxes a ShilpiDB record needs.
+pub(crate) struct Collected {
+    pub root: Map<String, Value>,
+    pub warnings: Vec<String>,
+    pub drawing_id: String,
+    pub items: Vec<Item>,
+    pub counts: Value,
+}
+
+/// The kinds of ShilpiDB take-off record ([TAKEOFF-SHILPIDB.md] in the O-CoreOp repository).
+pub(crate) const KIND_WALL: u8 = 3;
+pub(crate) const KIND_OPENING: u8 = 4;
+pub(crate) const KIND_COLUMN: u8 = 5;
+pub(crate) const KIND_LINTEL: u8 = 6;
+pub(crate) const KIND_ROOM: u8 = 7;
+pub(crate) const KIND_SLAB: u8 = 8;
+
+/// The number of an item in its record id: the low 56 bits of the entity handle.
+fn number_of(h: aad_doc::Handle) -> u64 {
+    h.0 & 0x00FF_FFFF_FFFF_FFFF
+}
+
+/// The box of an entity in millimetres (`unit_mm` millimetres per drawing unit), or zeros.
+fn box_mm(d: &aad_doc::Drawing, h: Option<aad_doc::Handle>, unit_mm: f64) -> [f64; 4] {
+    let Some(e) = h.and_then(|h| d.entity(h)) else { return [0.0; 4] };
+    let b = aad_doc::entity_bounds(d, e, 0);
+    let v = [b.min.x * unit_mm, b.min.y * unit_mm, b.max.x * unit_mm, b.max.y * unit_mm];
+    if b.is_empty() || v.iter().any(|x| !x.is_finite()) { [0.0; 4] } else { [mm(v[0]), mm(v[1]), mm(v[2]), mm(v[3])] }
+}
+
+/// A rectangle's two spans in millimetres, when the outline is four right angles with straight sides.
+fn rectangle_spans_mm(d: &aad_doc::Drawing, h: aad_doc::Handle, unit_mm: f64) -> Option<(f64, f64)> {
+    let EntityKind::LwPolyline(pl) = &d.entity(h)?.kind else { return None };
+    let mut v: Vec<aad_geom::Vec2> = pl.vertices.iter().map(|p| p.p).collect();
+    if pl.vertices.iter().any(|p| p.bulge != 0.0) {
+        return None;
+    }
+    if v.len() == 5 && v.first() == v.last() {
+        v.pop();
+    }
+    if v.len() != 4 || !(pl.closed || pl.vertices.len() == 5) {
+        return None;
+    }
+    let side = |i: usize| (v[(i + 1) % 4] - v[i], v[(i + 1) % 4].dist(v[i]));
+    let (mut spans, mut right) = (Vec::new(), true);
+    for i in 0..4 {
+        let (a, la) = side(i);
+        let (b, lb) = side((i + 1) % 4);
+        if !(la.is_finite() && lb.is_finite()) || la <= 0.0 || lb <= 0.0 || (a.x * b.x + a.y * b.y).abs() > 1e-6 * la * lb {
+            right = false;
+        }
+        spans.push(la);
+    }
+    right.then(|| (spans[0].max(spans[1]) * unit_mm, spans[0].min(spans[1]) * unit_mm))
+}
+
 fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
+    let c = collect(s, p)?;
+    let (id, warnings) = (c.drawing_id, c.warnings);
+    let text = serde_json::to_string_pretty(&Value::Object(c.root)).map_err(|e| bad("bridge.export", e.to_string()))?;
+    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
+    let mut out = json!({
+        "json": text,
+        "drawingId": id,
+        "counts": c.counts,
+        "warnings": warnings,
+    });
+    #[cfg(target_arch = "wasm32")]
+    {
+        if str_param(p, "path").is_some() {
+            return Err(bad("bridge.export", "files cannot be written on the web; read `json` from the result"));
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        // Beside the saved drawing (`house.dxf` → `house.aqc.json`) unless `path` says otherwise or
+        // `write` is false.
+        let target = match str_param(p, "path") {
+            Some(t) => Some(std::path::PathBuf::from(t)),
+            None if bool_or(p, "write", true) => s.state()?.path.as_ref().map(|b| std::path::Path::new(b).with_extension("aqc.json")),
+            None => None,
+        };
+        if let Some(path) = target {
+            std::fs::write(&path, out["json"].as_str().unwrap_or(""))
+                .map_err(|e| bad("bridge.export", format!("cannot write `{}`: {e}", path.display())))?;
+            out["path"] = json!(path.display().to_string());
+            out["message"] = json!(format!("Exported for AQC: {}", path.display()));
+        }
+    }
+    Ok(out)
+}
+
+/// Collect what the drawing knows for the AQC hand-off: the bridge file's content and the rows with their
+/// stable numbers and boxes. `bridge.export` writes it as a file; `takeoff.record` writes it as ShilpiDB records.
+pub(crate) fn collect(s: &mut Session, p: &Value) -> Result<Collected> {
     let bearing = f64_or(p, "bearing", 150.0);
     if !(bearing.is_finite() && bearing > 0.0 && bearing < 2000.0) {
         return Err(bad("bridge.export", "`bearing` must be between 0 and 2000 mm"));
@@ -135,6 +240,9 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let d = s.doc()?;
+    // Millimetres in one drawing unit, for the boxes.
+    let unit_mm = super::hcw::drawing_units(d, "bridge.export", &Value::Null)?.metres() * 1000.0;
+    let mut items: Vec<Item> = Vec::new();
     let floors = project::floors(d);
     let level = str_param(p, "level")
         .map(str::to_string)
@@ -147,6 +255,8 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
         .and_then(|f| f["ceiling"].as_f64())
         .map_or(2850.0, |c| c * 1000.0);
     let mut warnings: Vec<String> = Vec::new();
+    // Take-off rows saved without an entity handle: their `ref` is a position, which can change when the take-off is run again.
+    let mut unstable = 0usize;
     let mut root = Map::new();
     root.insert("format".into(), json!(FORMAT));
     root.insert("version".into(), json!(1));
@@ -178,7 +288,10 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
     if rooms.is_empty() {
         warnings.push("no room labels: run `room` to include rooms".into());
     }
-    root.insert("rooms".into(), Value::Array(rooms));
+    for r in &rooms {
+        items.push(Item { kind: KIND_ROOM, n: number_of(r.handle), row: r.row.clone(), bbox: box_mm(d, r.outline.or(Some(r.handle)), unit_mm) });
+    }
+    root.insert("rooms".into(), Value::Array(rooms.iter().map(|r| r.row.clone()).collect()));
 
     // Project details.
     let details = project::get(d, "details");
@@ -235,7 +348,7 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
         if let EntityKind::Insert(i) = &e.kind {
             let b = i.block.to_ascii_uppercase();
             *counts_by_block.entry(b.clone()).or_insert(0) += 1;
-            inserts.push(b);
+            inserts.push((e.handle, b));
         }
     }
     let entry_of = |block: &str| -> Option<&Value> {
@@ -261,16 +374,17 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
         schedule_rows.push(row);
     }
     let mut opening_rows = Vec::new();
-    for b in &inserts {
+    for (handle, b) in &inserts {
         let Some(e) = entry_of(b) else { continue };
         let mut row = json!({
-            "ref": format!("O{:04}", opening_rows.len() + 1), "kind": kind_name(&text_of(e, "kind")), "mark": text_of(e, "name"), "level": level,
+            "ref": format!("O{}", handle.hex()), "kind": kind_name(&text_of(e, "kind")), "mark": text_of(e, "name"), "level": level,
             "width_mm": mm(e["length"].as_f64().unwrap_or(0.0) * 1000.0), "height_mm": mm(e["height"].as_f64().unwrap_or(0.0) * 1000.0),
             "sill_mm": mm(e["sill"].as_f64().unwrap_or(0.0) * 1000.0),
         });
         if !text_of(e, "type").is_empty() {
             row["type"] = json!(text_of(e, "type"));
         }
+        items.push(Item { kind: KIND_OPENING, n: number_of(*handle), row: row.clone(), bbox: box_mm(d, Some(*handle), unit_mm) });
         opening_rows.push(row);
     }
     if schedule_rows.is_empty() {
@@ -287,7 +401,15 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
             for it in t["items"].as_array().into_iter().flatten() {
                 let (Some(mark), Some(len)) = (it["mark"].as_str(), it["length"].as_f64()) else { continue };
                 let layer = if it["group"].as_str().is_some_and(|g| g.starts_with("HB")) { "MEASURE-HALFBRICK" } else { "MEASURE-FULLBRICK" };
-                walls.push(json!({ "ref": mark, "level": level, "length_mm": mm(len * lf), "height_mm": mm(ceiling_mm), "layer": layer }));
+                let handle = stable_handle(it);
+                let wall_ref = handle.map_or_else(|| mark.to_string(), |h| format!("W{}", h.hex()));
+                let row = json!({ "ref": wall_ref, "level": level, "length_mm": mm(len * lf), "height_mm": mm(ceiling_mm), "layer": layer });
+                if let Some(h) = handle {
+                    items.push(Item { kind: KIND_WALL, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
+                } else {
+                    unstable += 1;
+                }
+                walls.push(row);
             }
         }
         None => warnings.push("no saved brick take-off: run `takeoff.brick` to include walls".into()),
@@ -302,7 +424,15 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
             for (n, it) in t["items"].as_array().into_iter().flatten().enumerate() {
                 let (Some(mark), Some(l), Some(b)) = (it["mark"].as_str(), it["length"].as_f64(), it["breadth"].as_f64()) else { continue };
                 let (w, dep) = (l.min(b) * lf, l.max(b) * lf);
-                columns.push(json!({ "ref": format!("C{:04}", n + 1), "mark": mark, "level": level, "width_mm": mm(w), "depth_mm": mm(dep) }));
+                let handle = stable_handle(it);
+                let col_ref = handle.map_or_else(|| format!("C{:04}", n + 1), |h| format!("C{}", h.hex()));
+                let row = json!({ "ref": col_ref, "mark": mark, "level": level, "width_mm": mm(w), "depth_mm": mm(dep) });
+                if let Some(h) = handle {
+                    items.push(Item { kind: KIND_COLUMN, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
+                } else {
+                    unstable += 1;
+                }
+                columns.push(row);
             }
         }
         None => warnings.push("no saved column take-off: run `takeoff.columns` to include columns".into()),
@@ -324,10 +454,18 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
                     groups.push(group.to_string());
                     groups.len() - 1
                 });
-                lintels.push(json!({
-                    "ref": format!("L{:04}", lintels.len() + 1), "mark": format!("L{}", g + 1), "level": level,
+                let handle = stable_handle(it);
+                let lintel_ref = handle.map_or_else(|| format!("L{:04}", lintels.len() + 1), |h| format!("L{}", h.hex()));
+                let row = json!({
+                    "ref": lintel_ref, "mark": format!("L{}", g + 1), "level": level,
                     "opening_mm": mm((len * lf - 2.0 * bearing).max(0.0)), "bearing_mm": bearing,
-                }));
+                });
+                if let Some(h) = handle {
+                    items.push(Item { kind: KIND_LINTEL, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
+                } else {
+                    unstable += 1;
+                }
+                lintels.push(row);
             }
         }
         None => warnings.push("no saved beam and lintel take-off: run `takeoff.beams` to include lintels".into()),
@@ -343,46 +481,39 @@ fn run_export(s: &mut Session, p: &Value) -> Result<Value> {
             let (_, af) = factors(&t);
             for (n, it) in t["items"].as_array().into_iter().flatten().enumerate() {
                 let Some(gross) = it["gross"].as_f64() else { continue };
-                slabs.push(json!({
-                    "ref": format!("S{:04}", n + 1), "level": level, "area_m2": (gross * af * 1000.0).round() / 1000.0, "thickness_mm": slab_mm,
-                }));
+                let handle = stable_handle(it);
+                let slab_ref = handle.map_or_else(|| format!("S{:04}", n + 1), |h| format!("S{}", h.hex()));
+                let mut row = json!({
+                    "ref": slab_ref, "level": level, "area_m2": (gross * af * 1000.0).round() / 1000.0, "thickness_mm": slab_mm,
+                });
+                // A rectangular slab carries its two spans; any other shape keeps only its area.
+                if let Some((length, breadth)) = handle.and_then(|h| rectangle_spans_mm(d, h, unit_mm)) {
+                    row["length_mm"] = json!(mm(length));
+                    row["breadth_mm"] = json!(mm(breadth));
+                    row["rectangular"] = json!(true);
+                }
+                if let Some(h) = handle {
+                    items.push(Item { kind: KIND_SLAB, n: number_of(h), row: row.clone(), bbox: box_mm(d, Some(h), unit_mm) });
+                } else {
+                    unstable += 1;
+                }
+                slabs.push(row);
             }
         }
         None => warnings.push("no saved slab take-off: run `takeoff.slab` to include slabs".into()),
     }
     root.insert("slabs".into(), Value::Array(slabs.clone()));
 
-    let text = serde_json::to_string_pretty(&Value::Object(root)).map_err(|e| bad("bridge.export", e.to_string()))?;
-    #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
-    let mut out = json!({
-        "json": text,
-        "drawingId": id,
-        "counts": { "walls": walls.len(), "openings": opening_rows.len(), "openingSchedule": schedule_rows.len(), "columns": columns.len(), "lintels": lintels.len(), "slabs": slabs.len() },
-        "warnings": warnings,
-    });
-    #[cfg(target_arch = "wasm32")]
-    {
-        if str_param(p, "path").is_some() {
-            return Err(bad("bridge.export", "files cannot be written on the web; read `json` from the result"));
-        }
+    if unstable > 0 {
+        warnings.push(format!("{unstable} take-off row(s) have no entity handle, so their `ref` is a position and can change when the take-off is run again: run the take-off again"));
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        // Beside the saved drawing (`house.dxf` → `house.aqc.json`) unless `path` says otherwise or
-        // `write` is false.
-        let target = match str_param(p, "path") {
-            Some(t) => Some(std::path::PathBuf::from(t)),
-            None if bool_or(p, "write", true) => s.state()?.path.as_ref().map(|b| std::path::Path::new(b).with_extension("aqc.json")),
-            None => None,
-        };
-        if let Some(path) = target {
-            std::fs::write(&path, out["json"].as_str().unwrap_or(""))
-                .map_err(|e| bad("bridge.export", format!("cannot write `{}`: {e}", path.display())))?;
-            out["path"] = json!(path.display().to_string());
-            out["message"] = json!(format!("Exported for AQC: {}", path.display()));
-        }
-    }
-    Ok(out)
+    let counts = json!({ "walls": walls.len(), "openings": opening_rows.len(), "openingSchedule": schedule_rows.len(), "columns": columns.len(), "lintels": lintels.len(), "slabs": slabs.len(), "rooms": items.iter().filter(|i| i.kind == KIND_ROOM).count() });
+    Ok(Collected { root, warnings, drawing_id: id, items, counts })
+}
+
+/// The entity handle a saved take-off item was measured from: what keeps its `ref` the same when the take-off is run again.
+fn stable_handle(item: &Value) -> Option<aad_doc::Handle> {
+    item["handle"].as_str().and_then(aad_doc::Handle::parse_hex)
 }
 
 // ---------------- import ----------------

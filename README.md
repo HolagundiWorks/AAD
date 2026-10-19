@@ -126,6 +126,7 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/ai-agent.md](docs/ai-agent.md) | Local AI agent: tools, validation, confirmation, loop limits |
 | [docs/status.md](docs/status.md) | Implemented and planned functionality |
 | [docs/hcw-kit-port.md](docs/hcw-kit-port.md) | Architectural tools ported from hcwCAD-KIT |
+| [docs/takeoff-shilpidb.md](docs/takeoff-shilpidb.md) | Take-off recorded in ShilpiDB for O-CoreOp |
 | [docs/projects.md](docs/projects.md), [docs/sheets.md](docs/sheets.md), [docs/widgets.md](docs/widgets.md), [docs/input-forms.md](docs/input-forms.md) | Floor projects and Xrefs, layouts and plotting, calculator and Pomodoro, input forms |
 | [docs/control-protocol.md](docs/control-protocol.md) | JSON control channel |
 | [docs/mcp.md](docs/mcp.md) | MCP server |
