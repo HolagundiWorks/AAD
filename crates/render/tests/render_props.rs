@@ -56,9 +56,8 @@ fn dimensions_take_the_viewport_layer_colour() {
         view_center: Vec2::new(5.0, 1.0),
         view_height: 10.0,
         id: 2,
-        locked: false,
-        frozen_layers: Vec::new(),
         layer_colors: vec![("a".into(), Color::Index(3))],
+        ..Default::default()
     };
     d.add(&Space::Paper("Layout1".into()), Common::default(), EntityKind::Viewport(vp)).unwrap();
     let l = build(&d, &Space::Paper("Layout1".into()), &Options::default());
@@ -149,12 +148,8 @@ fn attributes_draw_with_their_own_properties() {
         block: "TAGS".into(),
         insert: Vec3::ZERO,
         scale: Vec3::new(1.0, 1.0, 1.0),
-        rotation: 0.0,
         attribs,
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Default::default()
     };
     let common = Common { color: Color::Index(1), lineweight: Lineweight::Mm100(35), ..on("INS") };
     d.add(&Space::Model, common, EntityKind::Insert(ins)).unwrap();

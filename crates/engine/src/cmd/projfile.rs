@@ -76,7 +76,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .noundo(),
         CommandSpec::new("plot.batch", "Batch Plot", run_plot_batch)
             .menu(&["File", "Batch Plot"])
-            .alias(&["batchplot"])
+            .alias(&["publish", "batchplot"])
             .params("{items?: [{floor, category?}] (default every floor and layout marked for printing), sheets?: [layout names of this drawing], includeHidden?: bool, folder? (default Exports), paper?: \"A3\", landscape?: bool} → {files, skipped, warnings}")
             .noundo(),
         CommandSpec::new("floor.viewport", "Viewport Floors", run_viewport)

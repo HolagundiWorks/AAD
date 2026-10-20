@@ -4,9 +4,10 @@ O-Draft is open source under MIT OR Apache-2.0. Contributions are
 welcome under the same terms.
 
 1. Read [CLAUDE.md](CLAUDE.md): scope (2D only), the never-crash rules, clean-room and asset rules.
-2. Build and test with `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layering, wasm).
-3. New behaviour is a command with tests; update [docs/status.md](docs/status.md) when functionality lands.
-4. Do not add Autodesk material (fonts, patterns, icons, templates, help text) or GPL/LGPL/AGPL code.
+2. Follow [docs/documentation-policy.md](docs/documentation-policy.md): assess documentation impact, update canonical docs with the code, and use the pull-request checklist there.
+3. Build and test with `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, layering, wasm). Disclose any tests you did not run.
+4. New behaviour is a command with tests; update [docs/status.md](docs/status.md) when functionality lands (describe only what exists and is verified).
+5. Do not add Autodesk material (fonts, patterns, icons, templates, help text) or GPL/LGPL/AGPL code.
 
 Report bugs and security issues through GitHub issues; for a security issue, open a private advisory.
 

@@ -403,11 +403,7 @@ fn payload_to_kind(geom: &EntityGeom) -> Option<EntityKind> {
             insert: Vec3::new(*x, *y, 0.0),
             scale: Vec3::new(*sx, *sy, 1.0),
             rotation: *rotation,
-            attribs: Vec::new(),
-            cols: 1,
-            rows: 1,
-            col_spacing: 0.0,
-            row_spacing: 0.0,
+            ..Insert::default()
         }),
     })
 }

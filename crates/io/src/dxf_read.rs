@@ -346,17 +346,22 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
                 rotation = -rotation;
                 col_spacing = -col_spacing;
             }
-            EntityKind::Insert(Insert {
-                block: t.s(2).unwrap_or_default(),
-                insert: p,
-                scale,
-                rotation,
-                attribs: Vec::new(),
-                cols: t.i(70).unwrap_or(1).clamp(1, 10_000) as u32,
-                rows: t.i(71).unwrap_or(1).clamp(1, 10_000) as u32,
-                col_spacing,
-                row_spacing: t.fd(45, 0.0),
-            })
+            {
+                let (clip, clipping) = crate::dxf_ext::read_clip(tags);
+                EntityKind::Insert(Insert {
+                    block: t.s(2).unwrap_or_default(),
+                    insert: p,
+                    scale,
+                    rotation,
+                    cols: t.i(70).unwrap_or(1).clamp(1, 10_000) as u32,
+                    rows: t.i(71).unwrap_or(1).clamp(1, 10_000) as u32,
+                    col_spacing,
+                    row_spacing: t.fd(45, 0.0),
+                    clip,
+                    clipping,
+                    ..Insert::default()
+                })
+            }
         }
         "DIMENSION" => {
             let ty = t.i(70).unwrap_or(0) & 0x0f;
@@ -440,6 +445,7 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
             locked: t.i(90).unwrap_or(0) & 16384 != 0,
             frozen_layers: crate::dxf_ext::read_frozen(tags),
             layer_colors: crate::dxf_ext::read_layer_colors(tags),
+            clip: crate::dxf_ext::read_vp_clip(tags),
         }),
         "WIPEOUT" => {
             let o = t.p(10);

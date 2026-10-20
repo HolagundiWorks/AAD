@@ -1,0 +1,23 @@
+---
+description: Documentation must match implementation; update canonical docs with every material change
+alwaysApply: true
+---
+
+# Documentation maintenance
+
+Canonical policy: [docs/documentation-policy.md](docs/documentation-policy.md).
+
+## Non-negotiables
+
+- Document what exists and is verified, not what was intended. Do not claim completion from UI, registry entries, unrun tests, or generated stubs alone.
+- Every material change needs a documentation-impact assessment. Update all affected canonical pages in the same change as the code and tests.
+- Capability matrix: [docs/status.md](docs/status.md). Do not present planned work as available.
+- One canonical source per subject. Prefer links and summaries over duplicate wording. Never hand-edit generated docs (`docs/parity-checklist.md` ← `cargo xtask parity`).
+- English technical docs only: architecture, APIs, configuration, install, test, maintenance. No marketing copy.
+
+## Before reporting done
+
+- Run applicable tests; name any that were not run.
+- List documentation files you changed (or explain why none were needed).
+- Disclose limitations and remaining work; separate implemented from proposed follow-up.
+- Never invent test results, APIs, or compatibility guarantees.

@@ -582,6 +582,10 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 w.s(100, "AcDbEntity");
                 w.s(8, &e.common.layer);
             }
+            if !i.clip.is_empty() {
+                w.s(1001, dxf_ext::APP);
+                w.xdata(dxf_ext::clip_xdata(&i.clip, i.clipping));
+            }
         }
         EntityKind::Dimension(dm) => {
             w.s(0, "DIMENSION");
@@ -844,13 +848,16 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             // Status flags: 16384 = display locked, 32768 = always set (readers take it as "on").
             w.i(90, 32768 | if v.locked { 16384 } else { 0 });
             // One AAD xdata group holds both lists: readers stop at the first group of an app.
-            if !v.frozen_layers.is_empty() || !v.layer_colors.is_empty() {
+            if !v.frozen_layers.is_empty() || !v.layer_colors.is_empty() || !v.clip.is_empty() {
                 w.s(1001, dxf_ext::APP);
                 if !v.frozen_layers.is_empty() {
                     w.xdata(dxf_ext::frozen_xdata(&v.frozen_layers));
                 }
                 if !v.layer_colors.is_empty() {
                     w.xdata(dxf_ext::layer_colors_xdata(&v.layer_colors));
+                }
+                if !v.clip.is_empty() {
+                    w.xdata(dxf_ext::clip_xdata(&v.clip, true));
                 }
             }
         }

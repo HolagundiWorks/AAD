@@ -65,7 +65,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{name} → {block, layers}"),
         CommandSpec::new("xref.list", "List Xrefs", run_list)
             .menu(&["Insert", "External Reference", "List"])
-            .alias(&["xlist"])
+            .alias(&["xref", "xlist"])
             .params("{} → {xrefs: [{name, path, resolved, status, entities, overlay}]}")
             .noundo(),
     ]
@@ -322,11 +322,7 @@ fn run_attach(s: &mut Session, p: &Value) -> Result<Value> {
             insert: Vec3::new(at.x, at.y, 0.0),
             scale: Vec3::new(sc, sc, sc),
             rotation: rot.to_radians(),
-            attribs: Vec::new(),
-            cols: 1,
-            rows: 1,
-            col_spacing: 0.0,
-            row_spacing: 0.0,
+            ..Insert::default()
         });
         let layer = if overlay { format!("{name}|0") } else { "0".to_string() };
         let common = aad_doc::Common { layer, ..Default::default() };

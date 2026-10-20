@@ -65,6 +65,14 @@ pub fn specs() -> Vec<CommandSpec> {
             .menu(&["Format", "Layer Tools", "Layer Delete"])
             .params("{names: [...]} (deletes the layers and every object on them)")
             .interactive(|_| Ok(Box::new(merge::LayerRemove::delete()))),
+        CommandSpec::new("laytrans", "Layer Translate", run_laytrans)
+            .menu(&["Format", "Layer Tools", "Layer Translate"])
+            .alias(&["laytranslate"])
+            .params("{map: {\"from\": \"to\", ...}, createMissing?: bool} → {renamed, created, moved}"),
+        CommandSpec::new("laywalk", "Layer Walk", run_laywalk)
+            .menu(&["Format", "Layer Tools", "Layer Walk"])
+            .params("{step?: int (default 1), layers?: [names] (order to walk; default all), restore?: bool} → {current, on, index}")
+            .noundo(),
     ]
 }
 
@@ -439,6 +447,88 @@ fn run_state_delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
     d.layer_states.retain(|st| st.name != name);
     ok()
+}
+
+fn run_laytrans(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "laytrans";
+    let map = p.get("map").and_then(Value::as_object).ok_or_else(|| bad(CMD, "`map` (object of from→to names) is required"))?;
+    if map.is_empty() || map.len() > 10_000 {
+        return Err(bad(CMD, "`map` needs 1 to 10000 entries"));
+    }
+    let create = bool_or(p, "createMissing", true);
+    let mut renamed = 0usize;
+    let mut created = 0usize;
+    let mut moved = 0usize;
+    // Apply as successive layer.set renames / entity remaps.
+    for (from, to_v) in map {
+        let to = to_v.as_str().ok_or_else(|| bad(CMD, "each map value must be a layer name"))?.trim();
+        if from.contains('|') || to.contains('|') {
+            return Err(bad(CMD, "xref-dependent layers cannot be translated"));
+        }
+        if from.eq_ignore_ascii_case(to) {
+            continue;
+        }
+        let d = s.doc()?;
+        let has_from = d.layer(from).is_some();
+        let has_to = d.layer(to).is_some();
+        if !has_from {
+            continue;
+        }
+        if !has_to {
+            if !create {
+                return Err(bad(CMD, format!("no layer `{to}`")));
+            }
+            s.execute("layer.new", &json!({ "name": to }))?;
+            created += 1;
+        }
+        // Merge objects onto `to`, then delete `from` when it is not 0/Defpoints.
+        if from != "0" && !from.eq_ignore_ascii_case("Defpoints") {
+            let r = s.execute("laymrg", &json!({ "from": [from], "to": to }))?;
+            moved += r["moved"].as_u64().unwrap_or(0) as usize;
+            renamed += 1;
+        } else {
+            // Cannot merge away 0: just retarget is impossible — skip.
+        }
+    }
+    Ok(json!({ "renamed": renamed, "created": created, "moved": moved }))
+}
+
+fn run_laywalk(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "laywalk";
+    const STATE: &str = "*LAYWALK*";
+    if bool_or(p, "restore", false) {
+        let _ = s.execute("layerstate.restore", &json!({ "name": STATE }));
+        let _ = s.execute("layerstate.delete", &json!({ "name": STATE }));
+        return Ok(json!({ "restored": true }));
+    }
+    // First call saves the current layer visibility.
+    let has = s.doc()?.layer_states.iter().any(|st| st.name == STATE);
+    if !has {
+        s.execute("layerstate.save", &json!({ "name": STATE }))?;
+    }
+    let names: Vec<String> = if let Some(a) = p.get("layers").and_then(Value::as_array) {
+        a.iter().filter_map(Value::as_str).take(10_000).map(str::to_string).collect()
+    } else {
+        s.doc()?.layers.iter().map(|l| l.name.clone()).collect()
+    };
+    if names.is_empty() {
+        return Err(bad(CMD, "no layers to walk"));
+    }
+    let step = p.get("step").and_then(Value::as_i64).unwrap_or(1);
+    let cur = s.doc()?.header.str("CLAYER", "0");
+    let idx = names.iter().position(|n| n.eq_ignore_ascii_case(&cur)).unwrap_or(0);
+    let len = names.len() as i64;
+    let next = ((idx as i64 + step).rem_euclid(len)) as usize;
+    let Some(focus) = names.get(next).cloned() else {
+        return Err(bad(CMD, "layer list changed"));
+    };
+    // Turn all off, focus on.
+    let d = s.doc_mut()?;
+    for l in &mut d.layers {
+        l.on = l.name.eq_ignore_ascii_case(&focus);
+    }
+    d.header.set_str("CLAYER", &focus);
+    Ok(json!({ "current": focus, "index": next, "count": names.len(), "on": [focus] }))
 }
 
 fn run_state_rename(s: &mut Session, p: &Value) -> Result<Value> {

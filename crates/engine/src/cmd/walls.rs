@@ -28,15 +28,15 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("wall.draw", "Draw Wall", run_wall)
             .menu(&["Architecture", "Walls and Openings", "Draw Wall"])
-            .alias(&["hcwwall"])
+            .alias(&["wall", "hcwwall"])
             .params("{points?: [[x,y],...] | handles?: [lines, polylines], thickness? (drawing units, default 230 mm), closed?: bool, layer?: default A-WALL} → {lines}"),
         CommandSpec::new("wall.door", "Door", run_door)
             .menu(&["Architecture", "Walls and Openings", "Door"])
-            .alias(&["hcwdoor"])
+            .alias(&["door", "hcwdoor"])
             .params("{at: [x,y], angle?: degrees (default: the nearest wall line), width? | name? (schedule entry), thickness?, swing?: left|right, side?: up|down, layer?, deduct?: bool} → {block, cut}"),
         CommandSpec::new("wall.window", "Window", run_window)
             .menu(&["Architecture", "Walls and Openings", "Window"])
-            .alias(&["hcwwindow"])
+            .alias(&["window", "hcwwindow"])
             .params("{at: [x,y], angle?, width? | name?, thickness?, layer?, deduct?: bool} → {block, cut}"),
         CommandSpec::new("wall.clean", "Clean Lines", run_clean)
             .menu(&["Architecture", "Walls and Openings", "Clean Lines"])
@@ -310,11 +310,7 @@ fn opening(s: &mut Session, p: &Value, cmd: &str, door: bool) -> Result<Value> {
         insert: v3(at),
         scale: Vec3::new(sx, 1.0, 1.0),
         rotation: rot,
-        attribs: Vec::new(),
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Insert::default()
     });
     let space = s.space();
     let mut common = s.current_common();

@@ -459,12 +459,7 @@ impl Sink<'_> {
                     block: blk.name.clone(),
                     insert: blk.base,
                     scale: aad_geom::Vec3::new(1.0, 1.0, 1.0),
-                    rotation: 0.0,
-                    attribs: Vec::new(),
-                    cols: 1,
-                    rows: 1,
-                    col_spacing: 0.0,
-                    row_spacing: 0.0,
+                    ..Insert::default()
                 };
                 block_leaves(d, &ins, &Mat3::IDENTITY, 0, budget, &mut |k, m| self.object(k, Some(m)));
             }

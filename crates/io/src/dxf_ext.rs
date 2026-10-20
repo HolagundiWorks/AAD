@@ -410,6 +410,50 @@ pub(crate) fn read_layer_colors(tags: &[Tag]) -> Vec<(String, Color)> {
     names.as_chunks::<2>().0.iter().filter_map(|[name, color]| Some((name.clone(), Color::parse(color)?))).collect()
 }
 
+/// Most clip vertices kept per insert/viewport (hostile files).
+pub(crate) const MAX_CLIP: usize = 10_000;
+
+/// XCLIP / VPCLIP polygon as AAD xdata: `CLIP` then on/off and `x,y` pairs.
+pub(crate) fn clip_xdata(points: &[aad_geom::Vec2], clipping: bool) -> Vec<Tag> {
+    let mut v = vec![Tag::s(1000, "CLIP"), Tag::s(1002, "{"), Tag::i(1070, i64::from(clipping))];
+    for p in points.iter().take(MAX_CLIP) {
+        if p.is_finite() {
+            v.push(Tag::f(1010, p.x));
+            v.push(Tag::f(1020, p.y));
+        }
+    }
+    v.push(Tag::s(1002, "}"));
+    v
+}
+
+/// `(points, clipping)` from [`clip_xdata`]; empty when absent.
+pub(crate) fn read_clip(tags: &[Tag]) -> (Vec<aad_geom::Vec2>, bool) {
+    let list = xdata_list(xdata(tags, APP), "CLIP");
+    let clipping = list.iter().find(|t| t.code == 1070).map(|t| t.i64() != 0).unwrap_or(false);
+    let mut pts = Vec::new();
+    let mut x = None;
+    for t in list.iter().take(MAX_CLIP * 2 + 8) {
+        match t.code {
+            1010 => x = Some(t.f64()),
+            1020 => {
+                if let Some(xv) = x.take() {
+                    let p = aad_geom::Vec2::new(xv, t.f64());
+                    if p.is_finite() {
+                        pts.push(p);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (pts, clipping)
+}
+
+/// Viewport clip polygon only (always "on" when present).
+pub(crate) fn read_vp_clip(tags: &[Tag]) -> Vec<aad_geom::Vec2> {
+    read_clip(tags).0
+}
+
 const POINT_NAMES: [&str; 5] = ["defpt", "p13", "p14", "p15", "p16"];
 
 /// Associativity links from AAD xdata; malformed links are skipped.

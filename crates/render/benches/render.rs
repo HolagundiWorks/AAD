@@ -38,9 +38,7 @@ fn bench(c: &mut Criterion) {
             view_center: Vec2::new(cx, side / 2.0),
             view_height: side * 0.3,
             id: 2,
-            locked: false,
-            frozen_layers: Vec::new(),
-            layer_colors: Vec::new(),
+            ..Default::default()
         };
         let h = d.add(&paper, Common::default(), EntityKind::Viewport(vp(side / 2.0))).ok();
         let po = Options { view_height: 200.0, ..options(side) };

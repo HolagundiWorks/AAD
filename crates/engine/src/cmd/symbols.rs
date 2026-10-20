@@ -33,11 +33,11 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{at?: [x,y]} → {levels}"),
         CommandSpec::new("section.marker", "Section Marker", run_section)
             .menu(&["Architecture", "Levels and Sections", "Section Marker"])
-            .alias(&["hcwsection"])
+            .alias(&["section", "hcwsection"])
             .params("{p1, p2, label?: \"A\", side?: left|right (the way the section looks)}"),
         CommandSpec::new("elevation.marker", "Elevation Marker", run_elevation)
             .menu(&["Architecture", "Levels and Sections", "Elevation Marker"])
-            .alias(&["hcwelev"])
+            .alias(&["elevation", "hcwelev"])
             .params("{at: [x,y], number: text, sheet?: text, angle?: degrees (the way you look)}"),
         CommandSpec::new("north.arrow", "North Arrow", run_north)
             .menu(&["Architecture", "Symbols", "North Arrow"])

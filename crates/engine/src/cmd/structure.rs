@@ -36,7 +36,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{origin?: [x,y], bays: [width,...] (along x), rows?: [width,...] (along y), extend? (default 1.5 m)} → {xs, ys}"),
         CommandSpec::new("column.place", "Place Columns", run_columns)
             .menu(&["Architecture", "Structure", "Place Columns"])
-            .alias(&["hcwcolumn"])
+            .alias(&["column", "hcwcolumn"])
             .params("{size: [w, h] | number, points?: [[x,y],...] (default every grid intersection), window?: [[x,y],[x,y]]} → {placed}"),
         CommandSpec::new("column.schedule", "Column Schedule", run_column_schedule)
             .menu(&["Architecture", "Structure", "Column Schedule"])
@@ -48,7 +48,7 @@ pub fn specs() -> Vec<CommandSpec> {
             .params("{handles?: door/window block references (default all), bearing? (default 150 mm)} → {lintels}"),
         CommandSpec::new("stair.plan", "Stair", run_stair)
             .menu(&["Architecture", "Structure", "Stair"])
-            .alias(&["aecstair"])
+            .alias(&["stair", "aecstair"])
             .params("{at: [x,y], kind?: straight|dogleg (default straight), rise: floor height in metres, width (drawing units), going? (mm, default 250), riserMax? (mm, default 175), landing? (drawing units, dog-leg), waist? (mm, default 150)} → {risers, riser, going, run, concrete}"),
         CommandSpec::new("lift.shaft", "Lift Shaft", run_lift)
             .menu(&["Architecture", "Structure", "Lift Shaft"])

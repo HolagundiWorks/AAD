@@ -26,11 +26,11 @@ fn insert(s: &mut Session, block: &str, at: (f64, f64), scale: (f64, f64), rotat
         insert: Vec3::new(at.0, at.1, 0.0),
         scale: Vec3::new(scale.0, scale.1, 1.0),
         rotation: rotation_deg.to_radians(),
-        attribs: Vec::new(),
         cols: grid.0,
         rows: grid.1,
         col_spacing: grid.2,
         row_spacing: grid.3,
+        ..Default::default()
     });
     s.doc_mut().unwrap().add(&Space::Model, Common::default(), kind).unwrap().hex()
 }

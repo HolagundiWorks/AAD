@@ -551,7 +551,14 @@ fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &aad_doc::Viewport) {
         return;
     }
     let half = Vec2::new(vp.width / 2.0, vp.height / 2.0);
-    let rect = Bounds2::new(center - half, center + half);
+    let default_rect = Bounds2::new(center - half, center + half);
+    let poly_clip = clip::is_poly_clip(&vp.clip);
+    let rect = if poly_clip {
+        let c = Bounds2::from_points(vp.clip.iter().copied());
+        if c.is_empty() { default_rect } else { c }
+    } else {
+        default_rect
+    };
     let xf = Mat3::translate(center).then_before(Mat3::scale(s, s)).then_before(Mat3::translate(-vp.view_center));
     let mhalf = half / s;
     // Model window with slack: entity bounds are approximate (text, dimensions).
@@ -573,7 +580,11 @@ fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &aad_doc::Viewport) {
         entity(&mut sub, &Ctx { lt_factor, ..top_ctx(d, xf, VIEWPORT_CONTENT, &vp.frozen_layers, &vp.layer_colors) }, me);
     }
     b.list.expanded = b.list.expanded.saturating_add(sub.list.expanded);
-    append_clipped(&mut b.list, &sub.list, &rect);
+    if poly_clip {
+        append_clipped_poly(&mut b.list, &sub.list, &vp.clip);
+    } else {
+        append_clipped(&mut b.list, &sub.list, &rect);
+    }
 }
 
 /// Append `src` to `dst`, clipped to `rect`.
@@ -602,6 +613,49 @@ fn append_clipped(dst: &mut DisplayList, src: &DisplayList, rect: &Bounds2) {
                     && let Some((a, c)) = clip::clip_infinite(*base, *dir, ray, rect)
                 {
                     push_raw(dst, p, Kind::Polyline, &[a, c]);
+                }
+            }
+        }
+    }
+}
+
+/// Append `src` to `dst`, clipped to an arbitrary polygon (even-odd). Falls back to the polygon's
+/// axis-aligned bounds when the ring is degenerate.
+fn append_clipped_poly(dst: &mut DisplayList, src: &DisplayList, poly: &[Vec2]) {
+    if !clip::is_poly_clip(poly) {
+        let rect = Bounds2::from_points(poly.iter().copied());
+        if !rect.is_empty() {
+            append_clipped(dst, src, &rect);
+        }
+        return;
+    }
+    for p in &src.prims {
+        let pts = src.points(p);
+        match p.kind {
+            Kind::Polyline => {
+                for piece in clip::clip_polyline_poly(pts, poly) {
+                    push_raw(dst, p, Kind::Polyline, &piece);
+                }
+            }
+            Kind::Tris | Kind::Mask => {
+                let t = clip::clip_triangles_poly(pts, poly);
+                push_raw(dst, p, p.kind, &t);
+            }
+            Kind::Point => {
+                if let Some(q) = pts.first()
+                    && aad_geom::point_in_polygon(poly, *q)
+                {
+                    push_raw(dst, p, Kind::Point, &[*q]);
+                }
+            }
+            Kind::Infinite { ray } => {
+                let rect = Bounds2::from_points(poly.iter().copied());
+                if let (Some(base), Some(dir)) = (pts.first(), pts.get(1))
+                    && let Some((a, c)) = clip::clip_infinite(*base, *dir, ray, &rect)
+                {
+                    for piece in clip::clip_polyline_poly(&[a, c], poly) {
+                        push_raw(dst, p, Kind::Polyline, &piece);
+                    }
                 }
             }
         }
@@ -1167,27 +1221,45 @@ fn insert(b: &mut Builder, ctx: &Ctx, e: &Entity, ins: &aad_doc::Insert, rgb: In
     if ctx.depth >= aad_doc::MAX_BLOCK_DEPTH {
         return;
     }
+    let clip_on = ins.clipping && ins.clip.len() >= 2 && ins.clip.iter().all(|p| p.is_finite());
+    let mut clipped = if clip_on {
+        Some(Builder { list: DisplayList::default(), opts: b.opts, plotting: b.plotting, styles: b.styles, named: b.named, budget: None })
+    } else {
+        None
+    };
+    let target: &mut Builder = clipped.as_mut().unwrap_or(b);
     if let Some(blk) = ctx.d.block(&ins.block) {
         let cols = ins.cols.clamp(1, 10_000);
         let rows = ins.rows.clamp(1, 10_000);
         'copies: for r in 0..rows {
             for c in 0..cols {
-                if !b.expand() {
+                if !target.expand() {
                     break 'copies;
                 }
                 let off = Vec2::new(ins.col_spacing * f64::from(c), ins.row_spacing * f64::from(r)).rotate(ins.rotation);
                 let m = Mat3::translate(off).then_before(ins.transform(blk.base.xy()));
-                let sub = Ctx { block_pstyle: b.named, ..sub_ctx(ctx, e, m) };
+                let sub = Ctx { block_pstyle: target.named, ..sub_ctx(ctx, e, m) };
                 for be in blk.entities.iter() {
                     // Constant/visible attribute definitions inside blocks are not drawn; attribs are.
                     if matches!(be.kind, EntityKind::AttDef(_)) {
                         continue;
                     }
-                    if !b.expand() {
+                    if !target.expand() {
                         break 'copies;
                     }
-                    entity(b, &sub, be);
+                    entity(target, &sub, be);
                 }
+            }
+        }
+    }
+    if let Some(sub) = clipped {
+        b.list.expanded = b.list.expanded.saturating_add(sub.list.expanded);
+        if clip::is_poly_clip(&ins.clip) {
+            append_clipped_poly(&mut b.list, &sub.list, &ins.clip);
+        } else {
+            let rect = Bounds2::from_points(ins.clip.iter().copied());
+            if !rect.is_empty() {
+                append_clipped(&mut b.list, &sub.list, &rect);
             }
         }
     }

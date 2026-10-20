@@ -510,6 +510,8 @@ pub struct Session {
     pub vdb_addr: Option<String>,
     /// Node results of the last parametric evaluation (`param.*`); disposable, never saved.
     pub param_cache: aad_param::Cache,
+    /// Open 2D block editor (`bedit` / `refedit`); `None` when not editing.
+    pub block_edit: Option<cmd::bedit::BlockEdit>,
 }
 
 impl Default for Session {
@@ -553,6 +555,7 @@ impl Session {
             plot_request: None,
             vdb_addr: None,
             param_cache: aad_param::Cache::default(),
+            block_edit: None,
         }
     }
     pub fn new_drawing(&mut self, metric: bool) -> usize {

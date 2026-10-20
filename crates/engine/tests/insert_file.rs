@@ -29,12 +29,7 @@ fn read(bytes: &[u8], _name: &str) -> Result<Drawing, String> {
         block: "NUT".into(),
         insert: Vec3::new(10.0, 10.0, 0.0),
         scale: Vec3::new(1.0, 1.0, 1.0),
-        rotation: 0.0,
-        attribs: Vec::new(),
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Default::default()
     };
     d.model.push(Entity::new(Handle(0x61), EntityKind::Insert(ins)));
     Ok(d)

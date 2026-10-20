@@ -123,7 +123,8 @@ An offline assistant can call a fixed set of validated tools (summary, flatten, 
 | [docs/workspaces.md](docs/workspaces.md) | Pro and Classic workspaces, panels, text editing, hatch selection |
 | [docs/maintenance.md](docs/maintenance.md) | Flatten on import, `PURGE`, `AUDIT`, `RECOVER`, backups, DWG worker |
 | [docs/ai-agent.md](docs/ai-agent.md) | Local AI agent: tools, validation, confirmation, loop limits |
-| [docs/status.md](docs/status.md) | Implemented and planned functionality |
+| [docs/status.md](docs/status.md) | Implemented and planned functionality (capability matrix) |
+| [docs/documentation-policy.md](docs/documentation-policy.md) | Documentation maintenance and change management (required for all contributors and agents) |
 | [docs/hcw-kit-port.md](docs/hcw-kit-port.md) | Architectural tools ported from hcwCAD-KIT |
 | [docs/takeoff-shilpidb.md](docs/takeoff-shilpidb.md) | Take-off recorded in ShilpiDB for O-CoreOp |
 | [docs/parametric.md](docs/parametric.md) | Parametric graph engine, wall commit and take-off facts |

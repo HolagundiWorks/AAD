@@ -137,12 +137,7 @@ fn named_styles_by_layer_by_block_and_name() {
         block: "B".into(),
         insert: Vec3::new(0.0, 4.0, 0.0),
         scale: Vec3::new(1.0, 1.0, 1.0),
-        rotation: 0.0,
-        attribs: vec![],
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Default::default()
     });
     d.add(&Space::Model, Common { plot_style: "Thick".into(), ..Default::default() }, ins).unwrap();
     let l = build_plot(&d, &Space::Model, &with_table(PlotStyleTable::builtin("default.stb").unwrap()));

@@ -48,12 +48,7 @@ pub(super) fn apply(s: &Session, k: EntityKind, c: &Content) -> Result<EntityKin
             block: name.clone(),
             insert: Vec3::new(anchor.x, anchor.y, m.landing.z),
             scale: Vec3::new(1.0, 1.0, 1.0),
-            rotation: 0.0,
-            attribs: Vec::new(),
-            cols: 1,
-            rows: 1,
-            col_spacing: 0.0,
-            row_spacing: 0.0,
+            ..Insert::default()
         };
         if *center {
             // Move the block so the centre of its extents lands on the anchor.

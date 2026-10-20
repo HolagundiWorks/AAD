@@ -135,11 +135,7 @@ fn insert_entity(blk: &Block, at: Vec2, scale: Vec2, rotation: f64, base: Option
         insert: v3(at),
         scale: Vec3::new(scale.x, scale.y, scale.x),
         rotation,
-        attribs: Vec::new(),
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Insert::default()
     };
     if let Some(b) = base {
         let landed = ins.transform(blk.base.xy()).apply(b);

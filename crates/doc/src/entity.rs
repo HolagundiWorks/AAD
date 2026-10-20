@@ -326,6 +326,12 @@ pub struct Insert {
     pub col_spacing: f64,
     #[serde(default)]
     pub row_spacing: f64,
+    /// XCLIP boundary in world coordinates (two opposite corners = AABB, or a polygon). Empty: no clip.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clip: Vec<Vec2>,
+    /// The clip boundary is applied when drawing this insert.
+    #[serde(default)]
+    pub clipping: bool,
 }
 fn unit_scale() -> Vec3 {
     Vec3::new(1.0, 1.0, 1.0)
@@ -333,6 +339,24 @@ fn unit_scale() -> Vec3 {
 fn one_u() -> u32 {
     1
 }
+impl Default for Insert {
+    fn default() -> Self {
+        Insert {
+            block: String::new(),
+            insert: Vec3::ZERO,
+            scale: unit_scale(),
+            rotation: 0.0,
+            attribs: Vec::new(),
+            cols: 1,
+            rows: 1,
+            col_spacing: 0.0,
+            row_spacing: 0.0,
+            clip: Vec::new(),
+            clipping: false,
+        }
+    }
+}
+
 impl Insert {
     /// Block-to-world transform (2D part).
     pub fn transform(&self, base: Vec2) -> Mat3 {
@@ -554,6 +578,26 @@ pub struct Viewport {
     /// Per-viewport layer colour overrides (VP Color in the Layer Properties Manager).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layer_colors: Vec<(String, Color)>,
+    /// Optional VPCLIP polygon in paper-space coordinates. When three or more points are set,
+    /// contents are clipped to the polygon (even-odd); the border still uses width/height.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clip: Vec<Vec2>,
+}
+impl Default for Viewport {
+    fn default() -> Self {
+        Viewport {
+            center: Vec3::ZERO,
+            width: 1.0,
+            height: 1.0,
+            view_center: Vec2::ZERO,
+            view_height: 1.0,
+            id: 0,
+            locked: false,
+            frozen_layers: Vec::new(),
+            layer_colors: Vec::new(),
+            clip: Vec::new(),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

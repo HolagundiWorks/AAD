@@ -24,6 +24,9 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("lweight", "Lineweight...", run_lweight).menu(&["Format", "Lineweight..."]).alias(&["lw", "lineweight"]).params("{lineweight: mm | ByLayer}"),
         CommandSpec::new("ltscale", "Linetype Scale", run_ltscale).alias(&["lts"]).params("{scale}"),
         CommandSpec::new("units", "Units...", run_units).menu(&["Format", "Units..."]).alias(&["un"]).params("{lunits?: 1..5, luprec?: 0..8, aunits?: 0..4, auprec?: 0..8, insunits?}"),
+        CommandSpec::new("insunits", "Insertion Units", run_insunits)
+            .menu(&["Format", "Units...", "Insertion Units"])
+            .params("{value?: 0..24 (INSUNITS code; omit to read)} → {insunits, unit?}"),
         CommandSpec::new("limits", "Drawing Limits", run_limits).menu(&["Format", "Drawing Limits"]).params("{min: [x,y], max: [x,y]}"),
         CommandSpec::new("style", "Text Style...", run_style)
             .menu(&["Format", "Text Style..."])
@@ -563,6 +566,15 @@ fn run_units(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(
         json!({ "lunits": h.i64("LUNITS", 2), "luprec": h.i64("LUPREC", 4), "aunits": h.i64("AUNITS", 0), "auprec": h.i64("AUPREC", 0), "insunits": h.i64("INSUNITS", 1) }),
     )
+}
+
+fn run_insunits(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(v) = p.get("value").and_then(Value::as_i64) {
+        s.doc_mut()?.header.set_i64("INSUNITS", v.clamp(0, 24));
+    }
+    let code = s.doc()?.header.i64("INSUNITS", 0);
+    let unit = crate::annot::Unit::from_insunits(code).map(|u| format!("{u:?}").to_ascii_lowercase());
+    Ok(json!({ "insunits": code, "unit": unit }))
 }
 
 fn run_limits(s: &mut Session, p: &Value) -> Result<Value> {

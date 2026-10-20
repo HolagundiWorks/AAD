@@ -18,12 +18,7 @@ fn insert(block: &str) -> EntityKind {
         block: block.into(),
         insert: Vec3::ZERO,
         scale: Vec3::new(1.0, 1.0, 1.0),
-        rotation: 0.0,
-        attribs: Vec::new(),
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Default::default()
     })
 }
 

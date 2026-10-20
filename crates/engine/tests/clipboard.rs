@@ -22,12 +22,7 @@ fn insert(d: &mut Drawing, block: &str, at: (f64, f64)) -> Entity {
         block: block.into(),
         insert: Vec3::new(at.0, at.1, 0.0),
         scale: Vec3::new(1.0, 1.0, 1.0),
-        rotation: 0.0,
-        attribs: Vec::new(),
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Default::default()
     });
     Entity { handle: d.new_handle(), common: Common::default(), kind }
 }

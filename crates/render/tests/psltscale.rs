@@ -20,9 +20,7 @@ fn drawing(psltscale: i64) -> Drawing {
         view_center: Vec2::new(500.0, 0.0),
         view_height: 9000.0,
         id: 2,
-        locked: false,
-        frozen_layers: Vec::new(),
-        layer_colors: Vec::new(),
+        ..Default::default()
     };
     d.add(&Space::Paper("Layout1".into()), Common::default(), EntityKind::Viewport(vp)).unwrap();
     d

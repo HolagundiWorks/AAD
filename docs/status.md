@@ -1,7 +1,9 @@
 # Implemented and planned functionality
 
-This page separates what exists (and is tested) from what is only planned. If a feature is not in
-the first table it is not implemented. Scope: 2D drafting for architecture and civil work.
+This page is the capability matrix for O-Draft. Documentation rules and status vocabulary:
+[documentation-policy.md](documentation-policy.md). This page separates what exists (and is tested)
+from what is only planned. If a feature is not in the first table it is not implemented. Scope: 2D
+drafting for architecture and civil work.
 Out of scope and removed: 3D modelling and viewing, CAD parametric constraints (solver-based
 dimensional), and mechanical-engineering commands (mass properties, ordinate and arc-length
 dimensions, centre marks, isometric drafting). A separate Grasshopper-style parametric graph for
@@ -13,10 +15,15 @@ architectural walls and take-off is implemented; see [parametric.md](parametric.
 |---|---|
 | Files | Open and save DXF; open and save DWG through a DXF bridge (native builds only); export PDF, SVG, PNG. Flatten on import, `.bak` before the first overwrite ([maintenance.md](maintenance.md)) |
 | Drawing | Line, polyline, circle, arc, ellipse, rectangle, polygon, spline, point, construction line, ray, multiline, revision cloud, wipeout, hatch (WinUI Hatch Manager + properties panel pattern/scale/angle), boundary, region, text, multiline text, blocks and attributes |
-| Modify | Move, copy, rotate, scale, mirror, stretch, offset, trim, extend, fillet, chamfer, break, join, explode, lengthen, align, array (rectangular, polar, path), overkill, polyline and spline editing, group, match properties (interactive; copies hatch/text/dimension fields when kinds match), flatten |
+| Modify | Move, copy, rotate, scale, mirror, stretch, offset, trim, extend, fillet, chamfer, break, join, explode, lengthen, align, array (rectangular, polar, path), overkill, polyline and spline editing, group, match properties (interactive; copies hatch/text/dimension fields when kinds match), flatten, `xclip` / `vpclip` (INSERT and viewport clip: two corners = AABB, three or more points = even-odd polygon in the renderer), `selectsimilar`, `filter` |
+| Block editor (2D) | `bedit` / `bsave` / `bclose`: model space temporarily shows a block definition; `refedit` opens an INSERT's block or xref definition the same way |
+| Scripting | `script` (text or `.scr` path), `macro` (in-memory script), `lisp` (AutoLISP subset: arithmetic, `setq`, `princ`, `getvar`/`setvar`, `command`). Full scripts also via `aad-cli run --script` |
+| Packaging and browse | `etransmit` (copy drawing + xrefs + images into a folder), `adcenter` (list blocks/layers/styles from this drawing or another file) |
+| Export and extract | Umbrella `export` (dxf/dwg/pdf/png/svg/csv); `eattext` (block attributes to CSV/JSON); `dataextraction` (entity table to CSV/JSON); `dwgcompare` (fingerprint compare against a file, bytes or another open drawing) |
+| Validate and edit preview | `validate` (audit plus counts), `inspect` / `query` (aliases of `drawing.inspect` and `entities` / `spatial.query`), `proposeedit` (describe a command without running it), `previewedit` (run then restore) |
 | Dimensions | Linear, aligned, radius, diameter, angular, baseline, continue, quick dimension, multileader, dimension styles, text edit, associativity |
-| Layers and properties | Layer manager and layer tools, layer states, linetypes, lineweights, colours, plot styles, text and dimension styles |
-| Layouts and output | Paper-space layouts, viewports, page setup, PDF plotting |
+| Layers and properties | Layer manager and layer tools, layer states, linetypes, lineweights, colours, plot styles, text and dimension styles; `laytrans` (rename/map layers), `laywalk` (cycle one layer visible); `insunits` (read/set `INSUNITS`) |
+| Layouts and output | Paper-space layouts, viewports (`vpclip`), page setup, PDF plotting |
 | Maintenance | `PURGE`, `AUDIT`, `RECOVER`, `FLATTEN` ([maintenance.md](maintenance.md)) |
 | Architecture: layers and rooms | `hcwlayers` (HCW and building-permission layer sets), `room` (room labels with area), `rarea` ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Architecture: text tools | `fixtxt`, `fixtxth` (uniform height, no overlap), `txtalign`, `txtdup`, `txtaudit`, `txtexport` (CSV), `txtinc` (copy and count up a numbered label); ported from the HCW AutoLISP toolkit ([hcw-kit-port.md](hcw-kit-port.md)) |
@@ -62,6 +69,7 @@ architectural walls and take-off is implemented; see [parametric.md](parametric.
 | Remaining hcwCAD-KIT tools | Drawing tools (`INCARRAY`, `DGRID`, `AUTOLABEL`, ...), layer and permit-layer tools, notes and fields, wall edit and join, escalators, auto-dimension ([hcw-kit-port.md](hcw-kit-port.md)) |
 | Agent tools for take-off and schedules | The engine commands exist; the agent registry does not expose them yet ([ai-agent.md](ai-agent.md)) |
 | Parametric node editor and more components | WinUI/egui graph editor; ShilpiDB-hosted component library; columns, beams and slabs; async evaluation ABI ([parametric.md](parametric.md)) |
+| Full AutoLISP | Only a small subset (`lisp`: arithmetic, `setq`, `princ`, `getvar`/`setvar`, `command`). No Visual LISP, reactors or ActiveX |
 | Xref and floor-project interface | Floor selector in the toolbar, setup wizard dialog, Floor View Manager, opening-block generation and reconciliation ([projects.md](projects.md)) |
 | Panels for Opening Schedule, Drawing Explorer, Xrefs, Measurement and Project Navigator; guarding block-definition edits against locked layers; export and import of drawing spaces | [ACTIVE_DRAWING_SPACE.md](ACTIVE_DRAWING_SPACE.md), section 4 |
 | Conversion of 3D solids, surfaces and meshes | They are kept as raw data and reported on import, not converted |
