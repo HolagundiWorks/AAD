@@ -64,7 +64,6 @@ public sealed partial class MainWindow : Window
     private Window? _calc;
     private Window? _pomodoro;
     private Window? _toolsWindow;
-    private AormsWindow? _aorms;
     private Window? _leftFloat;
     private bool _classic = true;
     private readonly Dictionary<string, ShellPrefs.ModeSlot> _modeSlots = new();
@@ -94,13 +93,12 @@ public sealed partial class MainWindow : Window
     private bool _literalSpace;
     private bool _escapeHeld;
     private CommandChrome? _chrome;
+    /// <summary>Cursor CAD TextBox (from <see cref="CommandChrome"/>).</summary>
+    private TextBox CommandInput => _chrome?.CadInput ?? AiInput;
+    /// <summary>CAD autocomplete list (from <see cref="CommandChrome"/>).</summary>
+    private ListView? SuggestList => _chrome?.SuggestList;
     private bool _shellClosing;
     private bool _armSpace;
-    private bool _barDrag;
-    private int _dragCursorX;
-    private int _dragCursorY;
-    private int _dragWinX;
-    private int _dragWinY;
     private readonly List<string> _typed = new();
     private int _recall = -1;
     private string _liveDraft = "";
@@ -134,19 +132,29 @@ public sealed partial class MainWindow : Window
             _timer?.Stop();
             _chrome?.Close();
             _chrome = null;
-            if (_layersWindow != null)
-            {
-                try
-                {
-                    _layersWindow.AttachBody();
-                    _layersWindow.Close();
-                }
-                catch (Exception)
-                {
-                    // The view is already going away with the shell.
-                }
-                _layersWindow = null;
-            }
+            // Close every tracked dialog/tool window (layers, hatch, rooms, About, …).
+            ShellWindows.CloseAllOwned();
+            _layersWindow = null;
+            _calc = null;
+            _pomodoro = null;
+            _toolsWindow = null;
+            _leftFloat = null;
+            _pdfWindow = null;
+            _formWindow = null;
+            _unitsWindow = null;
+            _textStyleWindow = null;
+            _pageSetupWindow = null;
+            _plotStyleWindow = null;
+            _batchPlotWindow = null;
+            _dimStyleWindow = null;
+            _linetypeWindow = null;
+            _hatchWindow = null;
+            _pointStyleWindow = null;
+            _mleaderStyleWindow = null;
+            _roomSettingsWindow = null;
+            _draftingWindow = null;
+            _quickWindow = null;
+            _quickSelectWindow = null;
             if (_host != IntPtr.Zero)
             {
                 Native.Destroy(_host);
@@ -174,7 +182,9 @@ public sealed partial class MainWindow : Window
         StartLogo.Source = ShellIcon.Logo();
         ApplyAccess();
         PlaceCommandBar();
-        CommandInput.Focus(FocusState.Programmatic);
+        EnsureTimer();
+        UpdateDyn();
+        _chrome?.FocusCad();
         _ = HideSplashSoon();
     }
 
@@ -241,7 +251,8 @@ public sealed partial class MainWindow : Window
         EnsureTimer();
     }
 
-    private void OnCommandKey(object sender, KeyRoutedEventArgs e)
+    /// <summary>Keys on the cursor CAD prompt (not the fixed AI field).</summary>
+    private void OnCadKey(object sender, KeyRoutedEventArgs e)
     {
         if (_host == IntPtr.Zero)
         {
@@ -276,9 +287,11 @@ public sealed partial class MainWindow : Window
         }
         if (e.Key == Windows.System.VirtualKey.Enter || e.Key == Windows.System.VirtualKey.Space)
         {
-            if (SubmitKey(e.Key))
+            // Always consume so the TextBox cannot type a space instead of activating.
+            e.Handled = true;
+            if (!SubmitKey(e.Key) && e.Key == Windows.System.VirtualKey.Space)
             {
-                e.Handled = true;
+                InsertCommandSpace();
             }
             return;
         }
@@ -287,6 +300,13 @@ public sealed partial class MainWindow : Window
         {
             e.Handled = true;
             _escapeHeld = true;
+            if (SuggestList is { Visibility: Visibility.Visible, Items.Count: > 0 })
+            {
+                SuggestList.Items.Clear();
+                SuggestList.Visibility = Visibility.Collapsed;
+                UpdateDyn();
+                return;
+            }
             if (!CanvasMenu.Dismiss())
             {
                 CancelCommand();
@@ -301,11 +321,62 @@ public sealed partial class MainWindow : Window
                 CommandInput.Text = next;
                 CommandInput.SelectionStart = next.Length;
             }
+            else if (TryAcceptTopSuggestion(run: false))
+            {
+                e.Handled = true;
+            }
             else if (string.IsNullOrEmpty(CommandInput.Text))
             {
                 e.Handled = true;
                 Native.SnapTab(_host);
             }
+        }
+    }
+
+    /// <summary>Keys on the fixed AI prompt. Enter asks; Space is literal; never CAD repeat.</summary>
+    private void OnAiKey(object sender, KeyRoutedEventArgs e)
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        if (ApplyUndoRedo(e))
+        {
+            return;
+        }
+        var ctrl = KeyDown(Windows.System.VirtualKey.Control);
+        var shift = KeyDown(Windows.System.VirtualKey.Shift);
+        if (ApplyFunctionKey(e, ctrl, shift))
+        {
+            return;
+        }
+        if (e.Key == Windows.System.VirtualKey.Enter)
+        {
+            e.Handled = true;
+            SubmitAiAsk();
+            return;
+        }
+        if (e.Key == Windows.System.VirtualKey.Escape)
+        {
+            e.Handled = true;
+            _escapeHeld = true;
+            if (!string.IsNullOrEmpty(AiInput.Text))
+            {
+                AiInput.Text = "";
+                return;
+            }
+            CancelCommand();
+            return;
+        }
+        _armSpace = false;
+    }
+
+    /// <summary>WinUI TextBox still emits Space via CharacterReceived after PreviewKeyDown.Handled.</summary>
+    private void OnCadCharacter(object sender, CharacterReceivedRoutedEventArgs e)
+    {
+        if (e.Character == ' ')
+        {
+            e.Handled = true;
         }
     }
 
@@ -315,7 +386,57 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        Native.Draft(_host, CommandInput.Text);
+        var text = CommandInput.Text ?? "";
+        if (Native.SlashTransfer(_host, text))
+        {
+            TransferSlashToAi(text);
+            return;
+        }
+        Native.Draft(_host, text);
+        RefreshSuggestions();
+    }
+
+    private void TransferSlashToAi(string cadText)
+    {
+        var payload = Native.SlashPayload(cadText);
+        CommandInput.Text = "";
+        if (_host != IntPtr.Zero)
+        {
+            Native.Draft(_host, "");
+        }
+        if (SuggestList != null)
+        {
+            SuggestList.Items.Clear();
+            SuggestList.Visibility = Visibility.Collapsed;
+        }
+        AiInput.Text = payload;
+        AiInput.SelectionStart = payload.Length;
+        AiInput.Focus(FocusState.Programmatic);
+        UpdateDyn();
+    }
+
+    private void SubmitAiAsk()
+    {
+        if (_host == IntPtr.Zero)
+        {
+            return;
+        }
+        var text = (AiInput.Text ?? "").Trim();
+        if (text.Length == 0)
+        {
+            return;
+        }
+        _armSpace = false;
+        AiInput.Text = "";
+        if (Native.Ask(_host, text) != 0)
+        {
+            History.Text = Native.LastError(_host);
+            SyncHistory();
+        }
+        RefreshChrome();
+        RefreshPanels();
+        BuildMenus();
+        AiInput.Focus(FocusState.Programmatic);
     }
 
     private void CancelCommand()
@@ -325,7 +446,13 @@ public sealed partial class MainWindow : Window
             return;
         }
         CommandInput.Text = "";
+        AiInput.Text = "";
         _armSpace = false;
+        if (SuggestList != null)
+        {
+            SuggestList.Items.Clear();
+            SuggestList.Visibility = Visibility.Collapsed;
+        }
         if (Native.Cancel(_host) != 0)
         {
             Status.Text = Native.LastError(_host);
@@ -333,6 +460,8 @@ public sealed partial class MainWindow : Window
         RefreshChrome();
         RefreshPanels();
         BuildMenus();
+        UpdateDyn();
+        _chrome?.FocusCad();
     }
 
     /// <summary>
@@ -347,7 +476,7 @@ public sealed partial class MainWindow : Window
             if (Content is FrameworkElement root && root.XamlRoot != null)
             {
                 var focused = FocusManager.GetFocusedElement(root.XamlRoot);
-                if (focused is TextBox box && !ReferenceEquals(box, CommandInput))
+                if (focused is TextBox box && !ReferenceEquals(box, CommandInput) && !ReferenceEquals(box, AiInput))
                 {
                     _escapeHeld = true;
                     return;
@@ -536,11 +665,6 @@ public sealed partial class MainWindow : Window
             OpenQuickSelect();
             return;
         }
-        if (id.StartsWith("aorms.", StringComparison.Ordinal))
-        {
-            OpenAorms();
-            return;
-        }
         if (id is "cal" or "quickcalc" or "qc" or "calc")
         {
             OpenCalculator();
@@ -583,7 +707,7 @@ public sealed partial class MainWindow : Window
             e.Handled = true;
             _showCommand = true;
             ApplyChrome();
-            CommandInput.Focus(FocusState.Programmatic);
+            _chrome?.FocusCad();
             return;
         }
         if (ApplyFunctionKey(e, ctrl, shift))
@@ -651,7 +775,7 @@ public sealed partial class MainWindow : Window
             SaveShell();
             if (_showCommand)
             {
-                CommandInput.Focus(FocusState.Programmatic);
+                _chrome?.FocusCad();
             }
             return;
         }
@@ -667,15 +791,10 @@ public sealed partial class MainWindow : Window
         }
         if (e.Key == Windows.System.VirtualKey.Enter || e.Key == Windows.System.VirtualKey.Space)
         {
-            if (SubmitKey(e.Key))
+            e.Handled = true;
+            if (!SubmitKey(e.Key) && e.Key == Windows.System.VirtualKey.Space)
             {
-                e.Handled = true;
-            }
-            else if (e.Key == Windows.System.VirtualKey.Space)
-            {
-                // Canvas focus: TextBox will not receive the key, so insert the space here.
                 InsertCommandSpace();
-                e.Handled = true;
             }
             return;
         }
@@ -792,20 +911,34 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Enter, or Space when it confirms. One path so the two keys cannot run a line twice.
-    /// With a leading `/`, Space types a space (assistant sentence). Without `/`, Space runs the command.</summary>
+    /// Leading `/` or an open quote: Space is literal. Idle empty: first Space arms, second repeats.
+    /// While a command is running, empty Space is Enter. Non-empty: complete first suggestion then run.</summary>
     private bool SubmitKey(Windows.System.VirtualKey key)
     {
         if (key == Windows.System.VirtualKey.Space)
         {
             var text = CommandInput.Text ?? "";
-            // Prefer the live buffer: `/…` keeps spaces even before chrome refreshes LiteralSpace.
-            if (text.TrimStart().StartsWith('/') || _literalSpace || (_host != IntPtr.Zero && Native.SpaceLiteral(_host, text)))
+            // Live buffer only — do not rely solely on cached `_literalSpace`.
+            if (text.TrimStart().StartsWith('/') || (_host != IntPtr.Zero && Native.SpaceLiteral(_host, text)))
             {
                 _armSpace = false;
                 return false;
             }
+            var trimmed = text.Trim();
+            if (trimmed.Length != text.Length)
+            {
+                CommandInput.Text = trimmed;
+                text = trimmed;
+            }
             if (string.IsNullOrEmpty(text))
             {
+                // Active command: Space confirms, never arms double-Space.
+                if (!string.IsNullOrEmpty(_command))
+                {
+                    _armSpace = false;
+                    SubmitLine();
+                    return true;
+                }
                 if (!_armSpace)
                 {
                     _armSpace = true;
@@ -816,12 +949,164 @@ public sealed partial class MainWindow : Window
                 return true;
             }
             _armSpace = false;
+            if (TryAcceptTopSuggestion(run: true))
+            {
+                return true;
+            }
             SubmitLine();
             return true;
         }
         _armSpace = false;
+        var enterText = (CommandInput.Text ?? "").Trim();
+        if (enterText.Length != (CommandInput.Text ?? "").Length)
+        {
+            CommandInput.Text = enterText;
+        }
+        if (!string.IsNullOrEmpty(enterText) && TryAcceptTopSuggestion(run: true))
+        {
+            return true;
+        }
         SubmitLine();
         return true;
+    }
+
+    private void RefreshSuggestions()
+    {
+        if (_host == IntPtr.Zero || SuggestList == null)
+        {
+            return;
+        }
+        if (!string.IsNullOrEmpty(_command))
+        {
+            SuggestList.Items.Clear();
+            SuggestList.Visibility = Visibility.Collapsed;
+            return;
+        }
+        var text = CommandInput.Text ?? "";
+        List<SuggestRow> rows;
+        try
+        {
+            rows = JsonSerializer.Deserialize<List<SuggestRow>>(Native.Suggest(_host, text), JsonOpts) ?? new();
+        }
+        catch (Exception)
+        {
+            rows = new();
+        }
+        SuggestList.Items.Clear();
+        foreach (var row in rows.Take(8))
+        {
+            if (string.IsNullOrEmpty(row.Insert))
+            {
+                continue;
+            }
+            var label = string.IsNullOrEmpty(row.Label) ? row.Insert : $"{row.Insert}  —  {row.Label}";
+            SuggestList.Items.Add(new SuggestRow { Insert = row.Insert, Label = label, Reference = row.Reference });
+        }
+        SuggestList.Visibility = SuggestList.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateDyn();
+    }
+
+    private void OnSuggestPick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not SuggestRow row || string.IsNullOrEmpty(row.Insert))
+        {
+            return;
+        }
+        AcceptSuggestion(row.Insert, row.Reference);
+    }
+
+    private void AcceptSuggestion(string insert, bool reference)
+    {
+        var text = CommandInput.Text ?? "";
+        var word = CurrentWord(text);
+        var cut = text.Length - word.Length;
+        var next = text[..cut] + insert + (reference ? " " : "");
+        CommandInput.Text = next;
+        CommandInput.SelectionStart = next.Length;
+        CommandInput.Focus(FocusState.Programmatic);
+        RefreshSuggestions();
+    }
+
+    private static string CurrentWord(string buffer)
+    {
+        for (var i = buffer.Length - 1; i >= 0; i--)
+        {
+            if (char.IsWhiteSpace(buffer[i]))
+            {
+                return buffer[(i + 1)..];
+            }
+        }
+        return buffer;
+    }
+
+    /// <summary>Accept the first matching command (or reference). When <paramref name="run"/>, submit command rows.</summary>
+    private bool TryAcceptTopSuggestion(bool run)
+    {
+        if (TryTopSuggestionFromHost(run))
+        {
+            return true;
+        }
+        if (SuggestList == null || SuggestList.Items.Count == 0)
+        {
+            return false;
+        }
+        if (SuggestList.Items[0] is not SuggestRow row || string.IsNullOrEmpty(row.Insert))
+        {
+            return false;
+        }
+        if (row.Reference || !run)
+        {
+            AcceptSuggestion(row.Insert, row.Reference);
+            return true;
+        }
+        CommandInput.Text = row.Insert;
+        CommandInput.Focus(FocusState.Programmatic);
+        SubmitLine();
+        return true;
+    }
+
+    private bool TryTopSuggestionFromHost(bool run)
+    {
+        if (_host == IntPtr.Zero || !string.IsNullOrEmpty(_command))
+        {
+            return false;
+        }
+        var text = (CommandInput.Text ?? "").Trim();
+        if (text.Length == 0 || text.StartsWith('/') || text.IndexOfAny([' ', '\t']) >= 0)
+        {
+            return false;
+        }
+        List<SuggestRow> rows;
+        try
+        {
+            rows = JsonSerializer.Deserialize<List<SuggestRow>>(Native.Suggest(_host, text), JsonOpts) ?? new();
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        var row = rows.Find(r => !string.IsNullOrEmpty(r.Insert));
+        if (row == null)
+        {
+            return false;
+        }
+        if (row.Reference || !run)
+        {
+            AcceptSuggestion(row.Insert, row.Reference);
+            return true;
+        }
+        CommandInput.Text = row.Insert;
+        CommandInput.Focus(FocusState.Programmatic);
+        SubmitLine();
+        return true;
+    }
+
+    private sealed class SuggestRow
+    {
+        public string Insert { get; set; } = "";
+        public string Label { get; set; } = "";
+        public bool Reference { get; set; }
+        public override string ToString() => string.IsNullOrEmpty(Label) ? Insert : Label;
     }
 
     private void InsertCommandSpace()
@@ -882,6 +1167,11 @@ public sealed partial class MainWindow : Window
     {
         var text = CommandInput.Text;
         _armSpace = false;
+        if (SuggestList != null)
+        {
+            SuggestList.Items.Clear();
+            SuggestList.Visibility = Visibility.Collapsed;
+        }
         if (!string.IsNullOrWhiteSpace(text))
         {
             Remember(text);
@@ -1375,7 +1665,9 @@ public sealed partial class MainWindow : Window
         }
         if (id == "qsave")
         {
-            if (Native.Execute(_host, "qsave", "{}") == 0)
+            History.Text = "Saving...";
+            var saved = await SaveFileAsync(null);
+            if (saved)
             {
                 _docKey = "";
                 AfterCommand();
@@ -1399,7 +1691,8 @@ public sealed partial class MainWindow : Window
         {
             return false;
         }
-        if (Native.Execute(_host, "saveas", PathJson(chosen.Path)) != 0)
+        History.Text = "Saving " + chosen.Name + "...";
+        if (!await SaveFileAsync(chosen.Path))
         {
             History.Text = Native.LastError(_host);
             AfterCommand();
@@ -1768,36 +2061,34 @@ public sealed partial class MainWindow : Window
 
     private void ApplyShellTheme()
     {
-        if (Content is FrameworkElement root)
-        {
-            root.RequestedTheme = _dark ? ElementTheme.Dark : ElementTheme.Light;
-            Density.Theme = root.RequestedTheme;
-        }
-        _chrome?.ApplyTheme(_dark ? ElementTheme.Dark : ElementTheme.Light);
-        CanvasHost.Background = new SolidColorBrush(_dark ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
-        _layersWindow?.ApplyTheme(_dark ? ElementTheme.Dark : ElementTheme.Light);
-        var title = AppWindow.TitleBar;
-        var bg = _dark ? Color(0x20, 0x20, 0x20) : Color(0xF3, 0xF3, 0xF3);
-        var fg = _dark ? Microsoft.UI.Colors.White : Color(0x1A, 0x1A, 0x1A);
-        var inactive = _dark ? Color(0xAA, 0xAA, 0xAA) : Color(0x5C, 0x5C, 0x5C);
-        var hover = _dark ? Color(0x2D, 0x2D, 0x2D) : Color(0xE5, 0xE5, 0xE5);
-        var pressed = _dark ? Color(0x3A, 0x3A, 0x3A) : Color(0xD6, 0xD6, 0xD6);
-        title.BackgroundColor = bg;
-        title.InactiveBackgroundColor = bg;
-        title.ForegroundColor = fg;
-        title.InactiveForegroundColor = inactive;
-        title.ButtonBackgroundColor = bg;
-        title.ButtonInactiveBackgroundColor = bg;
-        title.ButtonForegroundColor = fg;
-        title.ButtonInactiveForegroundColor = inactive;
-        title.ButtonHoverBackgroundColor = hover;
-        title.ButtonHoverForegroundColor = fg;
-        title.ButtonPressedBackgroundColor = pressed;
-        title.ButtonPressedForegroundColor = fg;
+        var theme = _dark ? ElementTheme.Dark : ElementTheme.Light;
+        Density.Theme = theme;
+        ShellChrome.Apply(this, theme);
+        _chrome?.ApplyTheme(theme);
+        CanvasHost.Background = Density.CanvasBackground();
+        ApplyThemeToToolWindows(theme);
         // Panel text takes its colours from the theme at build time, so build it again.
         _panelKey = "";
         RefreshPanels();
         BuildTools();
+    }
+
+    private void ApplyThemeToToolWindows(ElementTheme theme)
+    {
+        _layersWindow?.ApplyTheme(theme);
+        foreach (var window in new Window?[]
+        {
+            _calc, _pomodoro, _toolsWindow, _leftFloat, _pdfWindow, _formWindow,
+            _unitsWindow, _textStyleWindow, _pageSetupWindow, _plotStyleWindow, _batchPlotWindow,
+            _dimStyleWindow, _linetypeWindow, _hatchWindow, _pointStyleWindow, _mleaderStyleWindow,
+            _roomSettingsWindow, _draftingWindow, _quickWindow, _quickSelectWindow,
+        })
+        {
+            if (window != null)
+            {
+                ShellChrome.Apply(window, theme);
+            }
+        }
     }
 
     private static Windows.UI.Color Color(byte r, byte g, byte b) =>
@@ -1848,11 +2139,11 @@ public sealed partial class MainWindow : Window
         }
         var image = new Image { Stretch = Stretch.Uniform, MaxWidth = 860 };
         var caption = new TextBlock();
-        var open = new Button { Content = "Open PDF…", HorizontalAlignment = HorizontalAlignment.Left, MinHeight = Density.MinTarget };
+        var open = new Button { Content = "Open PDF…", HorizontalAlignment = HorizontalAlignment.Left, MinHeight = Density.ControlHeight };
         Density.Name(open, "Open PDF");
         Density.Name(caption, "PDF page");
         Density.Name(image, "PDF page preview");
-        var pageBox = new StackPanel { Spacing = 8 };
+        var pageBox = new StackPanel { Spacing = Density.SpaceMd };
         pageBox.Children.Add(open);
         pageBox.Children.Add(caption);
         pageBox.Children.Add(new ScrollViewer
@@ -1906,7 +2197,7 @@ public sealed partial class MainWindow : Window
                 caption.Text = ex.Message;
             }
         };
-        var root = new Grid { Padding = new Thickness(12), Children = { pageBox } };
+        var root = new Grid { Padding = Density.DialogMargin, Children = { pageBox } };
         if (Content is FrameworkElement shell)
         {
             root.RequestedTheme = shell.RequestedTheme;
@@ -1914,7 +2205,6 @@ public sealed partial class MainWindow : Window
         if (_pdfWindow == null)
         {
             _pdfWindow = new Window { Title = "PDF" };
-            ShellIcon.Apply(_pdfWindow);
             _pdfWindow.Closed += (_, _) =>
             {
                 owned?.Dispose();
@@ -1922,7 +2212,8 @@ public sealed partial class MainWindow : Window
             };
         }
         _pdfWindow.Content = root;
-        _pdfWindow.AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 980, Height = 760 });
+        ShellIcon.Apply(_pdfWindow, ShellChrome.ThemeOf(this));
+        ShellFit.UserResizable(_pdfWindow, minWidthDip: 640, minHeightDip: 480, maxWidthDip: 1200, maxHeightDip: 900, persistKey: "pdf");
         _pdfWindow.Activate();
         Native.ShowWindow(WindowNative.GetWindowHandle(_pdfWindow), 8);
     }
@@ -2283,19 +2574,19 @@ public sealed partial class MainWindow : Window
                 History.Text = history;
             }
             SyncHistory();
-            var prompt = state.Prompt;
+            // Cursor chrome is typed-text only; engine prompt is announced, Ask status stays on the AI bar.
+            var aiPrompt = "Ask:";
             if (state.Assistant is "thinking" or "loading")
             {
-                prompt = string.IsNullOrEmpty(state.AssistantPartial) ? "Assistant…" : state.AssistantPartial;
+                aiPrompt = string.IsNullOrEmpty(state.AssistantPartial) ? "Assistant…" : state.AssistantPartial;
             }
             else if (state.Assistant == "confirm" && !string.IsNullOrEmpty(state.AssistantPrompt))
             {
-                prompt = state.AssistantPrompt;
+                aiPrompt = state.AssistantPrompt;
             }
-            PromptLabel.Text = prompt;
-            AnnouncePrompt(prompt, _dynAccess);
+            PromptLabel.Text = aiPrompt;
+            AnnouncePrompt(state.Prompt ?? "Command:", _dynAccess);
             AssistantButtons.Visibility = state.Assistant == "confirm" ? Visibility.Visible : Visibility.Collapsed;
-            CommandInput.PlaceholderText = "";
             if (!string.IsNullOrEmpty(state.Space))
             {
                 _space = state.Space;
@@ -2859,7 +3150,7 @@ public sealed partial class MainWindow : Window
                         PropertiesPanel.Children.Add(read);
                         continue;
                     }
-                    var box = new TextBox { Text = value, Tag = value, MinHeight = Density.MinTarget };
+                    var box = new TextBox { Text = value, Tag = value, MinHeight = Density.ControlHeight };
                     AutomationProperties.SetName(box, label);
                     fields[key] = box;
                     box.LostFocus += (_, _) => CommitPropField(box, key, text, handles, fields);
@@ -2900,7 +3191,7 @@ public sealed partial class MainWindow : Window
 
     private void AddChoice(string label, IEnumerable<string> names, string current, Action<string> commit)
     {
-        var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = Density.MinTarget };
+        var box = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = Density.ControlHeight };
         AutomationProperties.SetName(box, label);
         _filling = true;
         foreach (var name in names)
@@ -2958,7 +3249,7 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        var box = new TextBox { Text = value, Tag = value, MinHeight = Density.MinTarget };
+        var box = new TextBox { Text = value, Tag = value, MinHeight = Density.ControlHeight };
         AutomationProperties.SetName(box, label);
         box.LostFocus += (_, _) => CommitPropField(box, key, false, handles, new Dictionary<string, TextBox>());
         box.KeyDown += (_, args) =>
@@ -3063,7 +3354,7 @@ public sealed partial class MainWindow : Window
             BorderThickness = new Thickness(0),
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
-            MinHeight = Density.MinTarget,
+            MinHeight = Density.ControlHeight,
             Padding = new Thickness(4, 0, 4, 0),
             FontWeight = layer.Current ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
         };
@@ -3082,7 +3373,7 @@ public sealed partial class MainWindow : Window
 
     private static Grid LayerGrid()
     {
-        var grid = new Grid { MinHeight = Density.MinTarget };
+        var grid = new Grid { MinHeight = Density.ControlHeight };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Density.MinTarget) });
@@ -3149,7 +3440,7 @@ public sealed partial class MainWindow : Window
                 CornerRadius = new CornerRadius(3),
                 Background = selected ? SelectedBlockBrush() : null,
             };
-            var stack = new StackPanel { Spacing = 2 };
+            var stack = new StackPanel { Spacing = Density.SpaceXs };
             stack.Children.Add(new TextBlock { Text = name, FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal });
             stack.Children.Add(FieldLabel(block.Entities + " objects · " + block.References + " references"));
             line.Child = stack;
@@ -3165,15 +3456,15 @@ public sealed partial class MainWindow : Window
         if (focus != null)
         {
             BlocksPanel.Children.Add(new Border { Height = 1, Margin = new Thickness(0, 8, 0, 8), Background = StripBrush() });
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            var insert = new Button { Content = "Insert", MinHeight = Density.MinTarget };
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceMd };
+            var insert = new Button { Content = "Insert", MinHeight = Density.ControlHeight };
             Density.Name(insert, "Insert block " + focus.Name);
             insert.Click += (_, _) => InsertBlock(focus.Name);
             actions.Children.Add(insert);
             var select = new Button
             {
                 Content = "Select references",
-                MinHeight = Density.MinTarget,
+                MinHeight = Density.ControlHeight,
                 IsEnabled = focus.Handles.Count > 0,
             };
             Density.Name(select, "Select references of " + focus.Name);
@@ -3384,11 +3675,22 @@ public sealed partial class MainWindow : Window
                     }
                 }
             }
+            // active is a space id (or null when none is applied). Model/paper live in the layout tabs.
             FillCombo(SpaceBox, names, active);
+            if (names.Count == 0)
+            {
+                SpaceBox.PlaceholderText = "No saved drawing space";
+            }
+            else if (string.IsNullOrEmpty(active) || SpaceBox.SelectedItem == null)
+            {
+                SpaceBox.PlaceholderText = "None";
+                SpaceBox.SelectedIndex = -1;
+            }
         }
         catch (JsonException)
         {
             SpaceBox.IsEnabled = false;
+            SpaceBox.PlaceholderText = "No saved drawing space";
         }
     }
 
@@ -3408,6 +3710,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
         }
+        box.SelectedIndex = -1;
     }
 
     private void OnLayerPicked(object sender, SelectionChangedEventArgs e) => PickContext(LayerBox, "layer.current", "name");
@@ -3560,7 +3863,7 @@ public sealed partial class MainWindow : Window
                 Content = new StackPanel
                 {
                     Orientation = Orientation.Horizontal,
-                    Spacing = 4,
+                    Spacing = Density.SpaceSm,
                     Children =
                     {
                         new DrawnIcon { Kind = layout.Equals("Model", StringComparison.OrdinalIgnoreCase) ? "model" : "paper" },
@@ -3572,7 +3875,7 @@ public sealed partial class MainWindow : Window
                         },
                     },
                 },
-                MinHeight = Density.MinTarget,
+                MinHeight = Density.ControlHeight,
                 Padding = new Thickness(8, 4, 8, 4),
             };
             AutomationProperties.SetName(tab, current ? "Current layout " + layout : "Switch to " + layout);
@@ -3941,7 +4244,6 @@ public sealed partial class MainWindow : Window
         CommandItem(window, "Reset this workspace", ResetCurrentWorkspace);
         CommandItem(window, "Calculator", OpenCalculator);
         CommandItem(window, "Pomodoro", OpenPomodoro);
-        CommandItem(window, "AORMS", OpenAorms);
         CommandItem(window, "Customize tool bar", OpenTools);
         CommandItem(window, "Start page", () => ShowStart(true));
         CommandItem(window, "UCS icon", () =>
@@ -4058,7 +4360,7 @@ public sealed partial class MainWindow : Window
         var host = new Grid();
         host.Children.Add(SideTabs);
         window.Content = host;
-        ShellIcon.Apply(window);
+        ShellIcon.Apply(window, ShellChrome.ThemeOf(this));
         window.Closed += (_, _) =>
         {
             if (SideTabs.Parent is Panel floated)
@@ -4133,8 +4435,6 @@ public sealed partial class MainWindow : Window
 
     private void OnStartClose(object sender, RoutedEventArgs e) => ShowStart(false);
 
-    private void OnAorms(object sender, RoutedEventArgs e) => OpenAorms();
-
     private void OnAssistantAllow(object sender, RoutedEventArgs e)
     {
         Native.Assistant(_host, true);
@@ -4145,17 +4445,6 @@ public sealed partial class MainWindow : Window
     {
         Native.Assistant(_host, false);
         RefreshChrome();
-    }
-
-    private void OpenAorms()
-    {
-        if (_aorms != null)
-        {
-            _aorms.Activate();
-            return;
-        }
-        _aorms = AormsWindow.Show(this, _host, text => AormsButton.Content = text);
-        _aorms.Closed += (_, _) => _aorms = null;
     }
 
     private void OpenCalculator()
@@ -4216,6 +4505,7 @@ public sealed partial class MainWindow : Window
         }
         _chrome = new CommandChrome();
         _chrome.Attach(CommandBar, WindowNative.GetWindowHandle(this));
+        _chrome.WireCad(OnCadKey, OnDraft, OnCadCharacter, OnSuggestPick);
         CommandBar.SizeChanged += (_, _) => PlaceCommandBar();
     }
 
@@ -4247,8 +4537,8 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        var clear = new Button { Content = "Clear", MinWidth = 96, MinHeight = Density.MinTarget };
-        var cancel = new Button { Content = "Cancel", MinWidth = 96, MinHeight = Density.MinTarget };
+        var clear = new Button { Content = "Clear", MinWidth = 96, MinHeight = Density.ControlHeight };
+        var cancel = new Button { Content = "Cancel", MinWidth = 96, MinHeight = Density.ControlHeight };
         Density.Name(clear, "Clear history");
         Density.Name(cancel, "Cancel");
         var text = new TextBlock
@@ -4261,18 +4551,16 @@ public sealed partial class MainWindow : Window
         var buttons = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = Density.SpaceMd,
             HorizontalAlignment = HorizontalAlignment.Right,
             Children = { clear, cancel },
         };
-        var root = new StackPanel { Spacing = 12, Margin = new Thickness(16), Children = { text, buttons } };
-        if (Content is FrameworkElement shell)
-        {
-            root.RequestedTheme = shell.RequestedTheme;
-        }
+        var root = new StackPanel { Spacing = Density.SpaceLg, Margin = new Thickness(Density.SpaceXl), Children = { text, buttons } };
+        var theme = ShellChrome.ThemeOf(this);
+        root.RequestedTheme = theme;
         var window = new Window { Title = "Clear command history", Content = root };
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(460, 160));
+        ShellIcon.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 360, minHeightDip: 120, maxWidthDip: 520, maxHeightDip: 220);
         var pos = AppWindow.Position;
         window.AppWindow.Move(new Windows.Graphics.PointInt32(pos.X + 80, pos.Y + 120));
         cancel.Click += (_, _) => window.Close();
@@ -4310,46 +4598,15 @@ public sealed partial class MainWindow : Window
 
     private void OnBarPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (_chrome == null || e.OriginalSource is not DependencyObject source || IsCommandControl(source) || !e.GetCurrentPoint(CommandBar).Properties.IsLeftButtonPressed || !Native.GetCursorPos(out var point))
-        {
-            return;
-        }
-        CommandBar.CapturePointer(e.Pointer);
-        _barDrag = true;
-        _dragCursorX = point.X;
-        _dragCursorY = point.Y;
-        var pos = _chrome.BarPosition;
-        _dragWinX = pos.X;
-        _dragWinY = pos.Y;
-        e.Handled = true;
+        // AI command bar is fixed bottom-centre; drag is disabled.
     }
 
     private void OnBarMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (!_barDrag || _chrome == null || !e.GetCurrentPoint(CommandBar).Properties.IsLeftButtonPressed || !Native.GetCursorPos(out var point))
-        {
-            return;
-        }
-        var x = _dragWinX + (point.X - _dragCursorX);
-        var y = _dragWinY + (point.Y - _dragCursorY);
-        var scale = CommandBar.XamlRoot?.RasterizationScale ?? 1;
-        var width = Math.Max(1, (int)Math.Round(CommandBar.ActualWidth * scale));
-        var height = Math.Max(1, (int)Math.Round((CommandBar.ActualHeight > 1 ? CommandBar.ActualHeight : 100) * scale));
-        _chrome.PlaceBar(x, y, width, height);
-        RememberBarOffset(x, y);
-        e.Handled = true;
     }
 
     private void OnBarReleased(object sender, PointerRoutedEventArgs e)
     {
-        if (!_barDrag)
-        {
-            return;
-        }
-        _barDrag = false;
-        CommandBar.ReleasePointerCaptures();
-        SaveShell();
-        e.Handled = true;
     }
 
     private void SyncHistory()
@@ -4366,6 +4623,8 @@ public sealed partial class MainWindow : Window
         }
         Recent0.Text = lines.Count >= 2 ? lines[^2] : "";
         Recent1.Text = lines.Count >= 1 ? lines[^1] : "";
+        // Empty TextBlocks still consume line height — hide the preview when there is nothing to show.
+        RecentHost.Visibility = lines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (text == _historyShown)
         {
             return;
@@ -4386,7 +4645,7 @@ public sealed partial class MainWindow : Window
     {
         if (_chrome == null || _host == IntPtr.Zero || _start || !_showCommand)
         {
-            _chrome?.ShowDyn(false, 0, 0, 0, 0, "", "", "", "", 0);
+            _chrome?.ShowCad(false, 0, 0, 0, 0, "", false, "", "", "", "", 0);
             return;
         }
         try
@@ -4398,9 +4657,9 @@ public sealed partial class MainWindow : Window
                 if (_dynAccess.Length > 0)
                 {
                     _dynAccess = "";
-                    AnnouncePrompt(PromptLabel.Text ?? "Command:", "");
+                    AnnouncePrompt("Command:", "");
                 }
-                _chrome.ShowDyn(false, 0, 0, 0, 0, "", "", "", "", 0);
+                _chrome.ShowCad(false, 0, 0, 0, 0, "", false, "", "", "", "", 0);
                 return;
             }
             if (!TryCanvas(out var origin, out var canvasW, out var canvasH, out var scale))
@@ -4409,17 +4668,23 @@ public sealed partial class MainWindow : Window
             }
             var px = dyn.TryGetProperty("x", out var xNode) && xNode.TryGetDouble(out var x) ? x : 0;
             var py = dyn.TryGetProperty("y", out var yNode) && yNode.TryGetDouble(out var y) ? y : 0;
+            var prompt = dyn.TryGetProperty("prompt", out var promptNode) ? promptNode.GetString() ?? "" : "Command:";
+            var dims = dyn.TryGetProperty("dims", out var dimsNode) && dimsNode.ValueKind == JsonValueKind.True;
             var aLabel = dyn.TryGetProperty("aLabel", out var aLabelNode) ? aLabelNode.GetString() ?? "" : "";
             var a = dyn.TryGetProperty("a", out var aNode) ? aNode.GetString() ?? "" : "";
             var bLabel = dyn.TryGetProperty("bLabel", out var bLabelNode) ? bLabelNode.GetString() ?? "" : "";
             var b = dyn.TryGetProperty("b", out var bNode) ? bNode.GetString() ?? "" : "";
             var active = dyn.TryGetProperty("active", out var activeNode) && activeNode.TryGetInt32(out var activeValue) ? activeValue : 0;
             var parts = new List<string>();
-            if (aLabel.Length > 0)
+            if (!string.IsNullOrEmpty(prompt))
+            {
+                parts.Add(prompt);
+            }
+            if (dims && aLabel.Length > 0)
             {
                 parts.Add((active == 0 ? "active " : "") + aLabel + " " + a);
             }
-            if (bLabel.Length > 0)
+            if (dims && bLabel.Length > 0)
             {
                 parts.Add((active == 1 ? "active " : "") + bLabel + " " + b);
             }
@@ -4427,10 +4692,15 @@ public sealed partial class MainWindow : Window
             if (dynAccess != _dynAccess)
             {
                 _dynAccess = dynAccess;
-                AnnouncePrompt(PromptLabel.Text ?? "Command:", _dynAccess);
+                AnnouncePrompt(prompt, _dynAccess);
             }
-            var dipW = bLabel.Length > 0 ? 300.0 : 150.0;
-            var dipH = 88.0;
+            _chrome.CadInput.PlaceholderText = "";
+            var suggestH = SuggestList is { Visibility: Visibility.Visible, Items.Count: > 0 }
+                ? Math.Min(72.0, SuggestList.Items.Count * 20.0 + 4.0)
+                : 0.0;
+            // Typed input only (no prompt / Length / Angle chrome).
+            var dipW = 140.0;
+            var dipH = 28.0 + suggestH;
             var left = origin.X + px / scale + 18;
             var top = origin.Y + py / scale + 8;
             if (left + dipW > origin.X + canvasW - 8)
@@ -4447,29 +4717,25 @@ public sealed partial class MainWindow : Window
             {
                 return;
             }
-            _chrome.ShowDyn(true, sx, sy, (int)Math.Round(dipW * scale), (int)Math.Round(dipH * scale), aLabel, a, bLabel, b, active);
+            _chrome.ShowCad(true, sx, sy, (int)Math.Round(dipW * scale), (int)Math.Round(dipH * scale), prompt, false, "", "", "", "", 0);
         }
         catch (JsonException)
         {
-            _chrome.ShowDyn(false, 0, 0, 0, 0, "", "", "", "", 0);
+            _chrome.ShowCad(false, 0, 0, 0, 0, "", false, "", "", "", "", 0);
         }
     }
 
     private void PlaceCommandBar()
     {
-        if (_barDrag || _chrome == null)
+        if (_chrome == null)
         {
             return;
         }
         var chrome = _chrome;
-        if (chrome == null)
-        {
-            return;
-        }
         if (!_showCommand || _start || !TryCanvas(out var origin, out var canvasW, out var canvasH, out var scale))
         {
             chrome.ShowBar(false);
-            chrome.ShowDyn(false, 0, 0, 0, 0, "", "", "", "", 0);
+            chrome.ShowCad(false, 0, 0, 0, 0, "", false, "", "", "", "", 0);
             return;
         }
         var available = Math.Max(0, canvasW - 48);
@@ -4478,13 +4744,14 @@ public sealed partial class MainWindow : Window
         {
             CommandBar.Width = barW;
         }
-        var barH = _historyOpen ? 348.0 : 100.0;
+        var barH = _historyOpen ? 320.0 : RecentHost.Visibility == Visibility.Visible ? 100.0 : 72.0;
         if (double.IsNaN(CommandBar.Height) || Math.Abs(CommandBar.Height - barH) > 0.5)
         {
             CommandBar.Height = barH;
         }
-        var left = origin.X + Math.Max(0, (canvasW - barW) / 2) + _barDx;
-        var top = origin.Y + Math.Max(0, (canvasH - barH) / 2) + _barDy;
+        // Fixed bottom-centre of the drawing canvas (not draggable).
+        var left = origin.X + Math.Max(0, (canvasW - barW) / 2);
+        var top = origin.Y + Math.Max(8, canvasH - barH - 16);
         left = Math.Clamp(left, origin.X + 8, Math.Max(origin.X + 8, origin.X + canvasW - barW - 8));
         top = Math.Clamp(top, origin.Y + 8, Math.Max(origin.Y + 8, origin.Y + canvasH - barH - 8));
         if (!ClientToScreen(left, top, out var sx, out var sy))
@@ -4493,22 +4760,6 @@ public sealed partial class MainWindow : Window
         }
         chrome.ShowBar(true);
         chrome.PlaceBar(sx, sy, Math.Max(1, (int)Math.Round(barW * scale)), Math.Max(1, (int)Math.Round(barH * scale)));
-    }
-
-    private void RememberBarOffset(int screenX, int screenY)
-    {
-        if (!TryCanvas(out var origin, out var canvasW, out var canvasH, out var scale))
-        {
-            return;
-        }
-        var barW = CommandBar.ActualWidth > 1 ? CommandBar.ActualWidth : 600;
-        var barH = CommandBar.ActualHeight > 1 ? CommandBar.ActualHeight : 100;
-        if (!ClientToScreen(origin.X + Math.Max(0, (canvasW - barW) / 2), origin.Y + Math.Max(0, (canvasH - barH) / 2), out var anchorX, out var anchorY))
-        {
-            return;
-        }
-        _barDx = (screenX - anchorX) / scale;
-        _barDy = (screenY - anchorY) / scale;
     }
 
     private bool TryCanvas(out Windows.Foundation.Point origin, out double canvasW, out double canvasH, out double scale)

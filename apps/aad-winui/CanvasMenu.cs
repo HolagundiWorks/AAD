@@ -74,7 +74,7 @@ internal static class CanvasMenu
         var root = doc.RootElement;
         var x = root.TryGetProperty("x", out var px) ? px.GetInt32() : 0;
         var y = root.TryGetProperty("y", out var py) ? py.GetInt32() : 0;
-        var stack = new StackPanel { Spacing = 1, Margin = new Thickness(4) };
+        var stack = new StackPanel { Spacing = Density.SpaceXs, Margin = new Thickness(Density.SpaceSm) };
         if (root.TryGetProperty("groups", out var groups))
         {
             var first = true;
@@ -140,8 +140,10 @@ internal static class CanvasMenu
             }
         };
         Density.Apply(frame);
+        ShellWindows.Track(window);
+        ShellChrome.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 180, minHeightDip: 120, maxWidthDip: 320, maxHeightDip: 420);
         window.AppWindow.Move(new Windows.Graphics.PointInt32(x, y));
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(220, 280));
         window.Activate();
         var hwnd = WindowNative.GetWindowHandle(window);
         var ownerHwnd = WindowNative.GetWindowHandle(owner);
@@ -150,7 +152,7 @@ internal static class CanvasMenu
             Native.SetWindowLongPtr(hwnd, Native.GwlpHwndParent, ownerHwnd);
         }
         Native.ShowWindow(hwnd, 8);
-        Native.Frame(hwnd, dark ? 0x00242424 : 0x00F3F3F3, dark);
+        Native.Frame(hwnd, Native.DwmColorNone, dark);
         frame.Focus(FocusState.Programmatic);
     }
 
@@ -191,7 +193,7 @@ internal static class CanvasMenu
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Left,
             Margin = new Thickness(indent, 0, 0, 0),
-            MinHeight = Density.MinTarget,
+            MinHeight = Density.ControlHeight,
             Padding = new Thickness(12, 4, 12, 4),
             FontSize = Density.Font,
             BorderThickness = new Thickness(0),

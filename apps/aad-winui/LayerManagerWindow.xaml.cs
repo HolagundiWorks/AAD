@@ -74,11 +74,16 @@ public sealed partial class LayerManagerWindow : Window
         LoadPrefs();
         _reloading = false;
         Closed += (_, _) => SavePrefs();
-        AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 1100, Height = 680 });
-        ShellIcon.Apply(this);
+        ShellIcon.Apply(this, themeSource?.RequestedTheme ?? Density.Theme);
+        ShellFit.UserResizable(this, minWidthDip: 720, minHeightDip: 420, maxWidthDip: 1400, maxHeightDip: 1000, persistKey: "layers");
     }
 
-    public void ApplyTheme(ElementTheme theme) => Root.RequestedTheme = theme;
+    public void ApplyTheme(ElementTheme theme)
+    {
+        ShellChrome.Apply(this, theme);
+        // When merged into the side panel, Content is null but Root still needs the shell theme.
+        ShellChrome.Paint(Root, theme);
+    }
 
     public void ShowMerged(bool merged)
     {
@@ -734,7 +739,7 @@ public sealed partial class LayerManagerWindow : Window
         Rows.Children.Clear();
         foreach (var row in _shown)
         {
-            var grid = new Grid { MinHeight = Density.MinTarget, Width = Header.Width, HorizontalAlignment = HorizontalAlignment.Left, DataContext = row, Background = RowBrush(row.Name, Rows.Children.Count) };
+            var grid = new Grid { MinHeight = Density.ControlHeight, Width = Header.Width, HorizontalAlignment = HorizontalAlignment.Left, DataContext = row, Background = RowBrush(row.Name, Rows.Children.Count) };
             AutomationProperties.SetName(grid, row.Name);
             grid.PointerPressed += OnRowPressed;
             grid.RightTapped += OnRowMenu;
@@ -756,13 +761,13 @@ public sealed partial class LayerManagerWindow : Window
                 Background = Transparent(),
                 BorderThickness = new Thickness(0),
                 HorizontalContentAlignment = HorizontalAlignment.Left,
-                MinHeight = Density.MinTarget,
+                MinHeight = Density.ControlHeight,
                 Padding = new Thickness(4, 0, 4, 0),
             };
             color.Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 6,
+                Spacing = Density.SpaceSm,
                 Children = { new Border { Width = 14, Height = 14, Background = row.Swatch, VerticalAlignment = VerticalAlignment.Center }, new TextBlock { Text = row.ColorName, VerticalAlignment = VerticalAlignment.Center } },
             };
             AutomationProperties.SetName(color, row.ColorAccess);
@@ -777,7 +782,7 @@ public sealed partial class LayerManagerWindow : Window
                 Text = row.Description,
                 Background = Transparent(),
                 BorderThickness = new Thickness(0),
-                MinHeight = Density.MinTarget,
+                MinHeight = Density.ControlHeight,
                 Padding = new Thickness(4, 0, 4, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
@@ -969,7 +974,7 @@ public sealed partial class LayerManagerWindow : Window
             BorderThickness = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Left,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinHeight = Density.MinTarget,
+            MinHeight = Density.ControlHeight,
             Padding = new Thickness(4, 0, 4, 0),
         };
         AutomationProperties.SetName(button, access);
@@ -1029,14 +1034,14 @@ public sealed partial class LayerManagerWindow : Window
 
     private async Task<string?> Ask(string title, string label, string value, string primary)
     {
-        var box = new TextBox { Text = value, MinHeight = Density.MinTarget };
+        var box = new TextBox { Text = value, MinHeight = Density.ControlHeight };
         AutomationProperties.SetName(box, label);
         var dialog = new ContentDialog
         {
             Title = title,
             Content = new StackPanel
             {
-                Spacing = 8,
+                Spacing = Density.SpaceMd,
                 Children =
                 {
                     new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap },

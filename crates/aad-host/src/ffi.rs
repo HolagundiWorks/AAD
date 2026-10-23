@@ -60,7 +60,7 @@ pub unsafe extern "C" fn aad_host_draft(host: *mut Host, text: *const c_char) ->
     })
 }
 
-/// `1` when Space should type a space (assistant `/` request, sentence, text prompt); `0` when Space
+/// `1` when Space should type a space (assistant `/` request, open quote, text prompt); `0` when Space
 /// submits. Negative or other values are unused.
 ///
 /// # Safety
@@ -75,6 +75,67 @@ pub unsafe extern "C" fn aad_host_space_literal(host: *mut Host, text: *const c_
         Err(_) => return 0,
     };
     if crate::bar::space_is_literal(&host.session, &text) { 1 } else { 0 }
+}
+
+/// `1` when the CAD draft should move to the fixed AI prompt (idle `/…`); `0` otherwise.
+///
+/// # Safety
+/// `host` is live. `text` is null-terminated UTF-8, at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_slash_transfer(host: *mut Host, text: *const c_char) -> i32 {
+    let Some(host) = (unsafe { host.as_ref() }) else {
+        return 0;
+    };
+    let text = match read_text(text) {
+        Ok(text) => text,
+        Err(_) => return 0,
+    };
+    if crate::bar::slash_transfer_eligible(&host.session, &text) { 1 } else { 0 }
+}
+
+/// Copy the slash-transfer payload (text after one leading `/` and following spaces).
+/// Returns the byte length written (or needed). Does not require a live session.
+///
+/// # Safety
+/// `text` is null-terminated UTF-8. `buf` is null or valid for `length` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_slash_payload(text: *const c_char, buf: *mut u8, length: u32) -> i32 {
+    let text = match read_text(text) {
+        Ok(text) => text,
+        Err(_) => return 0,
+    };
+    let payload = crate::bar::slash_transfer_payload(&text);
+    copy_bytes(payload.as_bytes(), buf, length)
+}
+
+/// Ask the assistant with natural-language text from the fixed AI prompt (not CAD `cmdline`).
+///
+/// # Safety
+/// `host` is live. `text` is null-terminated UTF-8, at most 1 MiB.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_ask(host: *mut Host, text: *const c_char) -> i32 {
+    call(host, |host| {
+        let text = read_text(text)?;
+        host.ask(&text)
+    })
+}
+
+/// Autocomplete suggestions for the command-line draft as a JSON array of
+/// `{insert, label, reference}` objects. Returns the byte length written (or needed).
+///
+/// # Safety
+/// `host` is live. `text` is null-terminated UTF-8. `buf` is null or valid for `length` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn aad_host_suggest(host: *mut Host, text: *const c_char, buf: *mut u8, length: u32) -> i32 {
+    let Some(_host) = (unsafe { host.as_ref() }) else {
+        return 0;
+    };
+    let text = match read_text(text) {
+        Ok(text) => text,
+        Err(_) => return 0,
+    };
+    let json = crate::bar::suggestions_json(&text);
+    copy_bytes(json.as_bytes(), buf, length)
 }
 
 /// Tab at a point prompt. Copies the text with the Dynamic Input separator appended.

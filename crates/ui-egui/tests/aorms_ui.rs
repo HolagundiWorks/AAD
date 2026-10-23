@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use aad_aorms::{AormsError, Client, MemorySessionStore, MemorySharedStore, Method, Request, Response, Transport};
 use aad_engine::Session;
 use aad_ui_egui::aorms_ui::{self, ChipTone, Kind, Tone};
-use aad_ui_egui::{CadApp, Services, dialogs};
+use aad_ui_egui::{CadApp, Services};
 use serde_json::json;
 
 const CFG: &str = r#"{"contract":"2026-10-aqc-1","supabaseUrl":"https://hub.example","supabaseAnonKey":"k"}"#;
@@ -229,46 +229,39 @@ fn hostile_project_ids_are_refused_before_any_request() {
 }
 
 #[test]
-fn menu_and_typed_commands_open_the_dialog_but_json_calls_run_the_command() {
+fn connect_ui_is_gone_but_json_commands_still_run() {
     let script = server();
     let mut app = app_with(&script);
     for id in ["aorms.signin", "aorms.status", "aorms.projects", "aorms.open", "aorms.drawings"] {
         app.ui.dialog = None;
         app.start(id);
-        assert_eq!(app.ui.dialog.as_deref(), Some("aorms"), "{id}");
+        assert!(app.ui.dialog.is_none(), "{id} must not open a connect dialog");
     }
-    app.ui.dialog = None;
-    app.cmdline("aorms.signin");
-    assert_eq!(app.ui.dialog.as_deref(), Some("aorms"), "typed");
-    app.ui.dialog = None;
     let st = app.run("aorms.status", json!({})).unwrap();
-    assert!(app.ui.dialog.is_none(), "JSON calls never open a dialog");
     assert_eq!(st["signedIn"], false);
     assert!(app.run("aorms.signin", json!({ "email": "a@x.in", "password": "pw" })).is_ok(), "the engine command still signs in");
-    assert!(app.ui.dialog.is_none());
 }
 
 #[test]
-fn the_aorms_menu_exists_and_lists_the_commands() {
+fn the_aorms_menu_is_not_listed() {
     let app = CadApp::new(Session::new(), Services::default());
     let tree = aad_ui_egui::menus::tree(&app);
-    let (_, entries) = tree.iter().find(|(m, _)| m == "AORMS").expect("an AORMS menu");
-    assert!(!entries.is_empty());
+    assert!(tree.iter().all(|(m, _)| m != "AORMS"), "AORMS connect menu must be absent");
 }
 
 #[test]
-fn the_dialog_draws_in_every_state_without_panicking() {
+fn the_dialog_helper_is_unused_after_connect_ui_removal() {
+    // Keep aorms_ui::dialog compilable for library callers; shells no longer open it.
     let script = server();
     let ctx = egui::Context::default();
     let draw = |app: &mut CadApp| {
-        app.ui.dialog = Some("aorms".into());
-        let mut out = ctx.run_ui(Default::default(), |ui| dialogs::show(app, ui.ctx()));
+        let mut open = true;
+        let mut out = ctx.run_ui(Default::default(), |ui| aorms_ui::dialog(app, ui.ctx(), &mut open));
         out.textures_delta.clear();
     };
     // signed out
     let mut app = app_with(&script);
     draw(&mut app);
-    assert_eq!(app.ui.dialog.as_deref(), Some("aorms"));
     // busy
     type_credentials(&mut app, "a@x.in", "pw");
     aorms_ui::start_sign_in(&mut app, &ctx);

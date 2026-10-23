@@ -73,7 +73,7 @@ See [TESTING.md](TESTING.md). Fixtures that are files live next to their tests, 
 
 ## Names
 
-The product is **O-Draft**, the drafting app of OSAS (the Open Source Architecture Suit), beside O-Studio and O-CoreOp. It was called AAD (Accelerated Architecture Drafting). Only what a person reads was renamed: window titles, About, menus, the installer, the logo and the documents. Identifiers that other things read keep their old names, so nothing breaks:
+The product is **O-Draft**, the drafting app of OSAS (the Open Source Architecture Suite), beside O-Studio and O-CoreOp. It was called AAD (Accelerated Architecture Drafting). Only what a person reads was renamed: window titles, About, menus, the installer, the logo and the documents. Identifiers that other things read keep their old names, so nothing breaks:
 
 | Kept | Why |
 |---|---|

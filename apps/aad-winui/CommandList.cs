@@ -14,7 +14,7 @@ internal static class CommandList
     public static void Show(Window owner, string menuJson)
     {
         var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
-        var lines = new TextBlock { FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(12) };
+        var lines = new TextBlock { FontFamily = ShellFonts.MonoFamily, TextWrapping = TextWrapping.Wrap, Margin = Density.DialogMargin };
         var text = new System.Text.StringBuilder();
         try
         {
@@ -49,8 +49,8 @@ internal static class CommandList
             }
         };
         _window = window;
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 520));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 360, minHeightDip: 280, maxWidthDip: 720, maxHeightDip: 800);
         window.Activate();
         Native.ShowWindow(WindowNative.GetWindowHandle(window), 8);
     }

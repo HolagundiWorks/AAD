@@ -19,7 +19,7 @@ Both paths end in the same call, `forms::parse_input` turns the collected text i
 parameters, and a refusal from the command is shown and ends the command. Numbers must be finite;
 tables are limited to 500 rows and point lists to 10 000 points.
 
-Forms exist for: `project`, `floors`, `beams`, `schedule`, `takeoff.rates`, `room`, `hcwlayers`,
+Forms exist for: `project`, `floors`, `beams`, `schedule`, `takeoff.rates`, `room`, `hcwlayers` (choices: standard, permit, presentation, both, all),
 `takeoff.linear|brick|beams|columns|rects|paint|ceiling|floor|area|slab`, `wall.draw`, `wall.door`,
 `wall.window`, `grid.axis`, `column.place`, `lintel.draw`, `stair.plan`, `lift.shaft`, `rail.draw`,
 `level.mark`, `section.marker`, `elevation.marker`, `north.arrow`, `slope.arrow`,

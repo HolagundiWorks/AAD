@@ -27,14 +27,14 @@ internal static class PlotStyleWindow
         AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
         Density.Name(status, "Plot style status");
 
-        var tables = new ComboBox { MinWidth = 220, MinHeight = Density.MinTarget };
+        var tables = new ComboBox { MinWidth = 220, MinHeight = Density.ControlHeight };
         Density.Name(tables, "Plot style table");
         var copy = ActionButton("Copy");
         var newCtb = ActionButton("New CTB");
         var newStb = ActionButton("New STB");
         var delete = ActionButton("Delete");
         var useLayout = ActionButton("Use for this layout");
-        var displayStyles = new CheckBox { Content = "Display plot styles", MinHeight = Density.MinTarget };
+        var displayStyles = new CheckBox { Content = "Display plot styles", MinHeight = Density.ControlHeight };
         Density.Name(displayStyles, "Display plot styles");
         var layoutLabel = Density.Secondary("", TextWrapping.Wrap);
         Density.Name(layoutLabel, "Layout plot style");
@@ -42,13 +42,13 @@ internal static class PlotStyleWindow
         Density.Name(desc, "Table description");
         var styles = new ListBox { MinHeight = 220, MinWidth = 180 };
         Density.Name(styles, "Plot styles");
-        var objectColor = new CheckBox { Content = "Object colour", MinHeight = Density.MinTarget };
+        var objectColor = new CheckBox { Content = "Object colour", MinHeight = Density.ControlHeight };
         Density.Name(objectColor, "Object colour");
-        var grayscale = new CheckBox { Content = "Grayscale", MinHeight = Density.MinTarget };
+        var grayscale = new CheckBox { Content = "Grayscale", MinHeight = Density.ControlHeight };
         Density.Name(grayscale, "Grayscale");
-        var screening = new TextBox { MinHeight = Density.MinTarget, Width = 80 };
+        var screening = new TextBox { MinHeight = Density.ControlHeight, Width = 80 };
         Density.Name(screening, "Screening percent");
-        var lineweight = new ComboBox { MinWidth = 180, MinHeight = Density.MinTarget };
+        var lineweight = new ComboBox { MinWidth = 180, MinHeight = Density.ControlHeight };
         lineweight.Items.Add("Use object lineweight");
         foreach (var mm in LineweightsMm)
         {
@@ -58,23 +58,23 @@ internal static class PlotStyleWindow
         var apply = ActionButton("Apply style");
         var propsHeading = Heading("Selected style");
 
-        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         toolbar.Children.Add(tables);
         toolbar.Children.Add(copy);
         toolbar.Children.Add(newCtb);
         toolbar.Children.Add(newStb);
         toolbar.Children.Add(delete);
 
-        var layoutRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var layoutRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceMd };
         layoutRow.Children.Add(layoutLabel);
         layoutRow.Children.Add(useLayout);
         layoutRow.Children.Add(displayStyles);
 
-        var left = new StackPanel { Spacing = 6, Width = 200 };
+        var left = new StackPanel { Spacing = Density.SpaceSm, Width = 200 };
         left.Children.Add(Heading("Styles"));
         left.Children.Add(styles);
 
-        var right = new StackPanel { Spacing = 6, MinWidth = 240 };
+        var right = new StackPanel { Spacing = Density.SpaceSm, MinWidth = 240 };
         right.Children.Add(propsHeading);
         right.Children.Add(objectColor);
         right.Children.Add(grayscale);
@@ -82,7 +82,7 @@ internal static class PlotStyleWindow
         right.Children.Add(Labeled("Lineweight", lineweight));
         right.Children.Add(apply);
 
-        var columns = new Grid { ColumnSpacing = 16 };
+        var columns = new Grid { ColumnSpacing = Density.SpaceXl };
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(left, 0);
@@ -90,7 +90,7 @@ internal static class PlotStyleWindow
         columns.Children.Add(left);
         columns.Children.Add(right);
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 720 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 720 };
         root.Children.Add(Labeled("Plot style table", toolbar));
         root.Children.Add(layoutRow);
         root.Children.Add(desc);
@@ -449,22 +449,22 @@ internal static class PlotStyleWindow
         {
             presenter.IsResizable = true;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 520));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 560, minHeightDip: 400, maxWidthDip: 960, maxHeightDip: 800, persistKey: "plotstyle");
         Reload(null, null);
         return window;
     }
 
     private static Button ActionButton(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight };
         Density.Name(button, label);
         return button;
     }
 
     private static FrameworkElement Labeled(string label, FrameworkElement field)
     {
-        var row = new StackPanel { Spacing = 2 };
+        var row = new StackPanel { Spacing = Density.SpaceXs };
         var text = new TextBlock { Text = label };
         Density.Name(text, label);
         row.Children.Add(text);

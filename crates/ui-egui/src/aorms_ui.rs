@@ -67,12 +67,6 @@ pub struct Job {
     rx: Receiver<Done>,
 }
 
-/// A request made where no `egui::Context` is at hand (menus, typed commands); run by [`poll`].
-#[derive(Clone, PartialEq, Debug)]
-enum Queued {
-    Pull(String),
-}
-
 #[derive(Default)]
 pub struct AormsUi {
     pub email: String,
@@ -89,7 +83,6 @@ pub struct AormsUi {
     /// The host turns this on to restore the shared sign-in once at start-up.
     pub auto_restore: bool,
     restore_started: bool,
-    queued: Vec<Queued>,
     projects_loaded: bool,
 }
 
@@ -441,19 +434,11 @@ fn finish(app: &mut CadApp, kind: Kind, outcome: Outcome) {
     }
 }
 
-/// Once per frame: start the one-time restore, run queued requests, collect a finished job and keep the cached view current.
+/// Once per frame: start the one-time restore, collect a finished job and keep the cached view current.
 pub fn poll(app: &mut CadApp, ctx: &egui::Context) {
     if app.aorms.auto_restore && !app.aorms.restore_started {
         app.aorms.restore_started = true;
         start_restore(app, ctx);
-    }
-    if !app.aorms.busy() && !app.aorms.queued.is_empty() {
-        let queued = std::mem::take(&mut app.aorms.queued);
-        for q in queued {
-            match q {
-                Queued::Pull(id) => start_pull(app, ctx, &id),
-            }
-        }
     }
     let received = match app.aorms.job.as_ref() {
         Some(j) => match j.rx.try_recv() {
@@ -477,25 +462,10 @@ pub fn poll(app: &mut CadApp, ctx: &egui::Context) {
     refresh_view(app);
 }
 
-// ── routing: menu / typed commands without parameters open the dialog ───────────────────────────────────────
+// ── routing: connect UI removed; typed / menu invocations fall through to the engine ────────────────────────
 
-pub fn route(app: &mut CadApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
-    if !params.is_null() {
-        return None; // JSON callers run the engine command itself
-    }
-    match id {
-        "aorms.signin" | "aorms.status" | "aorms.projects" | "aorms.open" | "aorms.drawings" => {}
-        "aorms.pull" => {
-            if let Some(link) = linked(app)
-                && app.aorms.view.connected
-            {
-                app.aorms.queued.push(Queued::Pull(link.0));
-            }
-        }
-        _ => return None,
-    }
-    app.ui.dialog = Some("aorms".into());
-    Some(Ok(Value::Null))
+pub fn route(_app: &mut CadApp, _id: &str, _params: &Value) -> Option<Result<Value, String>> {
+    None
 }
 
 /// The AORMS project this drawing is linked to: (project id, reference).

@@ -51,19 +51,17 @@ internal sealed class PomodoroWindow : Window
         var row = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 6,
+            Spacing = Density.SpaceSm,
             Children = { toggle, reset, shorter, longer },
         };
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), Children = { _label, row } };
-        if (owner.Content is FrameworkElement shell)
-        {
-            root.RequestedTheme = shell.RequestedTheme;
-        }
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, Children = { _label, row } };
+        var theme = ShellChrome.ThemeOf(owner);
+        root.RequestedTheme = theme;
         Content = root;
         Density.Apply(root);
         _label.FontSize = 22;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(280, 160));
-        ShellIcon.Apply(this);
+        ShellIcon.Apply(this, theme);
+        ShellFit.ToContent(this, minWidthDip: 260, minHeightDip: 120, maxWidthDip: 360, maxHeightDip: 220);
         _timer.Tick += (_, _) =>
         {
             Tick(1);
@@ -80,7 +78,7 @@ internal sealed class PomodoroWindow : Window
 
     private static Button Action(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget, MinWidth = 48 };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight, MinWidth = 48 };
         Density.Name(button, label);
         return button;
     }

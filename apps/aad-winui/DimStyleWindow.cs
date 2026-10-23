@@ -40,7 +40,7 @@ internal static class DimStyleWindow
         var currentLabel = Density.Secondary("Current style: —", TextWrapping.Wrap);
         Density.Name(currentLabel, "Current dimension style");
         var setCurrent = ActionButton("Set Current");
-        var newName = new TextBox { PlaceholderText = "New style name", MinHeight = Density.MinTarget, Width = 140 };
+        var newName = new TextBox { PlaceholderText = "New style name", MinHeight = Density.ControlHeight, Width = 140 };
         Density.Name(newName, "New style name");
         var create = ActionButton("New");
         var scale = FieldBox("Overall scale");
@@ -48,9 +48,9 @@ internal static class DimStyleWindow
         var textHeight = FieldBox("Text height");
         var textGap = FieldBox("Text gap");
         var decimals = FieldBox("Decimal places");
-        var textStyle = new ComboBox { IsEditable = true, MinWidth = 160, MinHeight = Density.MinTarget };
+        var textStyle = new ComboBox { IsEditable = true, MinWidth = 160, MinHeight = Density.ControlHeight };
         Density.Name(textStyle, "Text style");
-        var linearUnit = new ComboBox { MinWidth = 180, MinHeight = Density.MinTarget };
+        var linearUnit = new ComboBox { MinWidth = 180, MinHeight = Density.ControlHeight };
         foreach (var (_, label) in LinearUnits)
         {
             linearUnit.Items.Add(label);
@@ -58,16 +58,16 @@ internal static class DimStyleWindow
         Density.Name(linearUnit, "Linear units");
         var propsHeading = Heading("Properties");
 
-        var left = new StackPanel { Spacing = 6, Width = 200 };
+        var left = new StackPanel { Spacing = Density.SpaceSm, Width = 200 };
         left.Children.Add(Heading("Styles"));
         left.Children.Add(list);
         left.Children.Add(setCurrent);
-        var newRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var newRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         newRow.Children.Add(newName);
         newRow.Children.Add(create);
         left.Children.Add(newRow);
 
-        var right = new StackPanel { Spacing = 6, MinWidth = 240 };
+        var right = new StackPanel { Spacing = Density.SpaceSm, MinWidth = 240 };
         right.Children.Add(propsHeading);
         right.Children.Add(Labeled("Overall scale", scale));
         right.Children.Add(Labeled("Arrow size", arrow));
@@ -77,7 +77,7 @@ internal static class DimStyleWindow
         right.Children.Add(Labeled("Text style", textStyle));
         right.Children.Add(Labeled("Linear units", linearUnit));
 
-        var columns = new Grid { ColumnSpacing = 16 };
+        var columns = new Grid { ColumnSpacing = Density.SpaceXl };
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(left, 0);
@@ -85,7 +85,7 @@ internal static class DimStyleWindow
         columns.Children.Add(left);
         columns.Children.Add(right);
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 560 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 560 };
         root.Children.Add(currentLabel);
         root.Children.Add(columns);
         root.Children.Add(status);
@@ -387,29 +387,29 @@ internal static class DimStyleWindow
         {
             presenter.IsResizable = true;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(560, 460));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 480, minHeightDip: 360, maxWidthDip: 720, maxHeightDip: 700, persistKey: "dimstyle");
         Reload(null);
         return window;
     }
 
     private static Button ActionButton(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight };
         Density.Name(button, label);
         return button;
     }
 
     private static TextBox FieldBox(string name)
     {
-        var box = new TextBox { MinHeight = Density.MinTarget, Width = 120 };
+        var box = new TextBox { MinHeight = Density.ControlHeight, Width = 120 };
         Density.Name(box, name);
         return box;
     }
 
     private static FrameworkElement Labeled(string label, FrameworkElement field)
     {
-        var row = new StackPanel { Spacing = 2 };
+        var row = new StackPanel { Spacing = Density.SpaceXs };
         var text = new TextBlock { Text = label };
         Density.Name(text, label);
         row.Children.Add(text);

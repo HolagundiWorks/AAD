@@ -27,9 +27,57 @@ use std::sync::{Arc, Mutex};
 
 use aad_color::Rgb;
 use aad_engine::Session;
+use aad_engine::doc::{Drawing, Space};
 use aad_geom::Vec2;
 use aad_render::mesh::{self, MeshData};
+use aad_render::DisplayList;
 use serde_json::Value;
+
+/// (document uid, revision, tessellation band, lwdisplay, space fingerprint, draw text, draw fill).
+type ListKey = (u64, u64, i32, bool, u64, bool, bool);
+
+/// Display list being rebuilt on a worker for a new zoom / LOD band.
+struct PendingList {
+    key: ListKey,
+    rx: std::sync::mpsc::Receiver<DisplayList>,
+}
+
+/// Cached display list / GPU mesh so pans and small edits do not rebuild everything every frame.
+struct FrameCache {
+    list_key: ListKey,
+    list: Option<DisplayList>,
+    list_doc: Option<std::sync::Arc<Drawing>>,
+    mesh_key: Option<u64>,
+    mesh: Option<MeshData>,
+    mesh_origin: Vec2,
+    pending: Option<PendingList>,
+}
+
+impl Default for FrameCache {
+    fn default() -> Self {
+        FrameCache {
+            list_key: (0, 0, 0, false, 0, true, true),
+            list: None,
+            list_doc: None,
+            mesh_key: None,
+            mesh: None,
+            mesh_origin: Vec2::ZERO,
+            pending: None,
+        }
+    }
+}
+
+fn space_fp(space: &Space) -> u64 {
+    match space {
+        Space::Model => 0,
+        Space::Paper(n) => {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            n.hash(&mut h);
+            h.finish()
+        }
+    }
+}
 
 /// Wheel notch. Positive zooms in, about the pointer.
 pub const POINTER_WHEEL: u32 = 1;
@@ -260,6 +308,17 @@ pub struct Host {
     saving: Option<(Arc<aad_engine::cmd::file::SaveJob>, std::sync::mpsc::Receiver<Result<usize, String>>)>,
     /// A plot being built on a worker thread.
     plotting: Option<std::sync::mpsc::Receiver<Result<Value, String>>>,
+    /// Display list and mesh reused across pans / small edits.
+    frame: FrameCache,
+    /// Control-channel `app.open` / `app.save` waiting for a worker poll to finish.
+    control_io: Option<(control::Job, ControlIoKind)>,
+}
+
+/// Which file job a deferred control reply is waiting on.
+#[derive(Clone, Copy)]
+enum ControlIoKind {
+    Open,
+    Save,
 }
 
 /// DXF and DWG read and write. The engine stays free of file formats; the host installs them
@@ -343,6 +402,8 @@ impl Host {
             loading: None,
             saving: None,
             plotting: None,
+            frame: FrameCache::default(),
+            control_io: None,
         }
     }
 
@@ -576,36 +637,64 @@ impl Host {
         value.to_string()
     }
 
-    /// Screen position and the two cursor fields. `on` is false when Dynamic Input is not relevant.
+    /// Cursor parking for the CAD prompt, plus Length/Angle when a dyn frame applies.
+    ///
+    /// `on` is true whenever the pointer is known (so WinUI can park the CAD field). Length/Angle
+    /// (`dims`) still require Dynamic Input mode. Assistant `/` drafts stay off the cursor chrome.
     fn dyn_chrome(&self) -> Value {
-        let Some(screen) = self.screen.filter(|point| point.is_finite()) else {
-            return serde_json::json!({ "on": false });
-        };
-        if !self.session.settings.dynmode || self.hot.is_some() || self.session.pending_window.is_some() {
+        if self.hot.is_some() || self.session.pending_window.is_some() {
             return serde_json::json!({ "on": false });
         }
+        let screen = self.screen.filter(|point| point.is_finite()).unwrap_or_else(|| {
+            Vec2::new(f64::from(self.width.max(1)) * 0.5, f64::from(self.height.max(1)) * 0.5)
+        });
         let running = self.session.running.is_some();
-        // Assistant requests (a `/` request or a sentence) are written in the command bar only.
-        if !running && matches!(bar::classify(&self.draft), bar::Kind::Reference | bar::Kind::Natural) {
+        // Slash assistant drafts belong on the fixed AI bar, not beside the cursor.
+        if !running && matches!(bar::classify(&self.draft), bar::Kind::Reference) {
             return serde_json::json!({ "on": false });
         }
-        let (a_label, b_label, a, b, active) = match (self.session.current_prompt(), self.dyn_frame()) {
-            (Some(prompt), Some(frame)) => dyn_boxes(&prompt, &frame, &self.draft, self.aim),
-            _ if !self.draft.trim().is_empty() => draft_box(self.draft.trim_start(), running),
-            _ => return serde_json::json!({ "on": false }),
+        let prompt = self.session.prompt_text();
+        let dynmode = self.session.settings.dynmode;
+        let drawn = self.session.doc().ok().and_then(aad_engine::annot::drawing_unit);
+        let (a_label, b_label, a, b, active, dims) = if !dynmode {
+            (String::new(), String::new(), String::new(), String::new(), 0, false)
+        } else {
+            aad_engine::units::with_drawn_unit(drawn, || match (self.session.current_prompt(), self.dyn_frame()) {
+                (Some(prompt), Some(frame)) => {
+                    let (a_label, b_label, a, b, active) = dyn_boxes(&prompt, &frame, &self.draft, self.aim);
+                    let dims = !(a.is_empty() && b.is_empty());
+                    (a_label, b_label, a, b, active, dims)
+                }
+                _ if !self.draft.trim().is_empty() => {
+                    let (a_label, b_label, a, b, active) = draft_box(self.draft.trim_start(), running);
+                    let dims = !(a.is_empty() && b.is_empty());
+                    (a_label, b_label, a, b, active, dims)
+                }
+                _ => (String::new(), String::new(), String::new(), String::new(), 0, false),
+            })
         };
-        if a.is_empty() && b.is_empty() {
-            return serde_json::json!({ "on": false });
-        }
         serde_json::json!({
             "on": true,
             "x": screen.x,
             "y": screen.y,
+            "prompt": prompt,
+            "dims": dims,
             "aLabel": a_label,
             "a": a,
             "bLabel": b_label,
             "b": b,
             "active": active,
+        })
+    }
+
+    /// Natural-language ask from the fixed AI prompt (no CAD classify / cmdline path).
+    pub fn ask(&mut self, text: &str) -> Result<(), String> {
+        if text.len() > 1_048_576 {
+            return Err("text is too long".into());
+        }
+        self.exclusive(|host| {
+            host.draft.clear();
+            host.ask_assistant(text)
         })
     }
 
@@ -825,14 +914,85 @@ impl Host {
     }
 
     fn drain_control(&mut self) {
+        self.poll_control_io();
         let Some(rx) = &self.control_rx else { return };
         let jobs: Vec<control::Job> = std::iter::from_fn(|| rx.try_recv().ok()).take(32).collect();
         for job in jobs {
             if !job.begin() {
                 continue;
             }
+            if matches!(job.method.as_str(), "app.open" | "app.save") {
+                if let Some(err) = self.queue_control_io(job) {
+                    // queue_control_io already replied on failure paths that keep the job;
+                    // when it returns Some the reply was not sent.
+                    let _ = err;
+                }
+                continue;
+            }
             let value = self.control_one(&job.method, &job.params);
             let _ = job.reply.send(value);
+        }
+    }
+
+    /// Start a worker open/save and hold the control reply until [`Self::poll_control_io`].
+    /// Returns `Some(job)` only when the job was not stored (caller must reply) — unused; always replies or stores.
+    fn queue_control_io(&mut self, job: control::Job) -> Option<()> {
+        if self.control_io.is_some() {
+            let _ = job.reply.send(json_err("a file operation is already in progress"));
+            return None;
+        }
+        match job.method.as_str() {
+            "app.open" => {
+                let Some(path) = job.params.get("path").and_then(Value::as_str) else {
+                    let _ = job.reply.send(json_err("missing path"));
+                    return None;
+                };
+                if let Err(e) = self.open_start(path) {
+                    let _ = job.reply.send(json_err(e));
+                    return None;
+                }
+                self.control_io = Some((job, ControlIoKind::Open));
+            }
+            "app.save" => {
+                let path = job.params.get("path").and_then(Value::as_str);
+                if let Err(e) = self.save_start(path) {
+                    let _ = job.reply.send(json_err(e));
+                    return None;
+                }
+                self.control_io = Some((job, ControlIoKind::Save));
+            }
+            _ => {
+                let _ = job.reply.send(json_err("internal: not a file method"));
+            }
+        }
+        None
+    }
+
+    fn poll_control_io(&mut self) {
+        let Some(kind) = self.control_io.as_ref().map(|(_, k)| *k) else {
+            return;
+        };
+        let status = match kind {
+            ControlIoKind::Open => self.open_poll(),
+            ControlIoKind::Save => self.save_poll(),
+        };
+        match status {
+            Ok(1) => {}
+            Ok(2) => {
+                if let Some((job, _)) = self.control_io.take() {
+                    let _ = job.reply.send(json_ok(Value::Null));
+                }
+            }
+            Ok(_) => {
+                if let Some((job, _)) = self.control_io.take() {
+                    let _ = job.reply.send(json_err("file operation ended unexpectedly"));
+                }
+            }
+            Err(e) => {
+                if let Some((job, _)) = self.control_io.take() {
+                    let _ = job.reply.send(json_err(e));
+                }
+            }
         }
     }
 
@@ -899,19 +1059,34 @@ impl Host {
             "ui.pointer" => self.control_pointer(params),
             "ui.screenshot" => self.control_screenshot(params),
             "app.open" => {
+                // Direct callers (tests): worker + poll without holding the paint loop via the queue.
                 let Some(path) = params.get("path").and_then(Value::as_str) else {
                     return json_err("missing path");
                 };
-                match self.execute("open", &serde_json::json!({ "path": path })) {
-                    Ok(value) => json_ok(value),
-                    Err(e) => json_err(e),
+                if let Err(e) = self.open_start(path) {
+                    return json_err(e);
+                }
+                loop {
+                    match self.open_poll() {
+                        Ok(1) => std::thread::sleep(std::time::Duration::from_millis(5)),
+                        Ok(2) => return json_ok(Value::Null),
+                        Ok(_) => return json_err("open ended unexpectedly"),
+                        Err(e) => return json_err(e),
+                    }
                 }
             }
             "app.save" => {
-                let id = if params.get("path").and_then(Value::as_str).is_some() { "saveas" } else { "qsave" };
-                match self.execute(id, params) {
-                    Ok(value) => json_ok(value),
-                    Err(e) => json_err(e),
+                let path = params.get("path").and_then(Value::as_str);
+                if let Err(e) = self.save_start(path) {
+                    return json_err(e);
+                }
+                loop {
+                    match self.save_poll() {
+                        Ok(1) => std::thread::sleep(std::time::Duration::from_millis(5)),
+                        Ok(2) => return json_ok(Value::Null),
+                        Ok(_) => return json_err("save ended unexpectedly"),
+                        Err(e) => return json_err(e),
+                    }
                 }
             }
             "app.quit" => {
@@ -1325,10 +1500,11 @@ impl Host {
         self.aim = snapped.point;
         self.snap = snapped.snap;
         self.apply_snap_cycle(raw, self.session.settings.aperture / scale);
-        if let Some(frame) = self.dyn_frame()
-            && let Some(entry) = aad_engine::dyninput::parse(&self.draft, &frame)
-        {
-            self.aim = aad_engine::dyninput::constrain(&entry, &frame, self.aim);
+        if let Some(frame) = self.dyn_frame() {
+            let drawn = self.session.doc().ok().and_then(aad_engine::annot::drawing_unit);
+            if let Some(entry) = aad_engine::units::with_drawn_unit(drawn, || aad_engine::dyninput::parse(&self.draft, &frame)) {
+                self.aim = aad_engine::dyninput::constrain(&entry, &frame, self.aim);
+            }
         }
         self.session.cursor = self.aim;
         self.session.cursor_deferred = self.snap.and_then(|hit| hit.deferred);
@@ -1556,28 +1732,109 @@ impl Host {
         Ok(Vec2::new(view.center.x + (x - cx) / scale, view.center.y - (y - cy) / scale))
     }
 
-    fn mesh(&self) -> Result<(u64, MeshData, [f32; 12], Vec2), String> {
+    /// Ensure the cached display list and mesh match the session; return GPU key, uniforms and origin.
+    fn mesh(&mut self) -> Result<(u64, [f32; 12], Vec2), String> {
         let lw = self.session.settings.lwdisplay;
         let state = self.session.state().map_err(|e| e.to_string())?;
         let view = state.view();
         let px = view.height / f64::from(self.height.max(1));
         let band = px.max(1e-300).log2().floor() as i32;
+        let (text, fill) = aad_render::lod_for_view(px.max(1e-300), 1.0);
         let opts = aad_render::Options {
             tolerance: 2f64.powi(band) * 0.5,
             min_dash: px * 2.0,
-            text: true,
-            fill: true,
+            text,
+            fill,
             lineweights: lw,
             view_height: view.height,
+            view_center: matches!(state.space, Space::Model).then_some(view.center),
             plot_style_table: None,
         };
-        let list = aad_render::build(&state.doc, &state.space, &opts);
+        let list_key: ListKey = (state.uid, state.revision, band, lw, space_fp(&state.space), text, fill);
+        // Take a finished background band rebuild first.
+        if let Some(p) = &self.frame.pending {
+            match p.rx.try_recv() {
+                Ok(list) => {
+                    if let Some(p) = self.frame.pending.take() {
+                        if (p.key.0, p.key.1, p.key.3, p.key.4) == (list_key.0, list_key.1, list_key.3, list_key.4) {
+                            self.frame.list = Some(list);
+                            self.frame.list_key = p.key;
+                            self.frame.list_doc = Some(state.doc.clone());
+                            self.frame.mesh_key = None;
+                            self.frame.mesh = None;
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.frame.pending = None,
+            }
+        }
+        if self.frame.list_key != list_key || self.frame.list.is_none() {
+            let same_drawing = self.frame.list.is_some()
+                && (self.frame.list_key.0, self.frame.list_key.1, self.frame.list_key.3, self.frame.list_key.4)
+                    == (list_key.0, list_key.1, list_key.3, list_key.4);
+            // Zoom / LOD band only: keep the last list on screen and rebuild on a worker.
+            if same_drawing && self.frame.pending.is_none() {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let (doc, space, opts) = (state.doc.clone(), state.space.clone(), opts.clone());
+                if std::thread::Builder::new()
+                    .name("aad-display-list".into())
+                    .spawn(move || {
+                        let _ = tx.send(aad_render::build(&doc, &space, &opts));
+                    })
+                    .is_ok()
+                {
+                    self.frame.pending = Some(PendingList { key: list_key, rx });
+                }
+            } else if !same_drawing {
+                self.frame.pending = None;
+                aad_engine::spatial::warm(state.doc.clone(), state.space.clone());
+                let incremental = match (&self.frame.list, &self.frame.list_doc) {
+                    (Some(old), Some(old_doc))
+                        if matches!(state.space, Space::Model)
+                            && self.frame.list_key.0 == list_key.0
+                            && self.frame.list_key.2 == list_key.2
+                            && self.frame.list_key.3 == list_key.3
+                            && self.frame.list_key.5 == list_key.5
+                            && self.frame.list_key.6 == list_key.6 =>
+                    {
+                        aad_render::rebuild(old, old_doc, &state.doc, &opts)
+                    }
+                    _ => None,
+                };
+                self.frame.list = Some(incremental.unwrap_or_else(|| aad_render::build(&state.doc, &state.space, &opts)));
+                self.frame.list_key = list_key;
+                self.frame.list_doc = Some(state.doc.clone());
+                self.frame.mesh_key = None;
+                self.frame.mesh = None;
+            }
+            // same_drawing with pending still building: keep showing the previous list.
+            if self.frame.list.is_none() {
+                aad_engine::spatial::warm(state.doc.clone(), state.space.clone());
+                self.frame.list = Some(aad_render::build(&state.doc, &state.space, &opts));
+                self.frame.list_key = list_key;
+                self.frame.list_doc = Some(state.doc.clone());
+                self.frame.mesh_key = None;
+                self.frame.mesh = None;
+            }
+        }
+        let list = self.frame.list.as_ref().ok_or_else(|| "display list missing".to_string())?;
         let origin = mesh::choose_origin(&list.bounds, view.center, view.height);
         let paper = self.paper();
-        let mut built = mesh::build_mesh(&list, origin, paper, lw);
-        let world_width = view.height * f64::from(self.width.max(1)) / f64::from(self.height.max(1));
-        mesh::append_infinite(&mut built, &list, origin, view.center, world_width, view.height, paper);
-        mesh::expand_hairlines(&mut built);
+        let tint = u64::from(paper.0) << 16 | u64::from(paper.1) << 8 | u64::from(paper.2);
+        // Origin is snapped to a coarse grid while panning, so the mesh key stays stable across
+        // fine pans and the GPU keeps the last upload (uniform carries the view offset).
+        let mesh_key = state.revision ^ origin.x.to_bits() ^ origin.y.to_bits().rotate_left(1) ^ tint.rotate_left(21) ^ (band as u64).rotate_left(40);
+        if self.frame.mesh_key != Some(mesh_key) || self.frame.mesh.is_none() {
+            let mut built = mesh::build_mesh(list, origin, paper, lw);
+            let world_width = view.height * f64::from(self.width.max(1)) / f64::from(self.height.max(1));
+            mesh::append_infinite(&mut built, list, origin, view.center, world_width, view.height, paper);
+            mesh::expand_hairlines(&mut built);
+            self.frame.mesh = Some(built);
+            self.frame.mesh_key = Some(mesh_key);
+            self.frame.mesh_origin = origin;
+        }
+        let origin = self.frame.mesh_origin;
         let scale = f64::from(self.height.max(1)) / view.height.max(1e-12);
         let uniform = [
             (origin.x - view.center.x) as f32,
@@ -1593,16 +1850,13 @@ impl Host {
             0.0,
             0.0,
         ];
-        // The sheet colour is part of the key: colour 7 is white on black and black on white, and
-        // the GPU keeps the last upload until this key changes.
-        let tint = u64::from(paper.0) << 16 | u64::from(paper.1) << 8 | u64::from(paper.2);
-        let key = state.revision ^ origin.x.to_bits() ^ origin.y.to_bits().rotate_left(1) ^ tint.rotate_left(21);
-        Ok((key, built, uniform, origin))
+        Ok((mesh_key, uniform, origin))
     }
 
     /// Vertices in the current frame. Used by tests; the window paints the same mesh.
-    pub fn mesh_vertices(&self) -> Result<usize, String> {
-        let (_, built, _, _) = self.mesh()?;
+    pub fn mesh_vertices(&mut self) -> Result<usize, String> {
+        let _ = self.mesh()?;
+        let built = self.frame.mesh.as_ref().ok_or_else(|| "mesh missing".to_string())?;
         Ok(built.line_vertices() + built.tri_vertices() + built.quad_instances())
     }
 }
@@ -1688,7 +1942,7 @@ impl Host {
 
     pub fn redraw(&mut self) -> Result<(), String> {
         self.pixels_per_point = window::dpi_scale(self.hwnd);
-        let (key, built, uniform, origin) = self.mesh()?;
+        let (key, uniform, origin) = self.mesh()?;
         let paper = self.paper();
         let cursor =
             self.screen.is_some().then_some(overlay::Cursor { aim: self.aim, raw: self.raw, snap: self.snap.map(|hit| hit.point), hot: self.hot });
@@ -1704,10 +1958,11 @@ impl Host {
             self.show_ucs,
             f64::from(self.pixels_per_point),
         );
+        let built = self.frame.mesh.as_ref().ok_or("mesh missing")?;
         let gpu = self.gpu.as_mut().ok_or("no drawing surface")?;
         gpu.set_clear(paper);
         gpu.set_overlay(&overlay);
-        gpu.present(key, &built, &uniform)
+        gpu.present(key, built, &uniform)
     }
 
     /// Zoom to the extents and remember the view that gave, so a later change of the drawing area
@@ -2033,6 +2288,23 @@ mod tests {
     }
 
     #[test]
+    fn fine_pan_keeps_the_cached_mesh() {
+        let mut host = Host::create(false);
+        host.execute("line", &json!({ "points": [[0.0, 0.0], [100.0, 0.0]] })).unwrap();
+        host.execute("zoom.extents", &json!({})).unwrap();
+        let (key_a, uniform_a, _) = host.mesh().unwrap();
+        let list_key = host.frame.list_key;
+        // Small middle-drag: origin snap should keep the GPU mesh; only the view uniform moves.
+        host.pointer(Pointer { x: 200.0, y: 200.0, action: POINTER_MIDDLE_DOWN, wheel: 0.0, mods: 0 }).unwrap();
+        host.pointer(Pointer { x: 208.0, y: 200.0, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
+        host.pointer(Pointer { x: 208.0, y: 200.0, action: POINTER_MIDDLE_UP, wheel: 0.0, mods: 0 }).unwrap();
+        let (key_b, uniform_b, _) = host.mesh().unwrap();
+        assert_eq!(host.frame.list_key, list_key, "pan must not rebuild the display list");
+        assert_eq!(key_b, key_a, "fine pan must keep the mesh upload key");
+        assert_ne!(uniform_a[0], uniform_b[0], "the view offset uniform must change");
+    }
+
+    #[test]
     fn double_click_edits_text_and_middle_double_zooms_extents() {
         let mut host = Host::create(false);
         host.execute("text", &json!({ "at": [0.0, 0.0], "text": "Hi", "height": 1.0 })).unwrap();
@@ -2060,13 +2332,13 @@ mod tests {
     fn light_paper_draws_colour_7_black() {
         let mut host = Host::create(false);
         host.execute("line", &json!({ "points": [[0.0, 0.0], [10.0, 0.0]] })).unwrap();
-        let (dark_key, dark_mesh, _, _) = host.mesh().unwrap();
-        assert!(mesh_has_rgb(&dark_mesh, [255, 255, 255]), "colour 7 is white on the black drawing area");
+        let (dark_key, _, _) = host.mesh().unwrap();
+        assert!(mesh_has_rgb(host.frame.mesh.as_ref().unwrap(), [255, 255, 255]), "colour 7 is white on the black drawing area");
         host.dark = false;
-        let (light_key, light_mesh, _, _) = host.mesh().unwrap();
+        let (light_key, _, _) = host.mesh().unwrap();
         assert_ne!(light_key, dark_key, "the canvas reuploads when the sheet colour changes");
-        assert!(mesh_has_rgb(&light_mesh, [0, 0, 0]), "colour 7 is black on the white drawing area");
-        assert!(!mesh_has_rgb(&light_mesh, [255, 255, 255]), "the white stroke is replaced");
+        assert!(mesh_has_rgb(host.frame.mesh.as_ref().unwrap(), [0, 0, 0]), "colour 7 is black on the white drawing area");
+        assert!(!mesh_has_rgb(host.frame.mesh.as_ref().unwrap(), [255, 255, 255]), "the white stroke is replaced");
     }
 
     #[test]
@@ -2508,31 +2780,67 @@ mod tests {
         let mut host = Host::create(false);
         let mv = |h: &mut Host| h.pointer(Pointer { x: 100.0, y: 40.0, action: POINTER_MOVE, wheel: 0.0, mods: 0 }).unwrap();
         let dynamic = |h: &Host| -> serde_json::Value { serde_json::from_str::<serde_json::Value>(&h.chrome_json()).unwrap()["dyn"].clone() };
-        // Idle with nothing typed: no X and Y readout follows the cursor.
+        // Idle with nothing typed: CAD parking is on; Length/Angle dims stay off.
         mv(&mut host);
-        assert_eq!(dynamic(&host)["on"], false);
+        let idle = dynamic(&host);
+        assert_eq!(idle["on"], true);
+        assert_eq!(idle["dims"], false);
+        assert_eq!(idle["x"], 100.0);
         // A command being typed shows beside the cursor.
         host.set_draft("lin").unwrap();
         let d = dynamic(&host);
         assert_eq!(
-            (d["on"].clone(), d["aLabel"].clone(), d["a"].clone(), d["bLabel"].clone()),
-            (json!(true), json!("Command"), json!("lin"), json!(""))
+            (d["on"].clone(), d["dims"].clone(), d["aLabel"].clone(), d["a"].clone(), d["bLabel"].clone()),
+            (json!(true), json!(true), json!("Command"), json!("lin"), json!(""))
         );
         assert_eq!(d["x"], 100.0);
-        // An assistant request, `/` or a sentence, stays in the command bar.
+        // A slash assistant draft stays off the cursor chrome (fixed AI bar).
         host.set_draft("/ what layers are there").unwrap();
         assert_eq!(dynamic(&host)["on"], false);
+        // Plain natural text may park at the cursor (CAD channel); AI field is separate.
         host.set_draft("what is in this drawing").unwrap();
-        assert_eq!(dynamic(&host)["on"], false);
+        let natural = dynamic(&host);
+        assert_eq!(natural["on"], true);
+        assert_eq!(natural["dims"], true);
         host.set_draft("").unwrap();
-        // While a command waits for a point with no base point yet there is still no coordinate readout.
+        // While a command waits for a point with no base point yet: parking on, no Length/Angle.
         host.submit("LINE").unwrap();
         mv(&mut host);
-        assert_eq!(dynamic(&host)["on"], false);
+        let waiting = dynamic(&host);
+        assert_eq!(waiting["on"], true);
+        assert_eq!(waiting["dims"], false);
+        assert!(waiting["prompt"].as_str().unwrap_or("").contains("Specify"));
         // A typed answer shows as input, and the same words are not taken for a request while a command runs.
         host.set_draft("what is this").unwrap();
         let d = dynamic(&host);
         assert_eq!((d["on"].clone(), d["a"].clone()), (json!(true), json!("what is this")));
+    }
+
+    #[test]
+    fn ask_routes_natural_language_without_cad_cmdline() {
+        let mut host = Host::create(false);
+        let before = host.stats().entities;
+        let err = host.ask("what layers are locked").expect_err("no assistant runtime in default tests");
+        assert!(
+            err.to_ascii_lowercase().contains("assistant") || err.to_ascii_lowercase().contains("not included"),
+            "{err}"
+        );
+        assert_eq!(host.stats().entities, before, "ask must not change the drawing");
+        assert!(host.session.running.is_none());
+        // Without a leading `/`, submit stays on the CAD path (unknown command), not ask.
+        let cad = host.submit("what layers are locked");
+        assert!(cad.is_err(), "plain sentence is CAD, not an assistant ask");
+        assert!(host.session.running.is_none());
+        assert_eq!(host.stats().entities, before);
+    }
+
+    #[test]
+    fn slash_transfer_helpers_match_idle_contract() {
+        use crate::bar::{slash_transfer_eligible, slash_transfer_payload};
+        let session = Session::new();
+        assert!(slash_transfer_eligible(&session, "/ create a room"));
+        assert_eq!(slash_transfer_payload("/ create a room"), "create a room");
+        assert!(!slash_transfer_eligible(&session, "LINE"));
     }
 
     #[test]

@@ -27,7 +27,7 @@ internal static class PointStyleWindow
         AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
         Density.Name(status, "Point style status");
 
-        var grid = new Grid { ColumnSpacing = 6, RowSpacing = 6 };
+        var grid = new Grid { ColumnSpacing = Density.SpaceSm, RowSpacing = Density.SpaceSm };
         for (var c = 0; c < 5; c++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -37,18 +37,18 @@ internal static class PointStyleWindow
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
 
-        var size = new TextBox { MinHeight = Density.MinTarget, Width = 80 };
+        var size = new TextBox { MinHeight = Density.ControlHeight, Width = 80 };
         Density.Name(size, "Point size");
-        var relative = new RadioButton { Content = "Set Size Relative to Screen", MinHeight = Density.MinTarget, GroupName = "pdsize" };
-        var absolute = new RadioButton { Content = "Set Size in Absolute Units", MinHeight = Density.MinTarget, GroupName = "pdsize" };
+        var relative = new RadioButton { Content = "Set Size Relative to Screen", MinHeight = Density.ControlHeight, GroupName = "pdsize" };
+        var absolute = new RadioButton { Content = "Set Size in Absolute Units", MinHeight = Density.ControlHeight, GroupName = "pdsize" };
         Density.Name(relative, "Relative point size");
         Density.Name(absolute, "Absolute point size");
         var unitLabel = new TextBlock { Text = "%", VerticalAlignment = VerticalAlignment.Center };
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 360 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 360 };
         root.Children.Add(Heading("Point Style"));
         root.Children.Add(grid);
-        var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         sizeRow.Children.Add(new TextBlock { Text = "Point Size", VerticalAlignment = VerticalAlignment.Center });
         sizeRow.Children.Add(size);
         sizeRow.Children.Add(unitLabel);
@@ -154,7 +154,7 @@ internal static class PointStyleWindow
                 Content = mode.ToString(CultureInfo.InvariantCulture),
                 Width = 48,
                 Height = 36,
-                MinHeight = Density.MinTarget,
+                MinHeight = Density.ControlHeight,
                 Padding = new Thickness(0),
                 Tag = mode,
             };
@@ -184,8 +184,8 @@ internal static class PointStyleWindow
         {
             presenter.IsResizable = false;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(360, 360));
+        ShellIcon.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 320, minHeightDip: 280, maxWidthDip: 440, maxHeightDip: 480);
         Load();
         return window;
     }

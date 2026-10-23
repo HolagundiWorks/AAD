@@ -7,7 +7,7 @@ use crate::CadApp;
 
 /// The top-level menus, in order.
 pub const MENUS: &[&str] =
-    &["File", "Edit", "View", "Insert", "Format", "Tools", "Draw", "Dimension", "Modify", "Architecture", "AORMS", "Window", "Help"];
+    &["File", "Edit", "View", "Insert", "Format", "Tools", "Draw", "Dimension", "Modify", "Architecture", "Window", "Help"];
 
 /// UI-only commands: (id, label, menu path, shortcut).
 pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
@@ -83,9 +83,6 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
         return Some(r);
     }
     if let Some(r) = crate::managers::route(app, id, params) {
-        return Some(r);
-    }
-    if let Some(r) = crate::aorms_ui::route(app, id, params) {
         return Some(r);
     }
     if matches!(id, "ui.dock" | "ui.dock.reset") {

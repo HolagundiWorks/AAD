@@ -74,6 +74,8 @@ internal static class ShellPrefs
         public string Workspace { get; set; } = "classic";
         /// <summary>Per-mode pin, width and toolbar; keys are <c>classic</c> and <c>pro</c>.</summary>
         public Dictionary<string, ModeSlot> ModeSlots { get; set; } = new();
+        /// <summary>User-resized tool window sizes (pixels), keyed by stable window id.</summary>
+        public Dictionary<string, WindowSize> WindowSizes { get; set; } = new();
     }
 
     internal sealed class ModeSlot
@@ -82,5 +84,11 @@ internal static class ShellPrefs
         public bool ToolsVisible { get; set; } = true;
         public double LeftWidth { get; set; } = 280;
         public bool LeftCollapsed { get; set; }
+    }
+
+    internal sealed class WindowSize
+    {
+        public int Width { get; set; }
+        public int Height { get; set; }
     }
 }

@@ -28,23 +28,23 @@ internal static class LinetypeWindow
         Density.Name(list, "Linetypes");
         var currentLabel = Density.Secondary("Current linetype: —", TextWrapping.Wrap);
         Density.Name(currentLabel, "Current linetype");
-        var load = new ComboBox { MinWidth = 140, MinHeight = Density.MinTarget, PlaceholderText = "Load…" };
+        var load = new ComboBox { MinWidth = 140, MinHeight = Density.ControlHeight, PlaceholderText = "Load…" };
         Density.Name(load, "Load linetype");
         var setCurrent = ActionButton("Current");
-        var scale = new TextBox { MinHeight = Density.MinTarget, Width = 100 };
+        var scale = new TextBox { MinHeight = Density.ControlHeight, Width = 100 };
         Density.Name(scale, "Global linetype scale");
         var applyScale = ActionButton("Apply scale");
 
-        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         toolbar.Children.Add(load);
         toolbar.Children.Add(setCurrent);
 
-        var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         scaleRow.Children.Add(new TextBlock { Text = "Global scale factor", VerticalAlignment = VerticalAlignment.Center });
         scaleRow.Children.Add(scale);
         scaleRow.Children.Add(applyScale);
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 420 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 420 };
         root.Children.Add(Heading("Linetype Manager"));
         root.Children.Add(currentLabel);
         root.Children.Add(toolbar);
@@ -228,15 +228,15 @@ internal static class LinetypeWindow
         {
             presenter.IsResizable = true;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(440, 420));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 380, minHeightDip: 320, maxWidthDip: 600, maxHeightDip: 640);
         Reload();
         return window;
     }
 
     private static Button ActionButton(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight };
         Density.Name(button, label);
         return button;
     }

@@ -20,9 +20,9 @@ claim that a feature works; it lists where the documents and the code disagree o
 
 | Item | Where | Note |
 |---|---|---|
-| Open, save and plot ran on the UI thread (UI-003) | WinUI shell | Fixed for the file-picker path: worker threads behind `aad_host_*_start`/`_poll`. Launch-time files are opened the same way. Control-channel calls, the batch plot and the PDF preview are still synchronous |
-| DWG parse 1.2 to 1.5 s | `aad-dwg` worker | Not profiled below the worker boundary |
-| Viewport pan in layouts rebuilds every frame | `aad-render` | 52 ms at 100 000 entities |
+| Batch plot / PDF preview / cmdline open | WinUI / host | Menu picker and control `app.open`/`app.save` use workers; batch plot and PDF preview remain synchronous |
+| DWG parse 1.2 to 1.5 s | `aad-dwg` worker | Stage with `AAD_DWG_STAGE=1`; speed is mostly `acadrust` + DXF bridge. Windows worker has a ~2 GiB Job Object cap |
+| Full-extents display list ~125 ms @ 100k | `aad-render` | LOD + frustum + async band help navigation; full walk stays O(n) |
 | Quality gate does not pass on the working tree | `cargo xtask ci` | `cargo fmt --check` fails on uncommitted files of the ShilpiDB work, and clippy reports `manual_range_contains` at `crates/vdb/src/file.rs:146` |
 
 ## Documentation drift
@@ -36,7 +36,11 @@ claim that a feature works; it lists where the documents and the code disagree o
 1. Done: glyph outlines by ear clipping, display list of the heavy drawing from about 1.0–1.6 s to
    about 0.32 s ([PERFORMANCE.md](PERFORMANCE.md)).
 2. Done: asynchronous open, save and plot in the WinUI shell (parse and write on a worker, commit on the UI thread).
-3. Then: profile the DWG worker, build the mesh upload incrementally, reuse the viewport content
-   while panning in a layout, build the spatial index off the first pick.
-Each step is accepted only with a before and after number from `apps/aad-cli/tests/perf_probe.rs`
-or the benchmarks.
+3. Done (interactive path): WinUI host caches the display list and GPU mesh (pans update uniforms;
+   edits use `aad_render::rebuild` in model space); layout viewports use an 8× pan cell + LRU;
+   hatch/text LOD and model frustum cull; async zoom-band rebuild; spatial warm-up on list rebuild
+   ([PERFORMANCE.md](PERFORMANCE.md)).
+4. Done (I/O path): control-channel `app.open`/`app.save` deferred across `pump`; WinUI menu save
+   via `SaveFileAsync`; DWG worker Job Object memory cap on Windows.
+5. Still open: absolute DWG/DXF CPU (profile with `AAD_DWG_STAGE` / split DXF benches before claiming
+   wins); batch plot and PDF preview off the session thread.

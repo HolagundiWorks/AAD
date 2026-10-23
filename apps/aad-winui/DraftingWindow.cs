@@ -22,11 +22,11 @@ internal sealed class DraftingWindow : Window
 
     private readonly IntPtr _host;
     private readonly Action _changed;
-    private readonly ToggleButton _polar = new() { Content = "Polar tracking on (F10)", MinHeight = Density.MinTarget };
-    private readonly ToggleButton _snap = new() { Content = "Object snap on (F3)", MinHeight = Density.MinTarget };
-    private readonly ToggleButton _dyn = new() { Content = "Dynamic input (F12)", MinHeight = Density.MinTarget };
-    private readonly ToggleButton _ortho = new() { Content = "Ortho (F8)", MinHeight = Density.MinTarget };
-    private readonly ComboBox _angle = new() { MinWidth = 80, MinHeight = Density.MinTarget };
+    private readonly ToggleButton _polar = new() { Content = "Polar tracking on (F10)", MinHeight = Density.ControlHeight };
+    private readonly ToggleButton _snap = new() { Content = "Object snap on (F3)", MinHeight = Density.ControlHeight };
+    private readonly ToggleButton _dyn = new() { Content = "Dynamic input (F12)", MinHeight = Density.ControlHeight };
+    private readonly ToggleButton _ortho = new() { Content = "Ortho (F8)", MinHeight = Density.ControlHeight };
+    private readonly ComboBox _angle = new() { MinWidth = 80, MinHeight = Density.ControlHeight };
     private readonly RadioButton _polarFormat = new() { Content = "Polar (distance < angle)", GroupName = "dynpi" };
     private readonly RadioButton _cartesian = new() { Content = "Cartesian (x, y)", GroupName = "dynpi" };
     private readonly RadioButton _relative = new() { Content = "Relative", GroupName = "dyncoord" };
@@ -39,10 +39,10 @@ internal sealed class DraftingWindow : Window
     {
         _host = host;
         _changed = changed;
-        var stack = new StackPanel { Spacing = 6, Margin = new Thickness(12) };
+        var stack = new StackPanel { Spacing = Density.SpaceSm, Margin = Density.DialogMargin };
         stack.Children.Add(Heading("Polar tracking"));
         stack.Children.Add(_polar);
-        var angleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var angleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceMd };
         var angleLabel = Density.Secondary("Increment angle");
         angleLabel.VerticalAlignment = VerticalAlignment.Center;
         angleRow.Children.Add(angleLabel);
@@ -55,7 +55,7 @@ internal sealed class DraftingWindow : Window
         stack.Children.Add(angleRow);
         stack.Children.Add(Heading("Object snap"));
         stack.Children.Add(_snap);
-        var grid = new Grid { ColumnSpacing = 12, RowSpacing = 2 };
+        var grid = new Grid { ColumnSpacing = Density.SpaceLg, RowSpacing = Density.SpaceXs };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         for (var i = 0; i < Modes.Length; i++)
@@ -65,7 +65,7 @@ internal sealed class DraftingWindow : Window
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             }
             var (bit, name) = Modes[i];
-            var box = new CheckBox { Content = name, MinHeight = Density.MinTarget };
+            var box = new CheckBox { Content = name, MinHeight = Density.ControlHeight };
             var mode = bit;
             box.Click += (_, _) => SetMode(mode, box.IsChecked == true);
             _modes[bit] = box;
@@ -82,11 +82,11 @@ internal sealed class DraftingWindow : Window
         stack.Children.Add(_absolute);
         stack.Children.Add(_ortho);
         Density.Apply(stack);
-        var theme = themeSource?.RequestedTheme ?? ElementTheme.Default;
+        var theme = ShellChrome.Resolve(themeSource?.RequestedTheme ?? Density.Theme);
         Content = new ScrollViewer { Content = new Grid { RequestedTheme = theme, Children = { stack } } };
         Title = "Drafting Settings";
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 680));
-        ShellIcon.Apply(this);
+        ShellIcon.Apply(this, theme);
+        ShellFit.UserResizable(this, minWidthDip: 380, minHeightDip: 480, maxWidthDip: 560, maxHeightDip: 900, persistKey: "drafting");
         _polar.Click += (_, _) => Run("polar", new { on = _polar.IsChecked == true });
         _snap.Click += (_, _) => Run("osnap", new { on = _snap.IsChecked == true });
         _dyn.Click += (_, _) => Run("dynmode", new { on = _dyn.IsChecked == true });

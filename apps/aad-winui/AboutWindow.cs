@@ -14,10 +14,10 @@ internal static class AboutWindow
         var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
         var logo = new Image { Width = 64, Height = 64, HorizontalAlignment = HorizontalAlignment.Left, Source = ShellIcon.Logo() };
         AutomationProperties.SetName(logo, "O-Draft");
-        var stack = new StackPanel { Spacing = 6, Margin = new Thickness(16) };
+        var stack = new StackPanel { Spacing = Density.SpaceSm, Margin = new Thickness(Density.SpaceXl) };
         stack.Children.Add(logo);
         stack.Children.Add(new TextBlock { Text = "O-Draft", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        stack.Children.Add(new TextBlock { Text = "Drafting. Part of OSAS, the Open Source Architecture Suit." });
+        stack.Children.Add(new TextBlock { Text = "Drafting. Part of OSAS, the Open Source Architecture Suite." });
         if (version.Length > 0)
         {
             stack.Children.Add(new TextBlock { Text = "Version " + version });
@@ -31,8 +31,8 @@ internal static class AboutWindow
             Title = "About O-Draft",
             Content = new Grid { RequestedTheme = theme, Children = { stack } },
         };
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 280));
+        ShellIcon.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 320, minHeightDip: 180, maxWidthDip: 480, maxHeightDip: 360);
         window.Closed += (_, _) =>
         {
             if (ReferenceEquals(_window, window))

@@ -48,7 +48,7 @@ The server waits up to 60 s for the app to answer a request. After that it repli
 | `ui.focus` | | Activate the native window. Does not assign focus to a widget. |
 | `ui.screenshot` | `{path?}` | egui: PNG of the window. WinUI: drawing PNG via the same path as `ui.render` (`drawing: true` in the result; not chrome). |
 | `ui.render` | `{path?, width?, height?, fit?}` | Headless render. `fit` (default true) frames the whole drawing; `false` uses the current view. Replies `{pngBase64, width, height, bytes, path?}`. |
-| `app.open` / `app.save` / `app.quit` | `{path}` | File operations. |
+| `app.open` / `app.save` / `app.quit` | `{path}` | File operations. Open/save run on a worker; the reply is sent when `Host::pump` finishes the poll (same JSON shape). Client wait is still one reply (control read timeout 120 s). |
 
 The MCP server (`aad-cli mcp --connect 127.0.0.1:PORT`) wraps this protocol; headless
 (`aad-cli mcp`) it serves the same methods from an in-process session.

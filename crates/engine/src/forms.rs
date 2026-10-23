@@ -210,7 +210,12 @@ pub static FORMS: &[Form] = &[
             field("category", "Layout (beam, ceiling, furniture, electrical, plumbing; blank: the floor plan)", Kind::Text),
         ],
     },
-    Form { id: "hcwlayers", title: "Layer Sets", wrap: None, fields: &[field("set", "Layer set", Kind::Choice(&["hcw", "bp", "both"])).def("hcw")] },
+    Form {
+        id: "hcwlayers",
+        title: "Layer Sets",
+        wrap: None,
+        fields: &[field("set", "Layer set", Kind::Choice(&["standard", "permit", "presentation", "both", "all"])).def("standard")],
+    },
     Form { id: "takeoff.linear", title: "Linear Take-off", wrap: None, fields: TAKEOFF },
     Form { id: "takeoff.brick", title: "Brickwork Take-off", wrap: None, fields: TAKEOFF },
     Form { id: "takeoff.beams", title: "Beams and Lintels Take-off", wrap: None, fields: TAKEOFF },

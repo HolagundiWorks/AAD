@@ -14,11 +14,11 @@ internal static class SavePrompt
     {
         var done = new TaskCompletionSource<int>();
         var theme = owner.Content is FrameworkElement shell ? shell.RequestedTheme : ElementTheme.Default;
-        var stack = new StackPanel { Spacing = 8, Margin = new Thickness(12) };
+        var stack = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin };
         var prompt = new TextBlock { Text = "Save changes to " + title + "?", TextWrapping = TextWrapping.Wrap };
         Density.Name(prompt, "Save changes to " + title + "?");
         stack.Children.Add(prompt);
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Right };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm, HorizontalAlignment = HorizontalAlignment.Right };
         var save = Action("Save");
         var discard = Action("Don't save");
         var cancel = Action("Cancel");
@@ -71,8 +71,8 @@ internal static class SavePrompt
             }
         };
         _window = window;
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(360, 140));
+        ShellIcon.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 320, minHeightDip: 120, maxWidthDip: 480, maxHeightDip: 220);
         window.Activate();
         Native.ShowWindow(WindowNative.GetWindowHandle(window), 8);
         return done.Task;
@@ -80,7 +80,7 @@ internal static class SavePrompt
 
     private static Button Action(string label)
     {
-        var button = new Button { Content = label, MinWidth = 72, MinHeight = Density.MinTarget, FontSize = Density.Font };
+        var button = new Button { Content = label, MinWidth = 72, MinHeight = Density.ControlHeight, FontSize = Density.Font };
         Density.Name(button, label);
         return button;
     }

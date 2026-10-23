@@ -25,15 +25,15 @@ internal static class BatchPlotWindow
         AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
         Density.Name(status, "Batch plot status");
 
-        var list = new StackPanel { Spacing = 4 };
+        var list = new StackPanel { Spacing = Density.SpaceSm };
         Density.Name(list, "Sheets");
-        var folder = new TextBox { MinHeight = Density.MinTarget, PlaceholderText = "Exports beside the drawing (or temp)" };
+        var folder = new TextBox { MinHeight = Density.ControlHeight, PlaceholderText = "Exports beside the drawing (or temp)" };
         Density.Name(folder, "Output folder");
         var browse = ActionButton("Browse…");
         var includeHidden = new CheckBox
         {
             Content = "Also plot hidden, frozen and unmarked project items that are ticked",
-            MinHeight = Density.MinTarget,
+            MinHeight = Density.ControlHeight,
         };
         Density.Name(includeHidden, "Include hidden");
         var plot = ActionButton("Plot");
@@ -41,7 +41,7 @@ internal static class BatchPlotWindow
         var selectNone = ActionButton("Select none");
         var checks = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
 
-        var folderRow = new Grid { ColumnSpacing = 6 };
+        var folderRow = new Grid { ColumnSpacing = Density.SpaceSm };
         folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Grid.SetColumn(folder, 0);
@@ -49,11 +49,11 @@ internal static class BatchPlotWindow
         folderRow.Children.Add(folder);
         folderRow.Children.Add(browse);
 
-        var selectRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var selectRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         selectRow.Children.Add(selectAll);
         selectRow.Children.Add(selectNone);
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 480 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 480 };
         root.Children.Add(Heading("Sheets of this drawing"));
         root.Children.Add(Density.Secondary("Each ticked layout is written as a PDF into the folder below.", TextWrapping.Wrap));
         root.Children.Add(selectRow);
@@ -89,7 +89,7 @@ internal static class BatchPlotWindow
                     {
                         continue;
                     }
-                    var box = new CheckBox { Content = name, IsChecked = true, MinHeight = Density.MinTarget };
+                    var box = new CheckBox { Content = name, IsChecked = true, MinHeight = Density.ControlHeight };
                     Density.Name(box, "Sheet " + name);
                     checks[name] = box;
                     list.Children.Add(box);
@@ -178,22 +178,22 @@ internal static class BatchPlotWindow
         {
             presenter.IsResizable = true;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 480));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 440, minHeightDip: 360, maxWidthDip: 720, maxHeightDip: 720);
         LoadSheets();
         return window;
     }
 
     private static Button ActionButton(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight };
         Density.Name(button, label);
         return button;
     }
 
     private static FrameworkElement Labeled(string label, FrameworkElement field)
     {
-        var row = new StackPanel { Spacing = 2 };
+        var row = new StackPanel { Spacing = Density.SpaceXs };
         var text = new TextBlock { Text = label };
         Density.Name(text, label);
         row.Children.Add(text);

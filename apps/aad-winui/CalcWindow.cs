@@ -11,7 +11,7 @@ namespace Aad.WinUi;
 internal sealed class CalcWindow : Window
 {
     private readonly IntPtr _host;
-    private readonly TextBox _expr = new() { PlaceholderText = "10' 6\" x 20'", AcceptsReturn = false, MinHeight = Density.MinTarget };
+    private readonly TextBox _expr = new() { PlaceholderText = "10' 6\" x 20'", AcceptsReturn = false, MinHeight = Density.ControlHeight };
     private readonly TextBlock _result = new() { TextWrapping = TextWrapping.Wrap };
 
     private CalcWindow(Window owner, IntPtr host)
@@ -29,26 +29,24 @@ internal sealed class CalcWindow : Window
             _expr.Text = "";
             _result.Text = "";
         };
-        var keys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        var keys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         foreach (var key in new[] { "7", "8", "9", "+", "-", "*", "/", "'", "\"", " ", "x" })
         {
             var token = key;
             var caption = token == " " ? "space" : token;
-            var button = new Button { Content = caption, MinWidth = Density.MinTarget, MinHeight = Density.MinTarget };
+            var button = new Button { Content = caption, MinWidth = Density.MinTarget, MinHeight = Density.ControlHeight };
             Density.Name(button, "Insert " + caption);
             button.Click += (_, _) => _expr.Text += token;
             keys.Children.Add(button);
         }
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { equals, clear } };
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), Children = { _expr, keys, row, _result } };
-        if (owner.Content is FrameworkElement shell)
-        {
-            root.RequestedTheme = shell.RequestedTheme;
-        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm, Children = { equals, clear } };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, Children = { _expr, keys, row, _result } };
+        var theme = ShellChrome.ThemeOf(owner);
+        root.RequestedTheme = theme;
         Content = root;
         Density.Apply(root);
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(420, 220));
-        ShellIcon.Apply(this);
+        ShellIcon.Apply(this, theme);
+        ShellFit.ToContent(this, minWidthDip: 360, minHeightDip: 160, maxWidthDip: 520, maxHeightDip: 320);
         _expr.KeyDown += (_, e) =>
         {
             if (e.Key == Windows.System.VirtualKey.Enter)
@@ -61,7 +59,7 @@ internal sealed class CalcWindow : Window
 
     private static Button Action(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget, MinWidth = 48 };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight, MinWidth = 48 };
         Density.Name(button, label == "=" ? "Evaluate" : label);
         return button;
     }

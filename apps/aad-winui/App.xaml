@@ -6,29 +6,31 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+                <ResourceDictionary Source="Themes/ColorTokens.xaml" />
+                <ResourceDictionary Source="Themes/TypographyTokens.xaml" />
+                <ResourceDictionary Source="Themes/SpacingTokens.xaml" />
+                <ResourceDictionary Source="Themes/ControlTokens.xaml" />
+                <ResourceDictionary Source="Themes/ControlStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
-            <!-- O-Draft's accent is black: ink #1B1C20 on the light theme and the light neutral #F6F5F1 on
-                 the dark theme, where black would not show. WinUI derives every accent fill, hover and
-                 pressed colour from these keys, so toggles, focus and selection follow. The values are
-                 the OSAS suite's Black accent (colour constants only, no code from Hcw.Ui). -->
+            <!-- Restrained Windows blue accent (Fluent). Drives selection, toggles, and focus rings. -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <Color x:Key="SystemAccentColor">#1B1C20</Color>
-                    <Color x:Key="SystemAccentColorLight1">#34363C</Color>
-                    <Color x:Key="SystemAccentColorLight2">#4B4E56</Color>
-                    <Color x:Key="SystemAccentColorLight3">#6B6E76</Color>
-                    <Color x:Key="SystemAccentColorDark1">#1B1C20</Color>
-                    <Color x:Key="SystemAccentColorDark2">#17181B</Color>
-                    <Color x:Key="SystemAccentColorDark3">#121316</Color>
+                    <Color x:Key="SystemAccentColor">#0078D4</Color>
+                    <Color x:Key="SystemAccentColorLight1">#1890E0</Color>
+                    <Color x:Key="SystemAccentColorLight2">#2B9AE8</Color>
+                    <Color x:Key="SystemAccentColorLight3">#60B6F0</Color>
+                    <Color x:Key="SystemAccentColorDark1">#006CBE</Color>
+                    <Color x:Key="SystemAccentColorDark2">#005A9E</Color>
+                    <Color x:Key="SystemAccentColorDark3">#004578</Color>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <Color x:Key="SystemAccentColor">#F6F5F1</Color>
-                    <Color x:Key="SystemAccentColorLight1">#F6F5F1</Color>
-                    <Color x:Key="SystemAccentColorLight2">#E4E3DE</Color>
-                    <Color x:Key="SystemAccentColorLight3">#D2D1CB</Color>
-                    <Color x:Key="SystemAccentColorDark1">#E4E3DE</Color>
-                    <Color x:Key="SystemAccentColorDark2">#D2D1CB</Color>
-                    <Color x:Key="SystemAccentColorDark3">#BEBDB7</Color>
+                    <Color x:Key="SystemAccentColor">#60CDFF</Color>
+                    <Color x:Key="SystemAccentColorLight1">#60CDFF</Color>
+                    <Color x:Key="SystemAccentColorLight2">#8AD4FF</Color>
+                    <Color x:Key="SystemAccentColorLight3">#B0E0FF</Color>
+                    <Color x:Key="SystemAccentColorDark1">#3BB0E8</Color>
+                    <Color x:Key="SystemAccentColorDark2">#1A8FCF</Color>
+                    <Color x:Key="SystemAccentColorDark3">#0078D4</Color>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

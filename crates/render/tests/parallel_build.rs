@@ -6,7 +6,7 @@ use aad_geom::Vec3;
 use aad_render::{Options, build, build_entities};
 
 fn opts() -> Options {
-    Options { tolerance: 0.01, min_dash: 0.1, text: true, fill: true, lineweights: false, view_height: 100.0, plot_style_table: None }
+    Options { tolerance: 0.01, min_dash: 0.1, text: true, fill: true, lineweights: false, view_height: 100.0, ..Default::default() }
 }
 
 #[test]

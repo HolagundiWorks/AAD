@@ -4,37 +4,37 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Aad.WinUi"
     Title="Layer Properties Manager">
-    <Grid x:Name="Root" PreviewKeyDown="OnWindowKey" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+    <Grid x:Name="Root" PreviewKeyDown="OnWindowKey" Background="{ThemeResource SurfaceBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="8,6" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                <Button x:Name="MergeButton" Click="OnMergeRequested" Width="32" Height="32" Padding="0" AutomationProperties.Name="Merge into the side panel" ToolTipService.ToolTip="Merge into the side panel">
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" Padding="{StaticResource PaddingMd}" Background="{ThemeResource SurfaceSecondaryBrush}" BorderBrush="{ThemeResource BorderSubtleBrush}" BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="{StaticResource SpaceXs}" VerticalAlignment="Center">
+                <Button x:Name="MergeButton" Click="OnMergeRequested" Style="{StaticResource IconButtonStyle}" AutomationProperties.Name="Merge into the side panel" ToolTipService.ToolTip="Merge into the side panel">
                     <local:DrawnIcon x:Name="MergeIcon" Kind="dock" />
                 </Button>
-                <Button Click="OnNew" AutomationProperties.Name="New layer" ToolTipService.ToolTip="New layer" Width="32" Height="32" Padding="0">
+                <Button Click="OnNew" AutomationProperties.Name="New layer" ToolTipService.ToolTip="New layer" Style="{StaticResource IconButtonStyle}">
                     <local:DrawnIcon Kind="layer-new" />
                 </Button>
-                <Button Click="OnDelete" AutomationProperties.Name="Delete selected layers" ToolTipService.ToolTip="Delete layer" Width="32" Height="32" Padding="0">
+                <Button Click="OnDelete" AutomationProperties.Name="Delete selected layers" ToolTipService.ToolTip="Delete layer" Style="{StaticResource IconButtonStyle}">
                     <local:DrawnIcon Kind="delete" />
                 </Button>
-                <Button Click="OnSetCurrent" AutomationProperties.Name="Make the selected layer current" ToolTipService.ToolTip="Set current" Width="32" Height="32" Padding="0">
+                <Button Click="OnSetCurrent" AutomationProperties.Name="Make the selected layer current" ToolTipService.ToolTip="Set current" Style="{StaticResource IconButtonStyle}">
                     <local:DrawnIcon Kind="check" />
                 </Button>
-                <Border Width="1" Margin="6,2" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
-                <TextBlock Text="Layer state" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <ComboBox x:Name="States" Width="160" MinHeight="32" PlaceholderText="Unsaved layer state" AutomationProperties.Name="Layer state" SelectionChanged="OnStatePicked" />
-                <Button x:Name="RestoreStateButton" Content="Restore" MinHeight="32" Margin="6,0,0,0" Click="OnRestoreState" AutomationProperties.Name="Restore layer state" />
-                <Button x:Name="DeleteStateButton" Content="Delete" MinHeight="32" Margin="4,0,0,0" Click="OnDeleteState" AutomationProperties.Name="Delete layer state" />
-                <TextBox x:Name="StateName" Width="120" MinHeight="32" Margin="8,0,0,0" PlaceholderText="New state name" AutomationProperties.Name="New layer state name" />
-                <Button Content="Save state" MinHeight="32" Margin="4,0,0,0" Click="OnSaveState" AutomationProperties.Name="Save layer state" />
+                <Border Width="1" Margin="6,2" Background="{ThemeResource BorderSubtleBrush}" />
+                <TextBlock Text="Layer state" VerticalAlignment="Center" Margin="0,0,6,0" Style="{StaticResource MutedCaptionStyle}" />
+                <ComboBox x:Name="States" Width="160" MinHeight="{StaticResource ControlHeight}" PlaceholderText="Unsaved layer state" AutomationProperties.Name="Layer state" SelectionChanged="OnStatePicked" />
+                <Button x:Name="RestoreStateButton" Content="Restore" MinHeight="{StaticResource ControlHeight}" Margin="6,0,0,0" Click="OnRestoreState" AutomationProperties.Name="Restore layer state" />
+                <Button x:Name="DeleteStateButton" Content="Delete" MinHeight="{StaticResource ControlHeight}" Margin="4,0,0,0" Click="OnDeleteState" AutomationProperties.Name="Delete layer state" />
+                <TextBox x:Name="StateName" Width="120" MinHeight="{StaticResource ControlHeight}" Margin="8,0,0,0" PlaceholderText="New state name" AutomationProperties.Name="New layer state name" />
+                <Button Content="Save state" MinHeight="{StaticResource ControlHeight}" Margin="4,0,0,0" Click="OnSaveState" AutomationProperties.Name="Save layer state" />
                 <TextBox
                     x:Name="SearchBox"
                     Width="180"
-                    MinHeight="32"
+                    MinHeight="{StaticResource ControlHeight}"
                     Margin="8,0,0,0"
                     PlaceholderText="Search for layer"
                     AutomationProperties.Name="Search for layer"
@@ -47,8 +47,8 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
             </Grid.ColumnDefinitions>
-            <StackPanel Margin="8,8,4,8" Spacing="4">
-                <TextBlock x:Name="FiltersHeading" Text="Filters" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <StackPanel Margin="{StaticResource PaddingPanelTight}" Spacing="{StaticResource SpaceSm}">
+                <TextBlock x:Name="FiltersHeading" Text="Filters" Style="{StaticResource MutedCaptionStyle}" />
                 <ListView x:Name="Filters" SelectionMode="Single" SelectionChanged="OnFilterChanged" AutomationProperties.Name="Layer filters">
                     <ListViewItem Content="All" />
                     <ListViewItem>
@@ -56,10 +56,10 @@
                     </ListViewItem>
                 </ListView>
             </StackPanel>
-            <Border Grid.Column="1" Width="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" />
+            <Border Grid.Column="1" Width="1" Background="{ThemeResource BorderSubtleBrush}" />
             <ScrollViewer Grid.Column="2" x:Name="TableScroll" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Auto" Padding="0,4,8,4">
                 <StackPanel>
-                    <Grid x:Name="Header" MinHeight="32" />
+                    <Grid x:Name="Header" MinHeight="{StaticResource ControlHeight}" />
                     <StackPanel x:Name="Rows" />
                 </StackPanel>
             </ScrollViewer>
@@ -72,7 +72,7 @@
                 Visibility="Collapsed"
                 IsHitTestVisible="False" />
         </Grid>
-        <Grid Grid.Row="2" Padding="10,6" ColumnSpacing="12" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <Grid Grid.Row="2" Padding="10,6" ColumnSpacing="{StaticResource SpaceLg}" Background="{ThemeResource SurfaceSecondaryBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

@@ -1,8 +1,8 @@
-//! HCW layer-standard tools carried over from the Holgundi Consulting Works AutoLISP toolkit
-//! (`hcwtools.lsp`, section 7 and 10): HCWRESET, HCWINFO, HCWLOCK / HCWUNLOCK, HCWAUDIT2,
-//! HCWBYBLOCK, HCWMOVE, HCWSCHEDULE and HCWLEGEND, working on the 36-layer HCW standard that
-//! `hcwlayers` creates. Purge, audit and layer states already exist as `purge`, `audit` and
-//! `layerstate.*`.
+//! Standard architectural layer tools carried over from the Holgundi Consulting Works AutoLISP
+//! toolkit (`hcwtools.lsp`, section 7 and 10): reset, info, lock / unlock, audit, overrides,
+//! move, schedule and legend, working on the 36-layer standard set that `hcwlayers` creates
+//! (`set: standard`). Purge, audit and layer states already exist as `purge`, `audit` and
+//! `layerstate.*`. Command ids keep the `hcw*` prefix for scripts.
 
 use aad_color::Color;
 use aad_doc::{HAlign, Handle, Lineweight, VAlign};
@@ -10,54 +10,54 @@ use aad_geom::Vec2;
 use serde_json::{Value, json};
 
 use super::draw::make_text;
-use super::hcw::{HCW_LAYERS, add_on, drawing_units, ensure_layer};
+use super::hcw::{PRESENTATION_LAYERS, STANDARD_LAYERS, add_on, drawing_units, ensure_layer};
 use super::helpers::{line, lwpoly, rect_vertices};
 use super::*;
 use crate::{Result, Session};
 
-const VERSION: &str = "4.0";
+const VERSION: &str = "4.1";
 /// Objects one call will look at; input-sized loops stay bounded.
 const MAX_OBJECTS: usize = 5_000_000;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        CommandSpec::new("hcwreset", "Reset HCW Layers", run_reset)
-            .menu(&["Architecture", "HCW Layers", "Reset to Standard"])
-            .params("{} → {created, updated} (creates missing HCW layers and sets colour, linetype, lineweight and description of existing ones to the standard; on, frozen, locked and plot are left alone)"),
-        CommandSpec::new("hcwinfo", "HCW Layer Table", run_info)
-            .menu(&["Architecture", "HCW Layers", "Layer Table"])
+        CommandSpec::new("hcwreset", "Reset Standard Layers", run_reset)
+            .menu(&["Architecture", "Standard Layers", "Reset to Standard"])
+            .params("{} → {created, updated} (creates missing standard layers and sets colour, linetype, lineweight and description of existing ones to the standard; on, frozen, locked and plot are left alone)"),
+        CommandSpec::new("hcwinfo", "Standard Layer Table", run_info)
+            .menu(&["Architecture", "Standard Layers", "Layer Table"])
             .params("{} → {version, layers: [{name, aci, linetype, lineweight (mm), description, exists}]}")
             .noundo(),
         CommandSpec::new("hcwlock", "Lock Layers by Prefix", |s, p| run_lock(s, p, true))
-            .menu(&["Architecture", "HCW Layers", "Lock by Prefix"])
+            .menu(&["Architecture", "Standard Layers", "Lock by Prefix"])
             .params("{prefix: e.g. \"E-\"} → {changed}"),
         CommandSpec::new("hcwunlock", "Unlock Layers by Prefix", |s, p| run_lock(s, p, false))
-            .menu(&["Architecture", "HCW Layers", "Unlock by Prefix"])
+            .menu(&["Architecture", "Standard Layers", "Unlock by Prefix"])
             .params("{prefix} → {changed}"),
         CommandSpec::new("hcwaudit2", "Find Non-Standard Layers", run_audit2)
-            .menu(&["Architecture", "HCW Layers", "Find Non-Standard Layers"])
-            .params("{moveTo?: an existing layer} → {layers: [{layer, count}], total, moved} (objects, in all spaces, that are not on one of the 36 HCW layers; with `moveTo` they all move to that layer)"),
+            .menu(&["Architecture", "Standard Layers", "Find Non-Standard Layers"])
+            .params("{moveTo?: an existing layer} → {layers: [{layer, count}], total, moved} (objects, in all spaces, that are not on a standard or presentation layer; with `moveTo` they all move to that layer)"),
         CommandSpec::new("hcwbyblock", "Find Property Overrides", run_overrides)
-            .menu(&["Architecture", "HCW Layers", "Find Property Overrides"])
+            .menu(&["Architecture", "Standard Layers", "Find Property Overrides"])
             .params("{} → {count, layers: [{layer, count}]} (objects with an explicit colour, linetype or lineweight instead of ByLayer)")
             .noundo(),
-        CommandSpec::new("hcwmove", "Move to HCW Layer", run_move)
-            .menu(&["Architecture", "HCW Layers", "Move to HCW Layer"])
-            .params("{handles?, layer: a layer name, or the number (from 0) of an entry in the HCW table} → {moved, layer}"),
-        CommandSpec::new("hcwschedule", "HCW Layer Schedule", run_schedule)
-            .menu(&["Architecture", "HCW Layers", "Layer Schedule (CSV)"])
-            .params("{path?} → {count, csv?, path?} (Layer, ACI, Linetype, LW_mm, Description, InDrawing, ObjectCount for the 36 HCW layers)")
+        CommandSpec::new("hcwmove", "Move to Standard Layer", run_move)
+            .menu(&["Architecture", "Standard Layers", "Move to Standard Layer"])
+            .params("{handles?, layer: a layer name, or the number (from 0) of an entry in the standard table} → {moved, layer}"),
+        CommandSpec::new("hcwschedule", "Standard Layer Schedule", run_schedule)
+            .menu(&["Architecture", "Standard Layers", "Layer Schedule (CSV)"])
+            .params("{path?} → {count, csv?, path?} (Layer, ACI, Linetype, LW_mm, Description, InDrawing, ObjectCount for the 36 standard layers)")
             .noundo(),
-        CommandSpec::new("hcwlegend", "HCW Layer Legend", run_legend)
-            .menu(&["Architecture", "HCW Layers", "Layer Legend"])
-            .params("{at: [x, y] (bottom-left), units?: mm|cm|m|ft|in} → {rows} (swatch, line and name of each HCW layer in two columns, sized as for metres at 1:1)"),
+        CommandSpec::new("hcwlegend", "Standard Layer Legend", run_legend)
+            .menu(&["Architecture", "Standard Layers", "Layer Legend"])
+            .params("{at: [x, y] (bottom-left), units?: mm|cm|m|ft|in} → {rows} (swatch, line and name of each standard layer in two columns, sized as for metres at 1:1)"),
     ]
 }
 
 fn run_reset(s: &mut Session, _p: &Value) -> Result<Value> {
     let d = s.doc_mut()?;
     let (mut created, mut updated) = (0, 0);
-    for (name, aci, linetype, lw, description) in HCW_LAYERS {
+    for (name, aci, linetype, lw, description) in STANDARD_LAYERS {
         if ensure_layer(d, name, *aci, linetype, *lw, description) {
             created += 1;
             continue;
@@ -80,7 +80,7 @@ fn run_reset(s: &mut Session, _p: &Value) -> Result<Value> {
 
 fn run_info(s: &mut Session, _p: &Value) -> Result<Value> {
     let d = s.doc()?;
-    let layers: Vec<Value> = HCW_LAYERS
+    let layers: Vec<Value> = STANDARD_LAYERS
         .iter()
         .map(|(name, aci, lt, lw, desc)| {
             json!({ "name": name, "aci": aci, "linetype": lt, "lineweight": f64::from(*lw) / 100.0, "description": desc, "exists": d.layer(name).is_some() })
@@ -119,7 +119,9 @@ fn per_layer(counts: std::collections::BTreeMap<String, usize>) -> Vec<Value> {
 
 fn run_audit2(s: &mut Session, p: &Value) -> Result<Value> {
     let hs = all_objects(s)?;
-    let is_standard = |name: &str| HCW_LAYERS.iter().any(|l| l.0 == name);
+    let is_standard = |name: &str| {
+        STANDARD_LAYERS.iter().any(|l| l.0 == name) || PRESENTATION_LAYERS.iter().any(|l| l.0 == name)
+    };
     let d = s.doc()?;
     let mut rogue: Vec<Handle> = Vec::new();
     let mut counts = std::collections::BTreeMap::new();
@@ -166,17 +168,17 @@ fn run_overrides(s: &mut Session, _p: &Value) -> Result<Value> {
 fn run_move(s: &mut Session, p: &Value) -> Result<Value> {
     let target = match p.get("layer") {
         Some(Value::String(name)) => match name.parse::<usize>() {
-            Ok(i) => HCW_LAYERS.get(i).map(|l| l.0.to_string()).ok_or_else(|| bad("hcwmove", "layer number out of range"))?,
+            Ok(i) => STANDARD_LAYERS.get(i).map(|l| l.0.to_string()).ok_or_else(|| bad("hcwmove", "layer number out of range"))?,
             Err(_) => name.clone(),
         },
         Some(Value::Number(n)) => {
             let i = n.as_u64().and_then(|i| usize::try_from(i).ok());
-            i.and_then(|i| HCW_LAYERS.get(i)).map(|l| l.0.to_string()).ok_or_else(|| bad("hcwmove", "layer number out of range"))?
+            i.and_then(|i| STANDARD_LAYERS.get(i)).map(|l| l.0.to_string()).ok_or_else(|| bad("hcwmove", "layer number out of range"))?
         }
         _ => return Err(bad("hcwmove", "`layer` is required")),
     };
     if s.doc()?.layer(&target).is_none() {
-        return Err(bad("hcwmove", format!("no layer \"{target}\"; create the HCW layers with hcwlayers")));
+        return Err(bad("hcwmove", format!("no layer \"{target}\"; create the standard layers with hcwlayers")));
     }
     let hs: Vec<Handle> = targets(s, p)?.into_iter().filter(|h| !curves::is_locked(s, *h)).collect();
     if hs.is_empty() {
@@ -204,7 +206,7 @@ fn run_schedule(s: &mut Session, p: &Value) -> Result<Value> {
         *counts.entry(e.common.layer.as_str()).or_insert(0) += 1;
     }
     let mut csv = String::from("Layer,ACI,Linetype,LW_mm,Description,InDrawing,ObjectCount\n");
-    for (name, aci, lt, lw, desc) in HCW_LAYERS {
+    for (name, aci, lt, lw, desc) in STANDARD_LAYERS {
         let exists = if d.layer(name).is_some() { "Yes" } else { "No" };
         csv.push_str(&format!(
             "{name},{aci},{lt},{:.2},{},{exists},{}\n",
@@ -218,12 +220,12 @@ fn run_schedule(s: &mut Session, p: &Value) -> Result<Value> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 std::fs::write(_path, &csv).map_err(|e| bad("hcwschedule", format!("{_path}: {e}")))?;
-                Ok(json!({ "count": HCW_LAYERS.len(), "path": _path }))
+                Ok(json!({ "count": STANDARD_LAYERS.len(), "path": _path }))
             }
             #[cfg(target_arch = "wasm32")]
             Err(bad("hcwschedule", "paths are not available on the web; omit `path` to get the CSV text"))
         }
-        None => Ok(json!({ "count": HCW_LAYERS.len(), "csv": csv })),
+        None => Ok(json!({ "count": STANDARD_LAYERS.len(), "csv": csv })),
     }
 }
 
@@ -252,18 +254,21 @@ fn run_legend(s: &mut Session, p: &Value) -> Result<Value> {
     let k = 1.0 / drawing_units(s.doc()?, "hcwlegend", p)?.metres();
     {
         let d = s.doc_mut()?;
-        for (name, aci, lt, lw, desc) in HCW_LAYERS {
+        for (name, aci, lt, lw, desc) in STANDARD_LAYERS {
             ensure_layer(d, name, *aci, lt, *lw, desc);
         }
     }
     let first = |name: &str| name.starts_with("AN-") || name.starts_with("A-") || name.starts_with("I-");
-    let left: Vec<_> = HCW_LAYERS.iter().filter(|l| first(l.0)).collect();
-    let right: Vec<_> = HCW_LAYERS.iter().filter(|l| !first(l.0)).collect();
+    let left: Vec<_> = STANDARD_LAYERS.iter().filter(|l| first(l.0)).collect();
+    let right: Vec<_> = STANDARD_LAYERS.iter().filter(|l| !first(l.0)).collect();
     let (row_h, col_gap) = (0.8 * k, 18.0 * k);
     let rows = left.len().max(right.len());
     let header_y = at.y + rows as f64 * row_h + row_h;
     let title_h = 0.3 * k * 1.4;
-    for (title, x) in [("HCW LAYER STANDARD v4.0 - AN / A / I", at.x), ("HCW LAYER STANDARD v4.0 - E / P / S / PR", at.x + col_gap)] {
+    for (title, x) in [
+        ("STANDARD LAYERS v4.1 - AN / A / I", at.x),
+        ("STANDARD LAYERS v4.1 - E / P / S / PR", at.x + col_gap),
+    ] {
         let t = make_text(s, Vec2::new(x, header_y), title, title_h, 0.0, (HAlign::Left, VAlign::Baseline));
         add_on(s, "AN-TEXT", t)?;
     }
@@ -303,7 +308,7 @@ mod tests {
         let mut s = session();
         let r = s.execute("hcwinfo", &json!({})).unwrap();
         assert_eq!(r["layers"].as_array().unwrap().len(), 36);
-        assert_eq!(r["version"], json!("4.0"));
+        assert_eq!(r["version"], json!("4.1"));
         assert!(r["layers"].as_array().unwrap().iter().all(|l| l["exists"] == json!(true)));
     }
 
@@ -387,7 +392,7 @@ mod tests {
         let r = s.execute("hcwschedule", &json!({})).unwrap();
         let csv = r["csv"].as_str().unwrap();
         assert!(csv.starts_with("Layer,ACI,Linetype,LW_mm,Description,InDrawing,ObjectCount\n"));
-        assert!(csv.contains("A-WALL,1,Continuous,0.35,Walls - new and existing (cut),Yes,2"));
+        assert!(csv.contains("A-WALL,1,Continuous,0.50,Walls - new and existing (cut); heaviest punch,Yes,2"));
         assert_eq!(csv.lines().count(), 37);
     }
 

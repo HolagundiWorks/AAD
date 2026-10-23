@@ -29,6 +29,10 @@ pub(super) fn draw(b: &mut Builder, ctx: &Ctx, e: &Entity, h: &Hatch, rgb: Ink, 
     {
         b.tris(ctx, ink(bg, layer_color, ctx.block_color), &fill::triangulate_evenodd(&loops));
     }
+    // Pattern lines are the expensive part of a hatch; `fill: false` (far-zoom LOD) skips them.
+    if !b.opts.fill {
+        return;
+    }
     for seg in pattern_lines(h, &loops) {
         if seg.len() == 1 {
             if let Some(p) = seg.first() {

@@ -8,16 +8,17 @@ P2 significant, P3 minor, P4 cosmetic. Confirmed means reproduced; a hypothesis 
 
 | ID | Sev | Summary | Reproduce | Workaround |
 |---|---|---|---|---|
-| BUG-001 residual | P2 | A damaged DWG can no longer abort the program, but the worker process that reads it has no memory limit, and code that does not call `aad_dwg::isolated::enable()` still reads in-process. Not reported upstream to `acadrust` | Read `apps/aad-cli/tests/fixtures/dwg/alloc-bomb-ac18-section-size.dwg` in-process | Use the apps (they enable the worker); keep DXF copies |
-| (limit) | P3 | In the WinUI shell, opening, saving and plotting from the menus and the file picker run on a worker thread (`aad_host_open_start`/`_poll`, `save_start`/`_poll`, `plot_start`/`_poll`), so the window stays responsive. The read, the flatten and the undo copy also run on the worker, and so do files given on the command line at launch. Still on the UI thread: `app.open`/`app.save` on the control channel, the command line, the final step that adds the document to the session, and the batch plot and PDF preview | Open a large DXF | Wait for the status line "Opening ..." to clear |
-| (limit) | P3 | Panning inside a layout viewport rebuilds the viewport content every frame: 52 ms at 100 000 entities ([PERFORMANCE.md](PERFORMANCE.md)) | Pan in an MSPACE viewport on a large drawing | Work in model space |
-| (limit) | P3 | The display list for a 100 000-entity drawing takes about 125 ms to build on the UI thread on every edit or zoom-band change. A text-heavy drawing (705 000 primitives) takes about 0.32 s since glyph outlines are ear-clipped ([PERFORMANCE.md](PERFORMANCE.md)) | Edit a large drawing | none |
-| (limit) | P3 | Reading a large DWG takes 1.2 to 1.5 s in the worker process before the drawing appears (the window stays responsive in the WinUI shell) | Open a large DWG | Wait |
+| BUG-001 residual | P3 | In-process DWG reads (no `aad_dwg::isolated::enable()`) are still uncapped. The apps use the worker with a Windows Job Object memory cap (~2 GiB). Upstream `acadrust` AC18 unchecked allocs are not reported yet | Read the alloc-bomb fixture in-process | Use the apps / isolated worker |
+| (limit) | P3 | Command-line `open`/`qsave`, batch plot and PDF preview still run their commit/plot work on the session thread. Menu/picker and control-channel `app.open`/`app.save` use workers (control replies are deferred across `pump`) | Batch plot a large set | Wait |
+| (limit) | P3 | A full display-list rebuild of every entity at zoom extents is still about 125 ms at 100 000 entities (post-rayon). Far-zoom LOD, frustum cull when zoomed in, and async band rebuild reduce freezes; they do not change full-extents O(n) ([PERFORMANCE.md](PERFORMANCE.md)) | Open or heavily edit a 100k drawing at extents | none |
+| (limit) | P3 | Reading a large DWG takes about 1.2 to 1.5 s in the worker (acadrust + DXF round-trip) before the drawing appears; set `AAD_DWG_STAGE=1` for spawn timing. The window stays responsive in the WinUI shell | Open a large DWG | Wait |
 
 ## Fixed
 
-BUG-001 (a damaged DWG aborted the program), BUG-002 (stale MSPACE viewport), UI-001 (stall on the
-first pick after opening a large drawing), PERF-001 (editing 1 000 objects took 40 ms instead of 5).
+BUG-001 (a damaged DWG aborted the program; Windows worker memory is now Job-capped), BUG-002 (stale
+MSPACE viewport), UI-001 (stall on the first pick after opening a large drawing), PERF-001 (editing
+1 000 objects took 40 ms instead of 5), layout viewport coarse-pan cache (8× cell + LRU), hatch/text
+LOD, WinUI async zoom-band rebuild, control-channel and menu save via workers.
 
 ## Hypotheses (not reproduced)
 

@@ -22,6 +22,14 @@ Two workspaces: **Classic** (toolbars and side panels) and **Pro** (full-screen 
 command line and status bar), switched with `Ctrl+F11`. Switching changes visibility only. Two
 themes, light (white drawing area) and dark (black), with no other colour customisation. The interface is English only.
 
+WinUI secondary windows (layer manager, hatch, rooms, styles, forms, About, PDF, …) use the same
+solid shell chrome as the main window via `ShellChrome` / `ShellIcon.Apply`: no Mica/acrylic
+backdrop, opaque page fill, and matching title-bar colours. Theme toggles re-apply chrome to open
+tool windows. Content-based sizing and close-with-shell behaviour: [WINDOW_SIZING.md](WINDOW_SIZING.md).
+Shared colours, type, spacing and control sizes: [UI_TOKENS.md](UI_TOKENS.md) (`Themes/*.xaml`, `Density`).
+WinUI visual direction: Fluent graphite + Windows blue accent; solid overlays (no glass on the
+drawing child); AI vs CAD channels distinguished by accent/green edges without changing routing.
+
 
 ## Working with commands
 
@@ -73,9 +81,7 @@ See [TESTING.md](TESTING.md) and [UI_TESTING_STRATEGY.md](UI_TESTING_STRATEGY.md
 
 ## Dynamic input beside the cursor (WinUI)
 
-The cursor fields show what is being entered, not where the cursor is: there is no live X and Y
-readout. While a command asks for a point after its first point, Length and Angle follow the cursor
-and typed values replace them (`40`, `40<90`, `40,30`). A command name or answer typed at the
-command line shows beside the cursor as Command (nothing running) or Input (a command running). An
-assistant request, a line starting with `/` or a sentence typed with no command running, is
-written in the command bar only and never shown beside the cursor.
+The cursor-anchored CAD field parks beside the crosshair when Dynamic Input is on (host `dyn.on`).
+It shows **typed text only** (no prompt label or Length/Angle readouts). Typed distances still accept
+SketchUp-style units in the engine (`40`, `40<90`, `5'6"`). Slash assistant drafts stay on the fixed
+AI bar (`dyn.on` false for `/…` drafts). Full dual-channel contract: [COMMAND_BAR.md](COMMAND_BAR.md).

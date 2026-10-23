@@ -5,7 +5,10 @@
 //! goes the other way. Keeping the dependency behind this byte-level API isolates it: nothing
 //! else in AAD depends on its types. Native targets only (it memory-maps files).
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
+
+#[cfg(all(windows, not(target_arch = "wasm32")))]
+mod job_win;
 
 /// DWG version codes we can write.
 pub const VERSIONS: &[(&str, &str)] =

@@ -112,7 +112,8 @@ pub fn format_angle(a: f64, aunits: i64, auprec: i64) -> String {
 }
 
 /// Parse a distance typed by the user: decimal, `1'6"`, `1'-6 1/2"`, `6 1/2`, `3/4`, `1e3`,
-/// and multi-unit suffixes `mm` / `cm` / `m`. When a drawing unit is active (see
+/// and unit suffixes as in SketchUp-style entry: `mm` / `cm` / `m` / `km` / `in` / `ft` / `yd`
+/// (and longer forms `inch`, `feet`, `yards`). When a drawing unit is active (see
 /// [`with_drawn_unit`]), suffixes convert into that unit; otherwise feet/inches stay in inches and
 /// metric suffixes stay in the unit written (`5m` → 5, `100mm` → 100).
 pub fn parse_distance(s: &str) -> Option<f64> {
@@ -133,19 +134,45 @@ pub fn parse_distance_as(s: &str, drawn: Option<Unit>) -> Option<f64> {
         None => (false, t),
     };
     let lower = body.to_ascii_lowercase();
-    // Metric suffixes (longest first). Allow a space: `5 m`, `12.5cm`.
-    for (suffix, unit) in [("mm", Unit::Mm), ("cm", Unit::Cm), ("m", Unit::M)] {
+    // Word and metric suffixes (longest first). Allow a space: `5 m`, `12.5cm`, `10 ft`.
+    for (suffix, unit) in [
+        ("inches", Unit::In),
+        ("inch", Unit::In),
+        ("feet", Unit::Ft),
+        ("foot", Unit::Ft),
+        ("mm", Unit::Mm),
+        ("cm", Unit::Cm),
+        ("ft", Unit::Ft),
+        ("in", Unit::In),
+        ("m", Unit::M),
+    ] {
         if let Some(num) = lower.strip_suffix(suffix) {
             let num = num.trim();
             if num.is_empty() {
                 continue;
             }
-            // Reject bare `m` matching the end of `mm`/`cm` already handled; also reject if more letters remain.
             if num.chars().any(|c| c.is_ascii_alphabetic()) {
                 continue;
             }
             let v: f64 = parse_mixed(num)?;
             let out = convert_from(unit, v, drawn)?;
+            let out = if neg { -out } else { out };
+            return out.is_finite().then_some(out);
+        }
+    }
+    // Extra SketchUp-style lengths without a dedicated [`Unit`] variant (metres factor).
+    for (suffix, metres_per) in [("yards", 0.9144), ("yard", 0.9144), ("yd", 0.9144), ("km", 1000.0)] {
+        if let Some(num) = lower.strip_suffix(suffix) {
+            let num = num.trim();
+            if num.is_empty() || num.chars().any(|c| c.is_ascii_alphabetic()) {
+                continue;
+            }
+            let v: f64 = parse_mixed(num)?;
+            let metres = v * metres_per;
+            let out = match drawn {
+                Some(drawn) => metres / drawn.metres(),
+                None => v,
+            };
             let out = if neg { -out } else { out };
             return out.is_finite().then_some(out);
         }
@@ -357,6 +384,11 @@ mod tests {
         assert_eq!(parse_distance("100mm"), Some(100.0));
         assert_eq!(parse_distance("5cm"), Some(5.0));
         assert_eq!(parse_distance("2m"), Some(2.0));
+        assert_eq!(parse_distance("10ft"), Some(10.0));
+        assert_eq!(parse_distance("12 in"), Some(12.0));
+        assert_eq!(parse_distance("2yd"), Some(2.0));
+        assert!((parse_distance_as("10ft", Some(Unit::Mm)).unwrap() - 3048.0).abs() < 1e-6);
+        assert!((parse_distance_as("1km", Some(Unit::M)).unwrap() - 1000.0).abs() < 1e-9);
         assert_eq!(parse_distance("1/0"), None);
         assert_eq!(parse_distance("abc"), None);
         assert_eq!(parse_distance(""), None);

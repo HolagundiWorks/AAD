@@ -143,6 +143,31 @@ holes, and falls back to `triangulate_evenodd` when the result area differs from
 the input is hostile (too many loops or points). A per-glyph cache was tried and removed: the gain
 over ear clipping was small for the added key-quantisation risk.
 
-Still open: DWG parse (1.2 to 1.5 s), DXF write and
-read (about 0.55 s), mesh upload (about 170 ms), viewport pan rebuild in layouts, first-pick spatial
-index build (70 to 140 ms).
+Still open as absolute CPU: DWG parse (about 1.2 to 1.5 s in `acadrust` + DXF bridge; set
+`AAD_DWG_STAGE=1` for spawn timing) and DXF read/write (about 0.55 s at 100k). Split DXF benches
+before micro-optimising.
+
+## Update: interactive pan / edit path (WinUI + layout viewports)
+
+- **WinUI host** (`aad-host`): caches the display list keyed by document revision, tessellation
+  band, LOD flags and space; model-space edits use `aad_render::rebuild` when safe; the GPU mesh
+  is keyed by revision + snapped origin + sheet tint so fine pans only rewrite the view uniform.
+  Crossing a zoom/LOD band keeps the last list on screen and rebuilds on a worker (`PendingList`).
+  `spatial::warm` runs when the list is rebuilt. Far zoom turns off text/fill via
+  `aad_render::lod_for_view`; model builds can pass `view_center` for frustum cull.
+- **Layout viewports** (`aad-render`): model geometry is tessellated in world coordinates into a
+  thread-local LRU (6 entries) keyed by content + scale + a coarse pan cell (**8×** view height)
+  with a pad that covers the cell. Fine and medium pans only transform and clip; a jump across
+  cells uses the LRU; zoom still retessellates (exact height / PSLTSCALE). Regression:
+  `crates/render/tests/viewport_pan_cache.rs`, `lod_and_frustum.rs`. WinUI fine pans keep the mesh
+  key (`fine_pan_keeps_the_cached_mesh`).
+
+## Update: file I/O path
+
+- Control `app.open` / `app.save`: start worker, defer the JSON reply until `Host::pump` polls
+  completion (client still waits on one reply). Direct `control_one` in tests polls locally.
+- WinUI menu Save / Save As use `SaveFileAsync` (`SaveStart`/`SavePoll`), same as Open.
+- DWG worker (Windows): Job Object process memory cap ~2 GiB (`aad_dwg::isolated::WORKER_MEMORY_CAP`).
+
+Re-measure large drawings with `aad-cli perf` / `perf_probe` on the same machine before claiming
+new absolute times; the structural change removes full rebuilds from the common pan path.

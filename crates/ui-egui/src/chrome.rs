@@ -338,13 +338,7 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
             (Icon::Gear, false, "ui.dialog.dsettings", "Drafting Settings"),
         ];
         let size = 20.0;
-        // The AORMS chip sits left of the units button; reserve its width so the toggles and readout don't overlap it.
-        let chip = crate::aorms_ui::chip(&app.aorms);
-        let chip_w = {
-            let g = p.layout_no_wrap(chip.text.clone(), crate::theme::small(), t.text);
-            (g.size().x + 18.0).clamp(54.0, 190.0)
-        };
-        let mut rx = r.right() - 8.0 - 60.0 - 128.0 - 200.0 - toggles.len() as f32 * (size + 4.0) - chip_w - 8.0 - (58.0 + 6.0 + 40.0 + 8.0);
+        let mut rx = r.right() - 8.0 - 60.0 - 128.0 - 200.0 - toggles.len() as f32 * (size + 4.0) - (58.0 + 6.0 + 40.0 + 8.0);
         // Light/dark theme: a switch with a sun and a moon. The knob sits on the side of the theme
         // in use (moon, right: dark; sun, left: light); clicking it switches to the other theme.
         let theme_br = Rect::from_min_max(pos2(r.right() - 8.0 - 46.0, r.center().y - 10.0), pos2(r.right() - 8.0, r.center().y + 10.0));
@@ -419,20 +413,6 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
         egui::Popup::from_toggle_button_response(&units_resp.on_hover_text(crate::tl!("Drawing units, display units, plot scale and annotation")))
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .show(|ui| crate::units_panel::show(app, ui));
-        // AORMS: Community / connected / needs connecting. A click opens the sign-in and projects dialog.
-        let chip_br = Rect::from_min_max(pos2(units_br.left() - 8.0 - chip_w, r.center().y - 9.0), pos2(units_br.left() - 8.0, r.center().y + 9.0));
-        let chip_resp = ui.interact(chip_br, ui.id().with("aorms_chip"), Sense::click());
-        let chip_color = match chip.tone {
-            crate::aorms_ui::ChipTone::Accent => t.accent,
-            crate::aorms_ui::ChipTone::Warn => t.warn,
-            crate::aorms_ui::ChipTone::Dim => t.text_dim,
-        };
-        p.rect_filled(chip_br, 3.0, if chip_resp.hovered() { t.control_hover } else { t.control });
-        p.text(chip_br.center(), egui::Align2::CENTER_CENTER, &chip.text, crate::theme::small(), chip_color);
-        icons::describe_control(ui, &chip_resp, "AORMS", None, false);
-        if chip_resp.on_hover_text(chip.tip.clone()).clicked() {
-            app.start("aorms.signin");
-        }
         // Pomodoro and Calculator buttons left of the units control: the timer shows its countdown
         // even with its window closed; a click opens or closes the window.
         {
@@ -441,7 +421,7 @@ pub fn status_bar(app: &mut CadApp, ui: &mut egui::Ui) {
                 let pm = &app.widgets.pomodoro;
                 (pm.label(), pm.active(), pm.running(), pm.fraction())
             };
-            let pbr = Rect::from_min_max(pos2(chip_br.left() - 8.0 - 58.0, y0), pos2(chip_br.left() - 8.0, y1));
+            let pbr = Rect::from_min_max(pos2(units_br.left() - 8.0 - 58.0, y0), pos2(units_br.left() - 8.0, y1));
             let presp = ui.interact(pbr, ui.id().with("pomodoro_button"), Sense::click());
             p.rect_filled(pbr, 3.0, if presp.hovered() { t.control_hover } else { t.control });
             if active {

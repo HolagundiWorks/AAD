@@ -35,6 +35,7 @@ These are O-Draft's own definitions, not copies of any vendor's files.
 | `grayscale.ctb` | prints every colour as the grey of its luminance |
 | `default.stb` | `Normal` (object properties), `Black`, `Screened 50%`, `Thick` (0.50 mm) |
 | `monochrome.stb` | `Normal` prints black; `Screened 50%` prints black at 50 % |
+| `presentation.stb` | Floor-plan presentation: `Heavy`/`Medium`/`Light`/`Fine`/`Extra Fine` weights, `Screened 10%`…`80%`, and `Anno` (red notes). Assigned to `G-*` layers from `hcwlayers {set: presentation}` |
 
 A table kept in the drawing shadows a built-in table of the same name.
 

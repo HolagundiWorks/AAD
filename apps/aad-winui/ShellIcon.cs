@@ -7,7 +7,21 @@ namespace Aad.WinUi;
 /// <summary>The O-Draft mark from <c>assets/app-icon</c>, copied beside the program.</summary>
 internal static class ShellIcon
 {
+    /// <summary>Apply shell chrome (solid theme + title bar) and the window icon.</summary>
     public static void Apply(Window window)
+    {
+        ShellWindows.Track(window);
+        ShellChrome.Apply(window);
+    }
+
+    /// <summary>Apply shell chrome using an explicit theme (owner window or dark/light toggle).</summary>
+    public static void Apply(Window window, ElementTheme theme)
+    {
+        ShellWindows.Track(window);
+        ShellChrome.Apply(window, theme);
+    }
+
+    public static void SetIcon(Window window)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "aad.ico");
         if (File.Exists(path))

@@ -21,6 +21,8 @@ pub mod raster;
 pub mod units;
 mod wide;
 
+use std::sync::Arc;
+
 use aad_color::{Color, Rgb};
 use aad_doc::{Drawing, Entity, EntityKind, Handle, Lineweight, Prim, Space};
 use aad_geom::{Bounds2, Mat3, Polyline, Vec2};
@@ -137,12 +139,16 @@ pub struct Options {
     pub min_dash: f64,
     /// Draw text (off for very coarse previews).
     pub text: bool,
-    /// Highlighted (selected) handles are not special here; the canvas overlays them.
+    /// Filled hatches and solid fills (off when features are sub-pixel on screen).
     pub fill: bool,
     pub lineweights: bool,
     /// Height of the visible area in world units of the space being built. Relative point
     /// sizes (`PDSIZE` <= 0) are a percentage of it; 0 = the height of the space's extents.
     pub view_height: f64,
+    /// When set with a positive [`Self::view_height`], model-space builds skip entities whose
+    /// bounds miss an expanded view window (zoomed-in frustum cull). Ignored for paper space
+    /// and when plotting.
+    pub view_center: Option<Vec2>,
     /// Plot style table to draw with. When `None`, [`build`] of a layout whose page setup has
     /// "Display plot styles" on uses the layout's table; [`build_plot`] uses none.
     pub plot_style_table: Option<std::sync::Arc<aad_doc::PlotStyleTable>>,
@@ -150,8 +156,56 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { tolerance: 0.001, min_dash: 0.0, text: true, fill: true, lineweights: false, view_height: 0.0, plot_style_table: None }
+        Options {
+            tolerance: 0.001,
+            min_dash: 0.0,
+            text: true,
+            fill: true,
+            lineweights: false,
+            view_height: 0.0,
+            view_center: None,
+            plot_style_table: None,
+        }
     }
+}
+
+/// Screen-pixel size of one world unit for a view of `view_height` drawn into `pixel_height`.
+pub fn world_per_pixel(view_height: f64, pixel_height: f64) -> f64 {
+    if !(view_height.is_finite() && view_height > 0.0 && pixel_height.is_finite() && pixel_height > 0.0) {
+        return 0.0;
+    }
+    view_height / pixel_height
+}
+
+/// LOD flags for interactive display: `(draw_text, draw_fill)`.
+/// When zoomed out (`world_per_pixel` large), skip text then fills so far views stay light.
+pub fn lod_for_view(view_height: f64, pixel_height: f64) -> (bool, bool) {
+    let wpp = world_per_pixel(view_height, pixel_height);
+    if wpp <= 0.0 {
+        return (true, true);
+    }
+    let text = wpp < 2.0;
+    let fill = wpp < 1.0;
+    (text, fill)
+}
+
+fn model_cull_window(opts: &Options) -> Option<Bounds2> {
+    let center = opts.view_center?;
+    let h = opts.view_height;
+    if !(h.is_finite() && h > 0.0 && center.is_finite()) {
+        return None;
+    }
+    // Assume a wide aspect; expand so entity bounds slack does not pop in at edges.
+    let half = Vec2::new(h * 1.2, h * 0.7);
+    Some(Bounds2::new(center - half, center + half).expand(h * 0.15))
+}
+
+fn entity_in_cull(d: &Drawing, e: &Entity, win: &Bounds2) -> bool {
+    if matches!(e.kind, EntityKind::Ray(_) | EntityKind::XLine(_)) {
+        return true;
+    }
+    let eb = aad_doc::entity_bounds(d, e, 0);
+    eb.is_empty() || eb.intersects(win)
 }
 
 /// Graphics state inherited through block references.
@@ -329,7 +383,11 @@ fn build_space(d: &Drawing, space: &Space, opts: &Options, plotting: bool) -> Di
     }
     if let Some(store) = d.space(space) {
         let paper = matches!(space, Space::Paper(_));
-        let ents: Vec<&std::sync::Arc<Entity>> = store.iter().collect();
+        let cull = if paper || plotting { None } else { model_cull_window(opts) };
+        let ents: Vec<&std::sync::Arc<Entity>> = store
+            .iter()
+            .filter(|e| cull.as_ref().is_none_or(|w| entity_in_cull(d, e, w)))
+            .collect();
         if !paper && ents.len() >= PARALLEL_MIN {
             // Model space: the entities are independent, so chunks are built on all cores and
             // appended in draw order.
@@ -352,7 +410,7 @@ fn build_space(d: &Drawing, space: &Space, opts: &Options, plotting: bool) -> Di
             return b.list;
         }
         let mut viewports = 0usize;
-        for e in store.iter() {
+        for e in ents {
             if paper && let EntityKind::Viewport(vp) = &e.kind {
                 if viewports < MAX_VIEWPORTS {
                     viewports += 1;
@@ -526,6 +584,123 @@ fn with_point_view(d: &Drawing, space: &Space, opts: &Options) -> Options {
 /// Upper bound on viewports drawn per layout (hostile files).
 const MAX_VIEWPORTS: usize = 256;
 
+/// Identity of model-space content + viewport scale + a coarse pan cell (fine pans reuse the
+/// tessellation and only re-transform / clip).
+fn model_tess_key(
+    d: &Drawing,
+    opts: &Options,
+    lt_factor: f64,
+    frozen: &[String],
+    colors: &[(String, Color)],
+    pan_cell: (i64, i64),
+    view_height_bits: u64,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    d.model.len().hash(&mut h);
+    for e in d.model.iter() {
+        (std::sync::Arc::as_ptr(e) as usize).hash(&mut h);
+    }
+    for l in &d.layers {
+        l.name.hash(&mut h);
+        l.on.hash(&mut h);
+        l.frozen.hash(&mut h);
+        format!("{:?}", l.color).hash(&mut h);
+        l.linetype.hash(&mut h);
+        format!("{:?}", l.lineweight).hash(&mut h);
+    }
+    opts.tolerance.to_bits().hash(&mut h);
+    opts.min_dash.to_bits().hash(&mut h);
+    opts.text.hash(&mut h);
+    opts.fill.hash(&mut h);
+    opts.lineweights.hash(&mut h);
+    lt_factor.to_bits().hash(&mut h);
+    view_height_bits.hash(&mut h);
+    pan_cell.hash(&mut h);
+    frozen.hash(&mut h);
+    for (n, c) in colors {
+        n.hash(&mut h);
+        format!("{c:?}").hash(&mut h);
+    }
+    h.finish()
+}
+
+/// How many neighbouring pan cells to keep (most-recent first).
+const VP_MODEL_LRU: usize = 6;
+/// Model units of pan before the tessellation cell changes (`N × view_height`).
+const VP_PAN_CELL_MULT: f64 = 8.0;
+
+thread_local! {
+    /// Model geometry tessellated for a viewport (world coords, correct linetype scale).
+    /// Reused when only `view_center` pans — transform + clip instead of re-expanding text/hatch.
+    /// Small LRU so crossing one cell boundary does not drop the previous tile.
+    static VP_MODEL: std::cell::RefCell<Vec<(u64, Arc<DisplayList>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn vp_model_get(key: u64) -> Option<Arc<DisplayList>> {
+    VP_MODEL.with(|slot| {
+        let mut v = slot.borrow_mut();
+        if let Some(i) = v.iter().position(|(k, _)| *k == key) {
+            let entry = v.remove(i);
+            let list = Arc::clone(&entry.1);
+            v.insert(0, entry);
+            return Some(list);
+        }
+        None
+    })
+}
+
+fn vp_model_put(key: u64, list: Arc<DisplayList>) {
+    VP_MODEL.with(|slot| {
+        let mut v = slot.borrow_mut();
+        v.retain(|(k, _)| *k != key);
+        v.insert(0, (key, list));
+        if v.len() > VP_MODEL_LRU {
+            v.truncate(VP_MODEL_LRU);
+        }
+    });
+}
+
+/// Map every point of `src` by `xf` (infinite lines map base and direction).
+fn transform_list(src: &DisplayList, xf: Mat3) -> DisplayList {
+    let mut out = DisplayList { expanded: src.expanded, ..DisplayList::default() };
+    out.prims.reserve(src.prims.len());
+    out.verts.reserve(src.verts.len());
+    out.tris.reserve(src.tris.len());
+    let map = |p: Vec2| xf.apply(p);
+    for p in &src.prims {
+        let pts = src.points(p);
+        match p.kind {
+            Kind::Infinite { ray } => {
+                if let (Some(base), Some(dir)) = (pts.first(), pts.get(1)) {
+                    let b = map(*base);
+                    let d = xf.apply_vec(*dir).normalized();
+                    let start = out.verts.len() as u32;
+                    out.verts.push(b);
+                    out.verts.push(if d.x.is_finite() && d.y.is_finite() { d } else { Vec2::new(1.0, 0.0) });
+                    out.prims.push(DPrim { start, len: 2, kind: Kind::Infinite { ray }, ..*p });
+                }
+            }
+            Kind::Tris | Kind::Mask => {
+                let start = out.tris.len() as u32;
+                out.tris.extend(pts.iter().copied().map(map));
+                out.prims.push(DPrim { start, len: p.len, ..*p });
+            }
+            _ => {
+                let start = out.verts.len() as u32;
+                out.verts.extend(pts.iter().copied().map(map));
+                out.prims.push(DPrim { start, len: p.len, ..*p });
+            }
+        }
+    }
+    let mut bounds = Bounds2::default();
+    for q in out.verts.iter().chain(out.tris.iter()) {
+        bounds.add(*q);
+    }
+    out.bounds = bounds;
+    out
+}
+
 /// A paper-space viewport: its border (as an ordinary entity) and model space seen through it.
 /// Viewport id 1 is the paper-space view itself and is not drawn.
 fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &aad_doc::Viewport) {
@@ -563,27 +738,61 @@ fn viewport(b: &mut Builder, d: &Drawing, e: &Entity, vp: &aad_doc::Viewport) {
     let mhalf = half / s;
     // Model window with slack: entity bounds are approximate (text, dimensions).
     let win = Bounds2::new(vp.view_center - mhalf, vp.view_center + mhalf).expand(mhalf.x.max(mhalf.y) * 0.1);
-    let mut sub = Builder { list: DisplayList::default(), opts: b.opts, plotting: b.plotting, styles: b.styles, named: None, budget: None };
     // PSLTSCALE on: model-space dashes are scaled so they measure the same on paper as in
     // paper space, whatever the viewport scale.
     let lt_factor = if d.header.i64("PSLTSCALE", 1) != 0 { 1.0 / s } else { 1.0 };
-    for me in d.model.iter() {
-        if !matches!(me.kind, EntityKind::Ray(_) | EntityKind::XLine(_) | EntityKind::Viewport(_)) {
-            let eb = aad_doc::entity_bounds(d, me, 0);
-            if !eb.is_empty() && !eb.intersects(&win) {
+    // Tessellate a generous band around the view; pans within the cell only re-transform.
+    let cell = vp.view_height.max(1e-9) * VP_PAN_CELL_MULT;
+    let pan_cell = ((vp.view_center.x / cell).round() as i64, (vp.view_center.y / cell).round() as i64);
+    let key = model_tess_key(d, b.opts, lt_factor, &vp.frozen_layers, &vp.layer_colors, pan_cell, vp.view_height.to_bits());
+    // Cover the whole cell plus the visible half-window (entity bounds are approximate).
+    let tess_win = {
+        let c = Vec2::new(pan_cell.0 as f64 * cell, pan_cell.1 as f64 * cell);
+        let half_cell = cell * 0.5;
+        let pad = half_cell + mhalf.x.max(mhalf.y) * 1.2;
+        Bounds2::new(c - Vec2::new(pad, pad), c + Vec2::new(pad, pad))
+    };
+    let world = if let Some(list) = vp_model_get(key) {
+        list
+    } else {
+        let mut sub = Builder { list: DisplayList::default(), opts: b.opts, plotting: b.plotting, styles: b.styles, named: None, budget: None };
+        // Tessellate in model/world coordinates; pan within the cell only changes the transform.
+        for me in d.model.iter() {
+            if matches!(me.kind, EntityKind::Viewport(_)) {
                 continue;
             }
+            if !matches!(me.kind, EntityKind::Ray(_) | EntityKind::XLine(_)) {
+                let eb = aad_doc::entity_bounds(d, me, 0);
+                if !eb.is_empty() && !eb.intersects(&tess_win) {
+                    continue;
+                }
+            }
+            entity(&mut sub, &Ctx { lt_factor, ..top_ctx(d, Mat3::IDENTITY, VIEWPORT_CONTENT, &vp.frozen_layers, &vp.layer_colors) }, me);
         }
-        if matches!(me.kind, EntityKind::Viewport(_)) {
+        let list = Arc::new(sub.list);
+        vp_model_put(key, Arc::clone(&list));
+        list
+    };
+    // Cull to the current view before transforming.
+    let mut culled = DisplayList { expanded: world.expanded, ..DisplayList::default() };
+    for p in &world.prims {
+        let pts = world.points(p);
+        if matches!(p.kind, Kind::Infinite { .. }) {
+            push_raw(&mut culled, p, p.kind, pts);
             continue;
         }
-        entity(&mut sub, &Ctx { lt_factor, ..top_ctx(d, xf, VIEWPORT_CONTENT, &vp.frozen_layers, &vp.layer_colors) }, me);
+        let bb = Bounds2::from_points(pts.iter().copied());
+        if !bb.is_empty() && !bb.intersects(&win) {
+            continue;
+        }
+        push_raw(&mut culled, p, p.kind, pts);
     }
-    b.list.expanded = b.list.expanded.saturating_add(sub.list.expanded);
+    let paper = transform_list(&culled, xf);
+    b.list.expanded = b.list.expanded.saturating_add(paper.expanded);
     if poly_clip {
-        append_clipped_poly(&mut b.list, &sub.list, &vp.clip);
+        append_clipped_poly(&mut b.list, &paper, &vp.clip);
     } else {
-        append_clipped(&mut b.list, &sub.list, &rect);
+        append_clipped(&mut b.list, &paper, &rect);
     }
 }
 

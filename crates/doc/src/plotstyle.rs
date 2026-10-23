@@ -8,8 +8,9 @@
 //! AAD's built-in tables are our own definitions, not copies of any vendor's files:
 //! [`DEFAULT_CTB`] keeps the object's properties, [`MONOCHROME_CTB`] prints everything black
 //! and [`GRAYSCALE_CTB`] prints every colour as the grey of its luminance; the named
-//! [`DEFAULT_STB`] offers `Normal`, `Black`, `Screened 50%` and `Thick`, and
-//! [`MONOCHROME_STB`] prints `Normal` black.
+//! [`DEFAULT_STB`] offers `Normal`, `Black`, `Screened 50%` and `Thick`,
+//! [`PRESENTATION_STB`] adds screened pens and heavy/fine weights for architectural
+//! presentation drawings, and [`MONOCHROME_STB`] prints `Normal` black.
 //!
 //! Tables are saved as files in our own JSON format (see `docs/plot-styles.md`):
 //! [`PlotStyleTable::to_file_text`] and [`PlotStyleTable::from_file_text`].
@@ -28,9 +29,12 @@ pub const GRAYSCALE_CTB: &str = "grayscale.ctb";
 pub const DEFAULT_STB: &str = "default.stb";
 /// Built-in named table whose `Normal` style prints black.
 pub const MONOCHROME_STB: &str = "monochrome.stb";
+/// Built-in named table for architectural presentation: screened pens and graphic weights.
+pub const PRESENTATION_STB: &str = "presentation.stb";
 
 /// The names of the built-in tables.
-pub const BUILTIN_PLOT_STYLE_TABLES: &[&str] = &[DEFAULT_CTB, MONOCHROME_CTB, GRAYSCALE_CTB, DEFAULT_STB, MONOCHROME_STB];
+pub const BUILTIN_PLOT_STYLE_TABLES: &[&str] =
+    &[DEFAULT_CTB, MONOCHROME_CTB, GRAYSCALE_CTB, DEFAULT_STB, MONOCHROME_STB, PRESENTATION_STB];
 
 /// The style every named table has, which keeps the object's properties unless redefined.
 pub const NORMAL_STYLE: &str = "Normal";
@@ -259,6 +263,30 @@ impl PlotStyleTable {
                     PlotStyle { name: "Thick".into(), lineweight: Some(50), ..PlotStyle::default() },
                 ],
             )),
+            PRESENTATION_STB => Some(PlotStyleTable::named(
+                PRESENTATION_STB,
+                "Architectural presentation: screened pens, heavy/fine weights, annotation accent",
+                vec![
+                    PlotStyle { name: "Heavy".into(), color: black, lineweight: Some(50), ..PlotStyle::default() },
+                    PlotStyle { name: "Medium".into(), color: black, lineweight: Some(35), ..PlotStyle::default() },
+                    PlotStyle { name: "Light".into(), color: black, lineweight: Some(18), ..PlotStyle::default() },
+                    PlotStyle { name: "Fine".into(), color: black, lineweight: Some(13), ..PlotStyle::default() },
+                    PlotStyle { name: "Extra Fine".into(), color: black, lineweight: Some(9), ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 10%".into(), color: black, screening: 10, ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 20%".into(), color: black, screening: 20, ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 40%".into(), color: black, screening: 40, ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 50%".into(), color: black, screening: 50, ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 60%".into(), color: black, screening: 60, ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 70%".into(), color: black, screening: 70, ..PlotStyle::default() },
+                    PlotStyle { name: "Screened 80%".into(), color: black, screening: 80, ..PlotStyle::default() },
+                    PlotStyle {
+                        name: "Anno".into(),
+                        color: Some(Rgb(192, 0, 0)),
+                        lineweight: Some(18),
+                        ..PlotStyle::default()
+                    },
+                ],
+            )),
             MONOCHROME_STB => {
                 let mut t = PlotStyleTable::named(
                     MONOCHROME_STB,
@@ -443,6 +471,9 @@ mod tests {
         assert_eq!(t.styles.first().unwrap().name, NORMAL_STYLE);
         assert!(t.by_name("black").is_some() && t.by_color(1).is_none());
         assert_eq!(PlotStyleTable::builtin(MONOCHROME_STB).unwrap().by_name("Normal").unwrap().color, Some(Rgb(0, 0, 0)));
+        let pres = PlotStyleTable::builtin(PRESENTATION_STB).unwrap();
+        assert!(pres.by_name("Heavy").is_some() && pres.by_name("Screened 80%").is_some() && pres.by_name("Anno").is_some());
+        assert_eq!(pres.by_name("Heavy").unwrap().lineweight, Some(50));
         // Hostile values are clamped; names fixed.
         let bad = PlotStyleTable {
             name: " x.stb ".into(),

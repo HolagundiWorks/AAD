@@ -1,61 +1,89 @@
-using Microsoft.UI.Composition;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 using WinRT.Interop;
 
 namespace Aad.WinUi;
 
 /// <summary>
-/// The floating command bar and the cursor fields. Both are top-level windows so the drawing
+/// Fixed AI bar and cursor-anchored CAD prompt. Both are top-level windows so the drawing
 /// child does not cover them. Geometry and command text stay in the host.
 /// </summary>
 internal sealed class CommandChrome
 {
-    private readonly Window _bar = new() { Title = "Command" };
-    private readonly Window _dyn = new() { Title = "Dynamic input" };
-    private readonly Border _dynA;
-    private readonly Border _dynB;
-    private readonly TextBlock _dynALabel;
-    private readonly TextBlock _dynAValue;
-    private readonly TextBlock _dynBLabel;
-    private readonly TextBlock _dynBValue;
-    private readonly StackPanel _dynBGroup;
+    private readonly Window _bar = new() { Title = "Ask" };
+    private readonly Window _dyn = new() { Title = "CAD input" };
+    private readonly Border _cadCard;
     private readonly StackPanel _dynRoot;
     private bool _barReady;
     private bool _dynReady;
-    private bool _dynClickThrough;
-    private string _shownA = "";
-    private string _shownB = "";
-    private string _shownALabel = "";
-    private string _shownBLabel = "";
-    private int _shownActive = -1;
+
+    public TextBox CadInput { get; }
+    public ListView SuggestList { get; }
+    public TextBlock CadPrompt { get; }
 
     public CommandChrome()
     {
         Configure(_bar);
         Configure(_dyn);
-        _dynALabel = Label();
-        _dynAValue = Value();
-        _dynBLabel = Label();
-        _dynBValue = Value();
-        AutomationProperties.SetName(_dynALabel, "Dynamic input label A");
-        AutomationProperties.SetName(_dynBLabel, "Dynamic input label B");
-        AutomationProperties.SetName(_dynAValue, "Dynamic input value A");
-        AutomationProperties.SetName(_dynBValue, "Dynamic input value B");
-        _dynA = Field(_dynAValue);
-        _dynB = Field(_dynBValue);
-        _dynBGroup = new StackPanel { Spacing = 1, Children = { _dynBLabel, _dynB } };
-        var groupA = new StackPanel { Spacing = 1, Children = { _dynALabel, _dynA } };
+        // Cursor CAD: typed text only — no prompt, units hint, or Length/Angle labels.
+        CadPrompt = new TextBlock
+        {
+            Visibility = Visibility.Collapsed,
+            Text = "",
+            IsHitTestVisible = false,
+        };
+        AutomationProperties.SetName(CadPrompt, "CAD prompt");
+        CadInput = new TextBox
+        {
+            FontFamily = ShellFonts.MonoFamily,
+            FontSize = Density.FontCaption,
+            MinHeight = 22,
+            MinWidth = 96,
+            BorderThickness = new Thickness(0),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            Padding = new Thickness(0, 2, 4, 2),
+            VerticalAlignment = VerticalAlignment.Center,
+            PlaceholderText = "",
+        };
+        CadInput.Resources["TextControlBorderThemeThickness"] = new Thickness(0);
+        CadInput.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(0);
+        AutomationProperties.SetName(CadInput, "CAD command line");
+        SuggestList = new ListView
+        {
+            MaxHeight = 72,
+            Visibility = Visibility.Collapsed,
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            FontFamily = ShellFonts.MonoFamily,
+            FontSize = Density.FontCaption,
+            SelectionMode = ListViewSelectionMode.Single,
+            IsItemClickEnabled = true,
+        };
+        AutomationProperties.SetName(SuggestList, "Command suggestions");
+        SuggestList.ItemContainerStyle = SuggestItemStyle();
+        var cadColumn = new StackPanel
+        {
+            Spacing = 1,
+            Children = { CadInput, SuggestList },
+        };
+        _cadCard = new Border
+        {
+            Padding = new Thickness(4, 2, 4, 2),
+            CornerRadius = new CornerRadius(3),
+            BorderThickness = new Thickness(0),
+            Child = cadColumn,
+        };
         _dynRoot = new StackPanel
         {
-            Orientation = Orientation.Horizontal,
-            Spacing = 8,
-            Padding = new Thickness(8),
-            Children = { groupA, _dynBGroup },
+            Orientation = Orientation.Vertical,
+            Spacing = Density.SpaceXs,
+            Padding = new Thickness(Density.SpaceSm),
+            Children = { _cadCard },
         };
         _dyn.Content = _dynRoot;
         ApplyTheme(ElementTheme.Dark);
@@ -66,56 +94,70 @@ internal sealed class CommandChrome
     public void Attach(FrameworkElement body, IntPtr owner)
     {
         body.Visibility = Visibility.Visible;
+        if (body is Border border)
+        {
+            // AI channel: solid chrome with a thin accent edge (distinct from CAD cursor field).
+            border.BorderThickness = new Thickness(0, 2, 0, 0);
+            border.CornerRadius = new CornerRadius(Density.CornerControl);
+            border.BorderBrush = Density.ThemeBrush("CommandChromeAccentBrush")
+                ?? new SolidColorBrush(Windows.UI.Color.FromArgb(255, 0x60, 0xCD, 0xFF));
+        }
         _bar.Content = body;
         Own(_bar, owner, ref _barReady);
         Own(_dyn, owner, ref _dynReady);
-        PassClicks(_dyn);
+        AllowActivate(_dyn);
     }
+
+    public void WireCad(
+        KeyEventHandler previewKeyDown,
+        TextChangedEventHandler textChanged,
+        TypedEventHandler<UIElement, CharacterReceivedRoutedEventArgs> characterReceived,
+        ItemClickEventHandler suggestClick)
+    {
+        CadInput.PreviewKeyDown += previewKeyDown;
+        CadInput.TextChanged += textChanged;
+        CadInput.CharacterReceived += characterReceived;
+        SuggestList.ItemClick += suggestClick;
+    }
+
+    public void FocusCad() => CadInput.Focus(FocusState.Programmatic);
 
     public void ApplyTheme(ElementTheme theme)
     {
         var dark = theme != ElementTheme.Light;
+        Density.Theme = theme == ElementTheme.Default ? Density.Theme : theme;
+        _bar.SystemBackdrop = null;
+        _dyn.SystemBackdrop = null;
         if (_bar.Content is FrameworkElement body)
         {
             body.RequestedTheme = theme;
-            if (body is Border card)
-            {
-                card.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-                card.BorderThickness = new Thickness(0);
-            }
         }
-        try
+        if (_bar.Content is Border barCard)
         {
-            _bar.SystemBackdrop = new HalfAcrylic(dark);
+            barCard.Background = Density.ThemeBrush("CommandChromeBrush")
+                ?? new SolidColorBrush(dark ? Color(242, 31, 31, 31) : Color(250, 255, 255, 255));
+            barCard.BorderThickness = new Thickness(0, 2, 0, 0);
+            barCard.CornerRadius = new CornerRadius(Density.CornerControl);
+            barCard.BorderBrush = Density.ThemeBrush("CommandChromeAccentBrush")
+                ?? new SolidColorBrush(dark ? Color(255, 0x60, 0xCD, 0xFF) : Color(255, 0x00, 0x78, 0xD4));
         }
-        catch (Exception)
-        {
-            if (_bar.Content is Border card)
-            {
-                card.Background = new SolidColorBrush(dark ? Color(220, 24, 24, 24) : Color(220, 255, 255, 255));
-            }
-        }
-        Native.Frame(WindowNative.GetWindowHandle(_bar), dark ? 0x00242424 : 0x00FFFFFF, dark);
+        Native.Frame(WindowNative.GetWindowHandle(_bar), Native.DwmColorNone, dark);
+        Native.Frame(WindowNative.GetWindowHandle(_dyn), Native.DwmColorNone, dark);
         _dynRoot.RequestedTheme = theme;
-        var fill = dark ? Color(255, 45, 45, 45) : Color(255, 249, 249, 249);
-        var edge = dark ? Color(255, 92, 92, 92) : Color(255, 229, 229, 229);
-        var ink = dark ? Microsoft.UI.Colors.White : Color(255, 26, 26, 26);
-        var secondary = dark ? Color(255, 197, 197, 197) : Color(255, 92, 92, 92);
-        _dynRoot.Background = new SolidColorBrush(fill);
-        foreach (var box in new[] { _dynA, _dynB })
-        {
-            box.Background = new SolidColorBrush(fill);
-            box.BorderBrush = new SolidColorBrush(edge);
-            box.CornerRadius = new CornerRadius(4);
-        }
-        foreach (var block in new[] { _dynALabel, _dynBLabel })
-        {
-            block.Foreground = new SolidColorBrush(secondary);
-        }
-        foreach (var block in new[] { _dynAValue, _dynBValue })
-        {
-            block.Foreground = new SolidColorBrush(ink);
-        }
+        var fill = Density.ThemeBrush("CommandChromeCadBrush")
+            ?? new SolidColorBrush(dark ? Color(242, 40, 40, 40) : Color(250, 247, 247, 247));
+        var ink = Density.ThemeBrush("TextPrimaryBrush")
+            ?? new SolidColorBrush(dark ? Microsoft.UI.Colors.White : Color(255, 26, 26, 26));
+        var cadEdge = Density.ThemeBrush("CadChannelBrush")
+            ?? new SolidColorBrush(dark ? Color(255, 0x6C, 0xCB, 0x8A) : Color(255, 0x0F, 0x7B, 0x3A));
+        _dynRoot.Background = fill;
+        _cadCard.Background = fill;
+        _cadCard.BorderThickness = new Thickness(2, 0, 0, 0);
+        _cadCard.BorderBrush = cadEdge;
+        _cadCard.CornerRadius = new CornerRadius(Density.CornerChrome);
+        CadInput.Foreground = ink;
+        CadInput.FontFamily = ShellFonts.MonoFamily;
+        CadInput.PlaceholderText = "";
     }
 
     public void ShowBar(bool on)
@@ -128,7 +170,7 @@ internal sealed class CommandChrome
                 Native.ShowWindow(WindowNative.GetWindowHandle(_bar), 8);
             }
             var dark = _bar.Content is FrameworkElement body && body.RequestedTheme != ElementTheme.Light;
-            Native.Frame(WindowNative.GetWindowHandle(_bar), dark ? 0x00242424 : 0x00FFFFFF, dark);
+            Native.Frame(WindowNative.GetWindowHandle(_bar), Native.DwmColorNone, dark);
             return;
         }
         if (_bar.AppWindow.IsVisible)
@@ -155,8 +197,22 @@ internal sealed class CommandChrome
         }
     }
 
-    public void ShowDyn(bool on, int x, int y, int width, int height, string aLabel, string a, string bLabel, string b, int active)
+    /// <summary>Cursor-anchored CAD field. Prompt/dims args are ignored (typed text only).</summary>
+    public void ShowCad(
+        bool on,
+        int x,
+        int y,
+        int width,
+        int height,
+        string prompt,
+        bool dims,
+        string aLabel,
+        string a,
+        string bLabel,
+        string b,
+        int active)
     {
+        _ = (prompt, dims, aLabel, a, bLabel, b, active);
         if (!on)
         {
             if (_dyn.AppWindow.IsVisible)
@@ -165,38 +221,8 @@ internal sealed class CommandChrome
             }
             return;
         }
-        if (_shownALabel != aLabel)
-        {
-            _dynALabel.Text = aLabel;
-            _shownALabel = aLabel;
-        }
-        if (_shownA != a)
-        {
-            _dynAValue.Text = a;
-            _shownA = a;
-        }
-        var second = bLabel.Length > 0;
-        _dynBGroup.Visibility = second ? Visibility.Visible : Visibility.Collapsed;
-        if (_shownBLabel != bLabel)
-        {
-            _dynBLabel.Text = bLabel;
-            _shownBLabel = bLabel;
-        }
-        if (_shownB != b)
-        {
-            _dynBValue.Text = b;
-            _shownB = b;
-        }
-        if (_shownActive != active)
-        {
-            _shownActive = active;
-            _dynA.BorderThickness = new Thickness(active == 0 ? 2 : 1);
-            _dynB.BorderThickness = new Thickness(active == 1 ? 2 : 1);
-            _dynAValue.FontWeight = active == 0 ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-            _dynBValue.FontWeight = active == 1 ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
-        }
-        AutomationProperties.SetName(_dynAValue, (active == 0 ? "Active " : "") + (aLabel.Length == 0 ? "Value" : aLabel) + " " + a);
-        AutomationProperties.SetName(_dynBValue, (active == 1 ? "Active " : "") + (bLabel.Length == 0 ? "Value" : bLabel) + " " + b);
+        CadPrompt.Visibility = Visibility.Collapsed;
+        CadInput.PlaceholderText = "";
         var pixelsWide = Math.Max(1, width);
         var pixelsHigh = Math.Max(1, height);
         var size = _dyn.AppWindow.Size;
@@ -218,6 +244,9 @@ internal sealed class CommandChrome
         }
     }
 
+    public void ShowDyn(bool on, int x, int y, int width, int height, string aLabel, string a, string bLabel, string b, int active) =>
+        ShowCad(on, x, y, width, height, "", false, aLabel, a, bLabel, b, active);
+
     public void Close()
     {
         try
@@ -226,7 +255,6 @@ internal sealed class CommandChrome
         }
         catch (Exception)
         {
-            // The shell is already closing.
         }
         try
         {
@@ -234,22 +262,16 @@ internal sealed class CommandChrome
         }
         catch (Exception)
         {
-            // The shell is already closing.
         }
     }
 
-    private void PassClicks(Window window)
+    private static void AllowActivate(Window window)
     {
-        if (_dynClickThrough)
-        {
-            return;
-        }
         var hwnd = WindowNative.GetWindowHandle(window);
         var extra = Native.GetWindowLongPtr(hwnd, Native.GwlExStyle).ToInt64();
         extra &= ~Native.WsExTransparent;
-        extra |= Native.WsExNoActivate;
+        extra &= ~Native.WsExNoActivate;
         Native.SetWindowLongPtr(hwnd, Native.GwlExStyle, new IntPtr(extra));
-        _dynClickThrough = true;
     }
 
     private static void Own(Window window, IntPtr owner, ref bool ready)
@@ -274,107 +296,15 @@ internal sealed class CommandChrome
         Native.RoundWindow(WindowNative.GetWindowHandle(window));
     }
 
-    private static TextBlock Label() => new()
+    private static Style SuggestItemStyle()
     {
-        FontSize = 12,
-        IsHitTestVisible = false,
-    };
-
-    private static TextBlock Value() => new()
-    {
-        FontSize = 14,
-        FontFamily = new FontFamily("Consolas"),
-        IsHitTestVisible = false,
-    };
-
-    private static Border Field(TextBlock value) => new()
-    {
-        BorderThickness = new Thickness(1),
-        CornerRadius = new CornerRadius(4),
-        MinWidth = 96,
-        Height = 32,
-        Padding = new Thickness(8, 4, 8, 4),
-        Child = value,
-    };
-
-    private static Windows.UI.Color Color(byte a, byte r, byte g, byte b) =>
-        Windows.UI.Color.FromArgb(a, r, g, b);
-}
-
-/// <summary>Frosted fill, mostly opaque so the command text keeps 4.5:1 contrast over any drawing, with the drawing still faintly visible.</summary>
-internal sealed class HalfAcrylic : SystemBackdrop
-{
-    private readonly bool _dark;
-    private DesktopAcrylicController? _acrylic;
-
-    public HalfAcrylic(bool dark) => _dark = dark;
-
-    protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop target, XamlRoot root)
-    {
-        base.OnTargetConnected(target, root);
-        try
-        {
-            _acrylic?.Dispose();
-            _acrylic = new DesktopAcrylicController
-            {
-                TintColor = _dark ? Color(255, 24, 24, 24) : Color(255, 255, 255, 255),
-                TintOpacity = 0.8f,
-                LuminosityOpacity = 0.8f,
-                FallbackColor = _dark ? Color(220, 24, 24, 24) : Color(220, 255, 255, 255),
-            };
-            var configuration = GetDefaultSystemBackdropConfiguration(target, root);
-            _acrylic.AddSystemBackdropTarget(target);
-            _acrylic.SetSystemBackdropConfiguration(configuration);
-        }
-        catch (Exception)
-        {
-            _acrylic?.Dispose();
-            _acrylic = null;
-        }
-    }
-
-    protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop target)
-    {
-        try
-        {
-            base.OnTargetDisconnected(target);
-        }
-        catch (Exception)
-        {
-            // Target may already be invalid while the shell is closing.
-        }
-        if (_acrylic == null)
-        {
-            return;
-        }
-        try
-        {
-            _acrylic.RemoveSystemBackdropTarget(target);
-        }
-        catch (Exception)
-        {
-            // Ignore a stale composition target.
-        }
-        _acrylic.Dispose();
-        _acrylic = null;
-    }
-
-    protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot)
-    {
-        // WinUI can call this with a stale target when another top-level window (or owner focus)
-        // changes; never let that take down the process.
-        if (_acrylic is null || target is null || xamlRoot is null)
-        {
-            return;
-        }
-        try
-        {
-            _acrylic.SetSystemBackdropConfiguration(GetDefaultSystemBackdropConfiguration(target, xamlRoot));
-        }
-        catch (Exception)
-        {
-            // Keep the previous configuration.
-        }
+        var style = new Style(typeof(ListViewItem));
+        style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 20.0));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4, 1, 4, 1)));
+        style.Setters.Add(new Setter(Control.FontFamilyProperty, ShellFonts.MonoFamily));
+        style.Setters.Add(new Setter(Control.FontSizeProperty, 10.0));
+        style.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left));
+        return style;
     }
 
     private static Windows.UI.Color Color(byte a, byte r, byte g, byte b) =>

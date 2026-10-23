@@ -29,40 +29,40 @@ internal static class PageSetupWindow
 
         var list = new ListBox { MinHeight = 180, MinWidth = 160 };
         Density.Name(list, "Layouts");
-        var paper = new ComboBox { MinWidth = 200, MinHeight = Density.MinTarget };
+        var paper = new ComboBox { MinWidth = 200, MinHeight = Density.ControlHeight };
         Density.Name(paper, "Paper size");
-        var portrait = new RadioButton { Content = "Portrait", MinHeight = Density.MinTarget, GroupName = "orient" };
-        var landscape = new RadioButton { Content = "Landscape", MinHeight = Density.MinTarget, GroupName = "orient" };
+        var portrait = new RadioButton { Content = "Portrait", MinHeight = Density.ControlHeight, GroupName = "orient" };
+        var landscape = new RadioButton { Content = "Landscape", MinHeight = Density.ControlHeight, GroupName = "orient" };
         Density.Name(portrait, "Portrait");
         Density.Name(landscape, "Landscape");
-        var plotArea = new ComboBox { MinWidth = 160, MinHeight = Density.MinTarget };
+        var plotArea = new ComboBox { MinWidth = 160, MinHeight = Density.ControlHeight };
         foreach (var area in PlotAreas)
         {
             plotArea.Items.Add(area);
         }
         Density.Name(plotArea, "Plot area");
-        var fit = new CheckBox { Content = "Fit to paper", MinHeight = Density.MinTarget, IsChecked = true };
+        var fit = new CheckBox { Content = "Fit to paper", MinHeight = Density.ControlHeight, IsChecked = true };
         Density.Name(fit, "Fit to paper");
-        var scale = new TextBox { MinHeight = Density.MinTarget, Width = 120 };
+        var scale = new TextBox { MinHeight = Density.ControlHeight, Width = 120 };
         Density.Name(scale, "Scale");
         var nearest = Density.Secondary("", TextWrapping.Wrap);
         Density.Name(nearest, "Nearest scale");
-        var center = new CheckBox { Content = "Center the plot", MinHeight = Density.MinTarget };
+        var center = new CheckBox { Content = "Center the plot", MinHeight = Density.ControlHeight };
         Density.Name(center, "Center the plot");
-        var lineweights = new CheckBox { Content = "Plot object lineweights", MinHeight = Density.MinTarget };
+        var lineweights = new CheckBox { Content = "Plot object lineweights", MinHeight = Density.ControlHeight };
         Density.Name(lineweights, "Plot object lineweights");
         var sizeLabel = Density.Secondary("", TextWrapping.Wrap);
         Density.Name(sizeLabel, "Paper dimensions");
         var propsHeading = Heading("Page setup");
 
-        var left = new StackPanel { Spacing = 6, Width = 180 };
+        var left = new StackPanel { Spacing = Density.SpaceSm, Width = 180 };
         left.Children.Add(Heading("Layouts"));
         left.Children.Add(list);
 
-        var right = new StackPanel { Spacing = 6, MinWidth = 260 };
+        var right = new StackPanel { Spacing = Density.SpaceSm, MinWidth = 260 };
         right.Children.Add(propsHeading);
         right.Children.Add(Labeled("Paper size", paper));
-        var orient = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+        var orient = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceLg };
         orient.Children.Add(portrait);
         orient.Children.Add(landscape);
         right.Children.Add(Labeled("Orientation", orient));
@@ -74,7 +74,7 @@ internal static class PageSetupWindow
         right.Children.Add(lineweights);
         right.Children.Add(sizeLabel);
 
-        var columns = new Grid { ColumnSpacing = 16 };
+        var columns = new Grid { ColumnSpacing = Density.SpaceXl };
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(left, 0);
@@ -82,7 +82,7 @@ internal static class PageSetupWindow
         columns.Children.Add(left);
         columns.Children.Add(right);
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 560 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 560 };
         root.Children.Add(columns);
         root.Children.Add(status);
 
@@ -307,15 +307,15 @@ internal static class PageSetupWindow
         {
             presenter.IsResizable = true;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(560, 440));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 480, minHeightDip: 360, maxWidthDip: 720, maxHeightDip: 640);
         Reload(null);
         return window;
     }
 
     private static FrameworkElement Labeled(string label, FrameworkElement field)
     {
-        var row = new StackPanel { Spacing = 2 };
+        var row = new StackPanel { Spacing = Density.SpaceXs };
         var text = new TextBlock { Text = label };
         Density.Name(text, label);
         row.Children.Add(text);

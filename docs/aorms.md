@@ -1,15 +1,10 @@
 # AORMS connection
 
-O-Draft can sign in to AORMS (the office-management web portal) and pull project information into a drawing. It is optional: signed out, O-Draft is a complete standalone drafting program. The wire contract and the rules shared with the other AORMS desktop app (AQC) are in `docs/esti/AORMS-SUITE-SIGNIN.md` in the AORMS repository (contract `2026-10-aqc-1`).
+O-Draft can sign in to AORMS (the office-management web portal) and pull project information into a drawing through engine commands. It is optional: without a session, O-Draft is a complete standalone drafting program. The wire contract and the rules shared with the other AORMS desktop app (AQC) are in `docs/esti/AORMS-SUITE-SIGNIN.md` in the AORMS repository (contract `2026-10-aqc-1`).
 
 ## In the interface
 
-* **AORMS menu** (Sign in, Sign out, Status, Projects, Pull project info, Refresh project info, Drawings) — chosen from the menu or typed with no parameters, a command opens the **AORMS dialog**; the same command with JSON parameters (`app.run`, scripts, MCP, control channel) runs the engine command and never opens a dialog.
-* **Dialog:** signed out — e-mail, password (masked), a collapsible *Server* field (https, or http to this computer), *Sign in* (Enter also submits), Esc closes; errors are explained in words (wrong password, not linked, pending, rate limit with seconds, plan not connected with the reason, offline). Signed in — studio, e-mail · role · plan, the studio's project list with search, *Pull project info*, *Refresh* for the project this drawing is linked to, *Reload list*, *Sign out*. Signed in on this computer (another AORMS app's login) but O-Draft has no session — *Connect O-Draft* (never silent: it replaces another computer's O-Draft session).
-* **Status-bar chip** left of the units button: `AORMS` (Community, not signed in) / `AORMS · <studio>` (connected) / `AORMS · !` (signed in, not connected) / `AORMS …` (working). Click opens the dialog.
-* **No freezing:** every network call runs on a worker thread (`crates/ui-egui/src/aorms_ui.rs`): the job takes the client out of the session, runs, and hands it back with the result; the drawing is only touched on the UI thread, through the `aorms.apply` command, so a pull is **one undo step** and changes only project details and floors, never geometry.
-* **Preferences** save the e-mail and server only. The password is cleared from the text field the moment the sign-in starts and is never stored, logged or saved; no token is ever in the preferences (the refresh token lives in the OS credential store).
-* **Start-up:** the desktop app silently restores the shared sign-in once (`AAD_NO_AORMS=1` turns that off). It never takes a session over.
+**Removed.** There is no AORMS menu, sign-in dialog, status-bar chip or silent start-up restore in WinUI or egui. Use `engine.execute` / scripts / MCP / the control channel for `aorms.*` if needed.
 
 ## Commands
 
@@ -43,10 +38,10 @@ The OS store (`KeyringStore`) is behind the cargo feature `keyring-store` (engin
 ## Tested
 
 * `cargo test -p aad-aorms` (25 tests: contract handling, restore without stealing a session, rotation, busy/offline/refused refresh, hostile answers, mapping) and `cargo test -p aad-engine aorms` (12 tests: commands against a scripted server, no geometry changed, hostile parameters, signed-out behaviour).
-* `cargo test -p aad-ui-egui --test aorms_ui` (15 tests: sign-in off the UI thread with a slow server, password leaves the field at once, errors in words, pull = one undo step and no geometry change, hostile ids refused, menu vs JSON routing, the dialog drawn in every state, chip states, preferences hold no secret, start-up restore silent when nothing is stored).
+* `cargo test -p aad-ui-egui --test aorms_ui` (15 tests: engine helpers still work; connect UI is gone — no AORMS menu, menu/typed commands do not open a dialog; JSON `aorms.*` still runs; password leaves the field at once on a scripted sign-in; preferences hold no secret).
 * `crates/engine/examples/aorms_smoke.rs` runs the commands against a real server: signed in as `aad`, listed projects, pulled a bound project's details and floors into a scratch drawing, signed out (2026-10-11, a local AORMS dev server).
 
-**Not verified:** how the dialog and chip look on a real display (they were exercised through the egui test harness, not by eye), and the Windows credential store.
+**Not verified:** the Windows credential store against a real shared login with another AORMS desktop app.
 
 ## Not built yet
 

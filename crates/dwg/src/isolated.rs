@@ -20,9 +20,9 @@
 //! calling [`run_worker_if_requested`] first thing in `main`. Library users and tests that do not
 //! keep the in-process reader, which is only as safe as the library (see `docs/BUG_BACKLOG.md`).
 //!
-//! Limits: the worker's memory is not capped (that needs operating-system job objects, which need
-//! `unsafe`, forbidden here), so a file that makes it allocate a large but possible amount still
-//! uses that memory until it finishes or times out.
+//! Limits: on Windows the worker is placed in a Job Object with a process memory cap (see
+//! [`crate::job_win`]) so an alloc bomb dies in the worker; other platforms still rely on the
+//! timeout and soft byte caps only.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -36,6 +36,9 @@ use crate::{Limits, mb};
 pub const WORKER_FLAG: &str = "--aad-dwg-worker";
 /// Longest a single DWG may take to convert.
 pub const TIMEOUT: Duration = Duration::from_secs(180);
+/// Process memory cap for the Windows DWG worker (Job Object). Large enough for real drawings;
+/// small enough that an alloc bomb cannot take the machine down.
+pub const WORKER_MEMORY_CAP: usize = 2 * 1024 * 1024 * 1024;
 
 static WORKER: OnceLock<PathBuf> = OnceLock::new();
 
@@ -107,6 +110,8 @@ pub(crate) fn decode_reply(success: bool, code: Option<i32>, out: &[u8]) -> Resu
 
 /// Convert `bytes` with the worker started by `cmd` (its stdin and stdout are replaced).
 pub(crate) fn convert_with(mut cmd: Command, bytes: &[u8], limits: Limits, timeout: Duration) -> Result<Vec<u8>, String> {
+    let stage = std::env::var_os("AAD_DWG_STAGE").is_some();
+    let t0 = Instant::now();
     if bytes.len() > limits.max_dwg_bytes {
         return Err(format!("DWG: the file is {}, larger than the {} AAD opens", mb(bytes.len() as u64), mb(limits.max_dwg_bytes as u64)));
     }
@@ -122,6 +127,14 @@ pub(crate) fn convert_with(mut cmd: Command, bytes: &[u8], limits: Limits, timeo
         .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("DWG: the reader process could not be started: {e}"))?;
+    if stage {
+        eprintln!("aad-dwg stage: spawn {:.1} ms", t0.elapsed().as_secs_f64() * 1000.0);
+    }
+    #[cfg(windows)]
+    {
+        // Best-effort: if the job cannot be created the worker still runs under the timeout.
+        let _ = crate::job_win::limit_process_memory(&child, WORKER_MEMORY_CAP);
+    }
     let (Some(mut stdin), Some(mut stdout)) = (child.stdin.take(), child.stdout.take()) else {
         let _ = child.kill();
         return Err("DWG: the reader process has no pipes".into());

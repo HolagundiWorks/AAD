@@ -19,10 +19,11 @@ pub struct AormsState {
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        // No menu entries: AORMS connect UI was removed from the shells. Commands remain for
+        // scripts, MCP and the control channel only.
         CommandSpec::new("aorms.signin", "Sign in to AORMS", run_signin)
             .enabled(always)
             .noundo()
-            .menu(&["AORMS", "Sign in"])
             .params("{email, password, baseUrl?: https://… (default https://aorms.in or $AORMS_URL)} → {signedIn, connected, studio, role, plan}"),
         CommandSpec::new("aorms.restore", "Restore AORMS sign-in", run_restore).enabled(always).noundo().params(
             "{baseUrl?} → {outcome: noStoredSession|restored|needsSession|sessionReplaced|notConnected|signedOut} (never takes a session over)",
@@ -30,23 +31,18 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("aorms.signout", "Sign out of AORMS", run_signout)
             .enabled(always)
             .noundo()
-            .menu(&["AORMS", "Sign out"])
             .params("{} → {signedIn: false} (also ends the shared sign-in used by other AORMS apps)"),
         CommandSpec::new("aorms.status", "AORMS status", run_status)
             .enabled(always)
             .noundo()
-            .menu(&["AORMS", "Status"])
             .params("{} → {signedIn, connected, email?, studio?, role?, plan?, baseUrl?, link?}"),
         CommandSpec::new("aorms.projects", "AORMS projects", run_projects)
             .enabled(always)
             .noundo()
-            .menu(&["AORMS", "Projects"])
             .params("{} → {projects: [{projectOfficeId, ref, title, status?, city?, bound}]}"),
         CommandSpec::new("aorms.open", "Pull project from AORMS", run_open)
-            .menu(&["AORMS", "Pull project info"])
             .params("{projectOfficeId} → {details, floors?, linked, warnings} (project details and floors only; links this drawing to the project)"),
         CommandSpec::new("aorms.pull", "Refresh project info from AORMS", run_pull)
-            .menu(&["AORMS", "Refresh project info"])
             .params("{} → as aorms.open, for the project this drawing is linked to"),
         CommandSpec::new("aorms.apply", "Apply AORMS project info", run_apply)
             .params("{projectOfficeId, seed, settings} → as aorms.open. The drawing half of a pull whose network half ran elsewhere (the UI fetches on a worker thread); one undo step"),
@@ -57,7 +53,6 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("aorms.drawings", "AORMS drawings", run_drawings)
             .enabled(always)
             .noundo()
-            .menu(&["AORMS", "Drawings"])
             .params("{projectOfficeId?} → {drawings: [{id, ref, title, rev, fileName, sizeBytes}]} (default: the linked project)"),
     ]
 }

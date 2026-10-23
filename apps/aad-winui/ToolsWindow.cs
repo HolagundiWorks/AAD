@@ -16,7 +16,7 @@ internal sealed class ToolsWindow : Window
     {
         _apply = apply;
         Title = "Tool bar";
-        var list = new StackPanel { Spacing = 2 };
+        var list = new StackPanel { Spacing = Density.SpaceXs };
         foreach (var (id, label) in catalog)
         {
             var box = new CheckBox { Content = label, IsChecked = selected.Contains(id) };
@@ -38,8 +38,8 @@ internal sealed class ToolsWindow : Window
         var toolsHeading = Heading("Tool bar");
         var fontHeading = Heading("Interface font");
         Density.Name(_font, "Interface font");
-        _font.MinHeight = Density.MinTarget;
-        var save = new Button { Content = "Apply", MinHeight = Density.MinTarget };
+        _font.MinHeight = Density.ControlHeight;
+        var save = new Button { Content = "Apply", MinHeight = Density.ControlHeight };
         Density.Name(save, "Apply tool bar");
         save.Click += (_, _) =>
         {
@@ -50,18 +50,16 @@ internal sealed class ToolsWindow : Window
         };
         var root = new StackPanel
         {
-            Spacing = 8,
-            Margin = new Thickness(12),
+            Spacing = Density.SpaceMd,
+            Margin = Density.DialogMargin,
             Children = { toolsHeading, list, fontHeading, _font, save },
         };
-        if (owner.Content is FrameworkElement shell)
-        {
-            root.RequestedTheme = shell.RequestedTheme;
-        }
+        var theme = ShellChrome.ThemeOf(owner);
+        root.RequestedTheme = theme;
         Content = new ScrollViewer { Content = root };
         Density.Apply(root);
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(280, 460));
-        ShellIcon.Apply(this);
+        ShellIcon.Apply(this, theme);
+        ShellFit.UserResizable(this, minWidthDip: 260, minHeightDip: 320, maxWidthDip: 400, maxHeightDip: 640);
     }
 
     public static readonly (string Id, string Label)[] Fonts =

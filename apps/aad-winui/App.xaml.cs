@@ -30,11 +30,27 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // Resolve installed faces (WinUI has no CSS-style FontFamily fallbacks), then check tokens.
+        ShellFonts.Resolve();
+        ShellTheme.VerifyTokens();
         // The window must stay rooted. A local variable is collected and the window closes.
-        // Splash is drawn inside MainWindow (not a second top-level window) so acrylic on the
-        // command bar is not torn down by a competing Activate/Close.
+        // Splash is drawn inside MainWindow (not a second top-level window) so command chrome
+        // is not torn down by a competing Activate/Close during startup.
         _window = new MainWindow(Program.Launch);
+        ShellWindows.SetMain(_window);
         ShellIcon.Apply(_window);
+        _window.Closed += (_, _) =>
+        {
+            // Secondary windows otherwise keep the unpackaged process alive.
+            ShellWindows.CloseAllOwned();
+            try
+            {
+                Exit();
+            }
+            catch (Exception)
+            {
+            }
+        };
         _window.Activate();
         // Activate does not show the window when this process cannot take the foreground.
         Native.ShowWindow(WindowNative.GetWindowHandle(_window), 8);

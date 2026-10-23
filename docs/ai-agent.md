@@ -18,7 +18,7 @@ work.
 | Background worker (`aad_llm::worker`): loads on the first request, one request at a time, Stop, panic contained | **Implemented**; a unit test covers the no-model path |
 | `driver` (`aad_agent::driver`): runs the Assistant against a model for hosts that can wait | **Implemented** |
 | `aad-cli ask [--file f \| --sample] [--yes] [--save out.dxf] "request"` (build with `--features assistant`) | **Implemented, run with the real model** (below) |
-| Assistant through the unified command bar (see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline in the bar, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented** for WinUI (`aad-host --features assistant`, Allow/Decline in the bar) and for optional egui (`aad --features egui,assistant`). Bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend; host unit test covers the no-runtime path |
+| Assistant through the WinUI fixed AI prompt and optional egui unified bar (see [COMMAND_BAR.md](COMMAND_BAR.md)): thinking indicator, Allow/Decline, Escape to stop; model on the worker thread, tools through the engine on the UI thread | **Implemented** for WinUI (`aad-host --features assistant`, `aad_host_ask`, Allow/Decline on the AI bar) and for optional egui (`aad --features egui,assistant`). egui bar behaviour covered by `crates/ui-egui/tests/command_bar.rs` with a fake backend; host unit test covers the no-runtime path |
 | Bundling the model in the installer, and building the installer with the `assistant` feature | **Implemented:** `packaging/windows/package.ps1 -Arch x64 -Assistant` builds `o-draft-ai-<version>-windows-x64.msi` (and a portable zip) with `aad` / `aad-cli` / `aad-host` linked for the assistant, the model under `<install>\models\`, open-source EULA page, and installer splash bitmaps. Needs the model at `%APPDATA%\O-Draft\models\Qwen3-1.7B-Q4_K_M.gguf` or `AAD_MODEL_FILE`, plus CMake, a C++ toolchain and LLVM libclang |
 | Result tables, entity highlighting | **Planned** |
 | Retrieval of project notes and office standards (RAG) | **Planned** |
@@ -151,11 +151,15 @@ not hold yet: reliability across many requests (not measured), and the summaries
 for details, so the application should show tool results (tables) rather than rely on the model's
 retelling of them (planned).
 
-## Asking from the command bar
+## Asking from the UI
 
-Requests are typed in the same command bar as commands: a leading `/`, a `/reference`, or a
-sentence whose first word is not a command. Rules, keys and references are in
-[COMMAND_BAR.md](COMMAND_BAR.md). Tests: `crates/ui-egui/tests/command_bar.rs`.
+**WinUI:** type in the fixed AI prompt, or type `/…` on the idle CAD prompt to transfer the text
+(without the leading slash) into that AI field, then Enter. Calls `aad_host_ask` — not CAD
+`cmdline`. Plain sentences typed on the CAD prompt are CAD (Space/Enter run commands); they are
+not routed to the assistant. Rules: [COMMAND_BAR.md](COMMAND_BAR.md).
+
+**egui (optional):** unified bar still uses a leading `/` or `/reference` for asks
+(`crates/ui-egui/tests/command_bar.rs`).
 
 ## Spatial knowledge
 

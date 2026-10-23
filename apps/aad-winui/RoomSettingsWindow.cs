@@ -35,17 +35,17 @@ internal static class RoomSettingsWindow
         AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
         Density.Name(status, "Room label settings status");
 
-        var units = new ComboBox { MinWidth = 200, MinHeight = Density.MinTarget };
+        var units = new ComboBox { MinWidth = 200, MinHeight = Density.ControlHeight };
         foreach (var (_, label) in Units)
         {
             units.Items.Add(label);
         }
         Density.Name(units, "Drawing units");
-        var boxed = new CheckBox { Content = "Draw the room rectangle", MinHeight = Density.MinTarget };
+        var boxed = new CheckBox { Content = "Draw the room rectangle", MinHeight = Density.ControlHeight };
         Density.Name(boxed, "Box around the room");
-        var height = new TextBox { MinHeight = Density.MinTarget, Width = 120, PlaceholderText = "Default" };
+        var height = new TextBox { MinHeight = Density.ControlHeight, Width = 120, PlaceholderText = "Default" };
         Density.Name(height, "Text height");
-        var font = new ComboBox { IsEditable = true, MinWidth = 220, MinHeight = Density.MinTarget };
+        var font = new ComboBox { IsEditable = true, MinWidth = 220, MinHeight = Density.ControlHeight };
         font.Items.Add("Text style default");
         foreach (var face in new[] { "AAD Stroke", "Segoe UI", "Arial", "Calibri", "Consolas", "Times New Roman" })
         {
@@ -53,7 +53,7 @@ internal static class RoomSettingsWindow
         }
         Density.Name(font, "Font");
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 420 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 420 };
         root.Children.Add(Heading("Room Label Settings"));
         root.Children.Add(Density.Secondary(
             "The floor in the top bar gives the number prefix; these settings are saved with the drawing.",
@@ -205,15 +205,15 @@ internal static class RoomSettingsWindow
         {
             presenter.IsResizable = false;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(440, 360));
+        ShellIcon.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 360, minHeightDip: 280, maxWidthDip: 520, maxHeightDip: 480);
         Load();
         return window;
     }
 
     private static FrameworkElement Labeled(string label, FrameworkElement field)
     {
-        var row = new StackPanel { Spacing = 2 };
+        var row = new StackPanel { Spacing = Density.SpaceXs };
         var text = new TextBlock { Text = label };
         Density.Name(text, label);
         row.Children.Add(text);

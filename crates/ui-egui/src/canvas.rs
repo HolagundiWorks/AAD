@@ -189,13 +189,17 @@ pub struct PendingList {
 }
 
 fn list_options(app: &CadApp, st: &aad_engine::DocState, band: i32, px: f64) -> aad_render::Options {
+    let view = st.view();
+    // `px` is already world units per screen pixel.
+    let (text, fill) = aad_render::lod_for_view(px.max(1e-300), 1.0);
     aad_render::Options {
         tolerance: 2f64.powi(band) * 0.5,
         min_dash: px * 2.0,
-        text: true,
-        fill: true,
+        text,
+        fill,
         lineweights: app.session.settings.lwdisplay,
-        view_height: st.paper_view().height,
+        view_height: view.height,
+        view_center: matches!(st.space, aad_doc::Space::Model).then_some(view.center),
         plot_style_table: None,
     }
 }

@@ -15,6 +15,8 @@ Related canonical pages:
 | Agent and developer rules (summary) | [CLAUDE.md](../CLAUDE.md) |
 | Build, test, packaging | [BUILD_AND_DEVELOPMENT.md](BUILD_AND_DEVELOPMENT.md), [TESTING.md](TESTING.md) |
 | Generated command/menu parity | [parity-checklist.md](parity-checklist.md) (`cargo xtask parity`; do not edit by hand) |
+| WinUI secondary window sizing / exit | [WINDOW_SIZING.md](WINDOW_SIZING.md) |
+| WinUI design tokens / density | [UI_TOKENS.md](UI_TOKENS.md) |
 
 ---
 

@@ -83,7 +83,7 @@ pub fn mesh(
                         fill: false,
                         lineweights: false,
                         view_height: view.height,
-                        plot_style_table: None,
+                        ..Default::default()
                     },
                 );
             }
@@ -101,7 +101,7 @@ pub fn mesh(
                         fill: true,
                         lineweights: false,
                         view_height: view.height,
-                        plot_style_table: None,
+                        ..Default::default()
                     },
                 );
             }

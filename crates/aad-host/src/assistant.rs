@@ -89,13 +89,22 @@ impl Desk {
             return Err(message);
         }
         let text = text.trim();
+        // Fixed AI prompt may send a bare provider name (`layers`) after slash transfer; restore `/`.
+        let text = {
+            let first = text.split_whitespace().next().unwrap_or("");
+            if !text.starts_with('/') && text.split_whitespace().count() == 1 && bar::is_reference_marker(first) {
+                format!("/{text}")
+            } else {
+                text.to_string()
+            }
+        };
         let first = text.split_whitespace().next().unwrap_or("");
         let request = match first.strip_prefix('/') {
             Some(word) if !bar::is_reference_marker(word) => text[first.len()..].trim().to_string(),
-            _ => text.to_string(),
+            _ => text.clone(),
         };
         if request.is_empty() {
-            let message = "Say what to ask, for example: / what layers are locked".to_string();
+            let message = "Say what to ask, for example: what layers are locked".to_string();
             session.echo(message.clone());
             return Err(message);
         }

@@ -39,7 +39,7 @@ fn where_the_time_goes() {
         fill: true,
         lineweights: true,
         view_height: 0.0,
-        plot_style_table: None,
+        ..Default::default()
     };
     let list = t("display list (parallel)", || aad_engine::render::build(&doc, &space, &opts));
     println!("primitives: {} verts: {} tris: {}", list.prims.len(), list.verts.len(), list.tris.len());
@@ -72,7 +72,7 @@ fn which_objects_make_the_triangles() {
         fill: true,
         lineweights: true,
         view_height: 0.0,
-        plot_style_table: None,
+        ..Default::default()
     };
     let list = aad_engine::render::build(&drawing, &aad_engine::doc::Space::Model, &opts);
     let mut by: std::collections::BTreeMap<String, (usize, usize, usize)> = Default::default();
@@ -97,8 +97,15 @@ fn display_list_cost_by_feature() {
     let Ok(path) = std::env::var("AAD_PERF_FILE") else { return };
     let drawing = aad_io::read(&std::fs::read(&path).unwrap(), "x.dwg").unwrap();
     for (label, text, fill) in [("all", true, true), ("no text", false, true), ("no fill", true, false), ("neither", false, false)] {
-        let opts =
-            aad_engine::render::Options { tolerance: 0.5, min_dash: 1.0, text, fill, lineweights: true, view_height: 0.0, plot_style_table: None };
+        let opts = aad_engine::render::Options {
+            tolerance: 0.5,
+            min_dash: 1.0,
+            text,
+            fill,
+            lineweights: true,
+            view_height: 0.0,
+            ..Default::default()
+        };
         let t0 = Instant::now();
         let list = aad_engine::render::build(&drawing, &aad_engine::doc::Space::Model, &opts);
         println!(

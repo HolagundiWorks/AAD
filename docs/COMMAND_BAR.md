@@ -1,66 +1,108 @@
-# Unified command bar
+# Dual-channel command UI (WinUI)
 
-One floating input at the bottom centre of the drawing area takes native CAD commands and requests
-for the assistant. There is no assistant window, no second input and no second history: everything
-typed, and everything the assistant answers, goes to the same command history (`Session::log`).
-Ordinary CAD works with no assistant in the build (web) or no model file.
+WinUI exposes two input channels that share one CAD executor (`Session` / `cmdline`) and one
+assistant path (`aad-host` `assistant.ask`). Do not add a second command parser or AI-only geometry.
 
-Code: `crates/ui-egui/src/cmdline.rs` (drawing, keys), `cmdinput.rs` (classification, suggestions),
-`assistant.rs` (bridge to the `Backend`), `crates/engine/src/cmd/context.rs` (references).
-Tests: `crates/ui-egui/tests/command_bar.rs`, `crates/engine/tests/context_refs.rs`, unit tests in
-`cmdinput.rs` and `assistant.rs`.
+| Channel | Where | Responsibility |
+| --- | --- | --- |
+| **Fixed AI prompt** | Floating bar over the drawing (`CommandBar` / `AiInput`) | Natural-language asks, slash-transferred text, Allow/Decline, session history preview |
+| **Dynamic CAD prompt** | Cursor-anchored chrome (`CommandChrome` CadInput + prompt + suggestions + Length/Angle) | Commands, arguments, coordinates, distances, angles, selection; autocomplete from the engine registry |
 
-## Keys
+Canonical interaction contract for the WinUI shell. Optional egui still uses a unified cmdline
+(`cmdinput`); parity is a follow-up.
+
+Code: `apps/aad-winui` (`MainWindow`, `CommandChrome`, `Native`); host `crates/aad-host` (`bar.rs`,
+`ffi.rs` suggest / Space-literal / slash-transfer / ask, `dyn_chrome`).
+Tests: host `bar` unit tests; egui `crates/ui-egui/tests/command_bar.rs` (unified bar).
+
+## Slash transfer (CAD → AI)
+
+Intercept `/` only when the CAD prompt is **idle** and eligible:
+
+- No running command.
+- Not inside unbalanced quotes.
+- Not a pure text prompt.
+
+Then:
+
+1. Strip one leading `/` and the spaces that follow it (`slash_transfer_payload`).
+2. Clear the CAD draft.
+3. Move focus to `AiInput` with that payload (user may edit before Enter).
+4. Do **not** run the text through CAD `cmdline`.
+
+Example: `/ create a room 3000 x 4000 mm with a door` → AI field receives
+`create a room 3000 x 4000 mm with a door`.
+
+Do **not** intercept slash while a command is waiting for an argument, while quotes/filenames are
+open, while a modal owns focus, or while already editing the AI prompt.
+
+FFI: `aad_host_slash_transfer` (eligible?), `aad_host_slash_payload` (strip `/`), `aad_host_ask` (natural ask, no CAD classify).
+
+## Keyboard contract
+
+### CAD command-entry (idle or active command, focus on CadInput)
 
 | Key | Behaviour |
 | --- | --- |
-| Space | Without a leading `/`: runs the command line (CAD habit; empty bar repeats the previous command). With a leading `/`: an ordinary space so you can type an assistant sentence. While a command waits for input it acts as Enter; when that prompt offers a list it picks the first match. A half-typed name may still be completed from the suggestion list (egui) before it runs. |
-| Enter | Submits the line: a native command, or an assistant request when the text starts with `/` (or contains a `/reference`). On an empty bar, repeats the previous command. A request typed while the assistant is busy stays in the bar. |
-| Tab | Accepts the highlighted (or first) suggestion without executing it. |
-| Up / Down | Move through the suggestions while a menu is open; otherwise through the history. |
-| Ctrl+Space | Opens the suggestions (an empty bar starts a `/` reference). |
-| Escape | Closes the suggestions; then stops a working assistant; then clears the bar and cancels the running command. |
-| y / n / Enter / Escape | Answer a pending Allow/Decline from the assistant (Enter and Escape decline). The two prompt words are also clickable. |
+| Typing | Case-insensitive autocomplete from the registry (aliases, first-match ranking). |
+| Enter / Space | Complete to the first suggestion when a partial name matches (e.g. `e` → ERASE), then run. Empty idle: first Space arms, second repeats last CAD line; empty Enter repeats. While a command waits, Space is Enter. Open quote / text prompt: Space is literal. |
+| Tab | Dyn separator when a point frame applies; else accept first suggestion without running; empty cycles object snaps. |
+| Up / Down | Recall typed CAD lines (`_typed`); not AI asks. |
+| Escape | Dismiss suggestions; then cancel command / stop assistant as today. |
+| `/` (idle) | Slash transfer to AI (above). |
 
-Text from an input method (IME composition) never triggers Space or Enter actions.
+WinUI suppresses TextBox `CharacterReceived` for Space so activate cannot leave a space in the draft.
 
-## What is a request
+### AI prompt (focus on AiInput)
 
-`cmdinput::classify` / host `bar::classify` decide: text with a leading `/`, or containing a
-`/reference` word, is a request for the assistant. Everything else stays on the command line
-(Space/Enter run CAD). A first word that is a command or alias runs that command
-(`open /tmp/x.dxf` is a command; a path is not a reference). While a command is running, the text
-is its input. Without an assistant a `/` request says the assistant is not included in this build.
+| Key | Behaviour |
+| --- | --- |
+| Enter | `aad_host_ask` with the field text (not CAD). |
+| Space | Literal space. |
+| `/` | Literal (no special meaning after transfer). |
+| Escape | Clear the field if non-empty; otherwise cancel / stop as for CAD. |
+| CAD repeat | Never (empty Enter/Space do not repeat CAD). |
 
-## References
+## Autocomplete
 
-`/drawing /view /selection /layers /rooms /floor /schedule /project` are resolved from the live document
-when the request is sent (`cmd::context::resolve_text`). Results are structured, read-only, bounded
-(40 items, 3000 characters, `truncated` flagged) and scoped to the active project and floor.
-A reference with nothing to read (no selection, no room labels) is dimmed in the menu with the
-reason, and sending it reports the reason in the history instead of sending. Context is attached to
-the request as data inside `<context>` and the closing tag is neutralised.
+Host `bar::suggestions_json`: commands (id / alias / label) or `/reference` providers. Ranking:
+exact alias or id first, then shortest prefix. Suggestions never execute by appearing; Enter/Space
+or click accepts. Ambiguity follows the host ranking (first row), not a second parser in C#.
 
-## Assistant flow
+## History
 
-The model only proposes calls to allow-listed tools ([ai-agent.md](ai-agent.md)); the engine
-validates and executes them, a tool that changes the drawing waits for Allow in the bar, and undo
-works as for any command. Offline: the model is local.
+- Collapsed AI bar shows **exactly two** recent session-log lines; chevron expands the full log.
+- Clear history empties `Session::log` and CAD Up/Down recall only; drawing unchanged.
+- CAD Up/Down uses the typed-command list filled when a CAD line is submitted — AI asks are not added.
+- Assistant echoes still appear in the session log on the AI bar.
 
-## Look
+## Dynamic CAD chrome
 
-Both themes use shared tokens (`theme.rs`): near-black chrome with white text and an orange accent
-(`#f2841c`) in dark; white chrome with the same orange family in light. Toolbars and panels did not
-move. The bar has a fixed width range, sits over the canvas (not part of any panel) and does not move
-with pan, zoom or window size (tested in Classic and Pro).
+Host `dyn` JSON (when the pointer is known, or at canvas centre until the first move):
+
+- `on`: park the CAD field beside the crosshair (independent of Dynamic Input mode).
+- `prompt`: engine prompt text (`Specify next point…`).
+- `dims`: Length/Angle (or draft box) when Dynamic Input is on and a dyn frame applies; otherwise false.
+- `aLabel` / `a` / `bLabel` / `b` / `active`: dim fields when `dims` is true.
+
+WinUI renders this state; it does not hard-code per-command stages. See also [UI_UX.md](UI_UX.md).
+
+Cursor CAD chrome is ~50% size at 50% opacity and shows **only** the typed command/text (no
+prompt label, unit hint, or Length/Angle readouts). Typed distances still accept SketchUp-style
+units (`mm`, `cm`, `m`, `km`, `in`, `ft`, `yd`, `5'6"`) in the engine.
+
+## AI bar placement
+
+Fixed bottom-centre of the drawing canvas. Solid fill (no acrylic / glass); not draggable.
+
+## Assistant safety
+
+The model only proposes allow-listed tools ([ai-agent.md](ai-agent.md)). Destructive or
+drawing-changing tools wait for Allow/Decline. Undo is the normal command undo stack. Without
+`--features assistant` / a model, Ask reports that the assistant is not included.
 
 ## Known gaps
 
 - Suggestions do not rank by usage.
-- Before/after screenshots and a run with the real model through the bar are not recorded here.
-
-## History above the bar
-
-Two lines of earlier output show above the bar by default (`ui.cmdline.lines`, 0 to 12; drag the
-top edge, or F2 or the chevron for the whole log). **Clear** in the expanded history, or Window >
-Clear Command History (`ui.history.clear`), forgets the log and the commands recalled with Up.
+- egui remains a unified bar until a follow-up.
+- Full Narrator / DPI automation matrix for the dual chrome is not automated here.

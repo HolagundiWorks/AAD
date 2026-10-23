@@ -135,13 +135,137 @@ internal static class Native
         }
     }
 
-    /// True when Space should insert a space (assistant `/` request, sentence, text prompt).
+    /// True when Space should insert a space (assistant `/` request, open quote, text prompt).
     public static bool SpaceLiteral(IntPtr host, string text)
     {
         var textPtr = Marshal.StringToCoTaskMemUTF8(text ?? "");
         try
         {
             return aad_host_space_literal(host, textPtr) != 0;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
+    /// True when idle CAD draft starting with `/` should move to the fixed AI prompt.
+    public static bool SlashTransfer(IntPtr host, string text)
+    {
+        if (host == IntPtr.Zero)
+        {
+            return false;
+        }
+        var textPtr = Marshal.StringToCoTaskMemUTF8(text ?? "");
+        try
+        {
+            return aad_host_slash_transfer(host, textPtr) != 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
+    /// Natural-language ask via the host assistant (not CAD cmdline).
+    public static int Ask(IntPtr host, string text)
+    {
+        var textPtr = Marshal.StringToCoTaskMemUTF8(text ?? "");
+        try
+        {
+            return aad_host_ask(host, textPtr);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
+    /// Payload after one leading `/` and following spaces (`aad_host_slash_payload`).
+    public static string SlashPayload(string buffer)
+    {
+        var textPtr = Marshal.StringToCoTaskMemUTF8(buffer ?? "");
+        try
+        {
+            int needed = aad_host_slash_payload(textPtr, IntPtr.Zero, 0);
+            if (needed == 0)
+            {
+                return "";
+            }
+            int size = needed < 0 ? -needed : needed;
+            var bytes = new byte[size];
+            var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            try
+            {
+                int written = aad_host_slash_payload(textPtr, handle.AddrOfPinnedObject(), (uint)size);
+                if (written <= 0)
+                {
+                    return "";
+                }
+                return Encoding.UTF8.GetString(bytes, 0, written);
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+        catch (Exception)
+        {
+            // Stale DLL without the export: local strip matches the host contract.
+            var text = (buffer ?? "").TrimStart();
+            if (text.Length == 0 || text[0] != '/')
+            {
+                return "";
+            }
+            return text[1..].TrimStart();
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(textPtr);
+        }
+    }
+
+    /// JSON array of `{insert, label, reference}` autocomplete rows for the draft text.
+    /// Returns `[]` when the host export is missing or the call fails (never throws).
+    public static string Suggest(IntPtr host, string text)
+    {
+        if (host == IntPtr.Zero)
+        {
+            return "[]";
+        }
+        var textPtr = Marshal.StringToCoTaskMemUTF8(text ?? "");
+        try
+        {
+            int needed = aad_host_suggest(host, textPtr, IntPtr.Zero, 0);
+            if (needed == 0)
+            {
+                return "[]";
+            }
+            int size = needed < 0 ? -needed : needed;
+            var buffer = new byte[size];
+            var handle = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            try
+            {
+                int written = aad_host_suggest(host, textPtr, handle.AddrOfPinnedObject(), (uint)size);
+                if (written <= 0)
+                {
+                    return "[]";
+                }
+                return Encoding.UTF8.GetString(buffer, 0, written);
+            }
+            finally
+            {
+                handle.Free();
+            }
+        }
+        catch (Exception)
+        {
+            // Missing export (stale aad_host.dll) or marshal failure must not break typing/submit.
+            return "[]";
         }
         finally
         {
@@ -440,6 +564,18 @@ internal static class Native
     private static extern int aad_host_space_literal(IntPtr host, IntPtr text);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_slash_transfer(IntPtr host, IntPtr text);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_slash_payload(IntPtr text, IntPtr buffer, uint length);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_ask(IntPtr host, IntPtr text);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    private static extern int aad_host_suggest(IntPtr host, IntPtr text, IntPtr buffer, uint length);
+
+    [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     private static extern int aad_host_dyn_tab(IntPtr host, IntPtr text, IntPtr buffer, uint length);
 
     [DllImport("aad_host", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
@@ -526,6 +662,21 @@ internal static class Native
         public int Y;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RectI
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RectI rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetClientRect(IntPtr hWnd, out RectI rect);
+
     public const int GwlpHwndParent = -8;
     public const int GwlExStyle = -20;
     public const int WsExTransparent = 0x20;
@@ -555,7 +706,10 @@ internal static class Native
     public static void Lift(IntPtr hwnd) =>
         _ = SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010 | 0x0040);
 
-    public static void RoundWindow(IntPtr hwnd) => Frame(hwnd, 0x00242424, true);
+    /// <summary>DWMWA_COLOR_NONE — no visible window border stroke.</summary>
+    public const int DwmColorNone = unchecked((int)0xFFFFFFFE);
+
+    public static void RoundWindow(IntPtr hwnd) => Frame(hwnd, DwmColorNone, true);
 
     public static void Frame(IntPtr hwnd, int borderColor, bool dark)
     {

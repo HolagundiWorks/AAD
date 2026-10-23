@@ -1,6 +1,7 @@
 //! Architectural drafting tools built into AAD, re-implemented in Rust from the hcwCAD-KIT
-//! command set (MIT, Holgundi Consulting Works): the HCW and building-permission layer sets,
-//! room labels (ROOM) and the polyline area label (RAREA).
+//! command set (MIT, Holgundi Consulting Works): the standard architectural and building-permit
+//! layer sets, a presentation (lineweight) set, room labels (ROOM) and the polyline area label
+//! (RAREA).
 //!
 //! The room and area tools read the drawing's insertion units (`INSUNITS`; a metric drawing with
 //! no units set is taken as millimetres, an imperial one as inches), measure in square metres or
@@ -22,8 +23,9 @@ pub(crate) const RECT_LAYER: (&str, i16) = ("ROOM-RECT", 8);
 /// Room label text height in millimetres of real size.
 const TEXT_MM: f64 = 125.0;
 
-/// Building-permission layers: name, ACI colour, linetype, lineweight (hundredths of mm).
-const BP_LAYERS: &[(&str, i16, &str, u16)] = &[
+/// Building-permit layers (BBMP / AutoPlan naming kept for interchange): name, ACI colour,
+/// linetype, lineweight (hundredths of mm).
+const PERMIT_LAYERS: &[(&str, i16, &str, u16)] = &[
     ("BP-SITE-BOUNDARY", 1, "Continuous", 50),
     ("BP-SITE-SETBACK", 3, "DASHED2", 25),
     ("BP-SITE-SURRENDER", 3, "DASHED", 18),
@@ -65,17 +67,32 @@ const BP_LAYERS: &[(&str, i16, &str, u16)] = &[
     ("BP-DEMOLISH", 251, "DASHED", 13),
 ];
 
-/// HCW Layer Standard: name, ACI colour, linetype, lineweight (hundredths of mm), description.
-pub(crate) const HCW_LAYERS: &[(&str, i16, &str, u16, &str)] = &[
+/// Presentation (graphic) layers ordered by lineweight for floor-plan hierarchy: cut walls
+/// heaviest, furniture and notes lightest. Use with the built-in `presentation.stb` plot styles
+/// for screened poche and soft overhead.
+pub(crate) const PRESENTATION_LAYERS: &[(&str, i16, &str, u16, &str)] = &[
+    ("G-HEAVY", 7, "Continuous", 50, "Cut / silhouette - heaviest punch"),
+    ("G-MED", 7, "Continuous", 35, "Accent - stair top riser, retaining"),
+    ("G-LIGHT", 8, "Continuous", 18, "Floor edges, frames, counters, fixtures"),
+    ("G-FINE", 8, "Continuous", 13, "Door swings, sills, wall sub-assemblies"),
+    ("G-XFINE", 9, "Continuous", 9, "Furniture and light detail"),
+    ("G-HIDDEN", 8, "HIDDEN", 18, "Overhead or below (dashed)"),
+    ("G-HATCH", 9, "Continuous", 10, "Poche, material and shadow hatch"),
+    ("G-ANNO", 1, "Continuous", 18, "Presentation notes (distinct from geometry)"),
+];
+
+/// Standard architectural layer set (AIA-style discipline prefixes): name, ACI colour, linetype,
+/// lineweight (hundredths of mm), description.
+pub(crate) const STANDARD_LAYERS: &[(&str, i16, &str, u16, &str)] = &[
     ("AN-REF", 250, "Continuous", 9, "Construction lines / viewport borders"),
     ("AN-GRID", 8, "CENTER2", 13, "Grid and centre lines"),
     ("AN-SYMB", 7, "Continuous", 18, "North point / symbols / logos"),
     ("AN-TEXT", 7, "Continuous", 18, "All text - general, title block, keynotes"),
     ("AN-DIMS", 8, "Continuous", 18, "Dimensions and leaders"),
     ("AN-HATCH", 9, "Continuous", 10, "Hatching and fill patterns"),
-    ("A-WALL", 1, "Continuous", 35, "Walls - new and existing (cut)"),
+    ("A-WALL", 1, "Continuous", 50, "Walls - new and existing (cut); heaviest punch"),
     ("A-DEMO", 1, "DASHED2", 25, "Elements to be demolished"),
-    ("A-COL", 1, "Continuous", 35, "Columns (cut)"),
+    ("A-COL", 1, "Continuous", 50, "Columns (cut); heaviest punch"),
     ("A-DOOR", 2, "Continuous", 25, "Doors - frame and swing arc"),
     ("A-WIND", 4, "Continuous", 25, "Windows - frame and sill"),
     ("A-GLAZ", 4, "HIDDEN", 18, "Glazing / glass line"),
@@ -142,8 +159,10 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new("hcwlayers", "Architectural Layer Set", run_layers)
             .menu(&["Architecture", "Layer Set"])
-            .alias(&["hcwlayer"])
-            .params("{set?: \"hcw\" | \"bp\" | \"both\" (default hcw)} → {created, existing}"),
+            .alias(&["hcwlayer", "archlayers", "stdlayers"])
+            .params(
+                "{set?: \"standard\"|\"permit\"|\"presentation\"|\"both\"|\"all\" (aliases: hcw→standard, bp→permit; default standard)} → {created, existing, set}",
+            ),
         CommandSpec::new("room", "Room Label", run_room)
             .menu(&["Architecture", "Rooms and Areas", "Room Label"])
             .alias(&["hcwroom", "roomc"])
@@ -267,25 +286,56 @@ pub(crate) fn ensure_layer(d: &mut Drawing, name: &str, aci: i16, linetype: &str
     true
 }
 
-fn run_layers(s: &mut Session, p: &Value) -> Result<Value> {
-    let set = str_param(p, "set").unwrap_or("hcw").to_ascii_lowercase();
-    if !["hcw", "bp", "both"].contains(&set.as_str()) {
-        return Err(bad("hcwlayers", "`set` must be hcw, bp or both"));
+fn normalize_layer_set(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "standard" | "hcw" | "arch" => Some("standard"),
+        "permit" | "bp" | "bplt" => Some("permit"),
+        "presentation" | "graphic" | "weights" => Some("presentation"),
+        "both" => Some("both"),
+        "all" => Some("all"),
+        _ => None,
     }
+}
+
+fn run_layers(s: &mut Session, p: &Value) -> Result<Value> {
+    let set = normalize_layer_set(str_param(p, "set").unwrap_or("standard"))
+        .ok_or_else(|| bad("hcwlayers", "`set` must be standard, permit, presentation, both or all"))?;
     let d = s.doc_mut()?;
     let (mut created, mut existing) = (0, 0);
     let mut count = |made: bool| if made { created += 1 } else { existing += 1 };
-    if set != "bp" {
-        for (n, c, lt, lw, desc) in HCW_LAYERS {
+    let want_standard = matches!(set, "standard" | "both" | "all");
+    let want_permit = matches!(set, "permit" | "both" | "all");
+    let want_presentation = matches!(set, "presentation" | "all");
+    if want_standard {
+        for (n, c, lt, lw, desc) in STANDARD_LAYERS {
             count(ensure_layer(d, n, *c, lt, *lw, desc));
         }
     }
-    if set != "hcw" {
-        for (n, c, lt, lw) in BP_LAYERS {
+    if want_permit {
+        for (n, c, lt, lw) in PERMIT_LAYERS {
             count(ensure_layer(d, n, *c, lt, *lw, ""));
         }
     }
-    Ok(json!({ "created": created, "existing": existing }))
+    if want_presentation {
+        for (n, c, lt, lw, desc) in PRESENTATION_LAYERS {
+            count(ensure_layer(d, n, *c, lt, *lw, desc));
+            // Named styles from the built-in presentation.stb table (Normal if unused).
+            let style = match *n {
+                "G-HEAVY" => "Heavy",
+                "G-MED" => "Medium",
+                "G-LIGHT" => "Light",
+                "G-FINE" | "G-XFINE" => "Fine",
+                "G-HIDDEN" => "Screened 40%",
+                "G-HATCH" => "Screened 80%",
+                "G-ANNO" => "Anno",
+                _ => "Normal",
+            };
+            if let Some(l) = d.layers.iter_mut().find(|l| l.name == *n) {
+                l.plot_style = style.into();
+            }
+        }
+    }
+    Ok(json!({ "created": created, "existing": existing, "set": set }))
 }
 
 /// Add `kind` to the current space on `layer`.
@@ -636,10 +686,17 @@ mod tests {
     fn layer_sets_are_created_once() {
         let mut s = Session::new();
         let a = s.execute("hcwlayers", &json!({})).unwrap();
-        assert_eq!(a["created"], HCW_LAYERS.len());
+        assert_eq!(a["created"], STANDARD_LAYERS.len());
+        assert_eq!(a["set"], "standard");
         let b = s.execute("hcwlayers", &json!({"set": "both"})).unwrap();
-        assert_eq!(b["created"], BP_LAYERS.len());
+        assert_eq!(b["created"], PERMIT_LAYERS.len());
         assert!(s.doc().unwrap().layer("A-WALL").is_some() && s.doc().unwrap().layer("BP-DOOR").is_some());
+        let c = s.execute("hcwlayers", &json!({"set": "presentation"})).unwrap();
+        assert_eq!(c["created"], PRESENTATION_LAYERS.len());
+        assert!(s.doc().unwrap().layer("G-HEAVY").is_some());
+        // Legacy aliases still resolve.
+        assert_eq!(s.execute("hcwlayers", &json!({"set": "hcw"})).unwrap()["set"], "standard");
+        assert_eq!(s.execute("hcwlayers", &json!({"set": "bp"})).unwrap()["set"], "permit");
         assert!(s.execute("hcwlayers", &json!({"set": "nope"})).is_err());
     }
 }

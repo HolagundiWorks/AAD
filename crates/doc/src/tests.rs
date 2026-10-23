@@ -58,12 +58,7 @@ fn inserts_of_missing_or_empty_blocks_do_not_stretch_extents() {
             block: block.into(),
             insert: Vec3::new(x, y, 0.0),
             scale: Vec3::new(1.0, 1.0, 1.0),
-            rotation: 0.0,
-            attribs: vec![],
-            cols: 1,
-            rows: 1,
-            col_spacing: 0.0,
-            row_spacing: 0.0,
+            ..Default::default()
         })
     };
     d.blocks.insert("Empty".into(), std::sync::Arc::new(Block::new("Empty")));
@@ -101,12 +96,7 @@ fn insert_bounds_with_cyclic_block_terminate() {
             block: "A".into(),
             insert: Vec3::ZERO,
             scale: Vec3::new(1.0, 1.0, 1.0),
-            rotation: 0.0,
-            attribs: vec![],
-            cols: 1,
-            rows: 1,
-            col_spacing: 0.0,
-            row_spacing: 0.0,
+            ..Default::default()
         }),
     ));
     b.entities.push(Entity::new(Handle(2), line((0.0, 0.0), (1.0, 1.0))));
@@ -119,12 +109,7 @@ fn insert_bounds_with_cyclic_block_terminate() {
                 block: "A".into(),
                 insert: Vec3::new(5.0, 5.0, 0.0),
                 scale: Vec3::new(2.0, 2.0, 1.0),
-                rotation: 0.0,
-                attribs: vec![],
-                cols: 1,
-                rows: 1,
-                col_spacing: 0.0,
-                row_spacing: 0.0,
+                ..Default::default()
             }),
         )
         .unwrap();
@@ -236,12 +221,7 @@ fn plain_insert(block: &str) -> EntityKind {
         block: block.into(),
         insert: Vec3::ZERO,
         scale: Vec3::new(1.0, 1.0, 1.0),
-        rotation: 0.0,
-        attribs: vec![],
-        cols: 1,
-        rows: 1,
-        col_spacing: 0.0,
-        row_spacing: 0.0,
+        ..Default::default()
     })
 }
 

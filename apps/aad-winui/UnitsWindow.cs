@@ -27,15 +27,15 @@ internal static class UnitsWindow
         Density.Name(drawing, "Drawing units");
         Density.Name(display, "Display units");
         Density.Name(paper, "Paper size");
-        var scale = new TextBox { Text = "1:100", Width = 80, MinHeight = Density.MinTarget };
+        var scale = new TextBox { Text = "1:100", Width = 80, MinHeight = Density.ControlHeight };
         Density.Name(scale, "Plot scale");
         var confirm = false;
         var rescale = ActionButton("Change unit and rescale…");
-        var stack = new StackPanel { Spacing = 6, Margin = new Thickness(12), MaxWidth = 420 };
+        var stack = new StackPanel { Spacing = Density.SpaceSm, Margin = Density.DialogMargin, MaxWidth = 420 };
         stack.Children.Add(Heading("Drawing units"));
         stack.Children.Add(Note("Changing the unit never rescales objects unless you confirm it."));
         stack.Children.Add(drawing);
-        var unitRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var unitRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         var metadata = ActionButton("Change unit only");
         unitRow.Children.Add(metadata);
         unitRow.Children.Add(rescale);
@@ -44,7 +44,7 @@ internal static class UnitsWindow
         stack.Children.Add(Note("How dimensions show measurements. Geometry is not changed."));
         stack.Children.Add(display);
         stack.Children.Add(Heading("Plot scale and paper"));
-        var plotRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var plotRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         plotRow.Children.Add(scale);
         plotRow.Children.Add(paper);
         var size = ActionButton("Size annotation");
@@ -53,7 +53,7 @@ internal static class UnitsWindow
         plotRow.Children.Add(check);
         stack.Children.Add(plotRow);
         stack.Children.Add(Heading("Annotation conflicts"));
-        var anno = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var anno = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         var find = ActionButton("Find");
         var resolve = ActionButton("Resolve overlaps");
         anno.Children.Add(find);
@@ -118,22 +118,22 @@ internal static class UnitsWindow
         {
             presenter.IsResizable = false;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(460, 420));
+        ShellIcon.Apply(window, theme);
+        ShellFit.ToContent(window, minWidthDip: 400, minHeightDip: 320, maxWidthDip: 560, maxHeightDip: 560);
         display.Tag = false;
         return window;
     }
 
     private static Button ActionButton(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight };
         Density.Name(button, label);
         return button;
     }
 
     private static ComboBox Combo(IEnumerable<string> items, string selected)
     {
-        var box = new ComboBox { MinWidth = 80, MinHeight = Density.MinTarget };
+        var box = new ComboBox { MinWidth = 80, MinHeight = Density.ControlHeight };
         foreach (var item in items)
         {
             box.Items.Add(item);

@@ -27,7 +27,7 @@ shape (layering, never-crash, everything-is-a-command, clean-room) are in [CLAUD
 | L5 | `mcp` | MCP server (JSON-RPC 2.0 over stdio) on a headless session or bridged to a running app |
 | L5 | `agent` | Tool layer for a local language model: registry, validation, confirmation, loop limits, audit log ([ai-agent.md](ai-agent.md)) |
 | app | `aad` | Desktop app. On Windows the default binary only launches `aad-winui` (no eframe). Optional `aad --features egui -- --egui` keeps the eframe window; macOS/Linux/BSD always link egui/eframe |
-| app | `aad-winui` | Unpackaged WinUI 3 shell over `aad-host`: registry menus, command line, dynamic input, grips, snaps, form dialogs, file pickers, PDF preview, AORMS, calculator, Pomodoro, panel pin and float, and resizable Classic/Pro panels around the child drawing window |
+| app | `aad-winui` | Unpackaged WinUI 3 shell over `aad-host`: registry menus, command line, dynamic input, grips, snaps, form dialogs, file pickers, PDF preview, calculator, Pomodoro, panel pin and float, and resizable Classic/Pro panels around the child drawing window (`aorms.*` remains engine-only; no connect UI) |
 | app | `aad-cli` | `info`, `convert`, `run` (scripts), `commands`, `sample`, `mcp` |
 | app | `aad-web` | WASM build of the same UI (no DWG) |
 | tool | `xtask` | `ci`, `layers`, `assets`, `wasm`, `parity`, `version`, `stats` |

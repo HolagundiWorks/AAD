@@ -19,7 +19,7 @@ internal static class FormDialog
         var fields = root.GetProperty("fields");
         var rooms = root.TryGetProperty("rooms", out var roomList) ? roomList : default;
 
-        var stack = new StackPanel { Spacing = 8 };
+        var stack = new StackPanel { Spacing = Density.SpaceMd };
         var scalars = new Dictionary<string, TextBox>();
         var checks = new Dictionary<string, CheckBox>();
         var choices = new Dictionary<string, ComboBox>();
@@ -47,7 +47,7 @@ internal static class FormDialog
                     break;
                 case "choice":
                 case "room":
-                    var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = Density.MinTarget };
+                    var combo = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, MinHeight = Density.ControlHeight };
                     Density.Name(combo, label);
                     if (kind == "room" && rooms.ValueKind == JsonValueKind.Array)
                     {
@@ -72,7 +72,7 @@ internal static class FormDialog
                     break;
                 case "table":
                     var columns = field.GetProperty("columns");
-                    var rows = new StackPanel { Spacing = 4 };
+                    var rows = new StackPanel { Spacing = Density.SpaceSm };
                     if (field.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var row in value.EnumerateArray())
@@ -84,7 +84,7 @@ internal static class FormDialog
                     {
                         rows.Children.Add(TableRow(columns, default));
                     }
-                    var add = new Button { Content = "Add row", HorizontalAlignment = HorizontalAlignment.Left, MinHeight = Density.MinTarget };
+                    var add = new Button { Content = "Add row", HorizontalAlignment = HorizontalAlignment.Left, MinHeight = Density.ControlHeight };
                     Density.Name(add, "Add row to " + label);
                     add.Click += (_, _) =>
                     {
@@ -98,7 +98,7 @@ internal static class FormDialog
                     stack.Children.Add(add);
                     break;
                 default:
-                    var input = new TextBox { Text = StringOf(field), MinHeight = Density.MinTarget };
+                    var input = new TextBox { Text = StringOf(field), MinHeight = Density.ControlHeight };
                     Density.Name(input, label);
                     scalars[key] = input;
                     stack.Children.Add(input);
@@ -112,9 +112,9 @@ internal static class FormDialog
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetLiveSetting(error, AutomationLiveSetting.Assertive);
         Density.Name(error, "Form error");
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var ok = new Button { Content = "OK", MinHeight = Density.MinTarget };
-        var cancel = new Button { Content = "Cancel", MinHeight = Density.MinTarget };
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceMd };
+        var ok = new Button { Content = "OK", MinHeight = Density.ControlHeight };
+        var cancel = new Button { Content = "Cancel", MinHeight = Density.ControlHeight };
         Density.Name(ok, "OK");
         Density.Name(cancel, "Cancel");
         buttons.Children.Add(ok);
@@ -122,20 +122,19 @@ internal static class FormDialog
         stack.Children.Add(error);
         stack.Children.Add(buttons);
 
-        var page = new Grid { Padding = new Thickness(12), Children = { new ScrollViewer { Content = stack } } };
-        if (owner.Content is FrameworkElement shell)
-        {
-            page.RequestedTheme = shell.RequestedTheme;
-        }
+        var page = new Grid { Padding = Density.DialogMargin, Children = { new ScrollViewer { Content = stack } } };
+        var theme = ShellChrome.ThemeOf(owner);
+        page.RequestedTheme = theme;
         var window = new Window { Title = title, Content = page };
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 560, Height = 640 });
+        ShellIcon.Apply(window, theme);
+        ShellFit.Adaptive(window, minWidthDip: 400, minHeightDip: 320, maxWidthDip: 720, maxHeightDip: 800);
         ok.Click += (_, _) =>
         {
             var preset = Collect(scalars, checks, choices, tables);
             if (Native.StartForm(host, id, preset) != 0)
             {
                 error.Text = Native.LastError(host);
+                ShellFit.Invalidate(window);
                 return;
             }
             window.Close();
@@ -193,7 +192,7 @@ internal static class FormDialog
 
     private static StackPanel TableRow(JsonElement columns, JsonElement row)
     {
-        var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         var i = 0;
         foreach (var column in columns.EnumerateArray())
         {
@@ -211,7 +210,7 @@ internal static class FormDialog
                 }
             }
             var label = column.GetProperty("label").GetString() ?? "Cell";
-            var box = new TextBox { Text = text, Width = 88, MinHeight = Density.MinTarget, PlaceholderText = label };
+            var box = new TextBox { Text = text, Width = 88, MinHeight = Density.ControlHeight, PlaceholderText = label };
             Density.Name(box, label);
             line.Children.Add(box);
             i++;

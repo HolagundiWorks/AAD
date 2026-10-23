@@ -28,24 +28,24 @@ internal static class HatchWindow
         Density.Name(list, "Hatch patterns");
         var selectionLabel = Density.Secondary("Selection: —", TextWrapping.Wrap);
         Density.Name(selectionLabel, "Hatch selection");
-        var scale = new TextBox { MinHeight = Density.MinTarget, Width = 100 };
+        var scale = new TextBox { MinHeight = Density.ControlHeight, Width = 100 };
         Density.Name(scale, "Hatch scale");
-        var angle = new TextBox { MinHeight = Density.MinTarget, Width = 100 };
+        var angle = new TextBox { MinHeight = Density.ControlHeight, Width = 100 };
         Density.Name(angle, "Hatch angle");
         var apply = ActionButton("Apply to selection");
         var setDefaults = ActionButton("Set as defaults");
 
-        var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var scaleRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         scaleRow.Children.Add(new TextBlock { Text = "Scale", VerticalAlignment = VerticalAlignment.Center });
         scaleRow.Children.Add(scale);
         scaleRow.Children.Add(new TextBlock { Text = "Angle", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) });
         scaleRow.Children.Add(angle);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Density.SpaceSm };
         actions.Children.Add(apply);
         actions.Children.Add(setDefaults);
 
-        var root = new StackPanel { Spacing = 8, Margin = new Thickness(12), MaxWidth = 440 };
+        var root = new StackPanel { Spacing = Density.SpaceMd, Margin = Density.DialogMargin, MaxWidth = 440 };
         root.Children.Add(Heading("Hatch Manager"));
         root.Children.Add(selectionLabel);
         root.Children.Add(list);
@@ -287,15 +287,16 @@ internal static class HatchWindow
         {
             presenter.IsResizable = true;
         }
-        ShellIcon.Apply(window);
-        window.AppWindow.Resize(new Windows.Graphics.SizeInt32(460, 480));
+        ShellIcon.Apply(window, theme);
+        ShellFit.UserResizable(window, minWidthDip: 400, minHeightDip: 360, maxWidthDip: 720, maxHeightDip: 800, persistKey: "hatch");
         Reload();
+        ShellFit.Invalidate(window);
         return window;
     }
 
     private static Button ActionButton(string label)
     {
-        var button = new Button { Content = label, MinHeight = Density.MinTarget };
+        var button = new Button { Content = label, MinHeight = Density.ControlHeight };
         Density.Name(button, label);
         return button;
     }
