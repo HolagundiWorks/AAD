@@ -42,7 +42,7 @@ Generated and ignored (see `.gitignore`): `target/` (Cargo build output), `dist/
 | `ui-egui` | `src/` canvas, menus, command line, panels, dialogs, icons (drawn in code); `tests/` (22 files) |
 | `aad-host` | C ABI, registry menu, command line, pointer input, and Win32 child window for the WinUI shell. `apps/aad-winui` is the C# project and is excluded from the Cargo workspace |
 | `mcp`, `agent`, `llm` | MCP server, allow-listed tool layer, model runtime facade |
-| `aorms` | AORMS sign-in client and project calls (network, kept off the UI thread) |
+| `aorms` | AORMS sign-in client and project calls (network; engine commands only — no shell connect UI) |
 | `vdb` (`aad-vdb`) | `.vdb` store on ShilpiDB: `file.rs` (embedded codec and `SpatialGrid`), `client.rs` (`VdbClient` for a running `shilpid`). A library, not a program; the engine commands `vdb.export`, `vdb.info` and `vdb.query` use it |
 | `param` (`aad-param`) | Parametric graph engine: `graph.rs`, `nodes.rs`, `schema.rs`, `units.rs`, `formula.rs`, `eval.rs`, `template.rs`; no drawing I/O. Engine `param.*` commands commit walls and take-off facts ([parametric.md](parametric.md)) |
 

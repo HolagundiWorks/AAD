@@ -1,8 +1,8 @@
 # Performance baseline
 
-Measured numbers for the engine, renderer and file I/O on 2026-10-12. The user-interface numbers
-are in [UI_BASELINE.md](UI_BASELINE.md). No targets are set here: targets come after the supported
-hardware is stated, and no such statement exists yet.
+Criterion tables below were measured on 2026-10-12. Interactive path and I/O behaviour updates
+(2026-10-23) are at the end of this page; re-measure with `aad-cli perf` before quoting new absolute
+times. UI frame numbers: [UI_BASELINE.md](UI_BASELINE.md). No hardware targets are set yet.
 
 ## How it was measured
 

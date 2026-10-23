@@ -1,6 +1,6 @@
 # Gap analysis: documentation against implementation
 
-State as of 2026-10-18. Sources: [status.md](status.md), [KNOWN_ISSUES.md](KNOWN_ISSUES.md),
+State as of 2026-10-23. Sources: [status.md](status.md), [KNOWN_ISSUES.md](KNOWN_ISSUES.md),
 [UI_BUG_BACKLOG.md](UI_BUG_BACKLOG.md), [PERFORMANCE.md](PERFORMANCE.md). Nothing here is a
 claim that a feature works; it lists where the documents and the code disagree or stop.
 

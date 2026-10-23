@@ -134,6 +134,8 @@ fn sample() -> Drawing {
             rows: 1,
             col_spacing: 0.0,
             row_spacing: 0.0,
+            clip: Vec::new(),
+            clipping: false,
         }),
     )
     .unwrap();
@@ -500,6 +502,7 @@ fn pdf_layout_one_to_one_with_viewport() {
             locked: false,
             frozen_layers: Vec::new(),
             layer_colors: Vec::new(),
+            clip: Vec::new(),
         }),
     )
     .unwrap();
@@ -601,6 +604,7 @@ fn viewport_frozen_layers_roundtrip() {
             locked: true,
             frozen_layers: frozen,
             layer_colors: Vec::new(),
+            clip: Vec::new(),
         })
     };
     d.add(&paper, Common::default(), vp(2, vec!["Walls".into(), "A B".into()])).unwrap();
@@ -634,6 +638,7 @@ fn viewport_layer_colors_roundtrip() {
             locked: false,
             frozen_layers: frozen,
             layer_colors: colors,
+            clip: Vec::new(),
         })
     };
     let colors = vec![("Walls".to_string(), Color::Index(5)), ("A B".to_string(), Color::True(aad_color::Rgb(255, 128, 0)))];
@@ -1078,6 +1083,8 @@ fn intl_sample() -> Drawing {
             rows: 1,
             col_spacing: 0.0,
             row_spacing: 0.0,
+            clip: Vec::new(),
+            clipping: false,
         }),
     )
     .unwrap();

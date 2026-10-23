@@ -33,10 +33,12 @@ significant lag or important functionality unreliable; P3 minor; P4 optimisation
 - **Regression tests:** `dwg_isolation.rs::the_file_that_aborted_the_reader_is_now_an_error_and_the_process_lives`,
   `::the_command_line_tool_reports_the_bad_file_and_exits_normally`, fixture
   `apps/aad-cli/tests/fixtures/dwg/alloc-bomb-ac18-section-size.dwg`.
-- **Remaining risks:** the worker's memory is not capped (needs OS job objects and `unsafe`), so a
-  file that makes it allocate a large but possible amount uses that memory until it ends. Library
-  users that do not call `isolated::enable()` still read DWG in-process and are exposed. Not
-  reported upstream yet.
+- **Remaining risks (updated):** on Windows the worker is placed in a Job Object with a ~2 GiB
+  process memory cap (`crates/dwg/src/job_win.rs`, `WORKER_MEMORY_CAP`). That stops alloc bombs from
+  taking the host down; it does not speed parse. Library users that do not call
+  `isolated::enable()` still read DWG in-process and are exposed. Non-Windows builds still rely on
+  the timeout and soft byte caps only. Upstream `acadrust` AC18 unchecked allocs are not reported
+  yet. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ### BUG-002 (P2, fixed): panning or zooming inside an MSPACE viewport left it stale
 

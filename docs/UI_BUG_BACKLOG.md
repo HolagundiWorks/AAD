@@ -29,15 +29,16 @@ unmodified application. The one confirmed issue is a measured stall, now fixed:
   drawing opened, so a pointer move within the first ~50 ms after open can still meet the index
   being built; that window is not measured.
 - **Related checks:** `cargo xtask ci` passes.
-- **Left open:** the display list build (about 122 ms at 100 000 entities) still runs on the UI
-  thread when a drawing opens or changes.
+- **Left open:** a full-extents display-list rebuild is still about 125 ms at 100 000 entities.
+  WinUI pans reuse the cached list/mesh; zoom-band changes rebuild on a worker. See
+  [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Hypotheses (not verified)
 
-### UI-003 (P2 if confirmed): opening, saving and plotting block the UI thread
-`CadApp::open_path` runs the open on the thread that draws the window. The reader takes about
-0.5 s at 100 000 entities and 5 s at 1 000 000 in the CLI harness. Not timed through the UI yet,
-and there is no progress state. Needs a measured reproduction in the real app before a fix.
+### UI-003 (P2): opening, saving and plotting block the UI thread — largely fixed in WinUI
+WinUI menu/picker open and save, and control-channel `app.open` / `app.save`, use worker
+`*_start`/`*_poll` (save goes through `SaveFileAsync`). egui `CadApp::open_path` and WinUI batch
+plot / PDF preview can still block the session thread. Limits: [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
 ### UI-004 (P4): `Ctrl+O` is declared by two commands
 `open` and `ui.open` both carry `Cmd+O`; the key handler runs `ui.open`. No misbehaviour observed;
@@ -65,4 +66,6 @@ numbers; use the control channel on `aad.exe` (see [UI_BASELINE.md](UI_BASELINE.
 
 ## Fixed
 
-Nothing in the UI. (The two earlier non-UI fixes are BUG-001 and BUG-002 in `BUG_BACKLOG.md`.)
+UI-001 (spatial warm-up). WinUI picker and control open/save no longer block the UI thread for the
+common path (UI-003 largely addressed; residual session-thread cases in [KNOWN_ISSUES.md](KNOWN_ISSUES.md)).
+Non-UI: BUG-001 and BUG-002 in [BUG_BACKLOG.md](BUG_BACKLOG.md).

@@ -22,7 +22,7 @@ LOD, WinUI async zoom-band rebuild, control-channel and menu save via workers.
 
 ## Hypotheses (not reproduced)
 
-- UI-003: file open and save block the UI thread. Fixed in the WinUI shell for the file picker path; see the limit above for what remains.
+- UI-003: file open and save block the UI thread — largely addressed for WinUI picker and control `app.open`/`app.save`; remaining session-thread cases are listed under Confirmed limits above.
 - UI-004: `Ctrl+O` is declared by two commands; no misbehaviour seen.
 - UI-005: an overly wide Properties panel in a layout tab, seen once, not reproduced.
 - The GitHub workflows `cad-ci.yml` and `cad-nightly.yml` have not run on GitHub yet.
